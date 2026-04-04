@@ -39,3 +39,4 @@ node_modules/
 *.wasm
 .claude/settings.local.json
 .codex
+.cache
