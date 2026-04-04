@@ -1,11 +1,11 @@
 use serde_json::{Map, Number, Value};
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, CaseCommand, CaseItem,
-    CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp,
-    ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr,
-    ConditionalUnaryOp, CoprocCommand, ForCommand, FunctionDef, IfCommand, ListOperator,
-    ParameterOp, Pipeline, Position, Redirect, RedirectKind, Script, SelectCommand, SimpleCommand,
-    Span, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand,
+    CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
+    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
+    ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, ForCommand, FunctionDef, IfCommand,
+    ListOperator, ParameterOp, Pipeline, Position, Redirect, RedirectKind, Script, SelectCommand,
+    SimpleCommand, Span, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 /// Serialize a parsed Script to gbash-compatible typed JSON.
@@ -456,7 +456,7 @@ impl<'a> Printer<'a> {
         let body_stmt = self.encode_stmt_without_separator(&function.body);
         let mut map = self.node_object(Some("FuncDecl"), function.span.start, function.span.end);
         self.insert_pos(&mut map, "Position", function.span.start);
-        if let Some((rsrv_word, parens, name_pos)) =
+        if let Some((rsrv_word, parens, _name_pos)) =
             self.function_surface(&function.name, function.span, body_stmt.pos)
         {
             self.insert_bool(&mut map, "RsrvWord", rsrv_word);
@@ -467,8 +467,8 @@ impl<'a> Printer<'a> {
                 Some(
                     self.lit_node(
                         &function.name,
-                        name_pos,
-                        name_pos.advanced_by(&function.name),
+                        function.name_span.start,
+                        function.name_span.end,
                     )
                     .value,
                 ),
@@ -481,8 +481,8 @@ impl<'a> Printer<'a> {
                 Some(
                     self.lit_node(
                         &function.name,
-                        function.span.start,
-                        function.span.start.advanced_by(&function.name),
+                        function.name_span.start,
+                        function.name_span.end,
                     )
                     .value,
                 ),
@@ -507,7 +507,7 @@ impl<'a> Printer<'a> {
             CompoundCommand::Select(command) => self.encode_select(command),
             CompoundCommand::BraceGroup(commands) => self.encode_block(commands),
             CompoundCommand::Subshell(commands) => self.encode_subshell(commands),
-            CompoundCommand::Arithmetic(expression) => self.encode_arithm_cmd(expression),
+            CompoundCommand::Arithmetic(command) => self.encode_arithm_cmd(command),
             CompoundCommand::Conditional(command) => self.encode_test_clause(command),
             CompoundCommand::Time(command) => self.encode_time(command),
             CompoundCommand::Coproc(command) => self.encode_coproc(command),
@@ -612,15 +612,12 @@ impl<'a> Printer<'a> {
         let done_pos = self
             .find_keyword(command.span, "done")
             .unwrap_or(command.span.end);
-        let name_pos = self
-            .find_name_after_keyword(command.span, "for", &command.variable)
-            .unwrap_or(command.span.start);
         let loop_end = command
             .words
             .as_ref()
             .and_then(|words| words.last())
             .map(|word| word.span.end)
-            .unwrap_or_else(|| name_pos.advanced_by(&command.variable));
+            .unwrap_or(command.variable_span.end);
 
         let mut map = self.node_object(Some("ForClause"), for_pos, command.span.end);
         self.insert_pos(&mut map, "ForPos", for_pos);
@@ -632,8 +629,8 @@ impl<'a> Printer<'a> {
             Some(
                 self.encode_word_iter(
                     &command.variable,
-                    name_pos,
-                    self.find_keyword_after(command.span, "in", name_pos.offset),
+                    command.variable_span,
+                    self.find_keyword_after(command.span, "in", command.variable_span.start.offset),
                     command.words.as_deref().unwrap_or(&[]),
                     loop_end,
                 )
@@ -658,14 +655,11 @@ impl<'a> Printer<'a> {
         let done_pos = self
             .find_keyword(command.span, "done")
             .unwrap_or(command.span.end);
-        let name_pos = self
-            .find_name_after_keyword(command.span, "select", &command.variable)
-            .unwrap_or(command.span.start);
         let loop_end = command
             .words
             .last()
             .map(|word| word.span.end)
-            .unwrap_or_else(|| name_pos.advanced_by(&command.variable));
+            .unwrap_or(command.variable_span.end);
 
         let mut map = self.node_object(Some("ForClause"), select_pos, command.span.end);
         self.insert_pos(&mut map, "ForPos", select_pos);
@@ -678,8 +672,8 @@ impl<'a> Printer<'a> {
             Some(
                 self.encode_word_iter(
                     &command.variable,
-                    name_pos,
-                    self.find_keyword_after(command.span, "in", name_pos.offset),
+                    command.variable_span,
+                    self.find_keyword_after(command.span, "in", command.variable_span.start.offset),
                     &command.words,
                     loop_end,
                 )
@@ -704,13 +698,7 @@ impl<'a> Printer<'a> {
         let done_pos = self
             .find_keyword(command.span, "done")
             .unwrap_or(command.span.end);
-        let lparen = self
-            .find_operator_between(for_pos.offset, do_pos.offset, "((")
-            .unwrap_or_default();
-        let rparen = self
-            .rfind_operator_between(for_pos.offset, do_pos.offset, "))")
-            .unwrap_or_default();
-        let loop_node = self.encode_c_style_loop(command, lparen, rparen);
+        let loop_node = self.encode_c_style_loop(command);
 
         let mut map = self.node_object(Some("ForClause"), for_pos, command.span.end);
         self.insert_pos(&mut map, "ForPos", for_pos);
@@ -925,24 +913,24 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn encode_arithm_cmd(&self, expression: &str) -> EncodedNode {
-        let pos = Position::default();
-        let mut map = self.node_object(Some("ArithmCmd"), pos, Position::default());
-        self.insert_string(&mut map, "Source", expression);
-        if !expression.is_empty() {
+    fn encode_arithm_cmd(&self, command: &ArithmeticCommand) -> EncodedNode {
+        let mut map = self.node_object(Some("ArithmCmd"), command.span.start, command.span.end);
+        let source = command
+            .expr_span
+            .and_then(|span| self.slice_span(span))
+            .unwrap_or_default();
+        self.insert_string(&mut map, "Source", source);
+        if let Some(expr_span) = command.expr_span {
             self.insert_value(
                 &mut map,
                 "X",
-                Some(
-                    self.synthetic_expression_word(expression, Span::new())
-                        .value,
-                ),
+                Some(self.synthetic_expression_word(source, expr_span).value),
             );
         }
         EncodedNode {
             value: Value::Object(map),
-            pos,
-            end: Position::default(),
+            pos: command.span.start,
+            end: command.span.end,
         }
     }
 
@@ -1002,29 +990,10 @@ impl<'a> Printer<'a> {
     fn explicit_coproc_name(
         &self,
         command: &CoprocCommand,
-        body_pos: Position,
+        _body_pos: Position,
     ) -> Option<EncodedNode> {
-        let between = self.slice_offsets(command.span.start.offset, body_pos.offset)?;
-        let mut tokens = between.split_whitespace();
-        let first = tokens.next()?;
-        if first != "coproc" {
-            return None;
-        }
-        let second = tokens.next()?;
-        if second == "coproc" || second.is_empty() {
-            return None;
-        }
-        if command.name == "COPROC" && second != "COPROC" {
-            return None;
-        }
-        let name_offset = between.find(second)? + command.span.start.offset;
-        Some(self.synthetic_literal_word_node(
-            second,
-            Span::from_positions(
-                self.pos_at(name_offset),
-                self.pos_at(name_offset).advanced_by(second),
-            ),
-        ))
+        let name_span = command.name_span?;
+        Some(self.synthetic_literal_word_node(&command.name, name_span))
     }
 
     fn encode_binary_cmd(
@@ -1049,17 +1018,19 @@ impl<'a> Printer<'a> {
     fn encode_word_iter(
         &self,
         variable: &str,
-        name_pos: Position,
+        name_span: Span,
         in_pos: Option<Position>,
         items: &[Word],
         end: Position,
     ) -> EncodedNode {
-        let name_end = name_pos.advanced_by(variable);
-        let mut map = self.node_object(Some("WordIter"), name_pos, end);
+        let mut map = self.node_object(Some("WordIter"), name_span.start, end);
         self.insert_value(
             &mut map,
             "Name",
-            Some(self.lit_node(variable, name_pos, name_end).value),
+            Some(
+                self.lit_node(variable, name_span.start, name_span.end)
+                    .value,
+            ),
         );
         self.insert_pos(&mut map, "InPos", in_pos.unwrap_or_default());
         self.insert_array(
@@ -1072,66 +1043,47 @@ impl<'a> Printer<'a> {
         );
         EncodedNode {
             value: Value::Object(map),
-            pos: name_pos,
+            pos: name_span.start,
             end,
         }
     }
 
-    fn encode_c_style_loop(
-        &self,
-        command: &ArithmeticForCommand,
-        lparen: Position,
-        rparen: Position,
-    ) -> EncodedNode {
+    fn encode_c_style_loop(&self, command: &ArithmeticForCommand) -> EncodedNode {
         let mut map = self.node_object(
             Some("CStyleLoop"),
-            lparen,
-            if self.is_valid_pos(rparen) {
-                rparen.advanced_by("))")
-            } else {
-                Position::default()
-            },
+            command.left_paren_span.start,
+            command.right_paren_span.end,
         );
-        self.insert_pos(&mut map, "Lparen", lparen);
-        self.insert_pos(&mut map, "Rparen", rparen);
-        if !command.init.is_empty() {
+        self.insert_pos(&mut map, "Lparen", command.left_paren_span.start);
+        self.insert_pos(&mut map, "Rparen", command.right_paren_span.start);
+        if let Some(init_span) = command.init_span {
             self.insert_value(
                 &mut map,
                 "Init",
-                Some(
-                    self.synthetic_expression_word(&command.init, Span::new())
-                        .value,
-                ),
+                self.slice_span(init_span)
+                    .map(|expr| self.synthetic_expression_word(expr, init_span).value),
             );
         }
-        if !command.condition.is_empty() {
+        if let Some(condition_span) = command.condition_span {
             self.insert_value(
                 &mut map,
                 "Cond",
-                Some(
-                    self.synthetic_expression_word(&command.condition, Span::new())
-                        .value,
-                ),
+                self.slice_span(condition_span)
+                    .map(|expr| self.synthetic_expression_word(expr, condition_span).value),
             );
         }
-        if !command.step.is_empty() {
+        if let Some(step_span) = command.step_span {
             self.insert_value(
                 &mut map,
                 "Post",
-                Some(
-                    self.synthetic_expression_word(&command.step, Span::new())
-                        .value,
-                ),
+                self.slice_span(step_span)
+                    .map(|expr| self.synthetic_expression_word(expr, step_span).value),
             );
         }
         EncodedNode {
             value: Value::Object(map),
-            pos: lparen,
-            end: if self.is_valid_pos(rparen) {
-                rparen.advanced_by("))")
-            } else {
-                Position::default()
-            },
+            pos: command.left_paren_span.start,
+            end: command.right_paren_span.end,
         }
     }
 
@@ -1230,24 +1182,40 @@ impl<'a> Printer<'a> {
     }
 
     fn encode_var_ref_from_assignment(&self, assignment: &Assignment) -> EncodedNode {
-        let name_pos = assignment.span.start;
-        let name_end = name_pos.advanced_by(&assignment.name);
-        let mut map = self.node_object(Some("VarRef"), name_pos, assignment.span.end);
+        let mut map = self.node_object(
+            Some("VarRef"),
+            assignment.name_span.start,
+            assignment.span.end,
+        );
         self.insert_value(
             &mut map,
             "Name",
-            Some(self.lit_node(&assignment.name, name_pos, name_end).value),
+            Some(
+                self.lit_node(
+                    &assignment.name,
+                    assignment.name_span.start,
+                    assignment.name_span.end,
+                )
+                .value,
+            ),
         );
         if let Some(index) = &assignment.index {
             self.insert_value(
                 &mut map,
                 "Index",
-                Some(self.encode_subscript(index, name_end).value),
+                Some(
+                    assignment
+                        .index_span
+                        .map(|span| self.encode_subscript_with_span(index, span).value)
+                        .unwrap_or_else(|| {
+                            self.encode_subscript(index, assignment.name_span.end).value
+                        }),
+                ),
             );
         }
         EncodedNode {
             value: Value::Object(map),
-            pos: name_pos,
+            pos: assignment.name_span.start,
             end: assignment.span.end,
         }
     }
@@ -1334,6 +1302,9 @@ impl<'a> Printer<'a> {
 
     fn encode_redirect_n(&self, redirect: &Redirect, op_pos: Position) -> Option<EncodedNode> {
         if let Some(fd_var) = &redirect.fd_var {
+            if let Some(span) = redirect.fd_var_span {
+                return Some(self.lit_node(fd_var, span.start, span.end));
+            }
             let start = redirect.span.start.advanced_by("{");
             let end = start.advanced_by(fd_var);
             return Some(self.lit_node(fd_var, start, end));
@@ -1839,6 +1810,30 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn encode_subscript_with_span(&self, index: &str, span: Span) -> EncodedNode {
+        let left = self.pos_at(span.start.offset.saturating_sub(1));
+        let right = span.end;
+        let mut map = self.node_object(Some("Subscript"), left, right.advanced_by("]"));
+        self.insert_pos(&mut map, "Left", left);
+        self.insert_pos(&mut map, "Right", right);
+        if index == "@" {
+            self.insert_number(&mut map, "Kind", 1);
+        } else if index == "*" {
+            self.insert_number(&mut map, "Kind", 2);
+        } else if !index.is_empty() {
+            self.insert_value(
+                &mut map,
+                "Expr",
+                Some(self.synthetic_expression_word(index, span).value),
+            );
+        }
+        EncodedNode {
+            value: Value::Object(map),
+            pos: left,
+            end: right.advanced_by("]"),
+        }
+    }
+
     fn encode_all_elements_subscript(&self, span: Span, at: bool) -> EncodedNode {
         let raw = self.slice_span(span).unwrap_or_default();
         let needle = if at { "[@]" } else { "[*]" };
@@ -1965,7 +1960,7 @@ impl<'a> Printer<'a> {
                 self.commands_span(commands)
             }
             CompoundCommand::Conditional(command) => command.span,
-            CompoundCommand::Arithmetic(_) => Span::new(),
+            CompoundCommand::Arithmetic(command) => command.span,
         };
         if let Some(last) = redirects.last() {
             if core == Span::new() {
@@ -2349,14 +2344,6 @@ impl<'a> Printer<'a> {
         None
     }
 
-    fn find_name_after_keyword(&self, span: Span, keyword: &str, name: &str) -> Option<Position> {
-        let keyword_pos = self.find_keyword(span, keyword)?;
-        let start = keyword_pos.offset + keyword.len();
-        let slice = self.slice_offsets(start, span.end.offset)?;
-        let rel = slice.find(name)?;
-        Some(self.pos_at(start + rel))
-    }
-
     fn is_keyword_boundary(&self, absolute: usize, keyword: &str) -> bool {
         let before = absolute
             .checked_sub(1)
@@ -2495,6 +2482,46 @@ mod tests {
         assert_eq!(args[1]["Parts"][0]["Exp"]["Op"], 84);
         assert_eq!(args[2]["Parts"][0]["Type"], "CmdSubst");
         assert_eq!(args[3]["Parts"][0]["Type"], "ArithmExp");
+    }
+
+    #[test]
+    fn serializes_arithmetic_command_from_source_slices() {
+        let actual = typed_json("(( 1 + 2 <= 3 ))\n");
+        let arithmetic = &actual["Stmts"][0]["Cmd"];
+        assert_eq!(arithmetic["Type"], "ArithmCmd");
+        assert_eq!(arithmetic["Source"], " 1 + 2 <= 3 ");
+        assert_eq!(arithmetic["X"]["Parts"][0]["Value"], " 1 + 2 <= 3 ");
+        assert_eq!(arithmetic["X"]["Pos"]["Col"], 3);
+    }
+
+    #[test]
+    fn serializes_c_style_loop_from_source_slices() {
+        let actual = typed_json("for (( i = 0 ; i < 10 ; i += 2 )); do echo \"$i\"; done\n");
+        let loop_node = &actual["Stmts"][0]["Cmd"]["Loop"];
+        assert_eq!(loop_node["Type"], "CStyleLoop");
+        assert_eq!(loop_node["Init"]["Parts"][0]["Value"], " i = 0 ");
+        assert_eq!(loop_node["Cond"]["Parts"][0]["Value"], " i < 10 ");
+        assert_eq!(loop_node["Post"]["Parts"][0]["Value"], " i += 2 ");
+        assert_eq!(loop_node["Lparen"]["Col"], 5);
+    }
+
+    #[test]
+    fn serializes_identifier_positions_from_exact_spans() {
+        let actual = typed_json("foo[10]=bar\nexec {myfd}>&-\n");
+        assert_eq!(
+            actual["Stmts"][0]["Cmd"]["Assigns"][0]["Ref"]["Name"]["Value"],
+            "foo"
+        );
+        assert_eq!(
+            actual["Stmts"][0]["Cmd"]["Assigns"][0]["Ref"]["Name"]["ValuePos"]["Col"],
+            1
+        );
+        assert_eq!(
+            actual["Stmts"][0]["Cmd"]["Assigns"][0]["Ref"]["Index"]["Expr"]["Parts"][0]["Pos"]["Col"],
+            5
+        );
+        assert_eq!(actual["Stmts"][1]["Redirs"][0]["N"]["Value"], "myfd");
+        assert_eq!(actual["Stmts"][1]["Redirs"][0]["N"]["ValuePos"]["Col"], 7);
     }
 
     #[test]

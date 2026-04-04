@@ -114,6 +114,11 @@ impl Span {
         }
     }
 
+    /// Slice the source text covered by this span.
+    pub fn slice<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.start.offset..self.end.offset]
+    }
+
     /// Get the starting line number.
     pub fn line(&self) -> usize {
         self.start.line

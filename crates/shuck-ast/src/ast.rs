@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use crate::span::Span;
+use crate::{Name, span::Span};
 use std::fmt;
 
 /// A complete bash script.
@@ -183,7 +183,7 @@ pub enum CompoundCommand {
     /// Brace group
     BraceGroup(Vec<Command>),
     /// Arithmetic command ((expression))
-    Arithmetic(String),
+    Arithmetic(ArithmeticCommand),
     /// Time command - measure execution time
     Time(TimeCommand),
     /// Conditional expression [[ ... ]]
@@ -200,7 +200,9 @@ pub enum CompoundCommand {
 #[derive(Debug, Clone)]
 pub struct CoprocCommand {
     /// Coprocess name (defaults to "COPROC")
-    pub name: String,
+    pub name: Name,
+    /// Source span of the explicit coprocess name, when present.
+    pub name_span: Option<Span>,
     /// The command to run as a coprocess
     pub body: Box<Command>,
     /// Source span of this command
@@ -423,7 +425,8 @@ pub struct IfCommand {
 /// For loop.
 #[derive(Debug, Clone)]
 pub struct ForCommand {
-    pub variable: String,
+    pub variable: Name,
+    pub variable_span: Span,
     pub words: Option<Vec<Word>>,
     pub body: Vec<Command>,
     /// Source span of this command
@@ -433,22 +436,33 @@ pub struct ForCommand {
 /// Select loop.
 #[derive(Debug, Clone)]
 pub struct SelectCommand {
-    pub variable: String,
+    pub variable: Name,
+    pub variable_span: Span,
     pub words: Vec<Word>,
     pub body: Vec<Command>,
     /// Source span of this command
     pub span: Span,
 }
 
+/// Arithmetic command `(( expr ))`.
+#[derive(Debug, Clone)]
+pub struct ArithmeticCommand {
+    pub span: Span,
+    pub left_paren_span: Span,
+    pub expr_span: Option<Span>,
+    pub right_paren_span: Span,
+}
+
 /// C-style arithmetic for loop: for ((init; cond; step)); do body; done
 #[derive(Debug, Clone)]
 pub struct ArithmeticForCommand {
-    /// Initialization expression
-    pub init: String,
-    /// Condition expression
-    pub condition: String,
-    /// Step/update expression
-    pub step: String,
+    pub left_paren_span: Span,
+    pub init_span: Option<Span>,
+    pub first_semicolon_span: Span,
+    pub condition_span: Option<Span>,
+    pub second_semicolon_span: Span,
+    pub step_span: Option<Span>,
+    pub right_paren_span: Span,
     /// Loop body
     pub body: Vec<Command>,
     /// Source span of this command
@@ -504,7 +518,8 @@ pub struct CaseItem {
 /// Function definition.
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
-    pub name: String,
+    pub name: Name,
+    pub name_span: Span,
     pub body: Box<Command>,
     /// Source span of this function definition
     pub span: Span,
@@ -687,7 +702,7 @@ pub enum WordPart {
     /// Literal text
     Literal(String),
     /// Variable expansion ($VAR or ${VAR})
-    Variable(String),
+    Variable(Name),
     /// Command substitution ($(...))
     CommandSubstitution(Vec<Command>),
     /// Arithmetic expansion ($((...)))
@@ -695,41 +710,41 @@ pub enum WordPart {
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.
     /// `colon_variant` distinguishes `:-` (unset-or-empty) from `-` (unset-only).
     ParameterExpansion {
-        name: String,
+        name: Name,
         operator: ParameterOp,
         operand: String,
         colon_variant: bool,
     },
     /// Length expansion ${#var}
-    Length(String),
+    Length(Name),
     /// Array element access `${arr[index]}` or `${arr[@]}` or `${arr[*]}`
-    ArrayAccess { name: String, index: String },
+    ArrayAccess { name: Name, index: String },
     /// Array length `${#arr[@]}` or `${#arr[*]}`
-    ArrayLength(String),
+    ArrayLength(Name),
     /// Array indices `${!arr[@]}` or `${!arr[*]}`
-    ArrayIndices(String),
+    ArrayIndices(Name),
     /// Substring extraction `${var:offset}` or `${var:offset:length}`
     Substring {
-        name: String,
+        name: Name,
         offset: String,
         length: Option<String>,
     },
     /// Array slice `${arr[@]:offset:length}`
     ArraySlice {
-        name: String,
+        name: Name,
         offset: String,
         length: Option<String>,
     },
     /// Indirect expansion `${!var}` - expands to value of variable named by var's value
     /// Optionally composed with an operator: `${!var:-default}`, `${!var:=val}`, etc.
     IndirectExpansion {
-        name: String,
+        name: Name,
         operator: Option<ParameterOp>,
         operand: String,
         colon_variant: bool,
     },
     /// Prefix matching `${!prefix*}` or `${!prefix@}` - names of variables with given prefix
-    PrefixMatch(String),
+    PrefixMatch(Name),
     /// Process substitution <(cmd) or >(cmd)
     ProcessSubstitution {
         /// The commands to run
@@ -738,7 +753,7 @@ pub enum WordPart {
         is_input: bool,
     },
     /// Parameter transformation `${var@op}` where op is Q, E, P, A, K, a, u, U, L
-    Transformation { name: String, operator: char },
+    Transformation { name: Name, operator: char },
 }
 
 /// Parameter expansion operators
@@ -786,7 +801,9 @@ pub struct Redirect {
     /// File descriptor (default: 1 for output, 0 for input)
     pub fd: Option<i32>,
     /// Variable name for `{var}` fd-variable redirects (e.g. `exec {myfd}>&-`)
-    pub fd_var: Option<String>,
+    pub fd_var: Option<Name>,
+    /// Source span of `{name}` in fd-variable redirects.
+    pub fd_var_span: Option<Span>,
     /// Type of redirection
     pub kind: RedirectKind,
     /// Source span of this redirection
@@ -823,9 +840,11 @@ pub enum RedirectKind {
 /// Variable assignment.
 #[derive(Debug, Clone)]
 pub struct Assignment {
-    pub name: String,
+    pub name: Name,
+    pub name_span: Span,
     /// Optional array index for indexed assignments like `arr[0]=value`
     pub index: Option<String>,
+    pub index_span: Option<Span>,
     pub value: AssignmentValue,
     /// Whether this is an append assignment (+=)
     pub append: bool,
@@ -1161,6 +1180,7 @@ mod tests {
             redirects: vec![Redirect {
                 fd: Some(1),
                 fd_var: None,
+                fd_var_span: None,
                 kind: RedirectKind::Output,
                 span: Span::new(),
                 target: Word::literal("out.txt"),
@@ -1181,7 +1201,9 @@ mod tests {
             redirects: vec![],
             assignments: vec![Assignment {
                 name: "FOO".into(),
+                name_span: Span::new(),
                 index: None,
+                index_span: None,
                 value: AssignmentValue::Scalar(Word::literal("bar")),
                 append: false,
                 span: Span::new(),
@@ -1222,13 +1244,16 @@ mod tests {
             redirects: vec![Redirect {
                 fd: None,
                 fd_var: None,
+                fd_var_span: None,
                 kind: RedirectKind::Output,
                 span: Span::new(),
                 target: Word::literal("out.txt"),
             }],
             assignments: vec![Assignment {
                 name: "FOO".into(),
+                name_span: Span::new(),
                 index: None,
+                index_span: None,
                 value: AssignmentValue::Scalar(Word::literal("bar")),
                 append: false,
                 span: Span::new(),
@@ -1344,6 +1369,7 @@ mod tests {
         let r = Redirect {
             fd: None,
             fd_var: None,
+            fd_var_span: None,
             kind: RedirectKind::Input,
             span: Span::new(),
             target: Word::literal("input.txt"),
@@ -1358,7 +1384,9 @@ mod tests {
     fn assignment_scalar() {
         let a = Assignment {
             name: "X".into(),
+            name_span: Span::new(),
             index: None,
+            index_span: None,
             value: AssignmentValue::Scalar(Word::literal("1")),
             append: false,
             span: Span::new(),
@@ -1372,7 +1400,9 @@ mod tests {
     fn assignment_array() {
         let a = Assignment {
             name: "ARR".into(),
+            name_span: Span::new(),
             index: None,
+            index_span: None,
             value: AssignmentValue::Array(vec![
                 Word::literal("a"),
                 Word::literal("b"),
@@ -1392,7 +1422,9 @@ mod tests {
     fn assignment_append() {
         let a = Assignment {
             name: "PATH".into(),
+            name_span: Span::new(),
             index: None,
+            index_span: None,
             value: AssignmentValue::Scalar(Word::literal("/usr/bin")),
             append: true,
             span: Span::new(),
@@ -1404,7 +1436,9 @@ mod tests {
     fn assignment_indexed() {
         let a = Assignment {
             name: "arr".into(),
+            name_span: Span::new(),
             index: Some("0".into()),
+            index_span: Some(Span::new()),
             value: AssignmentValue::Scalar(Word::literal("val")),
             append: false,
             span: Span::new(),
@@ -1441,6 +1475,7 @@ mod tests {
     fn for_command_without_words() {
         let for_cmd = ForCommand {
             variable: "i".into(),
+            variable_span: Span::new(),
             words: None,
             body: vec![],
             span: Span::new(),
@@ -1453,6 +1488,7 @@ mod tests {
     fn for_command_with_words() {
         let for_cmd = ForCommand {
             variable: "x".into(),
+            variable_span: Span::new(),
             words: Some(vec![Word::literal("1"), Word::literal("2")]),
             body: vec![],
             span: Span::new(),
@@ -1463,21 +1499,26 @@ mod tests {
     #[test]
     fn arithmetic_for_command() {
         let cmd = ArithmeticForCommand {
-            init: "i=0".into(),
-            condition: "i<10".into(),
-            step: "i++".into(),
+            left_paren_span: Span::new(),
+            init_span: Some(Span::new()),
+            first_semicolon_span: Span::new(),
+            condition_span: Some(Span::new()),
+            second_semicolon_span: Span::new(),
+            step_span: Some(Span::new()),
+            right_paren_span: Span::new(),
             body: vec![],
             span: Span::new(),
         };
-        assert_eq!(cmd.init, "i=0");
-        assert_eq!(cmd.condition, "i<10");
-        assert_eq!(cmd.step, "i++");
+        assert!(cmd.init_span.is_some());
+        assert!(cmd.condition_span.is_some());
+        assert!(cmd.step_span.is_some());
     }
 
     #[test]
     fn function_def_construction() {
         let func = FunctionDef {
             name: "my_func".into(),
+            name_span: Span::new(),
             body: Box::new(Command::Simple(SimpleCommand {
                 name: Word::literal("echo"),
                 args: vec![Word::literal("hello")],
@@ -1535,6 +1576,7 @@ mod tests {
 
         let func = Command::Function(FunctionDef {
             name: "f".into(),
+            name_span: Span::new(),
             body: Box::new(Command::Simple(SimpleCommand {
                 name: Word::literal("true"),
                 args: vec![],
@@ -1557,7 +1599,12 @@ mod tests {
 
     #[test]
     fn compound_command_arithmetic() {
-        let cmd = CompoundCommand::Arithmetic("1+1".into());
+        let cmd = CompoundCommand::Arithmetic(ArithmeticCommand {
+            span: Span::new(),
+            left_paren_span: Span::new(),
+            expr_span: Some(Span::new()),
+            right_paren_span: Span::new(),
+        });
         assert!(matches!(cmd, CompoundCommand::Arithmetic(_)));
     }
 

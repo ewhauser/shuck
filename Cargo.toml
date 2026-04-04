@@ -21,6 +21,7 @@ anyhow = "1"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
+compact_str = "0.8"
 
 # Checksums
 sha2 = "0.11"

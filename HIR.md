@@ -4,6 +4,7 @@
 
 - Add a new `crates/shuck-hir` crate that consumes `ParsedSyntax` plus source text and produces an owned, normalized shell HIR.
 - Follow Ruff's architecture at the layer boundary, not literally at the data shape: typed IDs, arena-backed storage, query-oriented semantic APIs, and a clear split between syntax, semantics, and project analysis.
+- Lower without new string copies where spans or `Name` are sufficient.
 - Do not port Go's `AstIndex` / `FileFacts` design directly. Use the Go code only as a feature inventory and parity oracle.
 - Default to a normalized HIR, not a CST and not a thin wrapper over `shuck-parser` AST, because shell rules need stronger domain types than `shuck-parser` currently exposes.
 
@@ -14,6 +15,10 @@
   - `ParseView` and parse diagnostics from `ParsedSyntax`
   - source text handle, line index, comments, directives, suppression index
   - typed arenas for normalized nodes and root command IDs
+- Treat the current AST contract as the lowering substrate:
+  - compact owned `Name` for identifier-like fields
+  - exact source spans for words, redirects, assignments, conditionals, and arithmetic regions
+  - no dependence on reconstructed parser strings for arithmetic
 - Use local typed-ID wrappers over `Vec` arenas, not string keys and not raw `usize`:
   - `CommandId`, `WordId`, `AssignmentId`, `RedirectId`, `FunctionId`, `ScopeId`, `SymbolId`, `SourceRefId`
   - `AnyNodeId` for heterogeneous parent links and ordered traversal
@@ -25,6 +30,7 @@
   - commands: simple, pipeline, list, if, for, arithmetic-for, while, until, case, subshell, brace-group, function
   - words: literal plus typed expansion parts
   - assignments and redirects as first-class nodes
+- Store IDs, enums, spans, and `Name` values in HIR by default. Do not introduce fresh owned `String` payloads during lowering unless the syntax was already normalized/cooked by the parser.
 - Keep parser-only details out of the rule API. Raw `shuck-parser` AST stays internal to lowering.
 - Add a `SemanticModel` on top of `HirFile`, in the same crate for the first milestone, with typed enums instead of Go's stringly facts:
   - `ScopeKind::{File, Function, Subshell, CommandSubstitution}`
@@ -35,7 +41,11 @@
   - declaration builtins (`declare`, `typeset`, `local`, `export`, `readonly`)
   - `source` / `.`
   - `read`
+  - `trap`
   - other rule-critical command summaries as typed helpers
+- For arithmetic, lower from source-backed spans first:
+  - initial milestone may keep arithmetic as source-backed HIR handles or slices
+  - later passes can add structured arithmetic semantics without changing the AST contract
 - Expose a query-first rule API modeled after Ruff's semantic model:
   - ordered command/word iterators
   - parent/ancestor lookups
@@ -90,6 +100,7 @@
   - source-order iteration
   - stable IDs
   - exact spans and line/column slices
+  - no-copy lowering for identifier-like data and arithmetic regions
   - parse-view propagation from `ParsedSyntax`
 - Semantic tests for:
   - function scopes
@@ -114,6 +125,7 @@
 - Acceptance criteria:
   - first rules can be written without touching raw `shuck-parser` AST
   - no new stringly typed fact APIs are introduced
+  - HIR lowering does not add new owned string copies for names, redirects, assignments, or arithmetic header regions
   - recovered and permissive views lower through the same HIR API
 
 ## Assumptions

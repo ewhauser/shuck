@@ -13,5 +13,6 @@ categories.workspace = true
 readme = "../../README.md"
 
 [dependencies]
+compact_str = { workspace = true }
 
 [dev-dependencies]

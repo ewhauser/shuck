@@ -15,6 +15,9 @@ This checklist is for turning the `shuck-parser` crate into a usable Rust fronte
 
 - [x] Add explicit spans to important leaf nodes such as words, redirects, and assignments.
 - [x] Add explicit spans to expansion-form nodes where diagnostics need finer attachment than whole words.
+- [x] Add exact identifier spans for function names, loop variables, assignment names/indexes, and fd-variable redirects.
+- [x] Replace reconstructed arithmetic command/header strings with exact source-backed spans.
+- [x] Use a compact owned identifier type for AST name-like fields instead of heap-allocating `String` by default.
 - [x] Preserve enough token/source information to reconstruct directive attachment points, including nested substitutions.
 - [ ] Audit range behavior against ShellCheck-compatible reporting expectations.
 - [x] Add regression tests for line/column accuracy on tricky constructs.
@@ -46,6 +49,7 @@ This checklist is for turning the `shuck-parser` crate into a usable Rust fronte
 
 - [ ] Design a shuck-specific HIR/facts layer over the parser output.
 - [ ] Represent command calls, redirects, parameter expansions, command substitutions, process substitutions, and declarations explicitly.
+- [ ] Lower arithmetic regions from source-backed spans without introducing new owned strings.
 - [ ] Preserve traversal order and parent/child relationships needed by rule runners.
 - [ ] Provide stable node IDs or equivalent handles for cross-pass analysis.
 - [ ] Add AST/HIR walk helpers that mirror the current Go rule authoring ergonomics.
@@ -65,6 +69,7 @@ This checklist is for turning the `shuck-parser` crate into a usable Rust fronte
 
 - [ ] Build a CFG from the HIR for function bodies and top-level scripts.
 - [ ] Model branching constructs (`if/elif/else`, `case`, `&&/||` short-circuit, `while/until/for`).
+- [ ] Model arithmetic commands and arithmetic `for` headers from source-backed arithmetic lowering.
 - [ ] Model early exits (`return`, `exit`, `break`, `continue`) and unreachable blocks.
 - [ ] Model subshell boundaries as separate flow regions (pipelines, `(...)`, command substitutions).
 - [ ] Implement reaching-definitions analysis for variable assignments.
@@ -90,6 +95,7 @@ This checklist is for turning the `shuck-parser` crate into a usable Rust fronte
 ## 11. Verification
 
 - [ ] Add focused unit tests for lexer, parser, comments, directives, and spans.
+- [x] Add focused unit tests for structured conditionals, identifier spans, and arithmetic span fidelity.
 - [ ] Add snapshot/fixture tests for syntax and directive behavior.
 - [ ] Add parity tests against shuck's current Go frontend on representative fixtures.
 - [ ] Add a corpus runner for Rust frontend compatibility checks.

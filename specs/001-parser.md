@@ -226,7 +226,8 @@ Redirections collected in `SimpleCommand` and compound commands:
 ```rust
 pub struct Redirect {
     pub fd: Option<i32>,         // File descriptor (1 = stdout, 0 = stdin)
-    pub fd_var: Option<String>,  // For {var}>file syntax
+    pub fd_var: Option<Name>,    // For {var}>file syntax
+    pub fd_var_span: Option<Span>,
     pub kind: RedirectKind,      // Input, Output, Append, HereDoc, etc.
     pub span: Span,
     pub target: Word,            // Filename or FD number
@@ -250,7 +251,7 @@ Redirects can appear:
 - After simple command args: `echo hello > file`
 - After compound commands: `if true; fi > file`
 - Multiple on same line: `cat <<EOF > file 2>&1`
-- With fd variables: `exec {fd}>file` (`fd_var` tracks "fd")
+- With fd variables: `exec {fd}>file` (`fd_var` stores the compact name and `fd_var_span` points at the exact identifier)
 
 #### Word Expansion Parsing
 
@@ -266,18 +267,18 @@ pub struct Word {
 
 pub enum WordPart {
     Literal(String),
-    Variable(String),                           // $VAR, ${VAR}
+    Variable(Name),                             // $VAR, ${VAR}
     CommandSubstitution(Vec<Command>),          // $(...)
     ArithmeticExpansion(String),                // $((...))
-    ParameterExpansion { name, op, operand, colon_variant },
-    Length(String),                              // ${#var}
+    ParameterExpansion { name, operator, operand, colon_variant },
+    Length(Name),                               // ${#var}
     ArrayAccess { name, index },                // ${arr[idx]}, ${arr[@]}
-    ArrayLength(String),                        // ${#arr[@]}
-    ArrayIndices(String),                       // ${!arr[@]}
+    ArrayLength(Name),                          // ${#arr[@]}
+    ArrayIndices(Name),                         // ${!arr[@]}
     Substring { name, offset, length },         // ${var:offset:len}
     ArraySlice { name, offset, length },        // ${arr[@]:offset:len}
     IndirectExpansion { name, operator, operand, colon_variant },
-    PrefixMatch(String),                        // ${!prefix*}
+    PrefixMatch(Name),                          // ${!prefix*}
     ProcessSubstitution { commands, is_input }, // <(cmd), >(cmd)
     Transformation { name, operator },          // ${var@Q}, ${var@E}, etc.
 }
@@ -294,6 +295,11 @@ pub enum ParameterOp {
     UpperFirst, UpperAll, LowerFirst, LowerAll,
 }
 ```
+
+Identifier-like fields in `WordPart` use `Name`, a compact owned string type backed by `compact_str::CompactString`. Free-form payloads remain `String`:
+
+- `Name`: variable names, parameter names, loop/function/coproc names, fd-variable redirect names
+- `String`: literals, here-doc bodies, parameter operands, replacement patterns, array indices, arithmetic-expansion text
 
 **Algorithm:** Character-by-character iteration:
 1. Collect literal characters
@@ -316,6 +322,7 @@ pub struct Script {
 
 pub enum Command {
     Simple(SimpleCommand),
+    Builtin(BuiltinCommand),
     Pipeline(Pipeline),
     List(CommandList),
     Compound(CompoundCommand, Vec<Redirect>),
@@ -348,6 +355,13 @@ pub enum ListOperator {
     Semicolon,  // ;
     Background, // &
 }
+
+pub enum BuiltinCommand {
+    Break(BreakCommand),
+    Continue(ContinueCommand),
+    Return(ReturnCommand),
+    Exit(ExitCommand),
+}
 ```
 
 #### Compound Commands
@@ -363,21 +377,77 @@ pub enum CompoundCommand {
     Select(SelectCommand),
     Subshell(Vec<Command>),
     BraceGroup(Vec<Command>),
-    Arithmetic(String),         // Raw expr, not parsed
+    Arithmetic(ArithmeticCommand),
     Time(TimeCommand),
-    Conditional(Vec<Word>),     // [[ ... ]]
+    Conditional(ConditionalCommand),
     Coproc(CoprocCommand),
 }
 ```
 
-All compound commands include a body (`Vec<Command>`) and source location (`span: Span`).
+Selected compound node shapes:
+
+```rust
+pub struct ForCommand {
+    pub variable: Name,
+    pub variable_span: Span,
+    pub words: Option<Vec<Word>>,
+    pub body: Vec<Command>,
+    pub span: Span,
+}
+
+pub struct ArithmeticCommand {
+    pub span: Span,
+    pub left_paren_span: Span,
+    pub expr_span: Option<Span>,
+    pub right_paren_span: Span,
+}
+
+pub struct ArithmeticForCommand {
+    pub left_paren_span: Span,
+    pub init_span: Option<Span>,
+    pub first_semicolon_span: Span,
+    pub condition_span: Option<Span>,
+    pub second_semicolon_span: Span,
+    pub step_span: Option<Span>,
+    pub right_paren_span: Span,
+    pub body: Vec<Command>,
+    pub span: Span,
+}
+
+pub struct ConditionalCommand {
+    pub expression: ConditionalExpr,
+    pub span: Span,
+    pub left_bracket_span: Span,
+    pub right_bracket_span: Span,
+}
+
+pub enum ConditionalExpr {
+    Binary(ConditionalBinaryExpr),
+    Unary(ConditionalUnaryExpr),
+    Parenthesized(ConditionalParenExpr),
+    Word(Word),
+    Pattern(Word),
+    Regex(Word),
+}
+
+pub struct FunctionDef {
+    pub name: Name,
+    pub name_span: Span,
+    pub body: Box<Command>,
+    pub span: Span,
+}
+```
+
+Arithmetic commands and arithmetic `for` headers are now source-backed rather than string-backed. The parser preserves exact spans for `((`, `))`, both semicolons, and each arithmetic region. Later lowering can slice the original source text without rebuilding strings.
 
 #### Variables & Assignments
 
 ```rust
 pub struct Assignment {
-    pub name: String,
+    pub name: Name,
+    pub name_span: Span,
     pub index: Option<String>,     // For arr[idx]=val
+    pub index_span: Option<Span>,
     pub value: AssignmentValue,
     pub append: bool,              // += vs =
     pub span: Span,
@@ -409,6 +479,7 @@ pub struct Span {
 - Lexer maintains `Position` while reading each character
 - `advance(ch)` increments offset by UTF-8 len; line/col by character (newline resets col to 1)
 - Parser records `Span` for each token and merges spans as it builds nodes
+- `Span::slice(&self, source: &str) -> &str` is the canonical way to recover exact source text for span-backed nodes like arithmetic commands and identifier subspans
 - Nested command substitutions are parsed with relative positions, then rebased to absolute via `Position::rebased(base)` and `Span::rebased(base)`
 
 ### Error Handling
@@ -489,6 +560,10 @@ Key test cases:
 - `test_parse_simple_command` -- Basic command parsing
 - `test_parse_variable` -- Variable in WordPart
 - `test_parse_pipeline` -- Pipe and negation
+- `test_parse_conditional_builds_structured_logical_ast` -- Structured `[[ ... ]]`
+- `test_parse_arithmetic_command_preserves_exact_spans` -- `(( ... ))` source fidelity
+- `test_parse_arithmetic_for_preserves_header_spans` -- `for (( ... ; ... ; ... ))` source fidelity
+- `test_identifier_spans_track_function_loop_assignment_and_fd_var_names` -- Exact identifier spans
 - `test_parse_recovered_skips_invalid_command_and_continues` -- Recovery mode
 - `test_unexpected_top_level_token_errors_in_strict_mode` -- Strict mode errors
 

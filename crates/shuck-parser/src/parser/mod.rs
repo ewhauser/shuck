@@ -11,13 +11,13 @@ mod lexer;
 pub use lexer::{Lexer, SpannedToken};
 
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand,
-    CaseItem, CaseTerminator, Command, CommandList, CompoundCommand, ConditionalBinaryExpr,
-    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, ExitCommand,
-    ForCommand, FunctionDef, IfCommand, ListOperator, ParameterOp, Pipeline, Position, Redirect,
-    RedirectKind, ReturnCommand, Script, SelectCommand, SimpleCommand, Span, TimeCommand, Token,
-    UntilCommand, WhileCommand, Word, WordPart,
+    ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,
+    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CompoundCommand,
+    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
+    ExitCommand, ForCommand, FunctionDef, IfCommand, ListOperator, Name, ParameterOp, Pipeline,
+    Position, Redirect, RedirectKind, ReturnCommand, Script, SelectCommand, SimpleCommand, Span,
+    TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 use crate::error::{Error, Result};
@@ -170,6 +170,15 @@ impl<'a> Parser<'a> {
             .and_then(|token| self.word_from_token(token, self.current_span))
     }
 
+    fn current_name_token(&self) -> Option<(Name, Span)> {
+        match &self.current_token {
+            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
+                Some((Name::from(w), self.current_span))
+            }
+            _ => None,
+        }
+    }
+
     fn nested_commands_from_source(&self, source: &str, base: Position) -> Vec<Command> {
         let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
         let inner_parser = Parser::with_limits(source, remaining_depth, self.fuel);
@@ -200,6 +209,10 @@ impl<'a> Parser<'a> {
 
     fn redirect_span(operator_span: Span, target: &Word) -> Span {
         Self::merge_optional_span(operator_span, target.span)
+    }
+
+    fn optional_span(start: Position, end: Position) -> Option<Span> {
+        (start.offset < end.offset).then(|| Span::from_positions(start, end))
     }
 
     fn rebase_commands(commands: &mut [Command], base: Position) {
@@ -237,6 +250,7 @@ impl<'a> Parser<'a> {
             }
             Command::Function(function) => {
                 function.span = function.span.rebased(base);
+                function.name_span = function.name_span.rebased(base);
                 Self::rebase_command(&mut function.body, base);
             }
         }
@@ -299,6 +313,7 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::For(command) => {
                 command.span = command.span.rebased(base);
+                command.variable_span = command.variable_span.rebased(base);
                 if let Some(words) = &mut command.words {
                     Self::rebase_words(words, base);
                 }
@@ -306,6 +321,13 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::ArithmeticFor(command) => {
                 command.span = command.span.rebased(base);
+                command.left_paren_span = command.left_paren_span.rebased(base);
+                command.init_span = command.init_span.map(|span| span.rebased(base));
+                command.first_semicolon_span = command.first_semicolon_span.rebased(base);
+                command.condition_span = command.condition_span.map(|span| span.rebased(base));
+                command.second_semicolon_span = command.second_semicolon_span.rebased(base);
+                command.step_span = command.step_span.map(|span| span.rebased(base));
+                command.right_paren_span = command.right_paren_span.rebased(base);
                 Self::rebase_commands(&mut command.body, base);
             }
             CompoundCommand::While(command) => {
@@ -328,13 +350,19 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::Select(command) => {
                 command.span = command.span.rebased(base);
+                command.variable_span = command.variable_span.rebased(base);
                 Self::rebase_words(&mut command.words, base);
                 Self::rebase_commands(&mut command.body, base);
             }
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
                 Self::rebase_commands(commands, base);
             }
-            CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Arithmetic(command) => {
+                command.span = command.span.rebased(base);
+                command.left_paren_span = command.left_paren_span.rebased(base);
+                command.expr_span = command.expr_span.map(|span| span.rebased(base));
+                command.right_paren_span = command.right_paren_span.rebased(base);
+            }
             CompoundCommand::Time(command) => {
                 command.span = command.span.rebased(base);
                 if let Some(inner) = &mut command.command {
@@ -349,6 +377,7 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::Coproc(command) => {
                 command.span = command.span.rebased(base);
+                command.name_span = command.name_span.map(|span| span.rebased(base));
                 Self::rebase_command(&mut command.body, base);
             }
         }
@@ -479,6 +508,7 @@ impl<'a> Parser<'a> {
     fn rebase_redirects(redirects: &mut [Redirect], base: Position) {
         for redirect in redirects {
             redirect.span = redirect.span.rebased(base);
+            redirect.fd_var_span = redirect.fd_var_span.map(|span| span.rebased(base));
             Self::rebase_word(&mut redirect.target, base);
         }
     }
@@ -486,6 +516,8 @@ impl<'a> Parser<'a> {
     fn rebase_assignments(assignments: &mut [Assignment], base: Position) {
         for assignment in assignments {
             assignment.span = assignment.span.rebased(base);
+            assignment.name_span = assignment.name_span.rebased(base);
+            assignment.index_span = assignment.index_span.map(|span| span.rebased(base));
             match &mut assignment.value {
                 AssignmentValue::Scalar(word) => Self::rebase_word(word, base),
                 AssignmentValue::Array(words) => Self::rebase_words(words, base),
@@ -858,6 +890,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: None,
                             fd_var: None,
+                            fd_var_span: None,
                             kind,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -871,6 +904,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: None,
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Append,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -884,6 +918,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: None,
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Input,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -897,6 +932,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: None,
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::OutputBoth,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -910,6 +946,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(1),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::DupOutput,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -924,6 +961,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(fd),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Output,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -938,6 +976,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(fd),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Append,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -952,6 +991,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(src_fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupOutput,
                         span: operator_span,
                         target: Word::literal(dst_fd.to_string()),
@@ -964,6 +1004,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(0),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::DupInput,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -978,6 +1019,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(src_fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupInput,
                         span: operator_span,
                         target: Word::literal(dst_fd.to_string()),
@@ -990,6 +1032,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupInput,
                         span: operator_span,
                         target: Word::literal("-"),
@@ -1003,6 +1046,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(fd),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Input,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1016,6 +1060,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: None,
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::HereString,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1061,6 +1106,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: None,
                         fd_var: None,
+                        fd_var_span: None,
                         kind,
                         span: operator_span,
                         target,
@@ -1302,10 +1348,8 @@ impl<'a> Parser<'a> {
         }
 
         // Expect variable name
-        let variable = match &self.current_token {
-            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                w.clone()
-            }
+        let (variable, variable_span) = match self.current_name_token() {
+            Some(pair) => pair,
             _ => {
                 self.pop_depth();
                 return Err(Error::parse(
@@ -1370,6 +1414,7 @@ impl<'a> Parser<'a> {
         self.pop_depth();
         Ok(CompoundCommand::For(ForCommand {
             variable,
+            variable_span,
             words,
             body,
             span: start_span.merge(self.current_span),
@@ -1384,10 +1429,8 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Expect variable name
-        let variable = match &self.current_token {
-            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                w.clone()
-            }
+        let (variable, variable_span) = match self.current_name_token() {
+            Some(pair) => pair,
             _ => {
                 self.pop_depth();
                 return Err(Error::parse("expected variable name in select".to_string()));
@@ -1442,6 +1485,7 @@ impl<'a> Parser<'a> {
         self.pop_depth();
         Ok(CompoundCommand::Select(SelectCommand {
             variable,
+            variable_span,
             words,
             body,
             span: start_span.merge(self.current_span),
@@ -1451,85 +1495,55 @@ impl<'a> Parser<'a> {
     /// Parse C-style arithmetic for loop inner: for ((init; cond; step)); do body; done
     /// Note: depth tracking is done by parse_for which calls this
     fn parse_arithmetic_for_inner(&mut self, start_span: Span) -> Result<CompoundCommand> {
+        let left_paren_span = self.current_span;
         self.advance(); // consume '(('
 
-        // Read the three expressions separated by semicolons
-        let mut parts: Vec<String> = Vec::new();
-        let mut current_expr = String::new();
-        let mut paren_depth = 0;
+        let mut paren_depth = 0_i32;
+        let mut segment_start = left_paren_span.end;
+        let mut init_span = None;
+        let mut first_semicolon_span = None;
+        let mut condition_span = None;
+        let mut second_semicolon_span = None;
 
-        loop {
+        let right_paren_span = loop {
             match &self.current_token {
-                Some(Token::DoubleRightParen) => {
-                    // End of the (( )) section
-                    parts.push(current_expr.trim().to_string());
-                    self.advance();
-                    break;
-                }
-                Some(Token::LeftParen) => {
+                Some(Token::DoubleLeftParen) | Some(Token::LeftParen) => {
                     paren_depth += 1;
-                    current_expr.push('(');
+                    self.advance();
+                }
+                Some(Token::DoubleRightParen) => {
+                    if paren_depth == 0 {
+                        let right_paren_span = self.current_span;
+                        self.advance();
+                        break right_paren_span;
+                    }
+                    paren_depth -= 1;
                     self.advance();
                 }
                 Some(Token::RightParen) => {
                     if paren_depth > 0 {
                         paren_depth -= 1;
-                        current_expr.push(')');
-                        self.advance();
+                    }
+                    self.advance();
+                }
+                Some(Token::Semicolon) if paren_depth == 0 => {
+                    if first_semicolon_span.is_none() {
+                        init_span = Self::optional_span(segment_start, self.current_span.start);
+                        first_semicolon_span = Some(self.current_span);
+                        segment_start = self.current_span.end;
+                    } else if second_semicolon_span.is_none() {
+                        condition_span =
+                            Self::optional_span(segment_start, self.current_span.start);
+                        second_semicolon_span = Some(self.current_span);
+                        segment_start = self.current_span.end;
                     } else {
-                        // Unexpected - probably error
-                        self.advance();
-                    }
-                }
-                Some(Token::Semicolon) => {
-                    if paren_depth == 0 {
-                        // Separator between init, cond, step
-                        parts.push(current_expr.trim().to_string());
-                        current_expr.clear();
-                    } else {
-                        current_expr.push(';');
+                        return Err(Error::parse(
+                            "unexpected ';' in arithmetic for header".to_string(),
+                        ));
                     }
                     self.advance();
                 }
-                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                    // Don't add space when joining operator pairs like < + =3 → <=3
-                    let skip_space = current_expr.ends_with('<')
-                        || current_expr.ends_with('>')
-                        || current_expr.ends_with(' ')
-                        || current_expr.ends_with('(')
-                        || current_expr.is_empty();
-                    if !skip_space {
-                        current_expr.push(' ');
-                    }
-                    current_expr.push_str(w);
-                    self.advance();
-                }
-                Some(Token::Newline) => {
-                    self.advance();
-                }
-                // Handle operators that are normally special tokens but valid in arithmetic
-                Some(Token::RedirectIn) => {
-                    current_expr.push('<');
-                    self.advance();
-                }
-                Some(Token::RedirectOut) => {
-                    current_expr.push('>');
-                    self.advance();
-                }
-                Some(Token::And) => {
-                    current_expr.push_str("&&");
-                    self.advance();
-                }
-                Some(Token::Or) => {
-                    current_expr.push_str("||");
-                    self.advance();
-                }
-                Some(Token::Pipe) => {
-                    current_expr.push('|');
-                    self.advance();
-                }
-                Some(Token::Background) => {
-                    current_expr.push('&');
+                Some(_) => {
                     self.advance();
                 }
                 None => {
@@ -1537,20 +1551,15 @@ impl<'a> Parser<'a> {
                         "unexpected end of input in for loop".to_string(),
                     ));
                 }
-                _ => {
-                    self.advance();
-                }
             }
-        }
+        };
 
-        // Ensure we have exactly 3 parts
-        while parts.len() < 3 {
-            parts.push(String::new());
-        }
-
-        let init = parts.first().cloned().unwrap_or_default();
-        let condition = parts.get(1).cloned().unwrap_or_default();
-        let step = parts.get(2).cloned().unwrap_or_default();
+        let first_semicolon_span = first_semicolon_span
+            .ok_or_else(|| Error::parse("expected ';' in arithmetic for header".to_string()))?;
+        let second_semicolon_span = second_semicolon_span.ok_or_else(|| {
+            Error::parse("expected second ';' in arithmetic for header".to_string())
+        })?;
+        let step_span = Self::optional_span(segment_start, right_paren_span.start);
 
         self.skip_newlines()?;
 
@@ -1573,14 +1582,22 @@ impl<'a> Parser<'a> {
         }
 
         // Expect 'done'
-        self.expect_keyword("done")?;
+        if !self.is_keyword("done") {
+            return Err(self.error("expected 'done'"));
+        }
+        let done_span = self.current_span;
+        self.advance();
 
         Ok(CompoundCommand::ArithmeticFor(ArithmeticForCommand {
-            init,
-            condition,
-            step,
+            left_paren_span,
+            init_span,
+            first_semicolon_span,
+            condition_span,
+            second_semicolon_span,
+            step_span,
+            right_paren_span,
             body,
-            span: start_span.merge(self.current_span),
+            span: start_span.merge(done_span),
         }))
     }
 
@@ -1787,8 +1804,9 @@ impl<'a> Parser<'a> {
 
         // Determine if next token is a NAME (simple word that is NOT a compound-
         // command keyword and is followed by a compound command start).
-        let (name, consumed_name) = if let Some(Token::Word(w)) = &self.current_token {
+        let (name, name_span) = if let Some(Token::Word(w)) = &self.current_token {
             let word = w.clone();
+            let word_span = self.current_span;
             let is_compound_keyword = matches!(
                 word.as_str(),
                 "if" | "for" | "while" | "until" | "case" | "select" | "time" | "coproc"
@@ -1800,15 +1818,13 @@ impl<'a> Parser<'a> {
             if !is_compound_keyword && next_is_compound_start {
                 self.advance(); // consume the NAME
                 self.skip_newlines()?;
-                (word, true)
+                (Name::from(word), Some(word_span))
             } else {
-                ("COPROC".to_string(), false)
+                (Name::new_static("COPROC"), None)
             }
         } else {
-            ("COPROC".to_string(), false)
+            (Name::new_static("COPROC"), None)
         };
-
-        let _ = consumed_name;
 
         // Parse the command body (could be simple, compound, or pipeline)
         let body = self.parse_pipeline()?;
@@ -1816,6 +1832,7 @@ impl<'a> Parser<'a> {
 
         Ok(CompoundCommand::Coproc(CoprocCommand {
             name,
+            name_span,
             body: Box::new(body),
             span: start_span.merge(self.current_span),
         }))
@@ -2314,147 +2331,33 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Check if current token starts with `=` (e.g., Word("=5") from `>=5`).
-    /// If so, return the rest of the word after `=`.
-    fn current_token_starts_with_eq(&self) -> Option<String> {
-        match &self.current_token {
-            Some(Token::Assignment) => Some(String::new()),
-            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) => {
-                w.strip_prefix('=').map(|rest| rest.to_string())
-            }
-            _ => None,
-        }
-    }
-
     fn parse_arithmetic_command(&mut self) -> Result<CompoundCommand> {
+        let left_paren_span = self.current_span;
         self.advance(); // consume '(('
 
-        // Read expression until we find ))
-        let mut expr = String::new();
-        let mut depth = 1;
-
-        loop {
+        let mut depth = 0_i32;
+        let right_paren_span = loop {
             match &self.current_token {
-                Some(Token::DoubleLeftParen) => {
+                Some(Token::DoubleLeftParen) | Some(Token::LeftParen) => {
                     depth += 1;
-                    expr.push_str("((");
                     self.advance();
                 }
                 Some(Token::DoubleRightParen) => {
-                    depth -= 1;
                     if depth == 0 {
-                        self.advance(); // consume '))'
-                        break;
+                        let right_paren_span = self.current_span;
+                        self.advance();
+                        break right_paren_span;
                     }
-                    expr.push_str("))");
-                    self.advance();
-                }
-                Some(Token::LeftParen) => {
-                    expr.push('(');
+                    depth -= 1;
                     self.advance();
                 }
                 Some(Token::RightParen) => {
-                    expr.push(')');
-                    self.advance();
-                }
-                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                    if !expr.is_empty() && !expr.ends_with(' ') && !expr.ends_with('(') {
-                        expr.push(' ');
+                    if depth > 0 {
+                        depth -= 1;
                     }
-                    expr.push_str(w);
                     self.advance();
                 }
-                Some(Token::Semicolon) => {
-                    expr.push(';');
-                    self.advance();
-                }
-                Some(Token::Newline) => {
-                    self.advance();
-                }
-                // Handle operators that are normally special tokens but valid in arithmetic
-                Some(Token::RedirectIn) => {
-                    self.advance();
-                    // Check if next token starts with '=' to form '<='
-                    if let Some(rest) = self.current_token_starts_with_eq() {
-                        expr.push_str("<=");
-                        if !rest.is_empty() {
-                            expr.push_str(&rest);
-                        }
-                        self.advance();
-                    } else {
-                        expr.push('<');
-                    }
-                }
-                Some(Token::RedirectOut) => {
-                    self.advance();
-                    // Check if next token starts with '=' to form '>='
-                    if let Some(rest) = self.current_token_starts_with_eq() {
-                        expr.push_str(">=");
-                        if !rest.is_empty() {
-                            expr.push_str(&rest);
-                        }
-                        self.advance();
-                    } else {
-                        expr.push('>');
-                    }
-                }
-                Some(Token::And) => {
-                    expr.push_str("&&");
-                    self.advance();
-                }
-                Some(Token::Or) => {
-                    expr.push_str("||");
-                    self.advance();
-                }
-                Some(Token::Pipe) => {
-                    expr.push('|');
-                    self.advance();
-                }
-                Some(Token::Background) => {
-                    expr.push('&');
-                    self.advance();
-                }
-                Some(Token::Assignment) => {
-                    expr.push('=');
-                    self.advance();
-                }
-                // In arithmetic context, N> is a number followed by >, not a fd redirect
-                Some(Token::RedirectFd(fd)) => {
-                    let fd = *fd;
-                    self.advance();
-                    if let Some(rest) = self.current_token_starts_with_eq() {
-                        // N>= → number >= ...
-                        expr.push_str(&format!("{}>=", fd));
-                        if !rest.is_empty() {
-                            expr.push_str(&rest);
-                        }
-                        self.advance();
-                    } else {
-                        expr.push_str(&format!("{}>", fd));
-                    }
-                }
-                Some(Token::RedirectFdAppend(fd)) => {
-                    // N>> in arithmetic is N >> (right shift)
-                    let fd = *fd;
-                    expr.push_str(&format!("{}>>", fd));
-                    self.advance();
-                }
-                Some(Token::RedirectFdIn(fd)) => {
-                    let fd = *fd;
-                    self.advance();
-                    if let Some(rest) = self.current_token_starts_with_eq() {
-                        expr.push_str(&format!("{}<=", fd));
-                        if !rest.is_empty() {
-                            expr.push_str(&rest);
-                        }
-                        self.advance();
-                    } else {
-                        expr.push_str(&format!("{}<", fd));
-                    }
-                }
-                Some(Token::RedirectAppend) => {
-                    // >> in arithmetic is right shift
-                    expr.push_str(">>");
+                Some(_) => {
                     self.advance();
                 }
                 None => {
@@ -2462,13 +2365,15 @@ impl<'a> Parser<'a> {
                         "unexpected end of input in arithmetic command".to_string(),
                     ));
                 }
-                _ => {
-                    self.advance();
-                }
             }
-        }
+        };
 
-        Ok(CompoundCommand::Arithmetic(expr.trim().to_string()))
+        Ok(CompoundCommand::Arithmetic(ArithmeticCommand {
+            span: left_paren_span.merge(right_paren_span),
+            left_paren_span,
+            expr_span: Self::optional_span(left_paren_span.end, right_paren_span.start),
+            right_paren_span,
+        }))
     }
 
     /// Parse function definition with 'function' keyword: function name { body }
@@ -2478,8 +2383,8 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Get function name
-        let name = match &self.current_token {
-            Some(Token::Word(w)) => w.clone(),
+        let (name, name_span) = match &self.current_token {
+            Some(Token::Word(w)) => (Name::from(w), self.current_span),
             _ => return Err(self.error("expected function name")),
         };
         self.advance();
@@ -2507,6 +2412,7 @@ impl<'a> Parser<'a> {
 
         Ok(Command::Function(FunctionDef {
             name,
+            name_span,
             body: Box::new(Command::Compound(body, Vec::new())),
             span: start_span.merge(self.current_span),
         }))
@@ -2516,8 +2422,8 @@ impl<'a> Parser<'a> {
     fn parse_function_posix(&mut self) -> Result<Command> {
         let start_span = self.current_span;
         // Get function name
-        let name = match &self.current_token {
-            Some(Token::Word(w)) => w.clone(),
+        let (name, name_span) = match &self.current_token {
+            Some(Token::Word(w)) => (Name::from(w), self.current_span),
             _ => return Err(self.error("expected function name")),
         };
         self.advance();
@@ -2544,6 +2450,7 @@ impl<'a> Parser<'a> {
 
         Ok(Command::Function(FunctionDef {
             name,
+            name_span,
             body: Box::new(Command::Compound(body, Vec::new())),
             span: start_span.merge(self.current_span),
         }))
@@ -2704,6 +2611,14 @@ impl<'a> Parser<'a> {
     fn try_parse_assignment(&mut self, w: &str) -> Option<(Assignment, bool)> {
         let (name, index, value, is_append) = Self::is_assignment(w)?;
         let assignment_span = self.current_span;
+        let name_span = Span::from_positions(
+            assignment_span.start,
+            assignment_span.start.advanced_by(name),
+        );
+        let index_span = index.map(|index| {
+            let start = name_span.end.advanced_by("[");
+            Span::from_positions(start, start.advanced_by(index))
+        });
         let value_start_offset = if let Some(pos) = w.find("+=") {
             pos + 2
         } else {
@@ -2711,7 +2626,7 @@ impl<'a> Parser<'a> {
         };
         let value_start = assignment_span.start.advanced_by(&w[..value_start_offset]);
         let value_span = Span::from_positions(value_start, assignment_span.end);
-        let name = name.to_string();
+        let name = Name::from(name);
         let index = index.map(|s| s.to_string());
         let value_str = value.to_string();
 
@@ -2725,7 +2640,9 @@ impl<'a> Parser<'a> {
             return Some((
                 Assignment {
                     name,
+                    name_span,
                     index,
+                    index_span,
                     value: AssignmentValue::Array(elements),
                     append: is_append,
                     span: assignment_span,
@@ -2744,7 +2661,9 @@ impl<'a> Parser<'a> {
                 return Some((
                     Assignment {
                         name,
+                        name_span,
                         index,
+                        index_span,
                         value: AssignmentValue::Array(elements),
                         append: is_append,
                         span: Self::merge_optional_span(
@@ -2759,7 +2678,9 @@ impl<'a> Parser<'a> {
             return Some((
                 Assignment {
                     name,
+                    name_span,
                     index,
+                    index_span,
                     value: AssignmentValue::Scalar(Word::literal_with_span("", value_span)),
                     append: is_append,
                     span: assignment_span,
@@ -2787,7 +2708,9 @@ impl<'a> Parser<'a> {
         Some((
             Assignment {
                 name,
+                name_span,
                 index,
+                index_span,
                 value: AssignmentValue::Scalar(value_word),
                 append: is_append,
                 span: assignment_span,
@@ -2880,6 +2803,7 @@ impl<'a> Parser<'a> {
         redirects.push(Redirect {
             fd: None,
             fd_var: None,
+            fd_var_span: None,
             kind,
             span: operator_span,
             target,
@@ -2909,6 +2833,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: None,
                             fd_var: None,
+                            fd_var_span: None,
                             kind,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -2922,6 +2847,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: None,
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Append,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -2936,6 +2862,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(fd),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Output,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -2949,6 +2876,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(0),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::DupInput,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -2963,6 +2891,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(src_fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupInput,
                         span: operator_span,
                         target: Word::literal(dst_fd.to_string()),
@@ -2975,6 +2904,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupInput,
                         span: operator_span,
                         target: Word::literal("-"),
@@ -2988,6 +2918,7 @@ impl<'a> Parser<'a> {
                         redirects.push(Redirect {
                             fd: Some(fd),
                             fd_var: None,
+                            fd_var_span: None,
                             kind: RedirectKind::Input,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -3002,7 +2933,7 @@ impl<'a> Parser<'a> {
     /// Extract fd-variable name from `{varname}` pattern in the last word.
     /// If the last word is a single literal `{identifier}`, pop it and return the name.
     /// Used for `exec {var}>file` / `exec {var}>&-` syntax.
-    fn pop_fd_var(words: &mut Vec<Word>) -> Option<String> {
+    fn pop_fd_var(words: &mut Vec<Word>) -> (Option<Name>, Option<Span>) {
         if let Some(last) = words.last()
             && last.parts.len() == 1
             && let WordPart::Literal(ref s) = last.parts[0]
@@ -3014,10 +2945,12 @@ impl<'a> Parser<'a> {
                 .all(|c| c.is_alphanumeric() || c == '_')
         {
             let var_name = s[1..s.len() - 1].to_string();
+            let start = last.span.start.advanced_by("{");
+            let span = Span::from_positions(start, start.advanced_by(&var_name));
             words.pop();
-            return Some(var_name);
+            return (Some(Name::from(var_name)), Some(span));
         }
-        None
+        (None, None)
     }
 
     fn parse_simple_command(&mut self) -> Result<Option<SimpleCommand>> {
@@ -3081,12 +3014,13 @@ impl<'a> Parser<'a> {
                     } else {
                         RedirectKind::Output
                     };
-                    let fd_var = Self::pop_fd_var(&mut words);
+                    let (fd_var, fd_var_span) = Self::pop_fd_var(&mut words);
                     self.advance();
                     let target = self.expect_word()?;
                     redirects.push(Redirect {
                         fd: None,
                         fd_var,
+                        fd_var_span,
                         kind,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3094,12 +3028,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::RedirectAppend) => {
                     let operator_span = self.current_span;
-                    let fd_var = Self::pop_fd_var(&mut words);
+                    let (fd_var, fd_var_span) = Self::pop_fd_var(&mut words);
                     self.advance();
                     let target = self.expect_word()?;
                     redirects.push(Redirect {
                         fd: None,
                         fd_var,
+                        fd_var_span,
                         kind: RedirectKind::Append,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3107,12 +3042,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::RedirectIn) => {
                     let operator_span = self.current_span;
-                    let fd_var = Self::pop_fd_var(&mut words);
+                    let (fd_var, fd_var_span) = Self::pop_fd_var(&mut words);
                     self.advance();
                     let target = self.expect_word()?;
                     redirects.push(Redirect {
                         fd: None,
                         fd_var,
+                        fd_var_span,
                         kind: RedirectKind::Input,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3120,12 +3056,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::HereString) => {
                     let operator_span = self.current_span;
-                    let fd_var = Self::pop_fd_var(&mut words);
+                    let (fd_var, fd_var_span) = Self::pop_fd_var(&mut words);
                     self.advance();
                     let target = self.expect_word()?;
                     redirects.push(Redirect {
                         fd: None,
                         fd_var,
+                        fd_var_span,
                         kind: RedirectKind::HereString,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3142,12 +3079,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::RedirectBoth) => {
                     let operator_span = self.current_span;
-                    let fd_var = Self::pop_fd_var(&mut words);
+                    let (fd_var, fd_var_span) = Self::pop_fd_var(&mut words);
                     self.advance();
                     let target = self.expect_word()?;
                     redirects.push(Redirect {
                         fd: None,
                         fd_var,
+                        fd_var_span,
                         kind: RedirectKind::OutputBoth,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3155,12 +3093,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::DupOutput) => {
                     let operator_span = self.current_span;
-                    let fd_var = Self::pop_fd_var(&mut words);
+                    let (fd_var, fd_var_span) = Self::pop_fd_var(&mut words);
                     self.advance();
                     let target = self.expect_word()?;
                     redirects.push(Redirect {
                         fd: if fd_var.is_some() { None } else { Some(1) },
                         fd_var,
+                        fd_var_span,
                         kind: RedirectKind::DupOutput,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3174,6 +3113,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::Output,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3187,6 +3127,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::Append,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3200,6 +3141,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(src_fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupOutput,
                         span: operator_span,
                         target: Word::literal(dst_fd.to_string()),
@@ -3207,12 +3149,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::DupInput) => {
                     let operator_span = self.current_span;
-                    let fd_var = Self::pop_fd_var(&mut words);
+                    let (fd_var, fd_var_span) = Self::pop_fd_var(&mut words);
                     self.advance();
                     let target = self.expect_word()?;
                     redirects.push(Redirect {
                         fd: if fd_var.is_some() { None } else { Some(0) },
                         fd_var,
+                        fd_var_span,
                         kind: RedirectKind::DupInput,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3226,6 +3169,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(src_fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupInput,
                         span: operator_span,
                         target: Word::literal(dst_fd.to_string()),
@@ -3238,6 +3182,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::DupInput,
                         span: operator_span,
                         target: Word::literal("-"),
@@ -3251,6 +3196,7 @@ impl<'a> Parser<'a> {
                     redirects.push(Redirect {
                         fd: Some(fd),
                         fd_var: None,
+                        fd_var_span: None,
                         kind: RedirectKind::Input,
                         span: Self::redirect_span(operator_span, &target),
                         target,
@@ -3537,9 +3483,9 @@ impl<'a> Parser<'a> {
                         Self::consume_word_char_if(&mut chars, &mut cursor, ']');
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                         let part = if index == "@" || index == "*" {
-                            WordPart::ArrayLength(var_name)
+                            WordPart::ArrayLength(var_name.into())
                         } else {
-                            WordPart::Length(format!("{}[{}]", var_name, index))
+                            WordPart::Length(format!("{}[{}]", var_name, index).into())
                         };
                         Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
                     } else {
@@ -3547,7 +3493,7 @@ impl<'a> Parser<'a> {
                         Self::push_word_part(
                             &mut parts,
                             &mut part_spans,
-                            WordPart::Length(var_name),
+                            WordPart::Length(var_name.into()),
                             part_start,
                             cursor,
                         );
@@ -3566,9 +3512,9 @@ impl<'a> Parser<'a> {
                         Self::consume_word_char_if(&mut chars, &mut cursor, ']');
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                         let part = if index == "@" || index == "*" {
-                            WordPart::ArrayIndices(var_name)
+                            WordPart::ArrayIndices(var_name.into())
                         } else {
-                            WordPart::Variable(format!("!{}[{}]", var_name, index))
+                            WordPart::Variable(format!("!{}[{}]", var_name, index).into())
                         };
                         Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
                     } else if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
@@ -3576,7 +3522,7 @@ impl<'a> Parser<'a> {
                             &mut parts,
                             &mut part_spans,
                             WordPart::IndirectExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator: None,
                                 operand: String::new(),
                                 colon_variant: false,
@@ -3599,7 +3545,7 @@ impl<'a> Parser<'a> {
                                 &mut parts,
                                 &mut part_spans,
                                 WordPart::IndirectExpansion {
-                                    name: var_name,
+                                    name: var_name.into(),
                                     operator: Some(operator),
                                     operand,
                                     colon_variant: true,
@@ -3619,7 +3565,7 @@ impl<'a> Parser<'a> {
                             Self::push_word_part(
                                 &mut parts,
                                 &mut part_spans,
-                                WordPart::Variable(format!("!{}{}", var_name, suffix)),
+                                WordPart::Variable(format!("!{}{}", var_name, suffix).into()),
                                 part_start,
                                 cursor,
                             );
@@ -3641,7 +3587,7 @@ impl<'a> Parser<'a> {
                             &mut parts,
                             &mut part_spans,
                             WordPart::IndirectExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator: Some(operator),
                                 operand,
                                 colon_variant: false,
@@ -3659,13 +3605,11 @@ impl<'a> Parser<'a> {
                             suffix.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
                         }
                         let part = if suffix.ends_with('*') || suffix.ends_with('@') {
-                            WordPart::PrefixMatch(format!(
-                                "{}{}",
-                                var_name,
-                                &suffix[..suffix.len() - 1]
-                            ))
+                            WordPart::PrefixMatch(
+                                format!("{}{}", var_name, &suffix[..suffix.len() - 1]).into(),
+                            )
                         } else {
-                            WordPart::Variable(format!("!{}{}", var_name, suffix))
+                            WordPart::Variable(format!("!{}{}", var_name, suffix).into())
                         };
                         Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
                     }
@@ -3746,7 +3690,7 @@ impl<'a> Parser<'a> {
                                     _ => unreachable!(),
                                 };
                                 WordPart::ParameterExpansion {
-                                    name: arr_name,
+                                    name: arr_name.into(),
                                     operator,
                                     operand,
                                     colon_variant: true,
@@ -3766,7 +3710,7 @@ impl<'a> Parser<'a> {
                                     };
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 WordPart::ArraySlice {
-                                    name: var_name,
+                                    name: var_name.into(),
                                     offset,
                                     length,
                                 }
@@ -3783,7 +3727,7 @@ impl<'a> Parser<'a> {
                                 _ => unreachable!(),
                             };
                             WordPart::ParameterExpansion {
-                                name: arr_name,
+                                name: arr_name.into(),
                                 operator,
                                 operand,
                                 colon_variant: false,
@@ -3791,13 +3735,13 @@ impl<'a> Parser<'a> {
                         } else {
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             WordPart::ArrayAccess {
-                                name: var_name,
+                                name: var_name.into(),
                                 index,
                             }
                         }
                     } else {
                         WordPart::ArrayAccess {
-                            name: var_name,
+                            name: var_name.into(),
                             index,
                         }
                     };
@@ -3824,7 +3768,7 @@ impl<'a> Parser<'a> {
                                         _ => unreachable!(),
                                     };
                                     WordPart::ParameterExpansion {
-                                        name: var_name,
+                                        name: var_name.into(),
                                         operator,
                                         operand,
                                         colon_variant: true,
@@ -3848,7 +3792,7 @@ impl<'a> Parser<'a> {
                                         };
                                     Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                     WordPart::Substring {
-                                        name: var_name,
+                                        name: var_name.into(),
                                         offset,
                                         length,
                                     }
@@ -3866,7 +3810,7 @@ impl<'a> Parser<'a> {
                                 _ => unreachable!(),
                             };
                             WordPart::ParameterExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator,
                                 operand,
                                 colon_variant: false,
@@ -3882,7 +3826,7 @@ impl<'a> Parser<'a> {
                                 };
                             let operand = self.read_brace_operand(&mut chars, &mut cursor);
                             WordPart::ParameterExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator,
                                 operand,
                                 colon_variant: false,
@@ -3898,7 +3842,7 @@ impl<'a> Parser<'a> {
                                 };
                             let operand = self.read_brace_operand(&mut chars, &mut cursor);
                             WordPart::ParameterExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator,
                                 operand,
                                 colon_variant: false,
@@ -3948,7 +3892,7 @@ impl<'a> Parser<'a> {
                                 }
                             };
                             WordPart::ParameterExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator,
                                 operand: String::new(),
                                 colon_variant: false,
@@ -3964,7 +3908,7 @@ impl<'a> Parser<'a> {
                                 };
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             WordPart::ParameterExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator,
                                 operand: String::new(),
                                 colon_variant: false,
@@ -3980,7 +3924,7 @@ impl<'a> Parser<'a> {
                                 };
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             WordPart::ParameterExpansion {
-                                name: var_name,
+                                name: var_name.into(),
                                 operator,
                                 operand: String::new(),
                                 colon_variant: false,
@@ -3992,17 +3936,17 @@ impl<'a> Parser<'a> {
                                 let operator = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 WordPart::Transformation {
-                                    name: var_name,
+                                    name: var_name.into(),
                                     operator,
                                 }
                             } else {
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                WordPart::Variable(var_name)
+                                WordPart::Variable(var_name.into())
                             }
                         }
                         '}' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            WordPart::Variable(var_name)
+                            WordPart::Variable(var_name.into())
                         }
                         _ => {
                             while let Some(&next) = chars.peek() {
@@ -4011,11 +3955,11 @@ impl<'a> Parser<'a> {
                                     break;
                                 }
                             }
-                            WordPart::Variable(var_name)
+                            WordPart::Variable(var_name.into())
                         }
                     }
                 } else {
-                    WordPart::Variable(var_name)
+                    WordPart::Variable(var_name.into())
                 };
 
                 Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
@@ -4029,7 +3973,7 @@ impl<'a> Parser<'a> {
                     Self::push_word_part(
                         &mut parts,
                         &mut part_spans,
-                        WordPart::Variable(name),
+                        WordPart::Variable(name.into()),
                         part_start,
                         cursor,
                     );
@@ -4042,7 +3986,7 @@ impl<'a> Parser<'a> {
                         Self::push_word_part(
                             &mut parts,
                             &mut part_spans,
-                            WordPart::Variable(var_name),
+                            WordPart::Variable(var_name.into()),
                             part_start,
                             cursor,
                         );
@@ -4566,6 +4510,94 @@ mod tests {
             &input[word.part_spans[0].start.offset..word.part_spans[0].end.offset],
             "${arr[$RANDOM % ${#arr[@]}]}"
         );
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_preserves_exact_spans() {
+        let input = "(( 1 +\n 2 <= 3 ))\n";
+        let script = Parser::new(input).parse().unwrap();
+
+        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+        assert_eq!(command.expr_span.unwrap().slice(input), " 1 +\n 2 <= 3 ");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_preserves_header_spans() {
+        let input = "for (( i = 0 ; i < 10 ; i += 2 )); do echo \"$i\"; done\n";
+        let script = Parser::new(input).parse().unwrap();
+
+        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.init_span.unwrap().slice(input), " i = 0 ");
+        assert_eq!(command.first_semicolon_span.slice(input), ";");
+        assert_eq!(command.condition_span.unwrap().slice(input), " i < 10 ");
+        assert_eq!(command.second_semicolon_span.slice(input), ";");
+        assert_eq!(command.step_span.unwrap().slice(input), " i += 2 ");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+    }
+
+    #[test]
+    fn test_identifier_spans_track_function_loop_assignment_and_fd_var_names() {
+        let input = "\
+my_fn() { true; }
+for item in a; do echo \"$item\"; done
+select choice in a; do echo \"$choice\"; done
+foo[10]=bar
+exec {myfd}>&-
+coproc worker { true; }
+";
+        let script = Parser::new(input).parse().unwrap();
+
+        let Command::Function(function) = &script.commands[0] else {
+            panic!("expected function definition");
+        };
+        assert_eq!(function.name_span.slice(input), "my_fn");
+
+        let Command::Compound(CompoundCommand::For(command), _) = &script.commands[1] else {
+            panic!("expected for loop");
+        };
+        assert_eq!(command.variable_span.slice(input), "item");
+
+        let Command::Compound(CompoundCommand::Select(command), _) = &script.commands[2] else {
+            panic!("expected select loop");
+        };
+        assert_eq!(command.variable_span.slice(input), "choice");
+
+        let Command::Simple(command) = &script.commands[3] else {
+            panic!("expected assignment-only simple command");
+        };
+        assert_eq!(command.assignments[0].name_span.slice(input), "foo");
+        assert_eq!(
+            command.assignments[0].index_span.unwrap().slice(input),
+            "10"
+        );
+
+        let Command::Simple(command) = &script.commands[4] else {
+            panic!("expected exec simple command");
+        };
+        assert_eq!(
+            command.redirects[0].fd_var_span.unwrap().slice(input),
+            "myfd"
+        );
+
+        let Command::Compound(CompoundCommand::Coproc(command), _) = &script.commands[5] else {
+            panic!("expected coproc command");
+        };
+        assert_eq!(command.name_span.unwrap().slice(input), "worker");
     }
 
     #[test]
