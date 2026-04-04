@@ -1,0 +1,18 @@
+[package]
+name = "shuck-ast-printer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { version = "1", features = ["preserve_order"] }
+shuck-ast = { path = "../shuck-ast" }
+
+[dev-dependencies]
+shuck-parser = { path = "../shuck-parser" }
