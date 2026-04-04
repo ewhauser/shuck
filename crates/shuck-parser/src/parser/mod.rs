@@ -8,7 +8,7 @@
 
 mod lexer;
 
-pub use lexer::{Lexer, SpannedToken};
+pub use lexer::{HeredocRead, Lexer, SpannedToken};
 
 use shuck_ast::{
     ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,
@@ -118,7 +118,9 @@ impl<'a> Parser<'a> {
         let (current_token, current_span) = loop {
             match lexer.next_spanned_token_with_comments() {
                 Some(st) if matches!(st.token, Token::Comment(_)) => {
-                    comments.push(Comment { range: st.span.to_range() });
+                    comments.push(Comment {
+                        range: st.span.to_range(),
+                    });
                 }
                 Some(st) => break (Some(st.token), st.span),
                 None => break (None, Span::new()),
@@ -146,7 +148,7 @@ impl<'a> Parser<'a> {
     /// Parse a string as a word (handling $var, $((expr)), ${...}, etc.).
     /// Used by the interpreter to expand operands in parameter expansions lazily.
     pub fn parse_word_string(input: &str) -> Word {
-        let parser = Parser::new(input);
+        let mut parser = Parser::new(input);
         let start = Position::new();
         parser.parse_word_with_context(
             input.to_string(),
@@ -158,7 +160,7 @@ impl<'a> Parser<'a> {
     /// Parse a word string with caller-configured limits.
     /// Prevents bypass of parser limits in parameter expansion contexts.
     pub fn parse_word_string_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {
-        let parser = Parser::with_limits(input, max_depth, max_fuel);
+        let mut parser = Parser::with_limits(input, max_depth, max_fuel);
         let start = Position::new();
         parser.parse_word_with_context(
             input.to_string(),
@@ -167,7 +169,7 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn word_from_token(&self, token: &Token, span: Span) -> Option<Word> {
+    fn word_from_token(&mut self, token: &Token, span: Span) -> Option<Word> {
         match token {
             Token::Word(w) => Some(self.parse_word_with_context(w.clone(), span, span.start)),
             Token::QuotedWord(w) => {
@@ -181,10 +183,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn current_word_to_word(&self) -> Option<Word> {
-        self.current_token
-            .as_ref()
-            .and_then(|token| self.word_from_token(token, self.current_span))
+    fn current_word_to_word(&mut self) -> Option<Word> {
+        let token = self.current_token.clone()?;
+        self.word_from_token(&token, self.current_span)
     }
 
     fn current_name_token(&self) -> Option<(Name, Span)> {
@@ -213,7 +214,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn nested_commands_from_current_input(&mut self, start: Position, end: Position) -> Vec<Command> {
+    fn nested_commands_from_current_input(
+        &mut self,
+        start: Position,
+        end: Position,
+    ) -> Vec<Command> {
         if start.offset > end.offset || end.offset > self.input.len() {
             return Vec::new();
         }
@@ -470,8 +475,7 @@ impl<'a> Parser<'a> {
                 | WordPart::ArrayLength(_)
                 | WordPart::ArrayIndices(_)
                 | WordPart::PrefixMatch(_)
-                | WordPart::Transformation { .. }
-                    => {}
+                | WordPart::Transformation { .. } => {}
                 WordPart::CommandSubstitution(commands)
                 | WordPart::ProcessSubstitution { commands, .. } => {
                     Self::rebase_commands(commands, base);
@@ -855,7 +859,9 @@ impl<'a> Parser<'a> {
             loop {
                 match self.lexer.next_spanned_token_with_comments() {
                     Some(st) if matches!(st.token, Token::Comment(_)) => {
-                        self.comments.push(Comment { range: st.span.to_range() });
+                        self.comments.push(Comment {
+                            range: st.span.to_range(),
+                        });
                     }
                     Some(st) => {
                         self.current_token = Some(st.token);
@@ -878,7 +884,9 @@ impl<'a> Parser<'a> {
             loop {
                 match self.lexer.next_spanned_token_with_comments() {
                     Some(st) if matches!(st.token, Token::Comment(_)) => {
-                        self.comments.push(Comment { range: st.span.to_range() });
+                        self.comments.push(Comment {
+                            range: st.span.to_range(),
+                        });
                     }
                     other => {
                         self.peeked_token = other;
@@ -1228,12 +1236,14 @@ impl<'a> Parser<'a> {
                         Some(Token::QuotedWord(w)) => (w.clone(), true),
                         _ => break,
                     };
-                    let content = self.lexer.read_heredoc(&delimiter);
+                    let heredoc = self.lexer.read_heredoc(&delimiter);
+                    let content_span = heredoc.content_span;
+                    let content = heredoc.content;
                     let content = if strip_tabs {
                         let had_trailing_newline = content.ends_with('\n');
                         let mut stripped: String = content
                             .lines()
-                            .map(|l| l.trim_start_matches('\t'))
+                            .map(|l: &str| l.trim_start_matches('\t'))
                             .collect::<Vec<_>>()
                             .join("\n");
                         if had_trailing_newline {
@@ -1245,9 +1255,9 @@ impl<'a> Parser<'a> {
                     };
                     self.advance();
                     let target = if quoted {
-                        Word::quoted_literal(content)
+                        Word::quoted_literal_with_span(content, content_span)
                     } else {
-                        self.parse_word(content)
+                        self.parse_word_with_context(content, content_span, content_span.start)
                     };
                     let kind = if strip_tabs {
                         RedirectKind::HereDocStrip
@@ -1301,7 +1311,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn classify_simple_command(&self, command: SimpleCommand) -> Command {
+    fn classify_simple_command(&mut self, command: SimpleCommand) -> Command {
         let kind = self.classify_flow_control_name(&command.name);
 
         if let Some(kind) = kind {
@@ -2791,7 +2801,7 @@ impl<'a> Parser<'a> {
         (elements, closing_span)
     }
 
-    fn parse_array_words_from_text(&self, inner: &str, base: Position) -> Vec<Word> {
+    fn parse_array_words_from_text(&mut self, inner: &str, base: Position) -> Vec<Word> {
         let mut lexer =
             Lexer::with_max_subst_depth(inner, self.max_depth.saturating_sub(self.current_depth));
         let mut elements = Vec::new();
@@ -2811,7 +2821,7 @@ impl<'a> Parser<'a> {
         elements
     }
 
-    fn parse_assignment_from_text(&self, w: &str, assignment_span: Span) -> Option<Assignment> {
+    fn parse_assignment_from_text(&mut self, w: &str, assignment_span: Span) -> Option<Assignment> {
         let (name, index, value, is_append) = Self::is_assignment(w)?;
         let name_span = Span::from_positions(
             assignment_span.start,
@@ -2829,9 +2839,9 @@ impl<'a> Parser<'a> {
         let value_start = assignment_span.start.advanced_by(&w[..value_start_offset]);
         let value_span = Span::from_positions(value_start, assignment_span.end);
         let name = Name::from(name);
-        let index = index.zip(index_span).map(|(index, span)| {
-            self.source_text(index.to_string(), span.start, span.end)
-        });
+        let index = index
+            .zip(index_span)
+            .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
         let value_str = value.to_string();
 
         let value = if value_str.starts_with('(') && value_str.ends_with(')') {
@@ -2952,7 +2962,7 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn classify_decl_operand(&self, word: Word) -> DeclOperand {
+    fn classify_decl_operand(&mut self, word: Word) -> DeclOperand {
         let raw = self.word_source_text(&word);
 
         if Self::is_literal_flag_word(&word, &raw) {
@@ -3101,7 +3111,9 @@ impl<'a> Parser<'a> {
             _ => return Err(Error::parse("expected delimiter after <<".to_string())),
         };
 
-        let content = self.lexer.read_heredoc(&delimiter);
+        let heredoc = self.lexer.read_heredoc(&delimiter);
+        let content_span = heredoc.content_span;
+        let content = heredoc.content;
 
         // Strip leading tabs for <<-
         let content = if strip_tabs {
@@ -3120,9 +3132,9 @@ impl<'a> Parser<'a> {
         };
 
         let target = if quoted {
-            Word::quoted_literal(content)
+            Word::quoted_literal_with_span(content, content_span)
         } else {
-            self.parse_word(content)
+            self.parse_word_with_context(content, content_span, content_span.start)
         };
 
         let kind = if strip_tabs {
@@ -3665,11 +3677,11 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a word string into a Word with proper parts (variables, literals)
-    fn parse_word(&self, s: String) -> Word {
+    fn parse_word(&mut self, s: String) -> Word {
         self.parse_word_with_context(s, Span::new(), Position::new())
     }
 
-    fn parse_word_with_context(&self, s: String, span: Span, base: Position) -> Word {
+    fn parse_word_with_context(&mut self, s: String, span: Span, base: Position) -> Word {
         let mut parts = Vec::new();
         let mut part_spans = Vec::new();
         let mut chars = s.chars().peekable();
@@ -3773,9 +3785,11 @@ impl<'a> Parser<'a> {
                     Self::push_word_part(
                         &mut parts,
                         &mut part_spans,
-                        WordPart::ArithmeticExpansion(
-                            self.source_text(expr.clone(), expr_start, expr_start.advanced_by(&expr)),
-                        ),
+                        WordPart::ArithmeticExpansion(self.source_text(
+                            expr.clone(),
+                            expr_start,
+                            expr_start.advanced_by(&expr),
+                        )),
                         part_start,
                         cursor,
                     );
@@ -4023,8 +4037,7 @@ impl<'a> Parser<'a> {
                             );
                             if is_param_op {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                                let arr_name =
-                                    format!("{}[{}]", var_name, index.slice(self.input));
+                                let arr_name = format!("{}[{}]", var_name, index.slice(self.input));
                                 let op_char = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 let operand = self.read_brace_operand(&mut chars, &mut cursor);
                                 let operator = match op_char {
@@ -4042,11 +4055,10 @@ impl<'a> Parser<'a> {
                                 }
                             } else {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                                let offset = self.read_source_text_while(
-                                    &mut chars,
-                                    &mut cursor,
-                                    |c| c != ':' && c != '}',
-                                );
+                                let offset =
+                                    self.read_source_text_while(&mut chars, &mut cursor, |c| {
+                                        c != ':' && c != '}'
+                                    });
                                 let length =
                                     if Self::consume_word_char_if(&mut chars, &mut cursor, ':') {
                                         Some(self.read_source_text_while(
@@ -4231,11 +4243,9 @@ impl<'a> Parser<'a> {
                             let pattern = self.source_text(pattern, pattern_start, pattern_end);
                             let replacement =
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
-                                    self.read_source_text_while(
-                                        &mut chars,
-                                        &mut cursor,
-                                        |ch| ch != '}',
-                                    )
+                                    self.read_source_text_while(&mut chars, &mut cursor, |ch| {
+                                        ch != '}'
+                                    })
                                 } else {
                                     self.empty_source_text(cursor)
                                 };
@@ -4677,6 +4687,21 @@ mod tests {
     }
 
     #[test]
+    fn test_heredoc_target_preserves_body_span() {
+        let input = "cat <<'EOF'\nhello $name\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.redirects.len(), 1);
+
+        let redirect = &command.redirects[0];
+        assert_eq!(redirect.target.span.slice(input), "hello $name\n");
+        assert!(redirect.target.quoted);
+    }
+
+    #[test]
     fn test_empty_function_body_rejected() {
         let parser = Parser::new("f() { }");
         assert!(
@@ -4797,7 +4822,10 @@ mod tests {
 
     #[test]
     fn test_leaf_spans_track_words_assignments_and_redirects() {
-        let script = Parser::new("foo=bar echo hi > out\n").parse().unwrap().script;
+        let script = Parser::new("foo=bar echo hi > out\n")
+            .parse()
+            .unwrap()
+            .script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -4965,7 +4993,10 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_builds_structured_logical_ast() {
-        let script = Parser::new("[[ ! (foo && bar) ]]\n").parse().unwrap().script;
+        let script = Parser::new("[[ ! (foo && bar) ]]\n")
+            .parse()
+            .unwrap()
+            .script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -4992,7 +5023,10 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_pattern_rhs_preserves_structure() {
-        let script = Parser::new("[[ foo == (bar|baz)* ]]\n").parse().unwrap().script;
+        let script = Parser::new("[[ foo == (bar|baz)* ]]\n")
+            .parse()
+            .unwrap()
+            .script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -5012,7 +5046,10 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_regex_rhs_preserves_structure() {
-        let script = Parser::new("[[ foo =~ [ab](c|d) ]]\n").parse().unwrap().script;
+        let script = Parser::new("[[ foo =~ [ab](c|d) ]]\n")
+            .parse()
+            .unwrap()
+            .script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -5121,7 +5158,10 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_export_uses_dynamic_operand_for_invalid_assignment() {
-        let script = Parser::new("export foo-bar=(one two)\n").parse().unwrap().script;
+        let script = Parser::new("export foo-bar=(one two)\n")
+            .parse()
+            .unwrap()
+            .script;
 
         let Command::Decl(command) = &script.commands[0] else {
             panic!("expected declaration clause");

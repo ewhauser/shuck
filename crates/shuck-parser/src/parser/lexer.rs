@@ -13,6 +13,13 @@ pub struct SpannedToken {
     pub span: Span,
 }
 
+/// Result of reading a heredoc body from the source.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeredocRead {
+    pub content: String,
+    pub content_span: Span,
+}
+
 /// Maximum nesting depth for command substitution in the lexer.
 /// Prevents stack overflow from deeply nested $() patterns.
 const DEFAULT_MAX_SUBST_DEPTH: usize = 50;
@@ -1688,7 +1695,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Read here document content until the delimiter line is found
-    pub fn read_heredoc(&mut self, delimiter: &str) -> String {
+    pub fn read_heredoc(&mut self, delimiter: &str) -> HeredocRead {
         let mut content = String::new();
         let mut current_line = String::new();
 
@@ -1722,6 +1729,10 @@ impl<'a> Lexer<'a> {
             rest_of_line.push(ch);
         }
 
+        let content_start = self.position;
+        let mut current_line_start = self.position;
+        let content_end;
+
         // Read lines until we find the delimiter
         loop {
             match self.peek_char() {
@@ -1729,11 +1740,13 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     // Check if current line matches delimiter
                     if current_line.trim() == delimiter {
+                        content_end = current_line_start;
                         break;
                     }
                     content.push_str(&current_line);
                     content.push('\n');
                     current_line.clear();
+                    current_line_start = self.position;
                 }
                 Some(ch) => {
                     current_line.push(ch);
@@ -1742,11 +1755,13 @@ impl<'a> Lexer<'a> {
                 None => {
                     // End of input - check last line
                     if current_line.trim() == delimiter {
+                        content_end = current_line_start;
                         break;
                     }
                     if !current_line.is_empty() {
                         content.push_str(&current_line);
                     }
+                    content_end = self.position;
                     break;
                 }
             }
@@ -1761,7 +1776,10 @@ impl<'a> Lexer<'a> {
             self.reinject_buf.push_back('\n');
         }
 
-        content
+        HeredocRead {
+            content,
+            content_span: Span::from_positions(content_start, content_end),
+        }
     }
 }
 
@@ -1927,14 +1945,14 @@ mod tests {
         // Simulate state after reading "cat <<EOF" - positioned at newline before content
         let mut lexer = Lexer::new("\nhello\nworld\nEOF");
         let content = lexer.read_heredoc("EOF");
-        assert_eq!(content, "hello\nworld\n");
+        assert_eq!(content.content, "hello\nworld\n");
     }
 
     #[test]
     fn test_read_heredoc_single_line() {
         let mut lexer = Lexer::new("\ntest\nEOF");
         let content = lexer.read_heredoc("EOF");
-        assert_eq!(content, "test\n");
+        assert_eq!(content.content, "test\n");
     }
 
     #[test]
@@ -1949,7 +1967,7 @@ mod tests {
 
         // Now read heredoc content
         let content = lexer.read_heredoc("EOF");
-        assert_eq!(content, "hello\nworld\n");
+        assert_eq!(content.content, "hello\nworld\n");
     }
 
     #[test]
@@ -1960,7 +1978,7 @@ mod tests {
         assert_eq!(lexer.next_token(), Some(Token::HereDoc));
         assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
         let content = lexer.read_heredoc("EOF");
-        assert_eq!(content, "hello\n");
+        assert_eq!(content.content, "hello\n");
         // The redirect tokens are now available from the lexer
         assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
         assert_eq!(

@@ -1,0 +1,12 @@
+[package]
+name = "shuck-indexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Positional and structural indexes over parsed shell scripts"
+
+[dependencies]
+shuck-ast = { path = "../shuck-ast" }
+shuck-parser = { path = "../shuck-parser" }
