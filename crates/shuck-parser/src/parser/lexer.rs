@@ -14,7 +14,7 @@ pub struct SpannedToken {
 }
 
 /// Maximum nesting depth for command substitution in the lexer.
-/// THREAT[TM-DOS-044]: Prevents stack overflow from deeply nested $() patterns.
+/// Prevents stack overflow from deeply nested $() patterns.
 const DEFAULT_MAX_SUBST_DEPTH: usize = 50;
 
 /// Lexer for bash scripts.
@@ -38,7 +38,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Create a new lexer with a custom max substitution nesting depth.
-    /// THREAT[TM-DOS-044]: Limits recursion in read_command_subst_into().
+    /// Limits recursion in read_command_subst_into().
     pub fn with_max_subst_depth(input: &'a str, max_depth: usize) -> Self {
         Self {
             input,
@@ -719,7 +719,7 @@ impl<'a> Lexer<'a> {
                             }
                         }
                     } else {
-                        // THREAT[TM-DOS]: Track substitution nesting depth to
+                        // Track substitution nesting depth to
                         // enforce max_subst_depth consistently in both quoted
                         // and unquoted contexts (issue #996).
                         let mut depth = 1;
@@ -1282,7 +1282,7 @@ impl<'a> Lexer<'a> {
 
     /// Read command substitution content after `$(`, handling nested parens and quotes.
     /// Appends chars to `content` and adds the closing `)`.
-    /// THREAT[TM-DOS-044]: `subst_depth` tracks nesting to prevent stack overflow.
+    /// `subst_depth` tracks nesting to prevent stack overflow.
     fn read_command_subst_into(&mut self, content: &mut String) {
         self.read_command_subst_into_depth(content, 0);
     }
@@ -1472,7 +1472,7 @@ impl<'a> Lexer<'a> {
     /// Check if the content starting with { looks like a brace expansion
     /// Brace expansion: {a,b,c} or {1..5} (contains , or ..)
     /// Brace group: { cmd; } (contains spaces, semicolons, newlines)
-    /// THREAT[TM-DOS]: Caps lookahead to prevent O(n^2) scanning when input
+    /// Caps lookahead to prevent O(n^2) scanning when input
     /// contains many unmatched `{` characters (issue #997).
     fn looks_like_brace_expansion(&self) -> bool {
         const MAX_LOOKAHEAD: usize = 10_000;

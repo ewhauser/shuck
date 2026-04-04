@@ -1,7 +1,7 @@
 //! Fuzz target for glob/pathname expansion
 //!
 //! Tests glob pattern matching and expansion to find:
-//! - Exponential blowup with pathological patterns (TM-DOS-031)
+//! - Exponential blowup with pathological patterns
 //! - Stack overflow with deeply nested extglob operators
 //! - Panics on malformed bracket expressions
 //! - Resource exhaustion from recursive globstar patterns

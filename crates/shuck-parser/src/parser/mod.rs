@@ -23,7 +23,7 @@ use crate::error::{Error, Result};
 const DEFAULT_MAX_AST_DEPTH: usize = 100;
 
 /// Hard cap on AST depth to prevent stack overflow even if caller misconfigures limits.
-/// THREAT[TM-DOS-022]: Protects against deeply nested input attacks where
+/// Protects against deeply nested input attacks where
 /// a large max_depth setting allows recursion deep enough to overflow the native stack.
 /// This cap cannot be overridden by the caller.
 ///
@@ -87,7 +87,7 @@ impl<'a> Parser<'a> {
 
     /// Create a new parser with custom depth and fuel limits.
     ///
-    /// THREAT[TM-DOS-022]: `max_depth` is clamped to `HARD_MAX_AST_DEPTH` (500)
+    /// `max_depth` is clamped to `HARD_MAX_AST_DEPTH` (500)
     /// to prevent stack overflow from misconfiguration. Even if the caller passes
     /// `max_depth = 1_000_000`, the parser will cap it at 500.
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
@@ -127,7 +127,7 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// THREAT[TM-DOS-050]: Parse a word string with caller-configured limits.
+    /// Parse a word string with caller-configured limits.
     /// Prevents bypass of parser limits in parameter expansion contexts.
     pub fn parse_word_string_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {
         let parser = Parser::with_limits(input, max_depth, max_fuel);
