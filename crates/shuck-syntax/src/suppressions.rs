@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use shuck_ast::{
-    Assignment, AssignmentValue, CaseItem, Command, CompoundCommand, Script, Span, Word, WordPart,
+    Assignment, AssignmentValue, BuiltinCommand, CaseItem, Command, CompoundCommand, Script, Span,
+    Word, WordPart,
 };
 
 use crate::{
@@ -314,6 +315,7 @@ fn collect_command_ranges_from_command(command: &Command, ranges: &mut Vec<Comma
 
     match command {
         Command::Simple(command) => collect_command_ranges_from_simple(command, ranges),
+        Command::Builtin(command) => collect_command_ranges_from_builtin(command, ranges),
         Command::Pipeline(pipeline) => {
             for command in &pipeline.commands {
                 collect_command_ranges_from_command(command, ranges);
@@ -333,6 +335,70 @@ fn collect_command_ranges_from_command(command: &Command, ranges: &mut Vec<Comma
         }
         Command::Function(function) => {
             collect_command_ranges_from_command(&function.body, ranges);
+        }
+    }
+}
+
+fn collect_command_ranges_from_builtin(
+    command: &BuiltinCommand,
+    ranges: &mut Vec<CommandLineRange>,
+) {
+    match command {
+        BuiltinCommand::Break(command) => {
+            if let Some(depth) = &command.depth {
+                collect_command_ranges_from_word(depth, ranges);
+            }
+            for word in &command.extra_args {
+                collect_command_ranges_from_word(word, ranges);
+            }
+            for redirect in &command.redirects {
+                collect_command_ranges_from_word(&redirect.target, ranges);
+            }
+            for assignment in &command.assignments {
+                collect_command_ranges_from_assignment(assignment, ranges);
+            }
+        }
+        BuiltinCommand::Continue(command) => {
+            if let Some(depth) = &command.depth {
+                collect_command_ranges_from_word(depth, ranges);
+            }
+            for word in &command.extra_args {
+                collect_command_ranges_from_word(word, ranges);
+            }
+            for redirect in &command.redirects {
+                collect_command_ranges_from_word(&redirect.target, ranges);
+            }
+            for assignment in &command.assignments {
+                collect_command_ranges_from_assignment(assignment, ranges);
+            }
+        }
+        BuiltinCommand::Return(command) => {
+            if let Some(code) = &command.code {
+                collect_command_ranges_from_word(code, ranges);
+            }
+            for word in &command.extra_args {
+                collect_command_ranges_from_word(word, ranges);
+            }
+            for redirect in &command.redirects {
+                collect_command_ranges_from_word(&redirect.target, ranges);
+            }
+            for assignment in &command.assignments {
+                collect_command_ranges_from_assignment(assignment, ranges);
+            }
+        }
+        BuiltinCommand::Exit(command) => {
+            if let Some(code) = &command.code {
+                collect_command_ranges_from_word(code, ranges);
+            }
+            for word in &command.extra_args {
+                collect_command_ranges_from_word(word, ranges);
+            }
+            for redirect in &command.redirects {
+                collect_command_ranges_from_word(&redirect.target, ranges);
+            }
+            for assignment in &command.assignments {
+                collect_command_ranges_from_assignment(assignment, ranges);
+            }
         }
     }
 }
@@ -486,10 +552,20 @@ fn collect_command_ranges_from_word(word: &Word, ranges: &mut Vec<CommandLineRan
 fn command_line_range(command: &Command) -> Option<CommandLineRange> {
     match command {
         Command::Simple(command) => span_line_range(command.span),
+        Command::Builtin(command) => builtin_line_range(command),
         Command::Pipeline(command) => span_line_range(command.span),
         Command::List(command) => span_line_range(command.span),
         Command::Compound(compound, _) => compound_line_range(compound),
         Command::Function(command) => span_line_range(command.span),
+    }
+}
+
+fn builtin_line_range(command: &BuiltinCommand) -> Option<CommandLineRange> {
+    match command {
+        BuiltinCommand::Break(command) => span_line_range(command.span),
+        BuiltinCommand::Continue(command) => span_line_range(command.span),
+        BuiltinCommand::Return(command) => span_line_range(command.span),
+        BuiltinCommand::Exit(command) => span_line_range(command.span),
     }
 }
 

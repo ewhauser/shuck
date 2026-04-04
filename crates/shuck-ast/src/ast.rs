@@ -22,6 +22,9 @@ pub enum Command {
     /// A simple command (e.g., `echo hello`)
     Simple(SimpleCommand),
 
+    /// A builtin command with a dedicated typed AST node
+    Builtin(BuiltinCommand),
+
     /// A pipeline (e.g., `ls | grep foo`)
     Pipeline(Pipeline),
 
@@ -45,6 +48,79 @@ pub struct SimpleCommand {
     /// Redirections
     pub redirects: Vec<Redirect>,
     /// Variable assignments before the command
+    pub assignments: Vec<Assignment>,
+    /// Source span of this command
+    pub span: Span,
+}
+
+/// Builtin commands with dedicated AST nodes.
+#[derive(Debug, Clone)]
+pub enum BuiltinCommand {
+    /// `break [N]`
+    Break(BreakCommand),
+    /// `continue [N]`
+    Continue(ContinueCommand),
+    /// `return [N]`
+    Return(ReturnCommand),
+    /// `exit [N]`
+    Exit(ExitCommand),
+}
+
+/// `break [N]`
+#[derive(Debug, Clone)]
+pub struct BreakCommand {
+    /// Optional loop depth argument
+    pub depth: Option<Word>,
+    /// Additional operands preserved for fidelity
+    pub extra_args: Vec<Word>,
+    /// Redirections attached to the builtin
+    pub redirects: Vec<Redirect>,
+    /// Variable assignments before the builtin
+    pub assignments: Vec<Assignment>,
+    /// Source span of this command
+    pub span: Span,
+}
+
+/// `continue [N]`
+#[derive(Debug, Clone)]
+pub struct ContinueCommand {
+    /// Optional loop depth argument
+    pub depth: Option<Word>,
+    /// Additional operands preserved for fidelity
+    pub extra_args: Vec<Word>,
+    /// Redirections attached to the builtin
+    pub redirects: Vec<Redirect>,
+    /// Variable assignments before the builtin
+    pub assignments: Vec<Assignment>,
+    /// Source span of this command
+    pub span: Span,
+}
+
+/// `return [N]`
+#[derive(Debug, Clone)]
+pub struct ReturnCommand {
+    /// Optional return code argument
+    pub code: Option<Word>,
+    /// Additional operands preserved for fidelity
+    pub extra_args: Vec<Word>,
+    /// Redirections attached to the builtin
+    pub redirects: Vec<Redirect>,
+    /// Variable assignments before the builtin
+    pub assignments: Vec<Assignment>,
+    /// Source span of this command
+    pub span: Span,
+}
+
+/// `exit [N]`
+#[derive(Debug, Clone)]
+pub struct ExitCommand {
+    /// Optional exit code argument
+    pub code: Option<Word>,
+    /// Additional operands preserved for fidelity
+    pub extra_args: Vec<Word>,
+    /// Redirections attached to the builtin
+    pub redirects: Vec<Redirect>,
+    /// Variable assignments before the builtin
     pub assignments: Vec<Assignment>,
     /// Source span of this command
     pub span: Span,
@@ -930,6 +1006,58 @@ mod tests {
         assert!(!cmd.assignments[0].append);
     }
 
+    // --- BuiltinCommand ---
+
+    #[test]
+    fn builtin_break_command_construction() {
+        let cmd = BuiltinCommand::Break(BreakCommand {
+            depth: Some(Word::literal("2")),
+            extra_args: vec![Word::literal("extra")],
+            redirects: vec![],
+            assignments: vec![],
+            span: Span::new(),
+        });
+
+        if let BuiltinCommand::Break(command) = &cmd {
+            assert_eq!(command.depth.as_ref().unwrap().to_string(), "2");
+            assert_eq!(command.extra_args.len(), 1);
+            assert_eq!(command.extra_args[0].to_string(), "extra");
+        } else {
+            panic!("expected Break builtin");
+        }
+    }
+
+    #[test]
+    fn builtin_return_command_with_redirects_and_assignments() {
+        let cmd = BuiltinCommand::Return(ReturnCommand {
+            code: Some(Word::literal("42")),
+            extra_args: vec![],
+            redirects: vec![Redirect {
+                fd: None,
+                fd_var: None,
+                kind: RedirectKind::Output,
+                span: Span::new(),
+                target: Word::literal("out.txt"),
+            }],
+            assignments: vec![Assignment {
+                name: "FOO".into(),
+                index: None,
+                value: AssignmentValue::Scalar(Word::literal("bar")),
+                append: false,
+                span: Span::new(),
+            }],
+            span: Span::new(),
+        });
+
+        if let BuiltinCommand::Return(command) = &cmd {
+            assert_eq!(command.code.as_ref().unwrap().to_string(), "42");
+            assert_eq!(command.redirects.len(), 1);
+            assert_eq!(command.assignments.len(), 1);
+        } else {
+            panic!("expected Return builtin");
+        }
+    }
+
     // --- Pipeline ---
 
     #[test]
@@ -1205,6 +1333,15 @@ mod tests {
             span: Span::new(),
         });
         assert!(matches!(pipe, Command::Pipeline(_)));
+
+        let builtin = Command::Builtin(BuiltinCommand::Exit(ExitCommand {
+            code: Some(Word::literal("1")),
+            extra_args: vec![],
+            redirects: vec![],
+            assignments: vec![],
+            span: Span::new(),
+        }));
+        assert!(matches!(builtin, Command::Builtin(_)));
 
         let compound = Command::Compound(CompoundCommand::BraceGroup(vec![]), vec![]);
         assert!(matches!(compound, Command::Compound(..)));

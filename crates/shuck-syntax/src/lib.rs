@@ -3,10 +3,10 @@
 mod dialects;
 mod suppressions;
 
-pub use shuck_ast::Script;
 pub use dialects::{
     Dialect, DialectProfile, Grammar, ParseMode, ParseOptions, ParseStrategy, ParseView,
 };
+pub use shuck_ast::Script;
 pub use suppressions::{Suppression, SuppressionIndex, SuppressionKind};
 
 use shuck_ast::{Position, Span, Token};

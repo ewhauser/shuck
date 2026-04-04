@@ -11,9 +11,10 @@ mod lexer;
 pub use lexer::{Lexer, SpannedToken};
 
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, CaseCommand, CaseItem, CaseTerminator,
-    Command, CommandList, CompoundCommand, CoprocCommand, ForCommand, FunctionDef, IfCommand,
-    ListOperator, ParameterOp, Pipeline, Position, Redirect, RedirectKind, Script, SelectCommand,
+    ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand,
+    CaseItem, CaseTerminator, Command, CommandList, CompoundCommand, ContinueCommand,
+    CoprocCommand, ExitCommand, ForCommand, FunctionDef, IfCommand, ListOperator, ParameterOp,
+    Pipeline, Position, Redirect, RedirectKind, ReturnCommand, Script, SelectCommand,
     SimpleCommand, Span, TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
 };
 
@@ -67,6 +68,14 @@ pub struct ParseDiagnostic {
 pub struct RecoveredParse {
     pub script: Script,
     pub diagnostics: Vec<ParseDiagnostic>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FlowControlBuiltinKind {
+    Break,
+    Continue,
+    Return,
+    Exit,
 }
 
 impl<'a> Parser<'a> {
@@ -141,9 +150,7 @@ impl<'a> Parser<'a> {
 
     fn word_from_token(&self, token: &Token, span: Span) -> Option<Word> {
         match token {
-            Token::Word(w) => {
-                Some(self.parse_word_with_context(w.clone(), span, span.start))
-            }
+            Token::Word(w) => Some(self.parse_word_with_context(w.clone(), span, span.start)),
             Token::QuotedWord(w) => {
                 let mut word =
                     self.parse_word_with_context(w.clone(), span, span.start.advanced_by("\""));
@@ -208,6 +215,9 @@ impl<'a> Parser<'a> {
                 Self::rebase_redirects(&mut simple.redirects, base);
                 Self::rebase_assignments(&mut simple.assignments, base);
             }
+            Command::Builtin(builtin) => {
+                Self::rebase_builtin(builtin, base);
+            }
             Command::Pipeline(pipeline) => {
                 pipeline.span = pipeline.span.rebased(base);
                 Self::rebase_commands(&mut pipeline.commands, base);
@@ -226,6 +236,47 @@ impl<'a> Parser<'a> {
             Command::Function(function) => {
                 function.span = function.span.rebased(base);
                 Self::rebase_command(&mut function.body, base);
+            }
+        }
+    }
+
+    fn rebase_builtin(builtin: &mut BuiltinCommand, base: Position) {
+        match builtin {
+            BuiltinCommand::Break(command) => {
+                command.span = command.span.rebased(base);
+                if let Some(depth) = &mut command.depth {
+                    Self::rebase_word(depth, base);
+                }
+                Self::rebase_words(&mut command.extra_args, base);
+                Self::rebase_redirects(&mut command.redirects, base);
+                Self::rebase_assignments(&mut command.assignments, base);
+            }
+            BuiltinCommand::Continue(command) => {
+                command.span = command.span.rebased(base);
+                if let Some(depth) = &mut command.depth {
+                    Self::rebase_word(depth, base);
+                }
+                Self::rebase_words(&mut command.extra_args, base);
+                Self::rebase_redirects(&mut command.redirects, base);
+                Self::rebase_assignments(&mut command.assignments, base);
+            }
+            BuiltinCommand::Return(command) => {
+                command.span = command.span.rebased(base);
+                if let Some(code) = &mut command.code {
+                    Self::rebase_word(code, base);
+                }
+                Self::rebase_words(&mut command.extra_args, base);
+                Self::rebase_redirects(&mut command.redirects, base);
+                Self::rebase_assignments(&mut command.assignments, base);
+            }
+            BuiltinCommand::Exit(command) => {
+                command.span = command.span.rebased(base);
+                if let Some(code) = &mut command.code {
+                    Self::rebase_word(code, base);
+                }
+                Self::rebase_words(&mut command.extra_args, base);
+                Self::rebase_redirects(&mut command.redirects, base);
+                Self::rebase_assignments(&mut command.assignments, base);
             }
         }
     }
@@ -944,8 +995,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::HereDoc) | Some(Token::HereDocStrip) => {
                     let operator_span = self.current_span;
-                    let strip_tabs =
-                        matches!(self.current_token, Some(Token::HereDocStrip));
+                    let strip_tabs = matches!(self.current_token, Some(Token::HereDocStrip));
                     self.advance();
                     let (delimiter, quoted) = match &self.current_token {
                         Some(Token::Word(w)) => (w.clone(), false),
@@ -1006,6 +1056,79 @@ impl<'a> Parser<'a> {
         Ok(Some(Command::Compound(compound, redirects)))
     }
 
+    fn classify_flow_control_name(word: &Word) -> Option<FlowControlBuiltinKind> {
+        if word.quoted || word.parts.len() != 1 {
+            return None;
+        }
+
+        match &word.parts[0] {
+            WordPart::Literal(name) => match name.as_str() {
+                "break" => Some(FlowControlBuiltinKind::Break),
+                "continue" => Some(FlowControlBuiltinKind::Continue),
+                "return" => Some(FlowControlBuiltinKind::Return),
+                "exit" => Some(FlowControlBuiltinKind::Exit),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn classify_simple_command(command: SimpleCommand) -> Command {
+        let kind = Self::classify_flow_control_name(&command.name);
+
+        if let Some(kind) = kind {
+            let SimpleCommand {
+                args,
+                redirects,
+                assignments,
+                span,
+                ..
+            } = command;
+            let mut args = args.into_iter();
+
+            return match kind {
+                FlowControlBuiltinKind::Break => {
+                    Command::Builtin(BuiltinCommand::Break(BreakCommand {
+                        depth: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+                FlowControlBuiltinKind::Continue => {
+                    Command::Builtin(BuiltinCommand::Continue(ContinueCommand {
+                        depth: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+                FlowControlBuiltinKind::Return => {
+                    Command::Builtin(BuiltinCommand::Return(ReturnCommand {
+                        code: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+                FlowControlBuiltinKind::Exit => {
+                    Command::Builtin(BuiltinCommand::Exit(ExitCommand {
+                        code: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+            };
+        }
+
+        Command::Simple(command)
+    }
+
     /// Parse a single command (simple or compound)
     fn parse_command(&mut self) -> Result<Option<Command>> {
         self.skip_newlines()?;
@@ -1027,9 +1150,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     // Check for POSIX-style function: name() { body }
                     // Don't match if word contains '=' (that's an assignment like arr=(a b c))
-                    if !word.contains('=')
-                        && matches!(self.peek_next(), Some(Token::LeftParen))
-                    {
+                    if !word.contains('=') && matches!(self.peek_next(), Some(Token::LeftParen)) {
                         return self.parse_function_posix().map(Some);
                     }
                 }
@@ -1058,7 +1179,7 @@ impl<'a> Parser<'a> {
 
         // Default to simple command
         match self.parse_simple_command()? {
-            Some(cmd) => Ok(Some(Command::Simple(cmd))),
+            Some(cmd) => Ok(Some(Self::classify_simple_command(cmd))),
             None => Ok(None),
         }
     }
@@ -1153,9 +1274,9 @@ impl<'a> Parser<'a> {
 
         // Expect variable name
         let variable = match &self.current_token {
-            Some(Token::Word(w))
-            | Some(Token::LiteralWord(w))
-            | Some(Token::QuotedWord(w)) => w.clone(),
+            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
+                w.clone()
+            }
             _ => {
                 self.pop_depth();
                 return Err(Error::parse(
@@ -1235,9 +1356,9 @@ impl<'a> Parser<'a> {
 
         // Expect variable name
         let variable = match &self.current_token {
-            Some(Token::Word(w))
-            | Some(Token::LiteralWord(w))
-            | Some(Token::QuotedWord(w)) => w.clone(),
+            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
+                w.clone()
+            }
             _ => {
                 self.pop_depth();
                 return Err(Error::parse("expected variable name in select".to_string()));
@@ -1257,9 +1378,7 @@ impl<'a> Parser<'a> {
         loop {
             match &self.current_token {
                 Some(Token::Word(w)) if w == "do" => break,
-                Some(Token::Word(_))
-                | Some(Token::LiteralWord(_))
-                | Some(Token::QuotedWord(_)) => {
+                Some(Token::Word(_)) | Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_)) => {
                     if let Some(word) = self.current_word_to_word() {
                         words.push(word);
                     }
@@ -1343,9 +1462,7 @@ impl<'a> Parser<'a> {
                     }
                     self.advance();
                 }
-                Some(Token::Word(w))
-                | Some(Token::LiteralWord(w))
-                | Some(Token::QuotedWord(w)) => {
+                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
                     // Don't add space when joining operator pairs like < + =3 → <=3
                     let skip_space = current_expr.ends_with('<')
                         || current_expr.ends_with('>')
@@ -1538,9 +1655,7 @@ impl<'a> Parser<'a> {
             let mut patterns = Vec::new();
             while matches!(
                 &self.current_token,
-                Some(Token::Word(_))
-                    | Some(Token::LiteralWord(_))
-                    | Some(Token::QuotedWord(_))
+                Some(Token::Word(_)) | Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_))
             ) {
                 let w = match &self.current_token {
                     Some(Token::Word(w))
@@ -1681,9 +1796,7 @@ impl<'a> Parser<'a> {
     fn is_case_terminator(&self) -> bool {
         matches!(
             self.current_token,
-            Some(Token::DoubleSemicolon)
-                | Some(Token::SemiAmp)
-                | Some(Token::DoubleSemiAmp)
+            Some(Token::DoubleSemicolon) | Some(Token::SemiAmp) | Some(Token::DoubleSemiAmp)
         )
     }
 
@@ -1789,12 +1902,9 @@ impl<'a> Parser<'a> {
                     self.advance(); // consume ']]'
                     break;
                 }
-                Some(Token::Word(w))
-                | Some(Token::LiteralWord(w))
-                | Some(Token::QuotedWord(w)) => {
+                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
                     let w_clone = w.clone();
-                    let is_quoted =
-                        matches!(self.current_token, Some(Token::QuotedWord(_)));
+                    let is_quoted = matches!(self.current_token, Some(Token::QuotedWord(_)));
 
                     // After =~, handle regex pattern.
                     // If the pattern contains $ (variable reference), parse it as a
@@ -1884,9 +1994,7 @@ impl<'a> Parser<'a> {
                     pattern.push(')');
                     self.advance();
                 }
-                Some(Token::Word(w))
-                | Some(Token::LiteralWord(w))
-                | Some(Token::QuotedWord(w)) => {
+                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
                     pattern.push_str(w);
                     self.advance();
                 }
@@ -1940,9 +2048,7 @@ impl<'a> Parser<'a> {
                     expr.push(')');
                     self.advance();
                 }
-                Some(Token::Word(w))
-                | Some(Token::LiteralWord(w))
-                | Some(Token::QuotedWord(w)) => {
+                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
                     if !expr.is_empty() && !expr.ends_with(' ') && !expr.ends_with('(') {
                         expr.push(' ');
                     }
@@ -2268,9 +2374,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     break;
                 }
-                Some(Token::Word(_))
-                | Some(Token::LiteralWord(_))
-                | Some(Token::QuotedWord(_)) => {
+                Some(Token::Word(_)) | Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_)) => {
                     if let Some(word) = self.current_word_to_word() {
                         elements.push(word);
                     }
@@ -2619,11 +2723,8 @@ impl<'a> Parser<'a> {
 
         loop {
             match &self.current_token {
-                Some(Token::Word(w))
-                | Some(Token::LiteralWord(w))
-                | Some(Token::QuotedWord(w)) => {
-                    let is_literal =
-                        matches!(&self.current_token, Some(Token::LiteralWord(_)));
+                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
+                    let is_literal = matches!(&self.current_token, Some(Token::LiteralWord(_)));
                     // Clone early to release borrow on self.current_token
                     let w = w.clone();
 
@@ -2722,8 +2823,7 @@ impl<'a> Parser<'a> {
                     });
                 }
                 Some(Token::HereDoc) | Some(Token::HereDocStrip) => {
-                    let strip_tabs =
-                        matches!(self.current_token, Some(Token::HereDocStrip));
+                    let strip_tabs = matches!(self.current_token, Some(Token::HereDocStrip));
                     self.parse_heredoc_redirect(strip_tabs, &mut redirects)?;
                     break;
                 }
@@ -2848,9 +2948,7 @@ impl<'a> Parser<'a> {
                     });
                 }
                 // { and } as arguments (not in command position) are literal words
-                Some(Token::LeftBrace) | Some(Token::RightBrace)
-                    if !words.is_empty() =>
-                {
+                Some(Token::LeftBrace) | Some(Token::RightBrace) if !words.is_empty() => {
                     let sym = if matches!(self.current_token, Some(Token::LeftBrace)) {
                         "{"
                     } else {
@@ -2899,9 +2997,7 @@ impl<'a> Parser<'a> {
     /// Expect a word token and return it as a Word
     fn expect_word(&mut self) -> Result<Word> {
         match &self.current_token {
-            Some(Token::Word(_))
-            | Some(Token::LiteralWord(_))
-            | Some(Token::QuotedWord(_)) => {
+            Some(Token::Word(_)) | Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_)) => {
                 let word = self
                     .current_word_to_word()
                     .ok_or_else(|| self.error("expected word"))?;
@@ -2962,9 +3058,7 @@ impl<'a> Parser<'a> {
     fn is_current_word(&self) -> bool {
         matches!(
             &self.current_token,
-            Some(Token::Word(_))
-                | Some(Token::LiteralWord(_))
-                | Some(Token::QuotedWord(_))
+            Some(Token::Word(_)) | Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_))
         )
     }
 
@@ -2972,9 +3066,9 @@ impl<'a> Parser<'a> {
     /// Get the string content if current token is a word
     fn current_word_str(&self) -> Option<String> {
         match &self.current_token {
-            Some(Token::Word(w))
-            | Some(Token::LiteralWord(w))
-            | Some(Token::QuotedWord(w)) => Some(w.clone()),
+            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
+                Some(w.clone())
+            }
             _ => None,
         }
     }
@@ -3730,6 +3824,76 @@ mod tests {
         } else {
             panic!("expected simple command");
         }
+    }
+
+    #[test]
+    fn test_parse_break_as_typed_builtin() {
+        let parser = Parser::new("break 2");
+        let script = parser.parse().unwrap();
+
+        let Command::Builtin(BuiltinCommand::Break(command)) = &script.commands[0] else {
+            panic!("expected break builtin");
+        };
+
+        assert_eq!(command.depth.as_ref().unwrap().to_string(), "2");
+        assert!(command.extra_args.is_empty());
+    }
+
+    #[test]
+    fn test_parse_continue_preserves_extra_args() {
+        let parser = Parser::new("continue 1 extra");
+        let script = parser.parse().unwrap();
+
+        let Command::Builtin(BuiltinCommand::Continue(command)) = &script.commands[0] else {
+            panic!("expected continue builtin");
+        };
+
+        assert_eq!(command.depth.as_ref().unwrap().to_string(), "1");
+        assert_eq!(command.extra_args.len(), 1);
+        assert_eq!(command.extra_args[0].to_string(), "extra");
+    }
+
+    #[test]
+    fn test_parse_return_preserves_assignments_and_redirects() {
+        let parser = Parser::new("FOO=bar return 42 > out.txt");
+        let script = parser.parse().unwrap();
+
+        let Command::Builtin(BuiltinCommand::Return(command)) = &script.commands[0] else {
+            panic!("expected return builtin");
+        };
+
+        assert_eq!(command.code.as_ref().unwrap().to_string(), "42");
+        assert_eq!(command.assignments.len(), 1);
+        assert_eq!(command.assignments[0].name, "FOO");
+        assert_eq!(command.redirects.len(), 1);
+        assert_eq!(command.redirects[0].target.to_string(), "out.txt");
+    }
+
+    #[test]
+    fn test_parse_exit_as_typed_builtin() {
+        let parser = Parser::new("exit 1");
+        let script = parser.parse().unwrap();
+
+        let Command::Builtin(BuiltinCommand::Exit(command)) = &script.commands[0] else {
+            panic!("expected exit builtin");
+        };
+
+        assert_eq!(command.code.as_ref().unwrap().to_string(), "1");
+        assert!(command.extra_args.is_empty());
+    }
+
+    #[test]
+    fn test_parse_quoted_flow_control_name_stays_simple_command() {
+        let parser = Parser::new("'break' 2");
+        let script = parser.parse().unwrap();
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        assert!(command.name.quoted);
+        assert_eq!(command.name.to_string(), "break");
+        assert_eq!(command.args[0].to_string(), "2");
     }
 
     #[test]
