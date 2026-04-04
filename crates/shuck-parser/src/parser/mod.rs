@@ -12,13 +12,13 @@ pub use lexer::{Lexer, SpannedToken};
 
 use shuck_ast::{
     ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,
-    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CompoundCommand,
-    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
-    DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, IfCommand,
-    ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position, Redirect, RedirectKind,
-    ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span, TimeCommand, Token,
-    UntilCommand, WhileCommand, Word, WordPart,
+    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, Comment,
+    CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
+    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
+    ContinueCommand, CoprocCommand, DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand,
+    FunctionDef, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position,
+    Redirect, RedirectKind, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
+    TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 use crate::error::{Error, Result};
@@ -40,6 +40,13 @@ const HARD_MAX_AST_DEPTH: usize = 100;
 /// Default maximum parser operations (matches ExecutionLimits default)
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 
+/// The result of a successful parse: a script plus collected comments.
+#[derive(Debug, Clone)]
+pub struct ParseOutput {
+    pub script: Script,
+    pub comments: Vec<Comment>,
+}
+
 /// Parser for bash scripts.
 pub struct Parser<'a> {
     input: &'a str,
@@ -57,6 +64,8 @@ pub struct Parser<'a> {
     fuel: usize,
     /// Maximum fuel (for error reporting)
     max_fuel: usize,
+    /// Comments collected during parsing.
+    comments: Vec<Comment>,
 }
 
 /// A parser diagnostic emitted while recovering from invalid input.
@@ -70,6 +79,7 @@ pub struct ParseDiagnostic {
 #[derive(Debug, Clone)]
 pub struct RecoveredParse {
     pub script: Script,
+    pub comments: Vec<Comment>,
     pub diagnostics: Vec<ParseDiagnostic>,
 }
 
@@ -104,10 +114,15 @@ impl<'a> Parser<'a> {
     /// `max_depth = 1_000_000`, the parser will cap it at 500.
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
-        let spanned = lexer.next_spanned_token();
-        let (current_token, current_span) = match spanned {
-            Some(st) => (Some(st.token), st.span),
-            None => (None, Span::new()),
+        let mut comments = Vec::new();
+        let (current_token, current_span) = loop {
+            match lexer.next_spanned_token_with_comments() {
+                Some(st) if matches!(st.token, Token::Comment(_)) => {
+                    comments.push(Comment { span: st.span });
+                }
+                Some(st) => break (Some(st.token), st.span),
+                None => break (None, Span::new()),
+            }
         };
         Self {
             input,
@@ -119,6 +134,7 @@ impl<'a> Parser<'a> {
             current_depth: 0,
             fuel: max_fuel,
             max_fuel,
+            comments,
         }
     }
 
@@ -180,19 +196,23 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn nested_commands_from_source(&self, source: &str, base: Position) -> Vec<Command> {
+    fn nested_commands_from_source(&mut self, source: &str, base: Position) -> Vec<Command> {
         let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
         let inner_parser = Parser::with_limits(source, remaining_depth, self.fuel);
         match inner_parser.parse() {
-            Ok(mut script) => {
-                Self::rebase_commands(&mut script.commands, base);
-                script.commands
+            Ok(mut output) => {
+                for comment in &mut output.comments {
+                    comment.span = comment.span.rebased(base);
+                }
+                self.comments.extend(output.comments);
+                Self::rebase_commands(&mut output.script.commands, base);
+                output.script.commands
             }
             Err(_) => Vec::new(),
         }
     }
 
-    fn nested_commands_from_current_input(&self, start: Position, end: Position) -> Vec<Command> {
+    fn nested_commands_from_current_input(&mut self, start: Position, end: Position) -> Vec<Command> {
         if start.offset > end.offset || end.offset > self.input.len() {
             return Vec::new();
         }
@@ -747,8 +767,8 @@ impl<'a> Parser<'a> {
         advanced
     }
 
-    /// Parse the input and return the AST.
-    pub fn parse(mut self) -> Result<Script> {
+    /// Parse the input and return the AST with collected comments.
+    pub fn parse(mut self) -> Result<ParseOutput> {
         // Check if the very first token is an error
         self.check_error_token()?;
 
@@ -766,9 +786,12 @@ impl<'a> Parser<'a> {
         }
 
         let end_span = self.current_span;
-        Ok(Script {
-            commands,
-            span: start_span.merge(end_span),
+        Ok(ParseOutput {
+            script: Script {
+                commands,
+                span: start_span.merge(end_span),
+            },
+            comments: self.comments,
         })
     }
 
@@ -818,6 +841,7 @@ impl<'a> Parser<'a> {
                 commands,
                 span: start_span.merge(end_span),
             },
+            comments: self.comments,
             diagnostics,
         }
     }
@@ -827,14 +851,21 @@ impl<'a> Parser<'a> {
             self.current_token = Some(peeked.token);
             self.current_span = peeked.span;
         } else {
-            match self.lexer.next_spanned_token() {
-                Some(st) => {
-                    self.current_token = Some(st.token);
-                    self.current_span = st.span;
-                }
-                None => {
-                    self.current_token = None;
-                    // Keep the last span for error reporting
+            loop {
+                match self.lexer.next_spanned_token_with_comments() {
+                    Some(st) if matches!(st.token, Token::Comment(_)) => {
+                        self.comments.push(Comment { span: st.span });
+                    }
+                    Some(st) => {
+                        self.current_token = Some(st.token);
+                        self.current_span = st.span;
+                        break;
+                    }
+                    None => {
+                        self.current_token = None;
+                        // Keep the last span for error reporting
+                        break;
+                    }
                 }
             }
         }
@@ -843,7 +874,17 @@ impl<'a> Parser<'a> {
     /// Peek at the next token without consuming the current one
     fn peek_next(&mut self) -> Option<&Token> {
         if self.peeked_token.is_none() {
-            self.peeked_token = self.lexer.next_spanned_token();
+            loop {
+                match self.lexer.next_spanned_token_with_comments() {
+                    Some(st) if matches!(st.token, Token::Comment(_)) => {
+                        self.comments.push(Comment { span: st.span });
+                    }
+                    other => {
+                        self.peeked_token = other;
+                        break;
+                    }
+                }
+            }
         }
         self.peeked_token.as_ref().map(|st| &st.token)
     }
@@ -4386,7 +4427,7 @@ mod tests {
     #[test]
     fn test_parse_simple_command() {
         let parser = Parser::new("echo hello");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         assert_eq!(script.commands.len(), 1);
 
@@ -4402,7 +4443,7 @@ mod tests {
     #[test]
     fn test_parse_break_as_typed_builtin() {
         let parser = Parser::new("break 2");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Break(command)) = &script.commands[0] else {
             panic!("expected break builtin");
@@ -4415,7 +4456,7 @@ mod tests {
     #[test]
     fn test_parse_continue_preserves_extra_args() {
         let parser = Parser::new("continue 1 extra");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Continue(command)) = &script.commands[0] else {
             panic!("expected continue builtin");
@@ -4429,7 +4470,7 @@ mod tests {
     #[test]
     fn test_parse_return_preserves_assignments_and_redirects() {
         let parser = Parser::new("FOO=bar return 42 > out.txt");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Return(command)) = &script.commands[0] else {
             panic!("expected return builtin");
@@ -4445,7 +4486,7 @@ mod tests {
     #[test]
     fn test_parse_exit_as_typed_builtin() {
         let parser = Parser::new("exit 1");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Exit(command)) = &script.commands[0] else {
             panic!("expected exit builtin");
@@ -4458,7 +4499,7 @@ mod tests {
     #[test]
     fn test_parse_quoted_flow_control_name_stays_simple_command() {
         let parser = Parser::new("'break' 2");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -4472,7 +4513,7 @@ mod tests {
     #[test]
     fn test_parse_multiple_args() {
         let parser = Parser::new("echo hello world");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.name.to_string(), "echo");
@@ -4487,7 +4528,7 @@ mod tests {
     #[test]
     fn test_parse_variable() {
         let parser = Parser::new("echo $HOME");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.args.len(), 1);
@@ -4537,7 +4578,7 @@ mod tests {
     #[test]
     fn test_parse_pipeline() {
         let parser = Parser::new("echo hello | cat");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         assert_eq!(script.commands.len(), 1);
         assert!(matches!(&script.commands[0], Command::Pipeline(_)));
@@ -4550,7 +4591,7 @@ mod tests {
     #[test]
     fn test_parse_redirect_out() {
         let parser = Parser::new("echo hello > /tmp/out");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.redirects.len(), 1);
@@ -4564,7 +4605,7 @@ mod tests {
     #[test]
     fn test_parse_redirect_append() {
         let parser = Parser::new("echo hello >> /tmp/out");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.redirects.len(), 1);
@@ -4577,7 +4618,7 @@ mod tests {
     #[test]
     fn test_parse_redirect_in() {
         let parser = Parser::new("cat < /tmp/in");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.redirects.len(), 1);
@@ -4590,7 +4631,7 @@ mod tests {
     #[test]
     fn test_parse_command_list_and() {
         let parser = Parser::new("true && echo success");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         assert!(matches!(&script.commands[0], Command::List(_)));
     }
@@ -4598,7 +4639,7 @@ mod tests {
     #[test]
     fn test_parse_command_list_or() {
         let parser = Parser::new("false || echo fallback");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
 
         assert!(matches!(&script.commands[0], Command::List(_)));
     }
@@ -4606,7 +4647,7 @@ mod tests {
     #[test]
     fn test_heredoc_pipe() {
         let parser = Parser::new("cat <<EOF | sort\nc\na\nb\nEOF\n");
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
         assert!(
             matches!(&script.commands[0], Command::Pipeline(_)),
             "heredoc with pipe should parse as Pipeline"
@@ -4617,7 +4658,7 @@ mod tests {
     fn test_heredoc_multiple_on_line() {
         let input = "while cat <<E1 && cat <<E2; do cat <<E3; break; done\n1\nE1\n2\nE2\n3\nE3\n";
         let parser = Parser::new(input);
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
         assert_eq!(script.commands.len(), 1);
         if let Command::Compound(comp, _) = &script.commands[0] {
             if let CompoundCommand::While(w) = comp {
@@ -4719,7 +4760,7 @@ mod tests {
         // The subscript contains ${#arr[@]} which has its own [ and ].
         let input = "echo ${arr[$RANDOM % ${#arr[@]}]}";
         let parser = Parser::new(input);
-        let script = parser.parse().unwrap();
+        let script = parser.parse().unwrap().script;
         assert_eq!(script.commands.len(), 1);
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.name.to_string(), "echo");
@@ -4755,7 +4796,7 @@ mod tests {
 
     #[test]
     fn test_leaf_spans_track_words_assignments_and_redirects() {
-        let script = Parser::new("foo=bar echo hi > out\n").parse().unwrap();
+        let script = Parser::new("foo=bar echo hi > out\n").parse().unwrap().script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -4772,7 +4813,7 @@ mod tests {
     #[test]
     fn test_word_part_spans_track_mixed_expansions() {
         let input = "echo pre${name:-fallback}$(printf hi)$((1+2))post\n";
-        let script = Parser::new(input).parse().unwrap();
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -4800,7 +4841,7 @@ mod tests {
     #[test]
     fn test_word_part_spans_track_quoted_expansions() {
         let input = "echo \"x$HOME$(pwd)y\"\n";
-        let script = Parser::new(input).parse().unwrap();
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -4819,7 +4860,7 @@ mod tests {
     #[test]
     fn test_word_part_spans_track_nested_array_expansions() {
         let input = "echo ${arr[$RANDOM % ${#arr[@]}]}\n";
-        let script = Parser::new(input).parse().unwrap();
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -4836,7 +4877,7 @@ mod tests {
     #[test]
     fn test_parse_arithmetic_command_preserves_exact_spans() {
         let input = "(( 1 +\n 2 <= 3 ))\n";
-        let script = Parser::new(input).parse().unwrap();
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
             &script.commands[0]
@@ -4853,7 +4894,7 @@ mod tests {
     #[test]
     fn test_parse_arithmetic_for_preserves_header_spans() {
         let input = "for (( i = 0 ; i < 10 ; i += 2 )); do echo \"$i\"; done\n";
-        let script = Parser::new(input).parse().unwrap();
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
             &script.commands[0]
@@ -4881,7 +4922,7 @@ foo[10]=bar
 exec {myfd}>&-
 coproc worker { true; }
 ";
-        let script = Parser::new(input).parse().unwrap();
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Function(function) = &script.commands[0] else {
             panic!("expected function definition");
@@ -4923,7 +4964,7 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_builds_structured_logical_ast() {
-        let script = Parser::new("[[ ! (foo && bar) ]]\n").parse().unwrap();
+        let script = Parser::new("[[ ! (foo && bar) ]]\n").parse().unwrap().script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -4950,7 +4991,7 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_pattern_rhs_preserves_structure() {
-        let script = Parser::new("[[ foo == (bar|baz)* ]]\n").parse().unwrap();
+        let script = Parser::new("[[ foo == (bar|baz)* ]]\n").parse().unwrap().script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -4970,7 +5011,7 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_regex_rhs_preserves_structure() {
-        let script = Parser::new("[[ foo =~ [ab](c|d) ]]\n").parse().unwrap();
+        let script = Parser::new("[[ foo =~ [ab](c|d) ]]\n").parse().unwrap().script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -4992,7 +5033,8 @@ coproc worker { true; }
     fn test_command_substitution_spans_are_absolute() {
         let script = Parser::new("out=$(\n  printf '%s\\n' $x\n)\n")
             .parse()
-            .unwrap();
+            .unwrap()
+            .script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -5017,7 +5059,8 @@ coproc worker { true; }
     fn test_process_substitution_spans_are_absolute() {
         let script = Parser::new("cat <(\n  printf '%s\\n' $x\n)\n")
             .parse()
-            .unwrap();
+            .unwrap()
+            .script;
 
         let Command::Simple(command) = &script.commands[0] else {
             panic!("expected simple command");
@@ -5038,7 +5081,7 @@ coproc worker { true; }
     #[test]
     fn test_parse_declare_clause_classifies_operands_and_prefix_assignments() {
         let input = "FOO=1 declare -a arr=(\"hello world\" two) bar >out\n";
-        let script = Parser::new(input).parse().unwrap();
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Decl(command) = &script.commands[0] else {
             panic!("expected declaration clause");
@@ -5077,7 +5120,7 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_export_uses_dynamic_operand_for_invalid_assignment() {
-        let script = Parser::new("export foo-bar=(one two)\n").parse().unwrap();
+        let script = Parser::new("export foo-bar=(one two)\n").parse().unwrap().script;
 
         let Command::Decl(command) = &script.commands[0] else {
             panic!("expected declaration clause");

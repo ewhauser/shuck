@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeSet,
     env, fs,
+    panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
 };
 
@@ -64,10 +65,14 @@ fn corpus_matches_gbash_typed_json() {
         };
         normalize_corpus_json(&mut expected);
 
-        let script = match Parser::new(&source).parse() {
-            Ok(script) => script,
-            Err(err) => {
+        let script = match panic::catch_unwind(AssertUnwindSafe(|| Parser::new(&source).parse())) {
+            Ok(Ok(output)) => output.script,
+            Ok(Err(err)) => {
                 failures.push(format!("{display_name}: parser failed: {err}"));
+                continue;
+            }
+            Err(_) => {
+                failures.push(format!("{display_name}: parser panicked"));
                 continue;
             }
         };
@@ -108,6 +113,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn corpus_script_paths(corpus_dir: &Path) -> Vec<PathBuf> {
+    let filter = env::var("SHUCK_AST_CORPUS_FILTER").ok();
     let mut paths = fs::read_dir(corpus_dir)
         .unwrap_or_else(|err| {
             panic!(
@@ -120,6 +126,13 @@ fn corpus_script_paths(corpus_dir: &Path) -> Vec<PathBuf> {
         .filter(|path| {
             path.extension().and_then(|ext| ext.to_str()) != Some("json")
                 && path.file_name().and_then(|name| name.to_str()) != Some(CORPUS_ARCHIVE_NAME)
+        })
+        .filter(|path| {
+            filter.as_ref().is_none_or(|needle| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.contains(needle))
+            })
         })
         .collect::<Vec<_>>();
     paths.sort();

@@ -1824,7 +1824,7 @@ impl<'a> Printer<'a> {
                     "Op",
                     self.parameter_operator_code(operator, colon_variant),
                 );
-                if let Some(operand) = operand {
+                if let Some(operand) = operand.filter(|operand| !self.source_text_value(operand).is_empty()) {
                     self.insert_value(
                         &mut exp,
                         "Word",
@@ -1960,7 +1960,7 @@ impl<'a> Printer<'a> {
                 "Op",
                 self.parameter_operator_code(&operator, colon_variant),
             );
-            if let Some(operand) = operand {
+            if let Some(operand) = operand.filter(|operand| !self.source_text_value(operand).is_empty()) {
                 self.insert_value(
                     &mut exp,
                     "Word",
@@ -2667,12 +2667,17 @@ impl<'a> Printer<'a> {
                                 self.find_pattern_boundary(cursor, part_span.end.offset);
                             if literal_end == cursor {
                                 let pos = self.pos_at(cursor);
-                                let end = self.pos_at(cursor + 1);
+                                let next = self.next_char_boundary(cursor);
+                                let end = self.pos_at(next);
                                 values.push(
-                                    self.lit_node(&self.source[cursor..cursor + 1], pos, end)
+                                    self.lit_node(
+                                        self.slice_offsets(cursor, next).unwrap_or_default(),
+                                        pos,
+                                        end,
+                                    )
                                         .value,
                                 );
-                                cursor += 1;
+                                cursor = next;
                                 continue;
                             }
                             values.extend(
@@ -2699,9 +2704,13 @@ impl<'a> Printer<'a> {
                     let literal_end = self.find_pattern_boundary(cursor, part_span.start.offset);
                     if literal_end == cursor {
                         let pos = self.pos_at(cursor);
-                        let end = self.pos_at(cursor + 1);
-                        values.push(self.lit_node(&self.source[cursor..cursor + 1], pos, end).value);
-                        cursor += 1;
+                        let next = self.next_char_boundary(cursor);
+                        let end = self.pos_at(next);
+                        values.push(
+                            self.lit_node(self.slice_offsets(cursor, next).unwrap_or_default(), pos, end)
+                                .value,
+                        );
+                        cursor = next;
                         continue;
                     }
                     values.extend(
@@ -2720,9 +2729,13 @@ impl<'a> Printer<'a> {
             let literal_end = self.find_pattern_boundary(cursor, span.end.offset);
             if literal_end == cursor {
                 let pos = self.pos_at(cursor);
-                let end = self.pos_at(cursor + 1);
-                values.push(self.lit_node(&self.source[cursor..cursor + 1], pos, end).value);
-                cursor += 1;
+                let next = self.next_char_boundary(cursor);
+                let end = self.pos_at(next);
+                values.push(
+                    self.lit_node(self.slice_offsets(cursor, next).unwrap_or_default(), pos, end)
+                        .value,
+                );
+                cursor = next;
                 continue;
             }
             values.extend(
@@ -2987,9 +3000,7 @@ impl<'a> Printer<'a> {
                     Span::from_positions(self.pos_at(quote_start), self.pos_at(scan + 1));
                 let consumed_parts = valid_parts
                     .iter()
-                    .take_while(|(_, part_span)| {
-                        part_span.start.offset < scan && part_span.end.offset > content_start
-                    })
+                    .take_while(|(_, part_span)| part_span.start.offset < scan)
                     .count();
                 return Some((quote_span, consumed_parts));
             }
@@ -3272,6 +3283,17 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn next_char_boundary(&self, offset: usize) -> usize {
+        if offset >= self.source.len() {
+            return self.source.len();
+        }
+        let mut next = offset + 1;
+        while next < self.source.len() && !self.source.is_char_boundary(next) {
+            next += 1;
+        }
+        next
+    }
+
     fn slice_span(&self, span: Span) -> Option<&'a str> {
         self.slice_offsets(span.start.offset, span.end.offset)
     }
@@ -3416,7 +3438,7 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     fn typed_json(source: &str) -> serde_json::Value {
-        let script = Parser::new(source).parse().expect("parse should succeed");
+        let script = Parser::new(source).parse().expect("parse should succeed").script;
         to_typed_json(&script, source)
     }
 

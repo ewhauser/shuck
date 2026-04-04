@@ -127,6 +127,15 @@ impl PartialEq<&str> for LiteralText {
     }
 }
 
+/// A shell comment located by its source span.
+///
+/// The comment text (without the leading `#`) is obtained by slicing the
+/// source: `comment.span.slice(source)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Comment {
+    pub span: Span,
+}
+
 /// A complete bash script.
 #[derive(Debug, Clone)]
 pub struct Script {
