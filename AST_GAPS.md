@@ -9,6 +9,7 @@ The AST is no longer in the old "flatten everything into strings" shape:
 - Flow-control builtins (`break`, `continue`, `return`, `exit`) are typed AST nodes.
 - `[[ ... ]]` conditionals are parsed into a structured conditional expression tree.
 - `(( ... ))` and `for (( ... ; ... ; ... ))` preserve exact source spans instead of rebuilding expression strings.
+- `shuck-syntax` now exposes zero-copy arithmetic def/use analysis over arithmetic commands, arithmetic `for` headers, and `$(( ... ))` expansions.
 - Identifier-like fields use compact owned `Name` values plus exact source spans where later indexing and diagnostics need them:
   - function names
   - `for` / `select` loop variables
@@ -59,7 +60,7 @@ HIR / project analysis.
 
 The parser should not resolve files or decide how project closure works. HIR can classify the command shape, and project analysis can resolve literal vs dynamic paths.
 
-## 3. Arithmetic Is Source-Backed, But Not Yet Semantically Structured
+## 3. Arithmetic Def/Use Analysis Is Now Source-Backed
 
 Arithmetic commands and arithmetic `for` headers now preserve exact spans:
 
@@ -83,18 +84,11 @@ ArithmeticForCommand {
 
 - No reconstructed arithmetic strings in the parser.
 - HIR can slice the original source text exactly.
-- Later passes can choose when and how to parse arithmetic, without losing fidelity.
-
-### Remaining gap
-
-CFG/dataflow still cannot reason about arithmetic assignments and references until HIR either:
-
-- reparses arithmetic spans into a structured arithmetic IR, or
-- adds a smaller purpose-built analyzer for defs/uses inside arithmetic.
+- `shuck-syntax` can now emit ordered variable read/write events directly from those spans, plus `$(( ... ))` expansion spans, without introducing new owned strings.
 
 ### Recommended layer
 
-HIR lowering or a dedicated arithmetic analysis pass above HIR.
+Keep using the dedicated arithmetic analysis pass until full HIR lowering exists, then thread those results through HIR/CFG.
 
 ## 4. Comments, Directives, And Suppressions Are Not Yet Unified Into HIR
 
@@ -132,7 +126,7 @@ The AST/parser now exposes the fidelity needed for zero-copy lowering, but the a
 | Arithmetic source fidelity | Resolved in AST | Done |
 | `trap` classification | Missing | HIR / semantics |
 | `source` / `.` classification | Missing | HIR / project analysis |
-| Arithmetic defs/uses semantics | Missing | HIR / arithmetic analysis |
+| Arithmetic defs/uses semantics | Resolved in `shuck-syntax` arithmetic analysis | Done |
 | Unified rule-facing file model | Missing | HIR |
 | CFG and dataflow | Missing | CFG layer |
 
@@ -140,6 +134,6 @@ The AST/parser now exposes the fidelity needed for zero-copy lowering, but the a
 
 1. Build HIR around the new source-backed AST.
 2. Classify `source` / `.` and `trap` in HIR semantics.
-3. Add arithmetic semantic lowering from source spans.
+3. Reuse arithmetic analysis results during HIR and semantic-model construction.
 4. Build CFG on top of HIR.
 5. Add dataflow passes.

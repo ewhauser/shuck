@@ -49,7 +49,7 @@ This checklist is for turning the `shuck-parser` crate into a usable Rust fronte
 
 - [ ] Design a shuck-specific HIR/facts layer over the parser output.
 - [ ] Represent command calls, redirects, parameter expansions, command substitutions, process substitutions, and declarations explicitly.
-- [ ] Lower arithmetic regions from source-backed spans without introducing new owned strings.
+- [x] Lower arithmetic regions from source-backed spans without introducing new owned strings.
 - [ ] Preserve traversal order and parent/child relationships needed by rule runners.
 - [ ] Provide stable node IDs or equivalent handles for cross-pass analysis.
 - [ ] Add AST/HIR walk helpers that mirror the current Go rule authoring ergonomics.

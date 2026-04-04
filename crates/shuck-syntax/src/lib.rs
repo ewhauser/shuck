@@ -1,8 +1,13 @@
 //! Linter-oriented syntax wrapper over shuck-parser's parser.
 
+mod arithmetic;
 mod dialects;
 mod suppressions;
 
+pub use arithmetic::{
+    ArithmeticContextKind, ArithmeticEventKind, ArithmeticVariableEvent,
+    collect_arithmetic_variable_events,
+};
 pub use dialects::{
     Dialect, DialectProfile, Grammar, ParseMode, ParseOptions, ParseStrategy, ParseView,
 };
