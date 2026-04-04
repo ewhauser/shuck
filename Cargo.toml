@@ -1,0 +1,38 @@
+# shuck
+
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+authors = ["Eric Hauser"]
+repository = "https://github.com/ewhauser/shuck"
+description = ""
+keywords = []
+categories = []
+
+[workspace.dependencies]
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+
+# Checksums
+sha2 = "0.11"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Testing
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

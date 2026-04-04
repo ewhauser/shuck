@@ -1,0 +1,41 @@
+# Rust
+/target/
+Cargo.lock
+
+# Environment
+.env
+.env.*
+.envrc
+
+# Local files
+local*
+
+# IDE
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Coverage reports
+coverage/
+.venv/
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.egg-info/
+dist/
+
+# Node
+node_modules/
+
+# WASM build artifacts
+*.wasm
+.claude
+.codex
