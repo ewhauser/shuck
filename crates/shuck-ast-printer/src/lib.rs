@@ -4,9 +4,9 @@ use shuck_ast::{
     CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
     ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
     ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, DeclClause, DeclName, DeclOperand,
-    ForCommand, FunctionDef, IfCommand, ListOperator, LiteralText, ParameterOp, Pipeline,
-    Position, Redirect, RedirectKind, Script, SelectCommand, SimpleCommand, SourceText, Span,
-    TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    ForCommand, FunctionDef, IfCommand, ListOperator, LiteralText, ParameterOp, Pipeline, Position,
+    Redirect, RedirectKind, Script, SelectCommand, SimpleCommand, SourceText, Span, TimeCommand,
+    UntilCommand, WhileCommand, Word, WordPart,
 };
 
 /// Serialize a parsed Script to gbash-compatible typed JSON.
@@ -944,7 +944,10 @@ impl<'a> Printer<'a> {
             .or_else(|| self.rfind_operator_between(search_start, search_end, op_str))
             .unwrap_or_default();
         let patterns = self.encode_case_patterns(item, self.pos_at(search_start), separator_pos);
-        let pos = patterns.first().map(|pattern| pattern.pos).unwrap_or_default();
+        let pos = patterns
+            .first()
+            .map(|pattern| pattern.pos)
+            .unwrap_or_default();
         let end = if self.is_valid_pos(op_pos) {
             op_pos.advanced_by(op_str)
         } else {
@@ -1627,7 +1630,13 @@ impl<'a> Printer<'a> {
                 operator,
                 operand,
                 colon_variant,
-            } => self.encode_parameter_expansion(name, operator, operand.as_ref(), *colon_variant, span),
+            } => self.encode_parameter_expansion(
+                name,
+                operator,
+                operand.as_ref(),
+                *colon_variant,
+                span,
+            ),
             WordPart::ArrayAccess { name, index } => self.encode_array_access(name, index, span),
             WordPart::ArrayLength(name) => self.encode_array_length(name, span),
             WordPart::ArrayIndices(name) => self.encode_array_indices(name, span),
@@ -1824,7 +1833,9 @@ impl<'a> Printer<'a> {
                     "Op",
                     self.parameter_operator_code(operator, colon_variant),
                 );
-                if let Some(operand) = operand.filter(|operand| !self.source_text_value(operand).is_empty()) {
+                if let Some(operand) =
+                    operand.filter(|operand| !self.source_text_value(operand).is_empty())
+                {
                     self.insert_value(
                         &mut exp,
                         "Word",
@@ -1847,11 +1858,7 @@ impl<'a> Printer<'a> {
         let Value::Object(map) = &mut node.value else {
             unreachable!()
         };
-        self.insert_value(
-            map,
-            "Index",
-            Some(self.encode_subscript_text(index).value),
-        );
+        self.insert_value(map, "Index", Some(self.encode_subscript_text(index).value));
         node
     }
 
@@ -1960,7 +1967,9 @@ impl<'a> Printer<'a> {
                 "Op",
                 self.parameter_operator_code(&operator, colon_variant),
             );
-            if let Some(operand) = operand.filter(|operand| !self.source_text_value(operand).is_empty()) {
+            if let Some(operand) =
+                operand.filter(|operand| !self.source_text_value(operand).is_empty())
+            {
                 self.insert_value(
                     &mut exp,
                     "Word",
@@ -2173,7 +2182,10 @@ impl<'a> Printer<'a> {
         let parts = if let Some(span) = span {
             self.encode_pattern_parts_from_source(span, word)
         } else {
-            vec![self.lit_node(pattern, Position::default(), Position::default()).value]
+            vec![
+                self.lit_node(pattern, Position::default(), Position::default())
+                    .value,
+            ]
         };
         let mut map = self.node_object(None, pos, end);
         self.insert_pos(&mut map, "Start", pos);
@@ -2316,9 +2328,8 @@ impl<'a> Printer<'a> {
     fn command_span(&self, command: &Command) -> Span {
         match command {
             Command::Simple(command) => self.span_with_redirects(command.span, &command.redirects),
-            Command::Builtin(command) => {
-                self.span_with_redirects(self.builtin_span(command), self.builtin_redirects(command))
-            }
+            Command::Builtin(command) => self
+                .span_with_redirects(self.builtin_span(command), self.builtin_redirects(command)),
             Command::Decl(command) => self.span_with_redirects(command.span, &command.redirects),
             Command::Pipeline(command) => command.span,
             Command::List(command) => command.span,
@@ -2594,7 +2605,12 @@ impl<'a> Printer<'a> {
         Some(Value::Object(map))
     }
 
-    fn leading_escaped_literal(&self, word: &Word, pos: Position, end: Position) -> Option<EncodedNode> {
+    fn leading_escaped_literal(
+        &self,
+        word: &Word,
+        pos: Position,
+        end: Position,
+    ) -> Option<EncodedNode> {
         let [WordPart::Literal(_)] = word.parts.as_slice() else {
             return None;
         };
@@ -2675,7 +2691,7 @@ impl<'a> Printer<'a> {
                                         pos,
                                         end,
                                     )
-                                        .value,
+                                    .value,
                                 );
                                 cursor = next;
                                 continue;
@@ -2707,8 +2723,12 @@ impl<'a> Printer<'a> {
                         let next = self.next_char_boundary(cursor);
                         let end = self.pos_at(next);
                         values.push(
-                            self.lit_node(self.slice_offsets(cursor, next).unwrap_or_default(), pos, end)
-                                .value,
+                            self.lit_node(
+                                self.slice_offsets(cursor, next).unwrap_or_default(),
+                                pos,
+                                end,
+                            )
+                            .value,
                         );
                         cursor = next;
                         continue;
@@ -2732,8 +2752,12 @@ impl<'a> Printer<'a> {
                 let next = self.next_char_boundary(cursor);
                 let end = self.pos_at(next);
                 values.push(
-                    self.lit_node(self.slice_offsets(cursor, next).unwrap_or_default(), pos, end)
-                        .value,
+                    self.lit_node(
+                        self.slice_offsets(cursor, next).unwrap_or_default(),
+                        pos,
+                        end,
+                    )
+                    .value,
                 );
                 cursor = next;
                 continue;
@@ -2834,11 +2858,11 @@ impl<'a> Printer<'a> {
             self.insert_string(
                 &mut map,
                 "Value",
-                self.slice_offsets(content_start, content_end).unwrap_or_default(),
+                self.slice_offsets(content_start, content_end)
+                    .unwrap_or_default(),
             );
         } else {
-            let inner_parts =
-                self.encode_pattern_quoted_parts(content_start, content_end, parts);
+            let inner_parts = self.encode_pattern_quoted_parts(content_start, content_end, parts);
             self.insert_array(&mut map, "Parts", inner_parts);
         }
 
@@ -2868,10 +2892,9 @@ impl<'a> Printer<'a> {
             }
 
             if self.source.as_bytes().get(cursor).copied() == Some(b'$')
-                && let Some((part, _)) = parts
-                    .iter()
-                    .skip(part_index)
-                    .find(|(part, span)| !matches!(part, WordPart::Literal(_)) && span.end.offset > cursor)
+                && let Some((part, _)) = parts.iter().skip(part_index).find(|(part, span)| {
+                    !matches!(part, WordPart::Literal(_)) && span.end.offset > cursor
+                })
             {
                 let end = self.scan_dollar_expansion_end(cursor, content_end);
                 values.push(
@@ -2886,14 +2909,18 @@ impl<'a> Printer<'a> {
                 continue;
             }
 
-            let next_dollar = self.slice_offsets(cursor, content_end)
+            let next_dollar = self
+                .slice_offsets(cursor, content_end)
                 .and_then(|slice| slice.find('$'))
                 .map(|rel| cursor + rel)
                 .unwrap_or(content_end);
             if next_dollar > cursor {
                 let start = self.pos_at(cursor);
                 let end = self.pos_at(next_dollar);
-                values.push(self.lit_node(&self.source[cursor..next_dollar], start, end).value);
+                values.push(
+                    self.lit_node(&self.source[cursor..next_dollar], start, end)
+                        .value,
+                );
                 cursor = next_dollar;
                 continue;
             }
@@ -2984,9 +3011,7 @@ impl<'a> Printer<'a> {
         let bytes = raw.as_bytes();
         let (quote_start, quote_char, dollar) = match bytes.get(rel).copied() {
             Some(b'"') | Some(b'\'') => (cursor, bytes[rel], false),
-            Some(b'$')
-                if matches!(bytes.get(rel + 1).copied(), Some(b'"') | Some(b'\'')) =>
-            {
+            Some(b'$') if matches!(bytes.get(rel + 1).copied(), Some(b'"') | Some(b'\'')) => {
                 (cursor, bytes[rel + 1], true)
             }
             _ => return None,
@@ -3438,7 +3463,10 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     fn typed_json(source: &str) -> serde_json::Value {
-        let script = Parser::new(source).parse().expect("parse should succeed").script;
+        let script = Parser::new(source)
+            .parse()
+            .expect("parse should succeed")
+            .script;
         to_typed_json(&script, source)
     }
 

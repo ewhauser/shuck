@@ -153,7 +153,7 @@ pub enum Command {
     /// A builtin command with a dedicated typed AST node
     Builtin(BuiltinCommand),
 
-    /// A declaration builtin clause (`declare`, `local`, `export`, `readonly`)
+    /// A declaration builtin clause (`declare`, `local`, `export`, `readonly`, `typeset`)
     Decl(DeclClause),
 
     /// A pipeline (e.g., `ls | grep foo`)
@@ -184,7 +184,7 @@ pub struct SimpleCommand {
     pub span: Span,
 }
 
-/// A declaration builtin clause such as `declare`, `local`, `export`, or `readonly`.
+/// A declaration builtin clause such as `declare`, `local`, `export`, `readonly`, or `typeset`.
 #[derive(Debug, Clone)]
 pub struct DeclClause {
     /// Declaration builtin variant.
@@ -769,11 +769,7 @@ impl Word {
         rendered
     }
 
-    fn fmt_with_source(
-        &self,
-        f: &mut impl fmt::Write,
-        source: Option<&str>,
-    ) -> fmt::Result {
+    fn fmt_with_source(&self, f: &mut impl fmt::Write, source: Option<&str>) -> fmt::Result {
         for (part, span) in self.parts_with_spans() {
             match part {
                 WordPart::Literal(text) => match source {
@@ -789,16 +785,8 @@ impl Word {
                     None => write!(f, "$({:?})", commands)?,
                 },
                 WordPart::ArithmeticExpansion(expression) => match source {
-                    Some(_) => write!(
-                        f,
-                        "$(({}))",
-                        display_source_text(Some(expression), source)
-                    )?,
-                    None => write!(
-                        f,
-                        "$(({}))",
-                        display_source_text(Some(expression), source)
-                    )?,
+                    Some(_) => write!(f, "$(({}))", display_source_text(Some(expression), source))?,
+                    None => write!(f, "$(({}))", display_source_text(Some(expression), source))?,
                 },
                 WordPart::ParameterExpansion {
                     name,
@@ -1002,7 +990,12 @@ impl fmt::Display for Word {
 fn display_source_text<'a>(text: Option<&'a SourceText>, source: Option<&'a str>) -> &'a str {
     match (text, source) {
         (Some(text), Some(source)) => text.slice(source),
-        (Some(SourceText { cooked: Some(text), .. }), None) => text.as_ref(),
+        (
+            Some(SourceText {
+                cooked: Some(text), ..
+            }),
+            None,
+        ) => text.as_ref(),
         (Some(_), None) => "...",
         (None, _) => "",
     }

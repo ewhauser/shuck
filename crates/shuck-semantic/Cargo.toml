@@ -1,0 +1,15 @@
+[package]
+name = "shuck-semantic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Semantic model for parsed shell scripts"
+
+[dependencies]
+bitflags = "2"
+rustc-hash = "2"
+shuck-ast = { path = "../shuck-ast" }
+shuck-indexer = { path = "../shuck-indexer" }
+shuck-parser = { path = "../shuck-parser" }

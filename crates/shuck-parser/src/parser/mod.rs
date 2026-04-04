@@ -1306,7 +1306,7 @@ impl<'a> Parser<'a> {
     fn classify_decl_variant_name(&self, word: &Word) -> Option<Name> {
         let name = self.single_literal_word_text(word)?;
         match name {
-            "declare" | "local" | "export" | "readonly" => Some(Name::from(name)),
+            "declare" | "local" | "export" | "readonly" | "typeset" => Some(Name::from(name)),
             _ => None,
         }
     }
@@ -5130,13 +5130,13 @@ coproc worker { true; }
         assert_eq!(command.assignments.len(), 1);
         assert_eq!(command.assignments[0].name, "FOO");
         assert_eq!(command.redirects.len(), 1);
-        assert_eq!(command.redirects[0].target.to_string(), "out");
+        assert_eq!(command.redirects[0].target.span.slice(input), "out");
         assert_eq!(command.operands.len(), 3);
 
         let DeclOperand::Flag(flag) = &command.operands[0] else {
             panic!("expected flag operand");
         };
-        assert_eq!(flag.to_string(), "-a");
+        assert_eq!(flag.span.slice(input), "-a");
 
         let DeclOperand::Assignment(assignment) = &command.operands[1] else {
             panic!("expected assignment operand");
@@ -5147,8 +5147,8 @@ coproc worker { true; }
         };
         assert_eq!(elements.len(), 2);
         assert!(elements[0].quoted);
-        assert_eq!(elements[0].to_string(), "hello world");
-        assert_eq!(elements[1].to_string(), "two");
+        assert_eq!(elements[0].span.slice(input), "\"hello world\"");
+        assert_eq!(elements[1].span.slice(input), "two");
 
         let DeclOperand::Name(name) = &command.operands[2] else {
             panic!("expected bare name operand");
@@ -5176,5 +5176,35 @@ coproc worker { true; }
             word.span.slice("export foo-bar=(one two)\n"),
             "foo-bar=(one two)"
         );
+    }
+
+    #[test]
+    fn test_parse_typeset_clause_classifies_flags_and_assignments() {
+        let input = "typeset -xr VAR=value other\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Decl(command) = &script.commands[0] else {
+            panic!("expected declaration clause");
+        };
+
+        assert_eq!(command.variant, "typeset");
+        assert_eq!(command.variant_span.slice(input), "typeset");
+        assert_eq!(command.operands.len(), 3);
+
+        let DeclOperand::Flag(flag) = &command.operands[0] else {
+            panic!("expected flag operand");
+        };
+        assert_eq!(flag.span.slice(input), "-xr");
+
+        let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+            panic!("expected assignment operand");
+        };
+        assert_eq!(assignment.name, "VAR");
+        assert!(matches!(&assignment.value, AssignmentValue::Scalar(value) if value.span.slice(input) == "value"));
+
+        let DeclOperand::Name(name) = &command.operands[2] else {
+            panic!("expected bare name operand");
+        };
+        assert_eq!(name.name, "other");
     }
 }
