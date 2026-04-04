@@ -12,10 +12,12 @@ pub use lexer::{Lexer, SpannedToken};
 
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand,
-    CaseItem, CaseTerminator, Command, CommandList, CompoundCommand, ContinueCommand,
-    CoprocCommand, ExitCommand, ForCommand, FunctionDef, IfCommand, ListOperator, ParameterOp,
-    Pipeline, Position, Redirect, RedirectKind, ReturnCommand, Script, SelectCommand,
-    SimpleCommand, Span, TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
+    CaseItem, CaseTerminator, Command, CommandList, CompoundCommand, ConditionalBinaryExpr,
+    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
+    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, ExitCommand,
+    ForCommand, FunctionDef, IfCommand, ListOperator, ParameterOp, Pipeline, Position, Redirect,
+    RedirectKind, ReturnCommand, Script, SelectCommand, SimpleCommand, Span, TimeCommand, Token,
+    UntilCommand, WhileCommand, Word, WordPart,
 };
 
 use crate::error::{Error, Result};
@@ -339,8 +341,11 @@ impl<'a> Parser<'a> {
                     Self::rebase_command(inner, base);
                 }
             }
-            CompoundCommand::Conditional(words) => {
-                Self::rebase_words(words, base);
+            CompoundCommand::Conditional(command) => {
+                command.span = command.span.rebased(base);
+                command.left_bracket_span = command.left_bracket_span.rebased(base);
+                command.right_bracket_span = command.right_bracket_span.rebased(base);
+                Self::rebase_conditional_expr(&mut command.expression, base);
             }
             CompoundCommand::Coproc(command) => {
                 command.span = command.span.rebased(base);
@@ -367,6 +372,30 @@ impl<'a> Parser<'a> {
                     Self::rebase_commands(commands, base);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    fn rebase_conditional_expr(expr: &mut ConditionalExpr, base: Position) {
+        match expr {
+            ConditionalExpr::Binary(binary) => {
+                binary.op_span = binary.op_span.rebased(base);
+                Self::rebase_conditional_expr(&mut binary.left, base);
+                Self::rebase_conditional_expr(&mut binary.right, base);
+            }
+            ConditionalExpr::Unary(unary) => {
+                unary.op_span = unary.op_span.rebased(base);
+                Self::rebase_conditional_expr(&mut unary.expr, base);
+            }
+            ConditionalExpr::Parenthesized(paren) => {
+                paren.left_paren_span = paren.left_paren_span.rebased(base);
+                paren.right_paren_span = paren.right_paren_span.rebased(base);
+                Self::rebase_conditional_expr(&mut paren.expr, base);
+            }
+            ConditionalExpr::Word(word)
+            | ConditionalExpr::Pattern(word)
+            | ConditionalExpr::Regex(word) => {
+                Self::rebase_word(word, base);
             }
         }
     }
@@ -1891,118 +1920,398 @@ impl<'a> Parser<'a> {
     /// Parse arithmetic command ((expression))
     /// Parse [[ conditional expression ]]
     fn parse_conditional(&mut self) -> Result<CompoundCommand> {
+        let left_bracket_span = self.current_span;
         self.advance(); // consume '[['
+        self.skip_conditional_newlines();
 
-        let mut words = Vec::new();
-        let mut saw_regex_op = false;
+        let expression = self.parse_conditional_or(false)?;
+        self.skip_conditional_newlines();
+
+        let right_bracket_span = match self.current_token {
+            Some(Token::DoubleRightBracket) => {
+                let span = self.current_span;
+                self.advance(); // consume ']]'
+                span
+            }
+            None => {
+                return Err(crate::error::Error::parse(
+                    "unexpected end of input in [[ ]]".to_string(),
+                ));
+            }
+            _ => return Err(self.error("expected ']]' to close conditional expression")),
+        };
+
+        Ok(CompoundCommand::Conditional(ConditionalCommand {
+            expression,
+            span: left_bracket_span.merge(right_bracket_span),
+            left_bracket_span,
+            right_bracket_span,
+        }))
+    }
+
+    fn skip_conditional_newlines(&mut self) {
+        while matches!(self.current_token, Some(Token::Newline)) {
+            self.advance();
+        }
+    }
+
+    fn parse_conditional_or(&mut self, stop_at_right_paren: bool) -> Result<ConditionalExpr> {
+        let mut expr = self.parse_conditional_and(stop_at_right_paren)?;
 
         loop {
-            match &self.current_token {
-                Some(Token::DoubleRightBracket) => {
-                    self.advance(); // consume ']]'
-                    break;
+            self.skip_conditional_newlines();
+            if !matches!(self.current_token, Some(Token::Or)) {
+                break;
+            }
+
+            let op_span = self.current_span;
+            self.advance();
+            let right = self.parse_conditional_and(stop_at_right_paren)?;
+            expr = ConditionalExpr::Binary(ConditionalBinaryExpr {
+                left: Box::new(expr),
+                op: ConditionalBinaryOp::Or,
+                op_span,
+                right: Box::new(right),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_conditional_and(&mut self, stop_at_right_paren: bool) -> Result<ConditionalExpr> {
+        let mut expr = self.parse_conditional_term(stop_at_right_paren)?;
+
+        loop {
+            self.skip_conditional_newlines();
+            if !matches!(self.current_token, Some(Token::And)) {
+                break;
+            }
+
+            let op_span = self.current_span;
+            self.advance();
+            let right = self.parse_conditional_term(stop_at_right_paren)?;
+            expr = ConditionalExpr::Binary(ConditionalBinaryExpr {
+                left: Box::new(expr),
+                op: ConditionalBinaryOp::And,
+                op_span,
+                right: Box::new(right),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_conditional_term(&mut self, stop_at_right_paren: bool) -> Result<ConditionalExpr> {
+        self.skip_conditional_newlines();
+
+        if let Some(op) = self.current_conditional_unary_op() {
+            let op_span = self.current_span;
+            self.advance();
+            self.skip_conditional_newlines();
+
+            let expr = if matches!(op, ConditionalUnaryOp::Not) {
+                self.parse_conditional_term(stop_at_right_paren)?
+            } else {
+                ConditionalExpr::Word(self.parse_conditional_operand_word()?)
+            };
+
+            return Ok(ConditionalExpr::Unary(ConditionalUnaryExpr {
+                op,
+                op_span,
+                expr: Box::new(expr),
+            }));
+        }
+
+        let left = if matches!(self.current_token, Some(Token::LeftParen)) {
+            let left_paren_span = self.current_span;
+            self.advance();
+            let expr = self.parse_conditional_or(true)?;
+            self.skip_conditional_newlines();
+            if !matches!(self.current_token, Some(Token::RightParen)) {
+                return Err(self.error("expected ')' in conditional expression"));
+            }
+            let right_paren_span = self.current_span;
+            self.advance();
+            ConditionalExpr::Parenthesized(ConditionalParenExpr {
+                left_paren_span,
+                expr: Box::new(expr),
+                right_paren_span,
+            })
+        } else {
+            ConditionalExpr::Word(self.parse_conditional_operand_word()?)
+        };
+
+        self.skip_conditional_newlines();
+
+        let Some(op) = self.current_conditional_comparison_op() else {
+            return Ok(left);
+        };
+
+        let op_span = self.current_span;
+        self.advance();
+        self.skip_conditional_newlines();
+
+        let right = match op {
+            ConditionalBinaryOp::RegexMatch => {
+                ConditionalExpr::Regex(self.collect_conditional_context_word(stop_at_right_paren)?)
+            }
+            ConditionalBinaryOp::PatternEqShort
+            | ConditionalBinaryOp::PatternEq
+            | ConditionalBinaryOp::PatternNe => ConditionalExpr::Pattern(
+                self.collect_conditional_context_word(stop_at_right_paren)?,
+            ),
+            _ => ConditionalExpr::Word(self.parse_conditional_operand_word()?),
+        };
+
+        Ok(ConditionalExpr::Binary(ConditionalBinaryExpr {
+            left: Box::new(left),
+            op,
+            op_span,
+            right: Box::new(right),
+        }))
+    }
+
+    fn parse_conditional_operand_word(&mut self) -> Result<Word> {
+        self.skip_conditional_newlines();
+
+        let Some(word) = self.current_word_to_word() else {
+            return Err(self.error("expected conditional operand"));
+        };
+        self.advance();
+        Ok(word)
+    }
+
+    fn current_conditional_unary_op(&self) -> Option<ConditionalUnaryOp> {
+        let Token::Word(word) = self.current_token.as_ref()? else {
+            return None;
+        };
+
+        Some(match word.as_str() {
+            "!" => ConditionalUnaryOp::Not,
+            "-e" | "-a" => ConditionalUnaryOp::Exists,
+            "-f" => ConditionalUnaryOp::RegularFile,
+            "-d" => ConditionalUnaryOp::Directory,
+            "-c" => ConditionalUnaryOp::CharacterSpecial,
+            "-b" => ConditionalUnaryOp::BlockSpecial,
+            "-p" => ConditionalUnaryOp::NamedPipe,
+            "-S" => ConditionalUnaryOp::Socket,
+            "-L" | "-h" => ConditionalUnaryOp::Symlink,
+            "-k" => ConditionalUnaryOp::Sticky,
+            "-g" => ConditionalUnaryOp::SetGroupId,
+            "-u" => ConditionalUnaryOp::SetUserId,
+            "-G" => ConditionalUnaryOp::GroupOwned,
+            "-O" => ConditionalUnaryOp::UserOwned,
+            "-N" => ConditionalUnaryOp::Modified,
+            "-r" => ConditionalUnaryOp::Readable,
+            "-w" => ConditionalUnaryOp::Writable,
+            "-x" => ConditionalUnaryOp::Executable,
+            "-s" => ConditionalUnaryOp::NonEmptyFile,
+            "-t" => ConditionalUnaryOp::FdTerminal,
+            "-z" => ConditionalUnaryOp::EmptyString,
+            "-n" => ConditionalUnaryOp::NonEmptyString,
+            "-o" => ConditionalUnaryOp::OptionSet,
+            "-v" => ConditionalUnaryOp::VariableSet,
+            "-R" => ConditionalUnaryOp::ReferenceVariable,
+            _ => return None,
+        })
+    }
+
+    fn current_conditional_comparison_op(&self) -> Option<ConditionalBinaryOp> {
+        match self.current_token.as_ref()? {
+            Token::Word(word) => Some(match word.as_str() {
+                "=" => ConditionalBinaryOp::PatternEqShort,
+                "==" => ConditionalBinaryOp::PatternEq,
+                "!=" => ConditionalBinaryOp::PatternNe,
+                "=~" => ConditionalBinaryOp::RegexMatch,
+                "-nt" => ConditionalBinaryOp::NewerThan,
+                "-ot" => ConditionalBinaryOp::OlderThan,
+                "-ef" => ConditionalBinaryOp::SameFile,
+                "-eq" => ConditionalBinaryOp::ArithmeticEq,
+                "-ne" => ConditionalBinaryOp::ArithmeticNe,
+                "-le" => ConditionalBinaryOp::ArithmeticLe,
+                "-ge" => ConditionalBinaryOp::ArithmeticGe,
+                "-lt" => ConditionalBinaryOp::ArithmeticLt,
+                "-gt" => ConditionalBinaryOp::ArithmeticGt,
+                _ => return None,
+            }),
+            Token::RedirectIn => Some(ConditionalBinaryOp::LexicalBefore),
+            Token::RedirectOut => Some(ConditionalBinaryOp::LexicalAfter),
+            _ => None,
+        }
+    }
+
+    fn collect_conditional_context_word(&mut self, stop_at_right_paren: bool) -> Result<Word> {
+        self.skip_conditional_newlines();
+
+        let mut first_word: Option<Word> = None;
+        let mut parts = Vec::new();
+        let mut part_spans = Vec::new();
+        let mut start = None;
+        let mut end = None;
+        let mut previous_end: Option<Position> = None;
+        let mut composite = false;
+        let mut paren_depth = 0usize;
+
+        loop {
+            self.skip_conditional_newlines();
+
+            match self.current_token.as_ref() {
+                Some(Token::DoubleRightBracket) => break,
+                Some(Token::And) | Some(Token::Or) if paren_depth == 0 => break,
+                Some(Token::RightParen) if stop_at_right_paren && paren_depth == 0 => break,
+                None => break,
+                _ => {}
+            }
+
+            if let Some(prev_end) = previous_end {
+                if prev_end.offset < self.current_span.start.offset {
+                    let gap_span = Span::from_positions(prev_end, self.current_span.start);
+                    let gap =
+                        self.input[prev_end.offset..self.current_span.start.offset].to_string();
+                    if !gap.is_empty() {
+                        parts.push(WordPart::Literal(gap));
+                        part_spans.push(gap_span);
+                        composite = true;
+                    }
                 }
-                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                    let w_clone = w.clone();
-                    let is_quoted = matches!(self.current_token, Some(Token::QuotedWord(_)));
+            }
 
-                    // After =~, handle regex pattern.
-                    // If the pattern contains $ (variable reference), parse it as a
-                    // normal word so variables expand. Otherwise collect as literal
-                    // regex to preserve parens, backslashes, etc.
-                    if saw_regex_op {
-                        if w_clone.contains('$') && !is_quoted {
-                            // Variable reference — parse normally for expansion
-                            let parsed = self.parse_word(w_clone);
-                            words.push(parsed);
-                            self.advance();
-                        } else {
-                            let pattern = self.collect_conditional_regex_pattern(&w_clone);
-                            words.push(Word::literal(&pattern));
-                        }
-                        saw_regex_op = false;
-                        continue;
+            match self.current_token.as_ref() {
+                Some(Token::Word(_)) | Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_)) => {
+                    let word = self
+                        .current_word_to_word()
+                        .ok_or_else(|| self.error("expected conditional operand"))?;
+                    if start.is_none() {
+                        start = Some(word.span.start);
+                    } else {
+                        composite = true;
                     }
-
-                    if w_clone == "=~" {
-                        saw_regex_op = true;
+                    end = Some(word.span.end);
+                    if first_word.is_none() && !composite {
+                        first_word = Some(word.clone());
                     }
-
-                    if let Some(word) = self.current_word_to_word() {
-                        words.push(word);
-                    } else if is_quoted {
-                        let mut parsed = self.parse_word(w_clone);
-                        parsed.quoted = true;
-                        words.push(parsed);
-                    }
+                    parts.extend(word.parts.clone());
+                    part_spans.extend(word.part_spans.clone());
+                    previous_end = Some(self.current_span.end);
                     self.advance();
                 }
-                // Operators that the lexer tokenizes separately
+                Some(Token::LeftParen) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal("(".to_string()));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    paren_depth += 1;
+                    composite = true;
+                    self.advance();
+                }
+                Some(Token::RightParen) => {
+                    if paren_depth == 0 {
+                        break;
+                    }
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal(")".to_string()));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    paren_depth -= 1;
+                    composite = true;
+                    self.advance();
+                }
+                Some(Token::Pipe) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal("|".to_string()));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
+                    self.advance();
+                }
                 Some(Token::And) => {
-                    words.push(Word::literal("&&"));
+                    if paren_depth == 0 {
+                        break;
+                    }
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal("&&".to_string()));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
                     self.advance();
                 }
                 Some(Token::Or) => {
-                    words.push(Word::literal("||"));
-                    self.advance();
-                }
-                Some(Token::LeftParen) => {
-                    if saw_regex_op {
-                        // Regex pattern starts with '(' — collect it
-                        let pattern = self.collect_conditional_regex_pattern("(");
-                        words.push(Word::literal(&pattern));
-                        saw_regex_op = false;
-                        continue;
+                    if paren_depth == 0 {
+                        break;
                     }
-                    words.push(Word::literal("("));
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal("||".to_string()));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
                     self.advance();
                 }
-                Some(Token::RightParen) => {
-                    words.push(Word::literal(")"));
+                Some(Token::RedirectIn) | Some(Token::RedirectOut) => {
+                    let literal = self.input
+                        [self.current_span.start.offset..self.current_span.end.offset]
+                        .to_string();
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal(literal));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
                     self.advance();
-                }
-                None => {
-                    return Err(crate::error::Error::parse(
-                        "unexpected end of input in [[ ]]".to_string(),
-                    ));
                 }
                 _ => {
-                    // Skip unknown tokens
+                    let literal = self.input
+                        [self.current_span.start.offset..self.current_span.end.offset]
+                        .to_string();
+                    if literal.is_empty() {
+                        break;
+                    }
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal(literal));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
                     self.advance();
                 }
             }
         }
 
-        Ok(CompoundCommand::Conditional(words))
-    }
-
-    /// Collect a regex pattern after =~ in [[ ]], handling parens and special chars.
-    fn collect_conditional_regex_pattern(&mut self, first_word: &str) -> String {
-        let mut pattern = first_word.to_string();
-        self.advance(); // consume the first word
-
-        // Concatenate adjacent tokens that are part of the regex pattern
-        loop {
-            match &self.current_token {
-                Some(Token::DoubleRightBracket) => break,
-                Some(Token::And) | Some(Token::Or) => break,
-                Some(Token::LeftParen) => {
-                    pattern.push('(');
-                    self.advance();
-                }
-                Some(Token::RightParen) => {
-                    pattern.push(')');
-                    self.advance();
-                }
-                Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                    pattern.push_str(w);
-                    self.advance();
-                }
-                _ => break,
+        if !composite {
+            if let Some(word) = first_word {
+                return Ok(word);
             }
         }
 
-        pattern
+        let (start, end) = match (start, end) {
+            (Some(start), Some(end)) => (start, end),
+            _ => return Err(self.error("expected conditional operand")),
+        };
+
+        Ok(Word {
+            parts,
+            part_spans,
+            quoted: false,
+            span: Span::from_positions(start, end),
+        })
     }
 
     /// Check if current token starts with `=` (e.g., Word("=5") from `>=5`).
@@ -4257,6 +4566,73 @@ mod tests {
             &input[word.part_spans[0].start.offset..word.part_spans[0].end.offset],
             "${arr[$RANDOM % ${#arr[@]}]}"
         );
+    }
+
+    #[test]
+    fn test_parse_conditional_builds_structured_logical_ast() {
+        let script = Parser::new("[[ ! (foo && bar) ]]\n").parse().unwrap();
+
+        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
+        else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Unary(unary) = &command.expression else {
+            panic!("expected unary conditional");
+        };
+        assert_eq!(unary.op, ConditionalUnaryOp::Not);
+
+        let ConditionalExpr::Parenthesized(paren) = unary.expr.as_ref() else {
+            panic!("expected parenthesized conditional");
+        };
+        let ConditionalExpr::Binary(binary) = paren.expr.as_ref() else {
+            panic!("expected binary conditional");
+        };
+        assert_eq!(binary.op, ConditionalBinaryOp::And);
+        assert!(matches!(binary.left.as_ref(), ConditionalExpr::Word(_)));
+        assert!(matches!(binary.right.as_ref(), ConditionalExpr::Word(_)));
+        assert_eq!(command.left_bracket_span.start.column, 1);
+        assert_eq!(command.right_bracket_span.start.column, 19);
+    }
+
+    #[test]
+    fn test_parse_conditional_pattern_rhs_preserves_structure() {
+        let script = Parser::new("[[ foo == (bar|baz)* ]]\n").parse().unwrap();
+
+        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
+        else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Binary(binary) = &command.expression else {
+            panic!("expected binary conditional");
+        };
+        assert_eq!(binary.op, ConditionalBinaryOp::PatternEq);
+
+        let ConditionalExpr::Pattern(word) = binary.right.as_ref() else {
+            panic!("expected pattern rhs");
+        };
+        assert_eq!(word.to_string(), "(bar|baz)*");
+    }
+
+    #[test]
+    fn test_parse_conditional_regex_rhs_preserves_structure() {
+        let script = Parser::new("[[ foo =~ [ab](c|d) ]]\n").parse().unwrap();
+
+        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
+        else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Binary(binary) = &command.expression else {
+            panic!("expected binary conditional");
+        };
+        assert_eq!(binary.op, ConditionalBinaryOp::RegexMatch);
+
+        let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
+            panic!("expected regex rhs");
+        };
+        assert_eq!(word.to_string(), "[ab](c|d)");
     }
 
     #[test]

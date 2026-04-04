@@ -1,9 +1,11 @@
 use serde_json::{Map, Number, Value};
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, CaseCommand, CaseItem,
-    CaseTerminator, Command, CompoundCommand, CoprocCommand, ForCommand, FunctionDef, IfCommand,
-    ListOperator, ParameterOp, Pipeline, Position, Redirect, RedirectKind, Script, SelectCommand,
-    SimpleCommand, Span, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp,
+    ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr,
+    ConditionalUnaryOp, CoprocCommand, ForCommand, FunctionDef, IfCommand, ListOperator,
+    ParameterOp, Pipeline, Position, Redirect, RedirectKind, Script, SelectCommand, SimpleCommand,
+    Span, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 /// Serialize a parsed Script to gbash-compatible typed JSON.
@@ -506,7 +508,7 @@ impl<'a> Printer<'a> {
             CompoundCommand::BraceGroup(commands) => self.encode_block(commands),
             CompoundCommand::Subshell(commands) => self.encode_subshell(commands),
             CompoundCommand::Arithmetic(expression) => self.encode_arithm_cmd(expression),
-            CompoundCommand::Conditional(words) => self.encode_test_clause(words),
+            CompoundCommand::Conditional(command) => self.encode_test_clause(command),
             CompoundCommand::Time(command) => self.encode_time(command),
             CompoundCommand::Coproc(command) => self.encode_coproc(command),
         }
@@ -944,20 +946,16 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn encode_test_clause(&self, words: &[Word]) -> EncodedNode {
-        let pos = words
-            .first()
-            .map(|word| word.span.start)
-            .unwrap_or_default();
-        let end = words.last().map(|word| word.span.end).unwrap_or_default();
-        let mut map = self.node_object(Some("TestClause"), pos, end);
-        if let Some(cond) = self.encode_cond_expr(words) {
-            self.insert_value(&mut map, "X", Some(cond.value));
-        }
+    fn encode_test_clause(&self, command: &ConditionalCommand) -> EncodedNode {
+        let mut map = self.node_object(Some("TestClause"), command.span.start, command.span.end);
+        self.insert_pos(&mut map, "Left", command.left_bracket_span.start);
+        self.insert_pos(&mut map, "Right", command.right_bracket_span.start);
+        let cond = self.encode_cond_expr(&command.expression);
+        self.insert_value(&mut map, "X", Some(cond.value));
         EncodedNode {
             value: Value::Object(map),
-            pos,
-            end,
+            pos: command.span.start,
+            end: command.span.end,
         }
     }
 
@@ -1137,34 +1135,71 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn encode_cond_expr(&self, words: &[Word]) -> Option<EncodedNode> {
-        if words.is_empty() {
-            return None;
+    fn encode_cond_expr(&self, expr: &ConditionalExpr) -> EncodedNode {
+        match expr {
+            ConditionalExpr::Binary(expr) => self.encode_cond_binary(expr),
+            ConditionalExpr::Unary(expr) => self.encode_cond_unary(expr),
+            ConditionalExpr::Parenthesized(expr) => self.encode_cond_paren(expr),
+            ConditionalExpr::Word(word) => self.encode_cond_leaf("CondWord", "Word", word),
+            ConditionalExpr::Pattern(word) => self.encode_cond_leaf("CondPattern", "Word", word),
+            ConditionalExpr::Regex(word) => self.encode_cond_leaf("CondRegex", "Word", word),
         }
-        if words.len() == 1 {
-            let word = self.encode_word(&words[0]);
-            let mut map = self.node_object(Some("CondWord"), word.pos, word.end);
-            self.insert_value(&mut map, "Word", Some(word.value));
-            return Some(EncodedNode {
-                value: Value::Object(map),
-                pos: word.pos,
-                end: word.end,
-            });
-        }
-        let start = words.first()?.span.start;
-        let end = words.last()?.span.end;
-        let raw = self
-            .slice_offsets(start.offset, end.offset)
-            .unwrap_or_default()
-            .to_string();
-        let word = self.synthetic_literal_word_node(&raw, Span::from_positions(start, end));
-        let mut map = self.node_object(Some("CondWord"), start, end);
-        self.insert_value(&mut map, "Word", Some(word.value));
-        Some(EncodedNode {
+    }
+
+    fn encode_cond_binary(&self, expr: &ConditionalBinaryExpr) -> EncodedNode {
+        let left = self.encode_cond_expr(&expr.left);
+        let right = self.encode_cond_expr(&expr.right);
+        let mut map = self.node_object(Some("CondBinary"), left.pos, right.end);
+        self.insert_pos(&mut map, "OpPos", expr.op_span.start);
+        self.insert_number(&mut map, "Op", self.cond_binary_op_code(expr.op));
+        self.insert_value(&mut map, "X", Some(left.value));
+        self.insert_value(&mut map, "Y", Some(right.value));
+        EncodedNode {
             value: Value::Object(map),
-            pos: start,
-            end,
-        })
+            pos: left.pos,
+            end: right.end,
+        }
+    }
+
+    fn encode_cond_unary(&self, expr: &ConditionalUnaryExpr) -> EncodedNode {
+        let inner = self.encode_cond_expr(&expr.expr);
+        let mut map = self.node_object(Some("CondUnary"), expr.op_span.start, inner.end);
+        self.insert_pos(&mut map, "OpPos", expr.op_span.start);
+        self.insert_number(&mut map, "Op", self.cond_unary_op_code(expr.op));
+        self.insert_value(&mut map, "X", Some(inner.value));
+        EncodedNode {
+            value: Value::Object(map),
+            pos: expr.op_span.start,
+            end: inner.end,
+        }
+    }
+
+    fn encode_cond_paren(&self, expr: &ConditionalParenExpr) -> EncodedNode {
+        let inner = self.encode_cond_expr(&expr.expr);
+        let mut map = self.node_object(
+            Some("CondParen"),
+            expr.left_paren_span.start,
+            expr.right_paren_span.end,
+        );
+        self.insert_pos(&mut map, "Lparen", expr.left_paren_span.start);
+        self.insert_pos(&mut map, "Rparen", expr.right_paren_span.start);
+        self.insert_value(&mut map, "X", Some(inner.value));
+        EncodedNode {
+            value: Value::Object(map),
+            pos: expr.left_paren_span.start,
+            end: expr.right_paren_span.end,
+        }
+    }
+
+    fn encode_cond_leaf(&self, ty: &str, field: &str, word: &Word) -> EncodedNode {
+        let encoded = self.encode_word(word);
+        let mut map = self.node_object(Some(ty), encoded.pos, encoded.end);
+        self.insert_value(&mut map, field, Some(encoded.value));
+        EncodedNode {
+            value: Value::Object(map),
+            pos: encoded.pos,
+            end: encoded.end,
+        }
     }
 
     fn encode_assignment(&self, assignment: &Assignment) -> EncodedNode {
@@ -1929,7 +1964,7 @@ impl<'a> Printer<'a> {
             CompoundCommand::BraceGroup(commands) | CompoundCommand::Subshell(commands) => {
                 self.commands_span(commands)
             }
-            CompoundCommand::Conditional(words) => self.words_span(words),
+            CompoundCommand::Conditional(command) => command.span,
             CompoundCommand::Arithmetic(_) => Span::new(),
         };
         if let Some(last) = redirects.last() {
@@ -1951,16 +1986,6 @@ impl<'a> Printer<'a> {
             return Span::new();
         };
         Span::from_positions(self.command_span(first).start, self.command_span(last).end)
-    }
-
-    fn words_span(&self, words: &[Word]) -> Span {
-        let Some(first) = words.first() else {
-            return Span::new();
-        };
-        let Some(last) = words.last() else {
-            return Span::new();
-        };
-        Span::from_positions(first.span.start, last.span.end)
     }
 
     fn stmt_end(
@@ -2042,6 +2067,58 @@ impl<'a> Printer<'a> {
             ListOperator::And => 11,
             ListOperator::Or => 12,
             ListOperator::Semicolon | ListOperator::Background => 0,
+        }
+    }
+
+    fn cond_unary_op_code(&self, op: ConditionalUnaryOp) -> u64 {
+        match op {
+            ConditionalUnaryOp::Exists => 105,
+            ConditionalUnaryOp::RegularFile => 106,
+            ConditionalUnaryOp::Directory => 107,
+            ConditionalUnaryOp::CharacterSpecial => 108,
+            ConditionalUnaryOp::BlockSpecial => 109,
+            ConditionalUnaryOp::NamedPipe => 110,
+            ConditionalUnaryOp::Socket => 111,
+            ConditionalUnaryOp::Symlink => 112,
+            ConditionalUnaryOp::Sticky => 113,
+            ConditionalUnaryOp::SetGroupId => 114,
+            ConditionalUnaryOp::SetUserId => 115,
+            ConditionalUnaryOp::GroupOwned => 116,
+            ConditionalUnaryOp::UserOwned => 117,
+            ConditionalUnaryOp::Modified => 118,
+            ConditionalUnaryOp::Readable => 119,
+            ConditionalUnaryOp::Writable => 120,
+            ConditionalUnaryOp::Executable => 121,
+            ConditionalUnaryOp::NonEmptyFile => 122,
+            ConditionalUnaryOp::FdTerminal => 123,
+            ConditionalUnaryOp::EmptyString => 124,
+            ConditionalUnaryOp::NonEmptyString => 125,
+            ConditionalUnaryOp::OptionSet => 126,
+            ConditionalUnaryOp::VariableSet => 127,
+            ConditionalUnaryOp::ReferenceVariable => 128,
+            ConditionalUnaryOp::Not => 39,
+        }
+    }
+
+    fn cond_binary_op_code(&self, op: ConditionalBinaryOp) -> u64 {
+        match op {
+            ConditionalBinaryOp::RegexMatch => 129,
+            ConditionalBinaryOp::NewerThan => 130,
+            ConditionalBinaryOp::OlderThan => 131,
+            ConditionalBinaryOp::SameFile => 132,
+            ConditionalBinaryOp::ArithmeticEq => 133,
+            ConditionalBinaryOp::ArithmeticNe => 134,
+            ConditionalBinaryOp::ArithmeticLe => 135,
+            ConditionalBinaryOp::ArithmeticGe => 136,
+            ConditionalBinaryOp::ArithmeticLt => 137,
+            ConditionalBinaryOp::ArithmeticGt => 138,
+            ConditionalBinaryOp::And => 11,
+            ConditionalBinaryOp::Or => 12,
+            ConditionalBinaryOp::PatternEqShort => 87,
+            ConditionalBinaryOp::PatternEq => 45,
+            ConditionalBinaryOp::PatternNe => 46,
+            ConditionalBinaryOp::LexicalBefore => 65,
+            ConditionalBinaryOp::LexicalAfter => 63,
         }
     }
 
@@ -2418,5 +2495,36 @@ mod tests {
         assert_eq!(args[1]["Parts"][0]["Exp"]["Op"], 84);
         assert_eq!(args[2]["Parts"][0]["Type"], "CmdSubst");
         assert_eq!(args[3]["Parts"][0]["Type"], "ArithmExp");
+    }
+
+    #[test]
+    fn serializes_structured_test_clause() {
+        let actual = typed_json("[[ ! (foo && bar) ]]\n");
+        let clause = &actual["Stmts"][0]["Cmd"];
+        assert_eq!(clause["Type"], "TestClause");
+        assert_eq!(clause["Left"]["Col"], 1);
+        assert_eq!(clause["Right"]["Col"], 19);
+        assert_eq!(clause["X"]["Type"], "CondUnary");
+        assert_eq!(clause["X"]["Op"], 39);
+        assert_eq!(clause["X"]["X"]["Type"], "CondParen");
+        assert_eq!(clause["X"]["X"]["X"]["Type"], "CondBinary");
+        assert_eq!(clause["X"]["X"]["X"]["Op"], 11);
+    }
+
+    #[test]
+    fn serializes_pattern_and_regex_operands_in_conditionals() {
+        let pattern = typed_json("[[ foo == (bar|baz)* ]]\n");
+        assert_eq!(pattern["Stmts"][0]["Cmd"]["X"]["Type"], "CondBinary");
+        assert_eq!(pattern["Stmts"][0]["Cmd"]["X"]["Op"], 45);
+        assert_eq!(pattern["Stmts"][0]["Cmd"]["X"]["Y"]["Type"], "CondPattern");
+        assert_eq!(
+            pattern["Stmts"][0]["Cmd"]["X"]["Y"]["Word"]["Parts"][0]["Value"],
+            "("
+        );
+
+        let regex = typed_json("[[ foo =~ [ab](c|d) ]]\n");
+        assert_eq!(regex["Stmts"][0]["Cmd"]["X"]["Type"], "CondBinary");
+        assert_eq!(regex["Stmts"][0]["Cmd"]["X"]["Op"], 129);
+        assert_eq!(regex["Stmts"][0]["Cmd"]["X"]["Y"]["Type"], "CondRegex");
     }
 }

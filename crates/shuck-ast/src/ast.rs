@@ -187,7 +187,7 @@ pub enum CompoundCommand {
     /// Time command - measure execution time
     Time(TimeCommand),
     /// Conditional expression [[ ... ]]
-    Conditional(Vec<Word>),
+    Conditional(ConditionalCommand),
     /// Coprocess: `coproc [NAME] command`
     Coproc(CoprocCommand),
 }
@@ -220,6 +220,193 @@ pub struct TimeCommand {
     pub command: Option<Box<Command>>,
     /// Source span of this command
     pub span: Span,
+}
+
+/// Bash conditional command `[[ ... ]]`.
+#[derive(Debug, Clone)]
+pub struct ConditionalCommand {
+    /// The parsed conditional expression.
+    pub expression: ConditionalExpr,
+    /// Source span of the full `[[ ... ]]` command.
+    pub span: Span,
+    /// Source span of the opening `[[`.
+    pub left_bracket_span: Span,
+    /// Source span of the closing `]]`.
+    pub right_bracket_span: Span,
+}
+
+/// A node within a `[[ ... ]]` conditional expression.
+#[derive(Debug, Clone)]
+pub enum ConditionalExpr {
+    Binary(ConditionalBinaryExpr),
+    Unary(ConditionalUnaryExpr),
+    Parenthesized(ConditionalParenExpr),
+    Word(Word),
+    Pattern(Word),
+    Regex(Word),
+}
+
+impl ConditionalExpr {
+    /// Source span of this conditional expression node.
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Binary(expr) => expr.span(),
+            Self::Unary(expr) => expr.span(),
+            Self::Parenthesized(expr) => expr.span(),
+            Self::Word(word) | Self::Pattern(word) | Self::Regex(word) => word.span,
+        }
+    }
+}
+
+/// A binary `[[ ... ]]` expression like `a == b` or `x && y`.
+#[derive(Debug, Clone)]
+pub struct ConditionalBinaryExpr {
+    pub left: Box<ConditionalExpr>,
+    pub op: ConditionalBinaryOp,
+    pub op_span: Span,
+    pub right: Box<ConditionalExpr>,
+}
+
+impl ConditionalBinaryExpr {
+    pub fn span(&self) -> Span {
+        self.left.span().merge(self.right.span())
+    }
+}
+
+/// A unary `[[ ... ]]` expression like `! x` or `-n "$x"`.
+#[derive(Debug, Clone)]
+pub struct ConditionalUnaryExpr {
+    pub op: ConditionalUnaryOp,
+    pub op_span: Span,
+    pub expr: Box<ConditionalExpr>,
+}
+
+impl ConditionalUnaryExpr {
+    pub fn span(&self) -> Span {
+        self.op_span.merge(self.expr.span())
+    }
+}
+
+/// A parenthesized `[[ ... ]]` sub-expression.
+#[derive(Debug, Clone)]
+pub struct ConditionalParenExpr {
+    pub left_paren_span: Span,
+    pub expr: Box<ConditionalExpr>,
+    pub right_paren_span: Span,
+}
+
+impl ConditionalParenExpr {
+    pub fn span(&self) -> Span {
+        self.left_paren_span.merge(self.right_paren_span)
+    }
+}
+
+/// Binary operators allowed inside `[[ ... ]]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionalBinaryOp {
+    RegexMatch,
+    NewerThan,
+    OlderThan,
+    SameFile,
+    ArithmeticEq,
+    ArithmeticNe,
+    ArithmeticLe,
+    ArithmeticGe,
+    ArithmeticLt,
+    ArithmeticGt,
+    And,
+    Or,
+    PatternEqShort,
+    PatternEq,
+    PatternNe,
+    LexicalBefore,
+    LexicalAfter,
+}
+
+impl ConditionalBinaryOp {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RegexMatch => "=~",
+            Self::NewerThan => "-nt",
+            Self::OlderThan => "-ot",
+            Self::SameFile => "-ef",
+            Self::ArithmeticEq => "-eq",
+            Self::ArithmeticNe => "-ne",
+            Self::ArithmeticLe => "-le",
+            Self::ArithmeticGe => "-ge",
+            Self::ArithmeticLt => "-lt",
+            Self::ArithmeticGt => "-gt",
+            Self::And => "&&",
+            Self::Or => "||",
+            Self::PatternEqShort => "=",
+            Self::PatternEq => "==",
+            Self::PatternNe => "!=",
+            Self::LexicalBefore => "<",
+            Self::LexicalAfter => ">",
+        }
+    }
+}
+
+/// Unary operators allowed inside `[[ ... ]]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionalUnaryOp {
+    Exists,
+    RegularFile,
+    Directory,
+    CharacterSpecial,
+    BlockSpecial,
+    NamedPipe,
+    Socket,
+    Symlink,
+    Sticky,
+    SetGroupId,
+    SetUserId,
+    GroupOwned,
+    UserOwned,
+    Modified,
+    Readable,
+    Writable,
+    Executable,
+    NonEmptyFile,
+    FdTerminal,
+    EmptyString,
+    NonEmptyString,
+    OptionSet,
+    VariableSet,
+    ReferenceVariable,
+    Not,
+}
+
+impl ConditionalUnaryOp {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Exists => "-e",
+            Self::RegularFile => "-f",
+            Self::Directory => "-d",
+            Self::CharacterSpecial => "-c",
+            Self::BlockSpecial => "-b",
+            Self::NamedPipe => "-p",
+            Self::Socket => "-S",
+            Self::Symlink => "-L",
+            Self::Sticky => "-k",
+            Self::SetGroupId => "-g",
+            Self::SetUserId => "-u",
+            Self::GroupOwned => "-G",
+            Self::UserOwned => "-O",
+            Self::Modified => "-N",
+            Self::Readable => "-r",
+            Self::Writable => "-w",
+            Self::Executable => "-x",
+            Self::NonEmptyFile => "-s",
+            Self::FdTerminal => "-t",
+            Self::EmptyString => "-z",
+            Self::NonEmptyString => "-n",
+            Self::OptionSet => "-o",
+            Self::VariableSet => "-v",
+            Self::ReferenceVariable => "-R",
+            Self::Not => "!",
+        }
+    }
 }
 
 /// If statement.
@@ -1376,9 +1563,21 @@ mod tests {
 
     #[test]
     fn compound_command_conditional() {
-        let cmd = CompoundCommand::Conditional(vec![Word::literal("-f"), Word::literal("file")]);
-        if let CompoundCommand::Conditional(words) = &cmd {
-            assert_eq!(words.len(), 2);
+        let cmd = CompoundCommand::Conditional(ConditionalCommand {
+            expression: ConditionalExpr::Unary(ConditionalUnaryExpr {
+                op: ConditionalUnaryOp::RegularFile,
+                op_span: Span::new(),
+                expr: Box::new(ConditionalExpr::Word(Word::literal("file"))),
+            }),
+            span: Span::new(),
+            left_bracket_span: Span::new(),
+            right_bracket_span: Span::new(),
+        });
+        if let CompoundCommand::Conditional(command) = &cmd {
+            let ConditionalExpr::Unary(expr) = &command.expression else {
+                panic!("expected unary conditional");
+            };
+            assert_eq!(expr.op, ConditionalUnaryOp::RegularFile);
         } else {
             panic!("expected Conditional");
         }

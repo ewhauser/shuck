@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, CaseItem, Command, CompoundCommand, Script, Span,
-    Word, WordPart,
+    Assignment, AssignmentValue, BuiltinCommand, CaseItem, Command, CompoundCommand,
+    ConditionalExpr, Script, Span, Word, WordPart,
 };
 
 use crate::{
@@ -501,10 +501,8 @@ fn collect_command_ranges_from_compound(
                 collect_command_ranges_from_command(command, ranges);
             }
         }
-        CompoundCommand::Conditional(words) => {
-            for word in words {
-                collect_command_ranges_from_word(word, ranges);
-            }
+        CompoundCommand::Conditional(command) => {
+            collect_command_ranges_from_conditional_expr(&command.expression, ranges);
         }
         CompoundCommand::Coproc(command) => {
             collect_command_ranges_from_command(&command.body, ranges);
@@ -549,6 +547,27 @@ fn collect_command_ranges_from_word(word: &Word, ranges: &mut Vec<CommandLineRan
     }
 }
 
+fn collect_command_ranges_from_conditional_expr(
+    expr: &ConditionalExpr,
+    ranges: &mut Vec<CommandLineRange>,
+) {
+    match expr {
+        ConditionalExpr::Binary(expr) => {
+            collect_command_ranges_from_conditional_expr(&expr.left, ranges);
+            collect_command_ranges_from_conditional_expr(&expr.right, ranges);
+        }
+        ConditionalExpr::Unary(expr) => {
+            collect_command_ranges_from_conditional_expr(&expr.expr, ranges);
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_command_ranges_from_conditional_expr(&expr.expr, ranges);
+        }
+        ConditionalExpr::Word(word)
+        | ConditionalExpr::Pattern(word)
+        | ConditionalExpr::Regex(word) => collect_command_ranges_from_word(word, ranges),
+    }
+}
+
 fn command_line_range(command: &Command) -> Option<CommandLineRange> {
     match command {
         Command::Simple(command) => span_line_range(command.span),
@@ -581,7 +600,8 @@ fn compound_line_range(compound: &CompoundCommand) -> Option<CommandLineRange> {
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             merge_command_line_ranges(commands)
         }
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => None,
+        CompoundCommand::Arithmetic(_) => None,
+        CompoundCommand::Conditional(command) => span_line_range(command.span),
         CompoundCommand::Time(command) => span_line_range(command.span),
         CompoundCommand::Coproc(command) => span_line_range(command.span),
     }
