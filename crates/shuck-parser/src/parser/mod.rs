@@ -15,9 +15,10 @@ use shuck_ast::{
     BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CompoundCommand,
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
-    ExitCommand, ForCommand, FunctionDef, IfCommand, ListOperator, Name, ParameterOp, Pipeline,
-    Position, Redirect, RedirectKind, ReturnCommand, Script, SelectCommand, SimpleCommand, Span,
-    TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
+    DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, IfCommand,
+    ListOperator, Name, ParameterOp, Pipeline, Position, Redirect, RedirectKind, ReturnCommand,
+    Script, SelectCommand, SimpleCommand, Span, TimeCommand, Token, UntilCommand, WhileCommand,
+    Word, WordPart,
 };
 
 use crate::error::{Error, Result};
@@ -233,6 +234,9 @@ impl<'a> Parser<'a> {
             Command::Builtin(builtin) => {
                 Self::rebase_builtin(builtin, base);
             }
+            Command::Decl(decl) => {
+                Self::rebase_decl(decl, base);
+            }
             Command::Pipeline(pipeline) => {
                 pipeline.span = pipeline.span.rebased(base);
                 Self::rebase_commands(&mut pipeline.commands, base);
@@ -293,6 +297,30 @@ impl<'a> Parser<'a> {
                 Self::rebase_words(&mut command.extra_args, base);
                 Self::rebase_redirects(&mut command.redirects, base);
                 Self::rebase_assignments(&mut command.assignments, base);
+            }
+        }
+    }
+
+    fn rebase_decl(decl: &mut DeclClause, base: Position) {
+        decl.span = decl.span.rebased(base);
+        decl.variant_span = decl.variant_span.rebased(base);
+        Self::rebase_redirects(&mut decl.redirects, base);
+        Self::rebase_assignments(&mut decl.assignments, base);
+        for operand in &mut decl.operands {
+            match operand {
+                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                    Self::rebase_word(word, base);
+                }
+                DeclOperand::Name(name) => {
+                    name.span = name.span.rebased(base);
+                    name.name_span = name.name_span.rebased(base);
+                    if let Some(index_span) = &mut name.index_span {
+                        *index_span = index_span.rebased(base);
+                    }
+                }
+                DeclOperand::Assignment(assignment) => {
+                    Self::rebase_assignments(std::slice::from_mut(assignment), base);
+                }
             }
         }
     }
@@ -1148,7 +1176,21 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn classify_simple_command(command: SimpleCommand) -> Command {
+    fn classify_decl_variant_name(word: &Word) -> Option<Name> {
+        if word.quoted || word.parts.len() != 1 {
+            return None;
+        }
+
+        match &word.parts[0] {
+            WordPart::Literal(name) => match name.as_str() {
+                "declare" | "local" | "export" | "readonly" => Some(Name::from(name)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn classify_simple_command(&self, command: SimpleCommand) -> Command {
         let kind = Self::classify_flow_control_name(&command.name);
 
         if let Some(kind) = kind {
@@ -1199,6 +1241,27 @@ impl<'a> Parser<'a> {
                     }))
                 }
             };
+        }
+
+        if let Some(variant) = Self::classify_decl_variant_name(&command.name) {
+            let SimpleCommand {
+                name,
+                args,
+                redirects,
+                assignments,
+                span,
+            } = command;
+            return Command::Decl(DeclClause {
+                variant,
+                variant_span: name.span,
+                operands: args
+                    .into_iter()
+                    .map(|word| self.classify_decl_operand(word))
+                    .collect(),
+                redirects,
+                assignments,
+                span,
+            });
         }
 
         Command::Simple(command)
@@ -1254,7 +1317,7 @@ impl<'a> Parser<'a> {
 
         // Default to simple command
         match self.parse_simple_command()? {
-            Some(cmd) => Ok(Some(Self::classify_simple_command(cmd))),
+            Some(cmd) => Ok(Some(self.classify_simple_command(cmd))),
             None => Ok(None),
         }
     }
@@ -2605,12 +2668,28 @@ impl<'a> Parser<'a> {
         (elements, closing_span)
     }
 
-    /// Parse the value side of an assignment (`VAR=value`).
-    /// Returns `Some((Assignment, needs_advance))` if the current word is an assignment.
-    /// The bool indicates whether the caller must call `self.advance()` afterward.
-    fn try_parse_assignment(&mut self, w: &str) -> Option<(Assignment, bool)> {
+    fn parse_array_words_from_text(&self, inner: &str, base: Position) -> Vec<Word> {
+        let mut lexer =
+            Lexer::with_max_subst_depth(inner, self.max_depth.saturating_sub(self.current_depth));
+        let mut elements = Vec::new();
+
+        while let Some(spanned) = lexer.next_spanned_token() {
+            match &spanned.token {
+                Token::Word(_) | Token::LiteralWord(_) | Token::QuotedWord(_) => {
+                    let span = spanned.span.rebased(base);
+                    if let Some(word) = self.word_from_token(&spanned.token, span) {
+                        elements.push(word);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        elements
+    }
+
+    fn parse_assignment_from_text(&self, w: &str, assignment_span: Span) -> Option<Assignment> {
         let (name, index, value, is_append) = Self::is_assignment(w)?;
-        let assignment_span = self.current_span;
         let name_span = Span::from_positions(
             assignment_span.start,
             assignment_span.start.advanced_by(name),
@@ -2630,29 +2709,160 @@ impl<'a> Parser<'a> {
         let index = index.map(|s| s.to_string());
         let value_str = value.to_string();
 
-        // Array literal in the token itself: arr=(a b c)
-        if value_str.starts_with('(') && value_str.ends_with(')') {
+        let value = if value_str.starts_with('(') && value_str.ends_with(')') {
             let inner = &value_str[1..value_str.len() - 1];
-            let elements: Vec<Word> = inner
-                .split_whitespace()
-                .map(|s| self.parse_word(s.to_string()))
-                .collect();
-            return Some((
-                Assignment {
-                    name,
-                    name_span,
-                    index,
-                    index_span,
-                    value: AssignmentValue::Array(elements),
-                    append: is_append,
-                    span: assignment_span,
-                },
-                true,
-            ));
+            AssignmentValue::Array(
+                self.parse_array_words_from_text(inner, value_start.advanced_by("(")),
+            )
+        } else if value_str.is_empty() {
+            AssignmentValue::Scalar(Word::literal_with_span("", value_span))
+        } else if value_str.starts_with('"') && value_str.ends_with('"') {
+            let inner = Self::strip_quotes(&value_str);
+            let mut word = self.parse_word_with_context(
+                inner.to_string(),
+                value_span,
+                value_start.advanced_by("\""),
+            );
+            word.quoted = true;
+            AssignmentValue::Scalar(word)
+        } else if value_str.starts_with('\'') && value_str.ends_with('\'') {
+            let inner = Self::strip_quotes(&value_str);
+            AssignmentValue::Scalar(Word::quoted_literal_with_span(
+                inner.to_string(),
+                value_span,
+            ))
+        } else {
+            AssignmentValue::Scalar(self.parse_word_with_context(
+                value_str,
+                value_span,
+                value_start,
+            ))
+        };
+
+        Some(Assignment {
+            name,
+            name_span,
+            index,
+            index_span,
+            value,
+            append: is_append,
+            span: assignment_span,
+        })
+    }
+
+    fn parse_decl_name_from_text(word: &str, span: Span) -> Option<DeclName> {
+        if let Some(bracket_pos) = word.find('[') {
+            let name = &word[..bracket_pos];
+            if !Self::is_valid_identifier(name) || !word.ends_with(']') {
+                return None;
+            }
+
+            let index = &word[bracket_pos + 1..word.len() - 1];
+            let name_span = Span::from_positions(span.start, span.start.advanced_by(name));
+            let index_start = name_span.end.advanced_by("[");
+            let index_span = Span::from_positions(index_start, index_start.advanced_by(index));
+
+            return Some(DeclName {
+                name: Name::from(name),
+                name_span,
+                index: Some(index.to_string()),
+                index_span: Some(index_span),
+                span,
+            });
         }
+
+        if !Self::is_valid_identifier(word) {
+            return None;
+        }
+
+        Some(DeclName {
+            name: Name::from(word),
+            name_span: span,
+            index: None,
+            index_span: None,
+            span,
+        })
+    }
+
+    fn is_valid_identifier(name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+
+        let mut chars = name.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        if !first.is_ascii_alphabetic() && first != '_' {
+            return false;
+        }
+
+        chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    }
+
+    fn word_source_text(&self, word: &Word) -> String {
+        if word.span.start.offset <= word.span.end.offset
+            && word.span.end.offset <= self.input.len()
+        {
+            return self.input[word.span.start.offset..word.span.end.offset].to_string();
+        }
+        word.to_string()
+    }
+
+    fn is_literal_flag_word(word: &Word, raw: &str) -> bool {
+        if word.quoted || raw.contains('=') {
+            return false;
+        }
+
+        let Some(first) = raw.chars().next() else {
+            return false;
+        };
+        if first != '-' && first != '+' {
+            return false;
+        }
+
+        matches!(
+            word.parts.as_slice(),
+            [WordPart::Literal(value)] if value == raw
+        )
+    }
+
+    fn classify_decl_operand(&self, word: Word) -> DeclOperand {
+        let raw = self.word_source_text(&word);
+
+        if Self::is_literal_flag_word(&word, &raw) {
+            return DeclOperand::Flag(word);
+        }
+
+        if let Some(assignment) = self.parse_assignment_from_text(&raw, word.span) {
+            return DeclOperand::Assignment(assignment);
+        }
+
+        if let Some(name) = Self::parse_decl_name_from_text(&raw, word.span) {
+            return DeclOperand::Name(name);
+        }
+
+        DeclOperand::Dynamic(word)
+    }
+
+    /// Parse the value side of an assignment (`VAR=value`).
+    /// Returns `Some((Assignment, needs_advance))` if the current word is an assignment.
+    /// The bool indicates whether the caller must call `self.advance()` afterward.
+    fn try_parse_assignment(&mut self, w: &str) -> Option<(Assignment, bool)> {
+        let (_, _, value_str, _) = Self::is_assignment(w)?;
 
         // Empty value — check for arr=(...) syntax with separate tokens
         if value_str.is_empty() {
+            let assignment_span = self.current_span;
+            let (name, index, _, is_append) = Self::is_assignment(w)?;
+            let name_span = Span::from_positions(
+                assignment_span.start,
+                assignment_span.start.advanced_by(name),
+            );
+            let index_span = index.map(|index| {
+                let start = name_span.end.advanced_by("[");
+                Span::from_positions(start, start.advanced_by(index))
+            });
             self.advance();
             if matches!(self.current_token, Some(Token::LeftParen)) {
                 let open_paren_span = self.current_span;
@@ -2660,9 +2870,9 @@ impl<'a> Parser<'a> {
                 let (elements, close_span) = self.collect_array_elements();
                 return Some((
                     Assignment {
-                        name,
+                        name: Name::from(name),
                         name_span,
-                        index,
+                        index: index.map(|s| s.to_string()),
                         index_span,
                         value: AssignmentValue::Array(elements),
                         append: is_append,
@@ -2675,11 +2885,20 @@ impl<'a> Parser<'a> {
                 ));
             }
             // Empty assignment: VAR=
+            let value_start_offset = if let Some(pos) = w.find("+=") {
+                pos + 2
+            } else {
+                w.find('=')? + 1
+            };
+            let value_span = Span::from_positions(
+                assignment_span.start.advanced_by(&w[..value_start_offset]),
+                assignment_span.end,
+            );
             return Some((
                 Assignment {
-                    name,
+                    name: Name::from(name),
                     name_span,
-                    index,
+                    index: index.map(|s| s.to_string()),
                     index_span,
                     value: AssignmentValue::Scalar(Word::literal_with_span("", value_span)),
                     append: is_append,
@@ -2689,59 +2908,32 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        // Quoted or plain scalar value
-        let value_word = if value_str.starts_with('"') && value_str.ends_with('"') {
-            let inner = Self::strip_quotes(&value_str);
-            let mut w = self.parse_word_with_context(
-                inner.to_string(),
-                value_span,
-                value_start.advanced_by("\""),
-            );
-            w.quoted = true;
-            w
-        } else if value_str.starts_with('\'') && value_str.ends_with('\'') {
-            let inner = Self::strip_quotes(&value_str);
-            Word::quoted_literal_with_span(inner.to_string(), value_span)
-        } else {
-            self.parse_word_with_context(value_str, value_span, value_start)
-        };
-        Some((
-            Assignment {
-                name,
-                name_span,
-                index,
-                index_span,
-                value: AssignmentValue::Scalar(value_word),
-                append: is_append,
-                span: assignment_span,
-            },
-            true,
-        ))
+        self.parse_assignment_from_text(w, self.current_span)
+            .map(|assignment| (assignment, true))
     }
 
     /// Parse a compound array argument in arg position (e.g. `declare -a arr=(x y z)`).
     /// Called when the current word ends with `=` and the next token is `(`.
     /// Returns the compound word if successful, or `None` if not a compound assignment.
-    fn try_parse_compound_array_arg(&mut self, saved_w: String) -> Option<Word> {
+    fn try_parse_compound_array_arg(&mut self, saved_w: String, saved_span: Span) -> Option<Word> {
         if !matches!(self.current_token, Some(Token::LeftParen)) {
             return None;
         }
+
         self.advance(); // consume '('
         let mut compound = saved_w;
-        compound.push('(');
+        let mut closing_span = Span::new();
         loop {
             match &self.current_token {
                 Some(Token::RightParen) => {
-                    compound.push(')');
+                    closing_span = self.current_span;
                     self.advance();
                     break;
                 }
                 Some(Token::Word(elem))
                 | Some(Token::LiteralWord(elem))
                 | Some(Token::QuotedWord(elem)) => {
-                    if !compound.ends_with('(') {
-                        compound.push(' ');
-                    }
+                    compound.push(' ');
                     compound.push_str(elem);
                     self.advance();
                 }
@@ -2751,7 +2943,19 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Some(self.parse_word(compound))
+
+        let span = if closing_span == Span::new() {
+            saved_span
+        } else {
+            saved_span.merge(closing_span)
+        };
+
+        if saved_span.start.offset <= span.end.offset && span.end.offset <= self.input.len() {
+            let source = &self.input[saved_span.start.offset..span.end.offset];
+            return Some(self.parse_word_with_context(source.to_string(), span, saved_span.start));
+        }
+
+        Some(self.parse_word_with_context(compound, span, saved_span.start))
     }
 
     /// Parse a heredoc redirect (`<<` or `<<-`) and any trailing redirects on the same line.
@@ -2990,13 +3194,16 @@ impl<'a> Parser<'a> {
                     // Handle compound array assignment in arg position:
                     // declare -a arr=(x y z) → arr=(x y z) as single arg
                     if w.ends_with('=') && !words.is_empty() {
+                        let original_word = self.current_word_to_word();
+                        let saved_span = self.current_span;
                         self.advance();
-                        if let Some(word) = self.try_parse_compound_array_arg(w.clone()) {
+                        if let Some(word) = self.try_parse_compound_array_arg(w.clone(), saved_span)
+                        {
                             words.push(word);
                             continue;
                         }
                         // Not a compound assignment — treat as regular word
-                        if let Some(word) = self.current_word_to_word() {
+                        if let Some(word) = original_word {
                             words.push(word);
                         }
                         continue;
@@ -4712,5 +4919,64 @@ coproc worker { true; }
         assert_eq!(inner.name.span.start.line, 2);
         assert_eq!(inner.name.span.start.column, 3);
         assert_eq!(inner.args[1].span.start.column, 17);
+    }
+
+    #[test]
+    fn test_parse_declare_clause_classifies_operands_and_prefix_assignments() {
+        let input = "FOO=1 declare -a arr=(\"hello world\" two) bar >out\n";
+        let script = Parser::new(input).parse().unwrap();
+
+        let Command::Decl(command) = &script.commands[0] else {
+            panic!("expected declaration clause");
+        };
+
+        assert_eq!(command.variant, "declare");
+        assert_eq!(command.variant_span.slice(input), "declare");
+        assert_eq!(command.assignments.len(), 1);
+        assert_eq!(command.assignments[0].name, "FOO");
+        assert_eq!(command.redirects.len(), 1);
+        assert_eq!(command.redirects[0].target.to_string(), "out");
+        assert_eq!(command.operands.len(), 3);
+
+        let DeclOperand::Flag(flag) = &command.operands[0] else {
+            panic!("expected flag operand");
+        };
+        assert_eq!(flag.to_string(), "-a");
+
+        let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+            panic!("expected assignment operand");
+        };
+        assert_eq!(assignment.name, "arr");
+        let AssignmentValue::Array(elements) = &assignment.value else {
+            panic!("expected array assignment");
+        };
+        assert_eq!(elements.len(), 2);
+        assert!(elements[0].quoted);
+        assert_eq!(elements[0].to_string(), "hello world");
+        assert_eq!(elements[1].to_string(), "two");
+
+        let DeclOperand::Name(name) = &command.operands[2] else {
+            panic!("expected bare name operand");
+        };
+        assert_eq!(name.name, "bar");
+    }
+
+    #[test]
+    fn test_parse_export_uses_dynamic_operand_for_invalid_assignment() {
+        let script = Parser::new("export foo-bar=(one two)\n").parse().unwrap();
+
+        let Command::Decl(command) = &script.commands[0] else {
+            panic!("expected declaration clause");
+        };
+
+        assert_eq!(command.variant, "export");
+        assert_eq!(command.operands.len(), 1);
+        let DeclOperand::Dynamic(word) = &command.operands[0] else {
+            panic!("expected dynamic operand");
+        };
+        assert_eq!(
+            word.span.slice("export foo-bar=(one two)\n"),
+            "foo-bar=(one two)"
+        );
     }
 }

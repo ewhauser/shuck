@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, CaseItem, Command, CompoundCommand,
-    ConditionalExpr, Script, Span, Word, WordPart,
+    ConditionalExpr, DeclClause, DeclOperand, Script, Span, Word, WordPart,
 };
 
 use crate::{
@@ -316,6 +316,7 @@ fn collect_command_ranges_from_command(command: &Command, ranges: &mut Vec<Comma
     match command {
         Command::Simple(command) => collect_command_ranges_from_simple(command, ranges),
         Command::Builtin(command) => collect_command_ranges_from_builtin(command, ranges),
+        Command::Decl(command) => collect_command_ranges_from_decl(command, ranges),
         Command::Pipeline(pipeline) => {
             for command in &pipeline.commands {
                 collect_command_ranges_from_command(command, ranges);
@@ -416,6 +417,26 @@ fn collect_command_ranges_from_simple(
     }
     for assignment in &command.assignments {
         collect_command_ranges_from_assignment(assignment, ranges);
+    }
+}
+
+fn collect_command_ranges_from_decl(command: &DeclClause, ranges: &mut Vec<CommandLineRange>) {
+    for assignment in &command.assignments {
+        collect_command_ranges_from_assignment(assignment, ranges);
+    }
+    for operand in &command.operands {
+        match operand {
+            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                collect_command_ranges_from_word(word, ranges);
+            }
+            DeclOperand::Name(_) => {}
+            DeclOperand::Assignment(assignment) => {
+                collect_command_ranges_from_assignment(assignment, ranges);
+            }
+        }
+    }
+    for redirect in &command.redirects {
+        collect_command_ranges_from_word(&redirect.target, ranges);
     }
 }
 
@@ -572,6 +593,7 @@ fn command_line_range(command: &Command) -> Option<CommandLineRange> {
     match command {
         Command::Simple(command) => span_line_range(command.span),
         Command::Builtin(command) => builtin_line_range(command),
+        Command::Decl(command) => span_line_range(command.span),
         Command::Pipeline(command) => span_line_range(command.span),
         Command::List(command) => span_line_range(command.span),
         Command::Compound(compound, _) => compound_line_range(compound),

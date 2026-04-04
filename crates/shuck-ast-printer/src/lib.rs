@@ -3,9 +3,10 @@ use shuck_ast::{
     ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand,
     CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
     ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, ForCommand, FunctionDef, IfCommand,
-    ListOperator, ParameterOp, Pipeline, Position, Redirect, RedirectKind, Script, SelectCommand,
-    SimpleCommand, Span, TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
+    ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, DeclClause, DeclName, DeclOperand,
+    ForCommand, FunctionDef, IfCommand, ListOperator, ParameterOp, Pipeline, Position, Redirect,
+    RedirectKind, Script, SelectCommand, SimpleCommand, Span, TimeCommand, UntilCommand,
+    WhileCommand, Word, WordPart,
 };
 
 /// Serialize a parsed Script to gbash-compatible typed JSON.
@@ -244,6 +245,16 @@ impl<'a> Printer<'a> {
                     cmd,
                 }
             }
+            Command::Decl(command) => {
+                let cmd = self.encode_decl_clause(command);
+                SingleStmtParts {
+                    position: command.span.start,
+                    end: self.max_pos(cmd.end, self.last_redirect_end(&command.redirects)),
+                    negated: false,
+                    redirs: self.encode_redirects(&command.redirects),
+                    cmd,
+                }
+            }
             Command::Compound(compound, redirects) => {
                 let cmd = self.encode_compound_command(compound);
                 SingleStmtParts {
@@ -291,6 +302,61 @@ impl<'a> Printer<'a> {
                     },
                 }
             }
+        }
+    }
+
+    fn encode_decl_clause(&self, command: &DeclClause) -> EncodedNode {
+        let pos = command
+            .assignments
+            .first()
+            .map(|assignment| assignment.span.start)
+            .unwrap_or(command.variant_span.start);
+        let end = command
+            .operands
+            .last()
+            .map(|operand| self.decl_operand_end(operand))
+            .or_else(|| {
+                command
+                    .assignments
+                    .last()
+                    .map(|assignment| assignment.span.end)
+            })
+            .unwrap_or(command.variant_span.end);
+        let mut map = self.node_object(Some("DeclClause"), pos, end);
+        self.insert_value(
+            &mut map,
+            "Variant",
+            Some(
+                self.lit_node(
+                    &command.variant,
+                    command.variant_span.start,
+                    command.variant_span.end,
+                )
+                .value,
+            ),
+        );
+        self.insert_array(
+            &mut map,
+            "Assigns",
+            command
+                .assignments
+                .iter()
+                .map(|assignment| self.encode_assignment(assignment).value)
+                .collect(),
+        );
+        self.insert_array(
+            &mut map,
+            "Operands",
+            command
+                .operands
+                .iter()
+                .map(|operand| self.encode_decl_operand(operand).value)
+                .collect(),
+        );
+        EncodedNode {
+            value: Value::Object(map),
+            pos,
+            end,
         }
     }
 
@@ -1181,42 +1247,106 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn encode_decl_operand(&self, operand: &DeclOperand) -> EncodedNode {
+        match operand {
+            DeclOperand::Flag(word) => {
+                let encoded_word = self.encode_word(word);
+                let mut map =
+                    self.node_object(Some("DeclFlag"), encoded_word.pos, encoded_word.end);
+                self.insert_value(&mut map, "Word", Some(encoded_word.value));
+                EncodedNode {
+                    value: Value::Object(map),
+                    pos: encoded_word.pos,
+                    end: encoded_word.end,
+                }
+            }
+            DeclOperand::Name(name) => {
+                let encoded_ref = self.encode_decl_name_ref(name);
+                let mut map = self.node_object(Some("DeclName"), name.span.start, name.span.end);
+                self.insert_value(&mut map, "Ref", Some(encoded_ref.value));
+                EncodedNode {
+                    value: Value::Object(map),
+                    pos: name.span.start,
+                    end: name.span.end,
+                }
+            }
+            DeclOperand::Assignment(assignment) => {
+                let encoded_assignment = self.encode_assignment(assignment);
+                let mut map = self.node_object(
+                    Some("DeclAssign"),
+                    assignment.span.start,
+                    assignment.span.end,
+                );
+                self.insert_value(&mut map, "Assign", Some(encoded_assignment.value));
+                EncodedNode {
+                    value: Value::Object(map),
+                    pos: assignment.span.start,
+                    end: assignment.span.end,
+                }
+            }
+            DeclOperand::Dynamic(word) => {
+                let encoded_word = self.encode_word(word);
+                let mut map =
+                    self.node_object(Some("DeclDynamicWord"), encoded_word.pos, encoded_word.end);
+                self.insert_value(&mut map, "Word", Some(encoded_word.value));
+                EncodedNode {
+                    value: Value::Object(map),
+                    pos: encoded_word.pos,
+                    end: encoded_word.end,
+                }
+            }
+        }
+    }
+
     fn encode_var_ref_from_assignment(&self, assignment: &Assignment) -> EncodedNode {
-        let mut map = self.node_object(
-            Some("VarRef"),
-            assignment.name_span.start,
+        self.encode_var_ref(
+            &assignment.name,
+            assignment.name_span,
+            assignment.index.as_deref(),
+            assignment.index_span,
             assignment.span.end,
-        );
+        )
+    }
+
+    fn encode_decl_name_ref(&self, name: &DeclName) -> EncodedNode {
+        self.encode_var_ref(
+            &name.name,
+            name.name_span,
+            name.index.as_deref(),
+            name.index_span,
+            name.span.end,
+        )
+    }
+
+    fn encode_var_ref(
+        &self,
+        name: &str,
+        name_span: Span,
+        index: Option<&str>,
+        index_span: Option<Span>,
+        end: Position,
+    ) -> EncodedNode {
+        let mut map = self.node_object(Some("VarRef"), name_span.start, end);
         self.insert_value(
             &mut map,
             "Name",
-            Some(
-                self.lit_node(
-                    &assignment.name,
-                    assignment.name_span.start,
-                    assignment.name_span.end,
-                )
-                .value,
-            ),
+            Some(self.lit_node(name, name_span.start, name_span.end).value),
         );
-        if let Some(index) = &assignment.index {
+        if let Some(index) = index {
             self.insert_value(
                 &mut map,
                 "Index",
                 Some(
-                    assignment
-                        .index_span
+                    index_span
                         .map(|span| self.encode_subscript_with_span(index, span).value)
-                        .unwrap_or_else(|| {
-                            self.encode_subscript(index, assignment.name_span.end).value
-                        }),
+                        .unwrap_or_else(|| self.encode_subscript(index, name_span.end).value),
                 ),
             );
         }
         EncodedNode {
             value: Value::Object(map),
-            pos: assignment.name_span.start,
-            end: assignment.span.end,
+            pos: name_span.start,
+            end,
         }
     }
 
@@ -1929,10 +2059,19 @@ impl<'a> Printer<'a> {
         match command {
             Command::Simple(command) => command.span,
             Command::Builtin(command) => self.builtin_span(command),
+            Command::Decl(command) => command.span,
             Command::Pipeline(command) => command.span,
             Command::List(command) => command.span,
             Command::Compound(command, redirects) => self.compound_span(command, redirects),
             Command::Function(command) => command.span,
+        }
+    }
+
+    fn decl_operand_end(&self, operand: &DeclOperand) -> Position {
+        match operand {
+            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span.end,
+            DeclOperand::Name(name) => name.span.end,
+            DeclOperand::Assignment(assignment) => assignment.span.end,
         }
     }
 
@@ -2553,5 +2692,31 @@ mod tests {
         assert_eq!(regex["Stmts"][0]["Cmd"]["X"]["Type"], "CondBinary");
         assert_eq!(regex["Stmts"][0]["Cmd"]["X"]["Op"], 129);
         assert_eq!(regex["Stmts"][0]["Cmd"]["X"]["Y"]["Type"], "CondRegex");
+    }
+
+    #[test]
+    fn serializes_decl_clause_with_typed_operands() {
+        let actual = typed_json("FOO=1 declare -a arr=(\"hello world\" two) foo\n");
+        let clause = &actual["Stmts"][0]["Cmd"];
+
+        assert_eq!(clause["Type"], "DeclClause");
+        assert_eq!(clause["Variant"]["Value"], "declare");
+        assert_eq!(clause["Assigns"][0]["Ref"]["Name"]["Value"], "FOO");
+        assert_eq!(clause["Operands"][0]["Type"], "DeclFlag");
+        assert_eq!(clause["Operands"][0]["Word"]["Parts"][0]["Value"], "-a");
+        assert_eq!(clause["Operands"][1]["Type"], "DeclAssign");
+        assert_eq!(
+            clause["Operands"][1]["Assign"]["Ref"]["Name"]["Value"],
+            "arr"
+        );
+        assert_eq!(
+            clause["Operands"][1]["Assign"]["Array"]["Elems"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(clause["Operands"][2]["Type"], "DeclName");
+        assert_eq!(clause["Operands"][2]["Ref"]["Name"]["Value"], "foo");
     }
 }

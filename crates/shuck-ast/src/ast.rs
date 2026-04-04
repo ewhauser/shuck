@@ -25,6 +25,9 @@ pub enum Command {
     /// A builtin command with a dedicated typed AST node
     Builtin(BuiltinCommand),
 
+    /// A declaration builtin clause (`declare`, `local`, `export`, `readonly`)
+    Decl(DeclClause),
+
     /// A pipeline (e.g., `ls | grep foo`)
     Pipeline(Pipeline),
 
@@ -50,6 +53,48 @@ pub struct SimpleCommand {
     /// Variable assignments before the command
     pub assignments: Vec<Assignment>,
     /// Source span of this command
+    pub span: Span,
+}
+
+/// A declaration builtin clause such as `declare`, `local`, `export`, or `readonly`.
+#[derive(Debug, Clone)]
+pub struct DeclClause {
+    /// Declaration builtin variant.
+    pub variant: Name,
+    /// Source span of the declaration builtin name.
+    pub variant_span: Span,
+    /// Parsed declaration operands.
+    pub operands: Vec<DeclOperand>,
+    /// Redirections attached to the declaration clause.
+    pub redirects: Vec<Redirect>,
+    /// Variable assignments before the declaration clause.
+    pub assignments: Vec<Assignment>,
+    /// Source span of this command.
+    pub span: Span,
+}
+
+/// A typed operand inside a declaration clause.
+#[derive(Debug, Clone)]
+pub enum DeclOperand {
+    /// A literal option word such as `-a` or `+x`.
+    Flag(Word),
+    /// A bare variable name or indexed reference.
+    Name(DeclName),
+    /// A typed assignment operand.
+    Assignment(Assignment),
+    /// A word whose runtime expansion may produce a flag, name, or assignment.
+    Dynamic(Word),
+}
+
+/// A bare declaration name or indexed reference.
+#[derive(Debug, Clone)]
+pub struct DeclName {
+    pub name: Name,
+    pub name_span: Span,
+    /// Optional array index for indexed references like `arr[0]`.
+    pub index: Option<String>,
+    pub index_span: Option<Span>,
+    /// Source span of this declaration name operand.
     pub span: Span,
 }
 
