@@ -4,9 +4,9 @@ use shuck_ast::{
     CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
     ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
     ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, DeclClause, DeclName, DeclOperand,
-    ForCommand, FunctionDef, IfCommand, ListOperator, ParameterOp, Pipeline, Position, Redirect,
-    RedirectKind, Script, SelectCommand, SimpleCommand, Span, TimeCommand, UntilCommand,
-    WhileCommand, Word, WordPart,
+    ForCommand, FunctionDef, IfCommand, ListOperator, LiteralText, ParameterOp, Pipeline,
+    Position, Redirect, RedirectKind, Script, SelectCommand, SimpleCommand, SourceText, Span,
+    TimeCommand, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 /// Serialize a parsed Script to gbash-compatible typed JSON.
@@ -624,7 +624,7 @@ impl<'a> Printer<'a> {
 
     fn encode_if(&self, command: &IfCommand) -> EncodedNode {
         let fi_pos = self
-            .find_keyword(command.span, "fi")
+            .rfind_keyword(command.span, "fi")
             .unwrap_or(command.span.end);
         self.encode_if_clause_chain(
             true,
@@ -726,7 +726,7 @@ impl<'a> Printer<'a> {
             .find_keyword_after(command.span, "do", for_pos.offset)
             .unwrap_or_default();
         let done_pos = self
-            .find_keyword(command.span, "done")
+            .rfind_keyword(command.span, "done")
             .unwrap_or(command.span.end);
         let loop_end = command
             .words
@@ -769,7 +769,7 @@ impl<'a> Printer<'a> {
             .find_keyword_after(command.span, "do", select_pos.offset)
             .unwrap_or_default();
         let done_pos = self
-            .find_keyword(command.span, "done")
+            .rfind_keyword(command.span, "done")
             .unwrap_or(command.span.end);
         let loop_end = command
             .words
@@ -812,7 +812,7 @@ impl<'a> Printer<'a> {
             .find_keyword_after(command.span, "do", for_pos.offset)
             .unwrap_or_default();
         let done_pos = self
-            .find_keyword(command.span, "done")
+            .rfind_keyword(command.span, "done")
             .unwrap_or(command.span.end);
         let loop_node = self.encode_c_style_loop(command);
 
@@ -836,7 +836,7 @@ impl<'a> Printer<'a> {
         let do_pos = self
             .find_keyword_after(span, "do", while_pos.offset)
             .unwrap_or_default();
-        let done_pos = self.find_keyword(span, "done").unwrap_or(span.end);
+        let done_pos = self.rfind_keyword(span, "done").unwrap_or(span.end);
 
         let mut map = self.node_object(Some("WhileClause"), while_pos, span.end);
         self.insert_pos(&mut map, "WhilePos", while_pos);
@@ -873,7 +873,7 @@ impl<'a> Printer<'a> {
             .find_keyword_after(command.span, "in", command.word.span.end.offset)
             .unwrap_or_default();
         let esac_pos = self
-            .find_keyword(command.span, "esac")
+            .rfind_keyword(command.span, "esac")
             .unwrap_or(command.span.end);
 
         let mut map = self.node_object(Some("CaseClause"), case_pos, command.span.end);
@@ -888,7 +888,7 @@ impl<'a> Printer<'a> {
         self.insert_array(
             &mut map,
             "Items",
-            self.encode_case_items(&command.cases, command.span, esac_pos),
+            self.encode_case_items(&command.cases, in_pos, esac_pos),
         );
         EncodedNode {
             value: Value::Object(map),
@@ -897,41 +897,54 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn encode_case_items(&self, items: &[CaseItem], span: Span, esac_pos: Position) -> Vec<Value> {
+    fn encode_case_items(
+        &self,
+        items: &[CaseItem],
+        in_pos: Position,
+        esac_pos: Position,
+    ) -> Vec<Value> {
+        let mut cursor = in_pos.offset.saturating_add("in".len());
         items
             .iter()
-            .enumerate()
-            .map(|(idx, item)| {
-                let next_start = items
-                    .get(idx + 1)
-                    .and_then(|next| next.patterns.first())
-                    .map(|word| word.span.start.offset)
-                    .unwrap_or(esac_pos.offset);
-                self.encode_case_item(item, next_start, span).value
+            .map(|item| {
+                let encoded = self.encode_case_item(item, cursor, esac_pos.offset);
+                cursor = encoded.end.offset;
+                encoded.value
             })
             .collect()
     }
 
-    fn encode_case_item(&self, item: &CaseItem, next_start: usize, _span: Span) -> EncodedNode {
-        let pos = item
-            .patterns
-            .first()
-            .map(|word| word.span.start)
-            .unwrap_or_default();
+    fn encode_case_item(
+        &self,
+        item: &CaseItem,
+        search_start: usize,
+        search_end: usize,
+    ) -> EncodedNode {
         let body_end = item
             .commands
             .last()
             .map(|command| self.command_span(command).end)
-            .or_else(|| item.patterns.last().map(|word| word.span.end))
-            .unwrap_or(pos);
+            .unwrap_or_default();
+        let body_start = item
+            .commands
+            .first()
+            .map(|command| self.command_span(command).start.offset)
+            .unwrap_or(search_start);
+        let separator_pos = self
+            .rfind_operator_between(search_start, body_start.max(search_start), ")")
+            .unwrap_or_default();
         let op_str = match item.terminator {
             CaseTerminator::Break => ";;",
             CaseTerminator::FallThrough => ";&",
             CaseTerminator::Continue => ";;&",
         };
+        let op_search_start = separator_pos.offset;
         let op_pos = self
-            .rfind_operator_between(pos.offset, next_start, op_str)
+            .find_operator_between(op_search_start, search_end, op_str)
+            .or_else(|| self.rfind_operator_between(search_start, search_end, op_str))
             .unwrap_or_default();
+        let patterns = self.encode_case_patterns(item, self.pos_at(search_start), separator_pos);
+        let pos = patterns.first().map(|pattern| pattern.pos).unwrap_or_default();
         let end = if self.is_valid_pos(op_pos) {
             op_pos.advanced_by(op_str)
         } else {
@@ -948,10 +961,7 @@ impl<'a> Printer<'a> {
         self.insert_array(
             &mut map,
             "Patterns",
-            item.patterns
-                .iter()
-                .map(|word| self.encode_word(word).value)
-                .collect(),
+            patterns.into_iter().map(|pattern| pattern.value).collect(),
         );
         self.insert_array(&mut map, "Stmts", self.encode_stmt_values(&item.commands));
         EncodedNode {
@@ -1211,7 +1221,7 @@ impl<'a> Printer<'a> {
             ConditionalExpr::Unary(expr) => self.encode_cond_unary(expr),
             ConditionalExpr::Parenthesized(expr) => self.encode_cond_paren(expr),
             ConditionalExpr::Word(word) => self.encode_cond_leaf("CondWord", "Word", word),
-            ConditionalExpr::Pattern(word) => self.encode_cond_leaf("CondPattern", "Word", word),
+            ConditionalExpr::Pattern(word) => self.encode_cond_pattern(word),
             ConditionalExpr::Regex(word) => self.encode_cond_leaf("CondRegex", "Word", word),
         }
     }
@@ -1265,6 +1275,17 @@ impl<'a> Printer<'a> {
         let encoded = self.encode_word(word);
         let mut map = self.node_object(Some(ty), encoded.pos, encoded.end);
         self.insert_value(&mut map, field, Some(encoded.value));
+        EncodedNode {
+            value: Value::Object(map),
+            pos: encoded.pos,
+            end: encoded.end,
+        }
+    }
+
+    fn encode_cond_pattern(&self, word: &Word) -> EncodedNode {
+        let encoded = self.encode_pattern_word(word, None);
+        let mut map = self.node_object(Some("CondPattern"), encoded.pos, encoded.end);
+        self.insert_value(&mut map, "Pattern", Some(encoded.value));
         EncodedNode {
             value: Value::Object(map),
             pos: encoded.pos,
@@ -1359,9 +1380,8 @@ impl<'a> Printer<'a> {
         self.encode_var_ref(
             &assignment.name,
             assignment.name_span,
-            assignment.index.as_deref(),
-            assignment.index_span,
-            self.var_ref_end(assignment.name_span, assignment.index_span),
+            assignment.index.as_ref(),
+            self.var_ref_end(assignment.name_span, assignment.index.as_ref()),
         )
     }
 
@@ -1369,9 +1389,8 @@ impl<'a> Printer<'a> {
         self.encode_var_ref(
             &name.name,
             name.name_span,
-            name.index.as_deref(),
-            name.index_span,
-            self.var_ref_end(name.name_span, name.index_span),
+            name.index.as_ref(),
+            self.var_ref_end(name.name_span, name.index.as_ref()),
         )
     }
 
@@ -1379,8 +1398,7 @@ impl<'a> Printer<'a> {
         &self,
         name: &str,
         name_span: Span,
-        index: Option<&str>,
-        index_span: Option<Span>,
+        index: Option<&SourceText>,
         end: Position,
     ) -> EncodedNode {
         let mut map = self.node_object(None, name_span.start, end);
@@ -1396,11 +1414,7 @@ impl<'a> Printer<'a> {
             self.insert_value(
                 &mut map,
                 "Index",
-                Some(
-                    index_span
-                        .map(|span| self.encode_subscript_with_span(index, span).value)
-                        .unwrap_or_else(|| self.encode_subscript(index, name_span.end).value),
-                ),
+                Some(self.encode_subscript_text(index).value),
             );
         }
         EncodedNode {
@@ -1537,7 +1551,10 @@ impl<'a> Printer<'a> {
                 .is_some_and(|span| !self.is_valid_pos(span.start))
             && let WordPart::Literal(value) = &redirect.target.parts[0]
         {
-            return self.synthetic_literal_word_node(value, Span::from_positions(start, end));
+            return self.synthetic_literal_word_node(
+                self.literal_value(value, Span::new()),
+                Span::from_positions(start, end),
+            );
         }
 
         let mut map = self.node_object(None, start, end);
@@ -1578,8 +1595,13 @@ impl<'a> Printer<'a> {
                 .unwrap_or_default()
         };
         let mut map = self.node_object(None, pos, end);
+        if let Some(leading_escape) = self.leading_escape(word, pos, end) {
+            self.insert_value(&mut map, "LeadingEscape", Some(leading_escape));
+        }
         let parts = if let Some(wrapper) = self.quoted_wrapper(word) {
             vec![self.encode_quoted_wrapper(word, wrapper).value]
+        } else if let Some(literal) = self.leading_escaped_literal(word, pos, end) {
+            vec![literal.value]
         } else {
             word.parts_with_spans()
                 .map(|(part, span)| self.encode_word_part(part, span).value)
@@ -1595,7 +1617,9 @@ impl<'a> Printer<'a> {
 
     fn encode_word_part(&self, part: &WordPart, span: Span) -> EncodedNode {
         match part {
-            WordPart::Literal(value) => self.lit_node(value, span.start, span.end),
+            WordPart::Literal(value) => {
+                self.lit_node(self.literal_value(value, span), span.start, span.end)
+            }
             WordPart::Variable(name) => self.encode_simple_param_exp(name, span),
             WordPart::Length(name) => self.encode_length_param_exp(name, span),
             WordPart::ParameterExpansion {
@@ -1603,7 +1627,7 @@ impl<'a> Printer<'a> {
                 operator,
                 operand,
                 colon_variant,
-            } => self.encode_parameter_expansion(name, operator, operand, *colon_variant, span),
+            } => self.encode_parameter_expansion(name, operator, operand.as_ref(), *colon_variant, span),
             WordPart::ArrayAccess { name, index } => self.encode_array_access(name, index, span),
             WordPart::ArrayLength(name) => self.encode_array_length(name, span),
             WordPart::ArrayIndices(name) => self.encode_array_indices(name, span),
@@ -1611,12 +1635,12 @@ impl<'a> Printer<'a> {
                 name,
                 offset,
                 length,
-            } => self.encode_substring(name, offset, length.as_deref(), span),
+            } => self.encode_substring(name, offset, length.as_ref(), span),
             WordPart::ArraySlice {
                 name,
                 offset,
                 length,
-            } => self.encode_array_slice(name, offset, length.as_deref(), span),
+            } => self.encode_array_slice(name, offset, length.as_ref(), span),
             WordPart::IndirectExpansion {
                 name,
                 operator,
@@ -1625,7 +1649,7 @@ impl<'a> Printer<'a> {
             } => self.encode_indirect_expansion(
                 name,
                 operator.clone(),
-                operand,
+                operand.as_ref(),
                 *colon_variant,
                 span,
             ),
@@ -1645,10 +1669,9 @@ impl<'a> Printer<'a> {
         match wrapper {
             QuoteWrapper::Single { dollar } => {
                 let value = word
-                    .parts
-                    .iter()
-                    .filter_map(|part| match part {
-                        WordPart::Literal(value) => Some(value.as_str()),
+                    .parts_with_spans()
+                    .filter_map(|(part, span)| match part {
+                        WordPart::Literal(value) => Some(self.literal_value(value, span)),
                         _ => None,
                     })
                     .collect::<String>();
@@ -1670,19 +1693,23 @@ impl<'a> Printer<'a> {
                 self.insert_pos(&mut map, "Left", word.span.start);
                 self.insert_pos(&mut map, "Right", right);
                 self.insert_bool(&mut map, "Dollar", dollar);
-                self.insert_array(
-                    &mut map,
-                    "Parts",
+                let parts = if word.parts.len() == 1
+                    && word
+                        .parts_with_spans()
+                        .next()
+                        .is_some_and(|(part, span)| {
+                            matches!(part, WordPart::Literal(value) if self.literal_value(value, span).is_empty())
+                        }) {
+                    Vec::new()
+                } else {
                     word.parts_with_spans()
-                        .map(|(part, span)| {
-                            self.encode_word_part(
-                                part,
-                                self.adjust_quoted_part_span(word, span, dollar),
-                            )
-                            .value
+                        .filter_map(|(part, span)| {
+                            self.encode_quoted_part(word, part, span, dollar)
+                                .map(|encoded| encoded.value)
                         })
-                        .collect(),
-                );
+                        .collect()
+                };
+                self.insert_array(&mut map, "Parts", parts);
                 EncodedNode {
                     value: Value::Object(map),
                     pos: word.span.start,
@@ -1696,11 +1723,7 @@ impl<'a> Printer<'a> {
         let raw = self.slice_span(span).unwrap_or_default();
         let short = !raw.starts_with("${");
         let dollar = span.start;
-        let rbrace = if raw.ends_with('}') {
-            self.pos_at(span.end.offset.saturating_sub(1))
-        } else {
-            Position::default()
-        };
+        let rbrace = self.param_rbrace(span);
         let param_pos = self
             .find_in_span(span, name, if short { 1 } else { 2 })
             .unwrap_or(span.start.advanced_by("$"));
@@ -1731,18 +1754,14 @@ impl<'a> Printer<'a> {
         &self,
         name: &str,
         operator: &ParameterOp,
-        operand: &str,
+        operand: Option<&SourceText>,
         colon_variant: bool,
         span: Span,
     ) -> EncodedNode {
         let raw = self.slice_span(span).unwrap_or_default();
         let short = !raw.starts_with("${");
         let dollar = span.start;
-        let rbrace = if raw.ends_with('}') {
-            self.pos_at(span.end.offset.saturating_sub(1))
-        } else {
-            Position::default()
-        };
+        let rbrace = self.param_rbrace(span);
         let param_pos = self
             .find_in_span(span, name, if short { 1 } else { 2 })
             .unwrap_or(span.start.advanced_by("$"));
@@ -1772,15 +1791,12 @@ impl<'a> Printer<'a> {
                 self.insert_value(
                     &mut repl,
                     "Orig",
-                    Some(self.encode_pattern_literal(pattern).value),
+                    Some(self.encode_pattern_source_text(pattern).value),
                 );
                 self.insert_value(
                     &mut repl,
                     "With",
-                    Some(
-                        self.synthetic_literal_word_node(replacement, Span::new())
-                            .value,
-                    ),
+                    Some(self.literal_word_from_source_text(replacement).value),
                 );
                 self.insert_value(&mut map, "Repl", Some(Value::Object(repl)));
             }
@@ -1797,7 +1813,7 @@ impl<'a> Printer<'a> {
                 self.insert_value(
                     &mut exp,
                     "Pattern",
-                    Some(self.encode_pattern_literal(operand).value),
+                    operand.map(|operand| self.encode_pattern_source_text(operand).value),
                 );
                 self.insert_value(&mut map, "Exp", Some(Value::Object(exp)));
             }
@@ -1808,11 +1824,11 @@ impl<'a> Printer<'a> {
                     "Op",
                     self.parameter_operator_code(operator, colon_variant),
                 );
-                if !operand.is_empty() {
+                if let Some(operand) = operand {
                     self.insert_value(
                         &mut exp,
                         "Word",
-                        Some(self.literal_word_in_span(operand, span).value),
+                        Some(self.literal_word_from_source_text(operand).value),
                     );
                 }
                 self.insert_value(&mut map, "Exp", Some(Value::Object(exp)));
@@ -1826,7 +1842,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn encode_array_access(&self, name: &str, index: &str, span: Span) -> EncodedNode {
+    fn encode_array_access(&self, name: &str, index: &SourceText, span: Span) -> EncodedNode {
         let mut node = self.encode_simple_param_exp(name, span);
         let Value::Object(map) = &mut node.value else {
             unreachable!()
@@ -1834,7 +1850,7 @@ impl<'a> Printer<'a> {
         self.insert_value(
             map,
             "Index",
-            Some(self.encode_subscript(index, span.start).value),
+            Some(self.encode_subscript_text(index).value),
         );
         node
     }
@@ -1870,8 +1886,8 @@ impl<'a> Printer<'a> {
     fn encode_substring(
         &self,
         name: &str,
-        offset: &str,
-        length: Option<&str>,
+        offset: &SourceText,
+        length: Option<&SourceText>,
         span: Span,
     ) -> EncodedNode {
         let mut node = self.encode_simple_param_exp(name, span);
@@ -1882,12 +1898,12 @@ impl<'a> Printer<'a> {
         self.insert_value(
             &mut slice,
             "Offset",
-            Some(self.expression_word_in_span(offset, span).value),
+            Some(self.expression_word_from_source_text(offset).value),
         );
         self.insert_value(
             &mut slice,
             "Length",
-            length.map(|length| self.expression_word_in_span(length, span).value),
+            length.map(|length| self.expression_word_from_source_text(length).value),
         );
         self.insert_value(map, "Slice", Some(Value::Object(slice)));
         node
@@ -1896,8 +1912,8 @@ impl<'a> Printer<'a> {
     fn encode_array_slice(
         &self,
         name: &str,
-        offset: &str,
-        length: Option<&str>,
+        offset: &SourceText,
+        length: Option<&SourceText>,
         span: Span,
     ) -> EncodedNode {
         let mut node = self.encode_simple_param_exp(name, span);
@@ -1913,12 +1929,12 @@ impl<'a> Printer<'a> {
         self.insert_value(
             &mut slice,
             "Offset",
-            Some(self.expression_word_in_span(offset, span).value),
+            Some(self.expression_word_from_source_text(offset).value),
         );
         self.insert_value(
             &mut slice,
             "Length",
-            length.map(|length| self.expression_word_in_span(length, span).value),
+            length.map(|length| self.expression_word_from_source_text(length).value),
         );
         self.insert_value(map, "Slice", Some(Value::Object(slice)));
         node
@@ -1928,7 +1944,7 @@ impl<'a> Printer<'a> {
         &self,
         name: &str,
         operator: Option<ParameterOp>,
-        operand: &str,
+        operand: Option<&SourceText>,
         colon_variant: bool,
         span: Span,
     ) -> EncodedNode {
@@ -1944,11 +1960,11 @@ impl<'a> Printer<'a> {
                 "Op",
                 self.parameter_operator_code(&operator, colon_variant),
             );
-            if !operand.is_empty() {
+            if let Some(operand) = operand {
                 self.insert_value(
                     &mut exp,
                     "Word",
-                    Some(self.literal_word_in_span(operand, span).value),
+                    Some(self.literal_word_from_source_text(operand).value),
                 );
             }
             self.insert_value(map, "Exp", Some(Value::Object(exp)));
@@ -1996,7 +2012,8 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn encode_arithm_exp(&self, expression: &str, span: Span) -> EncodedNode {
+    fn encode_arithm_exp(&self, expression: &SourceText, span: Span) -> EncodedNode {
+        let expression = self.source_text_value(expression);
         let right = if span.end.offset >= 2 {
             self.pos_at(span.end.offset.saturating_sub(2))
         } else {
@@ -2116,13 +2133,56 @@ impl<'a> Printer<'a> {
     }
 
     fn encode_pattern_literal(&self, pattern: &str) -> EncodedNode {
-        let lit = self.lit_node(pattern, Position::default(), Position::default());
-        let mut map = self.node_object(Some("Pattern"), Position::default(), Position::default());
-        self.insert_array(&mut map, "Parts", vec![lit.value]);
+        self.encode_pattern_text(pattern, None)
+    }
+
+    fn encode_pattern_literal_in_span(&self, pattern: &str, span: Span) -> EncodedNode {
+        let pattern_span = self
+            .rfind_in_span(span, pattern)
+            .map(|start| Span::from_positions(start, start.advanced_by(pattern)));
+        self.encode_pattern_text(pattern, pattern_span)
+    }
+
+    fn encode_pattern_word(&self, word: &Word, fallback_span: Option<Span>) -> EncodedNode {
+        let span = if self.is_valid_pos(word.span.start) && self.is_valid_pos(word.span.end) {
+            Some(word.span)
+        } else {
+            fallback_span
+        };
+        let raw = span
+            .and_then(|span| self.slice_span(span))
+            .map(str::to_owned)
+            .unwrap_or_else(|| word.to_string());
+        self.encode_pattern_text_with_word(&raw, span, Some(word))
+    }
+
+    fn encode_pattern_text(&self, pattern: &str, span: Option<Span>) -> EncodedNode {
+        self.encode_pattern_text_with_word(pattern, span, None)
+    }
+
+    fn encode_pattern_text_with_word(
+        &self,
+        pattern: &str,
+        span: Option<Span>,
+        word: Option<&Word>,
+    ) -> EncodedNode {
+        let (pos, end) = span
+            .filter(|span| self.is_valid_pos(span.start) && self.is_valid_pos(span.end))
+            .map(|span| (span.start, span.end))
+            .unwrap_or_default();
+        let parts = if let Some(span) = span {
+            self.encode_pattern_parts_from_source(span, word)
+        } else {
+            vec![self.lit_node(pattern, Position::default(), Position::default()).value]
+        };
+        let mut map = self.node_object(None, pos, end);
+        self.insert_pos(&mut map, "Start", pos);
+        self.insert_pos(&mut map, "EndPos", end);
+        self.insert_array(&mut map, "Parts", parts);
         EncodedNode {
             value: Value::Object(map),
-            pos: Position::default(),
-            end: Position::default(),
+            pos,
+            end,
         }
     }
 
@@ -2174,6 +2234,30 @@ impl<'a> Printer<'a> {
             pos: encoded.pos,
             end: encoded.end,
         }
+    }
+
+    fn literal_value<'b>(&'b self, value: &'b LiteralText, span: Span) -> &'b str {
+        value.as_str(self.source, span)
+    }
+
+    fn source_text_value<'b>(&'b self, value: &'b SourceText) -> &'b str {
+        value.slice(self.source)
+    }
+
+    fn literal_word_from_source_text(&self, value: &SourceText) -> EncodedNode {
+        self.synthetic_literal_word_node(self.source_text_value(value), value.span())
+    }
+
+    fn expression_word_from_source_text(&self, value: &SourceText) -> EncodedNode {
+        self.synthetic_expression_word(self.source_text_value(value), value.span())
+    }
+
+    fn encode_subscript_text(&self, index: &SourceText) -> EncodedNode {
+        self.encode_subscript_with_span(self.source_text_value(index), index.span())
+    }
+
+    fn encode_pattern_source_text(&self, pattern: &SourceText) -> EncodedNode {
+        self.encode_pattern_text(self.source_text_value(pattern), Some(pattern.span()))
     }
 
     fn literal_word_in_span(&self, value: &str, span: Span) -> EncodedNode {
@@ -2231,9 +2315,11 @@ impl<'a> Printer<'a> {
 
     fn command_span(&self, command: &Command) -> Span {
         match command {
-            Command::Simple(command) => command.span,
-            Command::Builtin(command) => self.builtin_span(command),
-            Command::Decl(command) => command.span,
+            Command::Simple(command) => self.span_with_redirects(command.span, &command.redirects),
+            Command::Builtin(command) => {
+                self.span_with_redirects(self.builtin_span(command), self.builtin_redirects(command))
+            }
+            Command::Decl(command) => self.span_with_redirects(command.span, &command.redirects),
             Command::Pipeline(command) => command.span,
             Command::List(command) => command.span,
             Command::Compound(command, redirects) => self.compound_span(command, redirects),
@@ -2255,6 +2341,15 @@ impl<'a> Printer<'a> {
             BuiltinCommand::Continue(command) => command.span,
             BuiltinCommand::Return(command) => command.span,
             BuiltinCommand::Exit(command) => command.span,
+        }
+    }
+
+    fn builtin_redirects<'b>(&self, builtin: &'b BuiltinCommand) -> &'b [Redirect] {
+        match builtin {
+            BuiltinCommand::Break(command) => &command.redirects,
+            BuiltinCommand::Continue(command) => &command.redirects,
+            BuiltinCommand::Return(command) => &command.redirects,
+            BuiltinCommand::Exit(command) => &command.redirects,
         }
     }
 
@@ -2310,7 +2405,7 @@ impl<'a> Printer<'a> {
 
     fn assignment_surface(&self, assignment: &Assignment) -> Option<Map<String, Value>> {
         let operator = if assignment.append { "+=" } else { "=" };
-        let ref_end = self.var_ref_end(assignment.name_span, assignment.index_span);
+        let ref_end = self.var_ref_end(assignment.name_span, assignment.index.as_ref());
         let value_pos = match &assignment.value {
             AssignmentValue::Scalar(word) => word.span.start,
             AssignmentValue::Array(_) => self
@@ -2329,9 +2424,9 @@ impl<'a> Printer<'a> {
         Some(map)
     }
 
-    fn var_ref_end(&self, name_span: Span, index_span: Option<Span>) -> Position {
+    fn var_ref_end(&self, name_span: Span, index_span: Option<&SourceText>) -> Position {
         index_span
-            .map(|span| span.end.advanced_by("]"))
+            .map(|span| span.span().end.advanced_by("]"))
             .unwrap_or(name_span.end)
     }
 
@@ -2340,6 +2435,14 @@ impl<'a> Printer<'a> {
             .last()
             .map(|redirect| redirect.span.end)
             .unwrap_or_default()
+    }
+
+    fn span_with_redirects(&self, span: Span, redirects: &[Redirect]) -> Span {
+        if let Some(end) = redirects.last().map(|redirect| redirect.span.end) {
+            span.merge(Span::from_positions(span.start, end))
+        } else {
+            span
+        }
     }
 
     fn max_pos(&self, left: Position, right: Position) -> Position {
@@ -2381,7 +2484,521 @@ impl<'a> Printer<'a> {
         if start.offset == word.span.start.offset {
             start = self.pos_at(start.offset.saturating_add(prefix_len));
         }
-        Span::from_positions(start, span.end)
+        let mut end = span.end;
+        if span.end.offset == word.span.end.offset.saturating_sub(2) {
+            end = self.pos_at(end.offset.saturating_add(1));
+        }
+        Span::from_positions(start, end)
+    }
+
+    fn encode_case_patterns(
+        &self,
+        item: &CaseItem,
+        search_start: Position,
+        separator_pos: Position,
+    ) -> Vec<EncodedNode> {
+        let Some(head) = self.slice_offsets(search_start.offset, separator_pos.offset) else {
+            return item
+                .patterns
+                .iter()
+                .map(|word| self.encode_pattern_word(word, None))
+                .collect();
+        };
+        let raw_patterns = self.raw_case_patterns(head);
+        let mut rel_cursor = 0;
+        let mut patterns = Vec::new();
+
+        for (idx, pattern) in item.patterns.iter().enumerate() {
+            let text = self.case_pattern_text(pattern);
+            let text = if text.is_empty() {
+                raw_patterns.get(idx).cloned().unwrap_or_default()
+            } else {
+                text
+            };
+            let fallback_span = head
+                .get(rel_cursor..)
+                .and_then(|rest| rest.find(&text))
+                .map(|found| rel_cursor + found)
+                .map(|found| {
+                    let start = self.pos_at(search_start.offset + found);
+                    Span::from_positions(start, start.advanced_by(&text))
+                });
+            if let Some(span) = fallback_span {
+                rel_cursor = span.end.offset.saturating_sub(search_start.offset);
+            }
+            patterns.push(self.encode_pattern_word(pattern, fallback_span));
+        }
+
+        patterns
+    }
+
+    fn case_pattern_text(&self, word: &Word) -> String {
+        self.slice_span(word.span)
+            .map(str::to_owned)
+            .unwrap_or_else(|| word.to_string())
+    }
+
+    fn raw_case_patterns(&self, head: &str) -> Vec<String> {
+        head.trim()
+            .trim_start_matches('(')
+            .split('|')
+            .map(str::trim)
+            .filter(|pattern| !pattern.is_empty())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn encode_quoted_part(
+        &self,
+        word: &Word,
+        part: &WordPart,
+        span: Span,
+        dollar: bool,
+    ) -> Option<EncodedNode> {
+        let span = self.adjust_quoted_part_span(word, span, dollar);
+        if span.start.offset == span.end.offset && matches!(part, WordPart::Literal(_)) {
+            return None;
+        }
+        Some(match part {
+            WordPart::Literal(_) => self.quoted_literal_node(span),
+            _ => self.encode_word_part(part, span),
+        })
+    }
+
+    fn quoted_literal_node(&self, span: Span) -> EncodedNode {
+        let value = self.slice_span(span).unwrap_or_default();
+        self.lit_node(value, span.start, span.end)
+    }
+
+    fn param_rbrace(&self, span: Span) -> Position {
+        let raw = self.slice_span(span).unwrap_or_default();
+        if !raw.starts_with("${") {
+            return Position::default();
+        }
+        if raw.ends_with('}') {
+            return self.pos_at(span.end.offset.saturating_sub(1));
+        }
+        self.find_operator_between(span.end.offset, self.source.len(), "}")
+            .unwrap_or_default()
+    }
+
+    fn leading_escape(&self, _word: &Word, pos: Position, end: Position) -> Option<Value> {
+        let raw = self.slice_offsets(pos.offset, end.offset)?;
+        if !raw.starts_with('\\') {
+            return None;
+        }
+
+        let mut map = Map::new();
+        self.insert_pos(&mut map, "Pos", pos);
+        self.insert_pos(&mut map, "End", pos.advanced_by("\\"));
+        Some(Value::Object(map))
+    }
+
+    fn leading_escaped_literal(&self, word: &Word, pos: Position, end: Position) -> Option<EncodedNode> {
+        let [WordPart::Literal(_)] = word.parts.as_slice() else {
+            return None;
+        };
+        let raw = self.slice_offsets(pos.offset, end.offset)?;
+        if raw.starts_with('\\') {
+            return Some(self.lit_node(raw, pos, end));
+        }
+        None
+    }
+
+    fn encode_pattern_parts_from_source(&self, span: Span, word: Option<&Word>) -> Vec<Value> {
+        let valid_parts = word
+            .map(|word| {
+                word.parts_with_spans()
+                    .filter(|(_, part_span)| {
+                        self.is_valid_pos(part_span.start)
+                            && self.is_valid_pos(part_span.end)
+                            && part_span.start.offset >= span.start.offset
+                            && part_span.end.offset <= span.end.offset
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let mut values = Vec::new();
+        let mut cursor = span.start.offset;
+        let mut part_index = 0;
+
+        while cursor < span.end.offset {
+            while valid_parts
+                .get(part_index)
+                .is_some_and(|(_, part_span)| part_span.end.offset <= cursor)
+            {
+                part_index += 1;
+            }
+
+            if let Some((quote_span, consumed_parts)) =
+                self.pattern_quote_at(span, &valid_parts[part_index..], cursor)
+            {
+                values.push(
+                    self.encode_pattern_quote_node(
+                        quote_span,
+                        &valid_parts[part_index..part_index + consumed_parts],
+                    )
+                    .value,
+                );
+                cursor = quote_span.end.offset;
+                part_index += consumed_parts;
+                continue;
+            }
+
+            if let Some(byte) = self.source.as_bytes().get(cursor).copied() {
+                if matches!(byte, b'*' | b'?') {
+                    let pos = self.pos_at(cursor);
+                    values.push(match byte {
+                        b'*' => self.pattern_any_node(pos, pos.advanced_by("*")).value,
+                        b'?' => self.pattern_single_node(pos, pos.advanced_by("?")).value,
+                        _ => unreachable!(),
+                    });
+                    cursor += 1;
+                    continue;
+                }
+            }
+
+            if let Some((part, part_span)) = valid_parts.get(part_index) {
+                if part_span.start.offset == cursor {
+                    match part {
+                        WordPart::Literal(_) => {
+                            let literal_end =
+                                self.find_pattern_boundary(cursor, part_span.end.offset);
+                            if literal_end == cursor {
+                                let pos = self.pos_at(cursor);
+                                let end = self.pos_at(cursor + 1);
+                                values.push(
+                                    self.lit_node(&self.source[cursor..cursor + 1], pos, end)
+                                        .value,
+                                );
+                                cursor += 1;
+                                continue;
+                            }
+                            values.extend(
+                                self.encode_pattern_literals_from_source(Span::from_positions(
+                                    self.pos_at(cursor),
+                                    self.pos_at(literal_end),
+                                ))
+                                .into_iter()
+                                .map(|node| node.value),
+                            );
+                            cursor = literal_end;
+                            continue;
+                        }
+                        _ => {
+                            values.push(self.encode_word_part(part, *part_span).value);
+                            cursor = part_span.end.offset;
+                            part_index += 1;
+                            continue;
+                        }
+                    }
+                }
+
+                if part_span.start.offset > cursor {
+                    let literal_end = self.find_pattern_boundary(cursor, part_span.start.offset);
+                    if literal_end == cursor {
+                        let pos = self.pos_at(cursor);
+                        let end = self.pos_at(cursor + 1);
+                        values.push(self.lit_node(&self.source[cursor..cursor + 1], pos, end).value);
+                        cursor += 1;
+                        continue;
+                    }
+                    values.extend(
+                        self.encode_pattern_literals_from_source(Span::from_positions(
+                            self.pos_at(cursor),
+                            self.pos_at(literal_end),
+                        ))
+                        .into_iter()
+                        .map(|node| node.value),
+                    );
+                    cursor = literal_end;
+                    continue;
+                }
+            }
+
+            let literal_end = self.find_pattern_boundary(cursor, span.end.offset);
+            if literal_end == cursor {
+                let pos = self.pos_at(cursor);
+                let end = self.pos_at(cursor + 1);
+                values.push(self.lit_node(&self.source[cursor..cursor + 1], pos, end).value);
+                cursor += 1;
+                continue;
+            }
+            values.extend(
+                self.encode_pattern_literals_from_source(Span::from_positions(
+                    self.pos_at(cursor),
+                    self.pos_at(literal_end),
+                ))
+                .into_iter()
+                .map(|node| node.value),
+            );
+            cursor = literal_end;
+        }
+
+        values
+    }
+
+    fn encode_pattern_literals_from_source(&self, span: Span) -> Vec<EncodedNode> {
+        let Some(raw) = self.slice_span(span) else {
+            return Vec::new();
+        };
+        let mut nodes = Vec::new();
+        let bytes = raw.as_bytes();
+        let mut rel = 0;
+
+        while rel < bytes.len() {
+            let absolute = span.start.offset + rel;
+            match bytes[rel] {
+                b'*' => {
+                    let pos = self.pos_at(absolute);
+                    nodes.push(self.pattern_any_node(pos, pos.advanced_by("*")));
+                    rel += 1;
+                }
+                b'?' => {
+                    let pos = self.pos_at(absolute);
+                    nodes.push(self.pattern_single_node(pos, pos.advanced_by("?")));
+                    rel += 1;
+                }
+                _ => {
+                    let start_rel = rel;
+                    while rel < bytes.len() && !matches!(bytes[rel], b'*' | b'?') {
+                        rel += 1;
+                    }
+                    let start = self.pos_at(span.start.offset + start_rel);
+                    let end = self.pos_at(span.start.offset + rel);
+                    nodes.push(self.lit_node(&raw[start_rel..rel], start, end));
+                }
+            }
+        }
+
+        nodes
+    }
+
+    fn pattern_any_node(&self, pos: Position, end: Position) -> EncodedNode {
+        let mut map = self.node_object(Some("PatternAny"), pos, end);
+        self.insert_pos(&mut map, "Asterisk", pos);
+        EncodedNode {
+            value: Value::Object(map),
+            pos,
+            end,
+        }
+    }
+
+    fn pattern_single_node(&self, pos: Position, end: Position) -> EncodedNode {
+        let mut map = self.node_object(Some("PatternSingle"), pos, end);
+        self.insert_pos(&mut map, "Question", pos);
+        EncodedNode {
+            value: Value::Object(map),
+            pos,
+            end,
+        }
+    }
+
+    fn encode_pattern_quote_node(
+        &self,
+        quote_span: Span,
+        parts: &[(&WordPart, Span)],
+    ) -> EncodedNode {
+        let raw = self.slice_span(quote_span).unwrap_or_default();
+        let (quote_type, dollar, content_start) = if raw.starts_with("$\"") {
+            ("DblQuoted", true, quote_span.start.offset + 2)
+        } else if raw.starts_with("$'") {
+            ("SglQuoted", true, quote_span.start.offset + 2)
+        } else if raw.starts_with('"') {
+            ("DblQuoted", false, quote_span.start.offset + 1)
+        } else {
+            ("SglQuoted", false, quote_span.start.offset + 1)
+        };
+        let content_end = quote_span.end.offset.saturating_sub(1);
+        let right = self.pos_at(quote_span.end.offset.saturating_sub(1));
+        let mut map = self.node_object(Some(quote_type), quote_span.start, quote_span.end);
+        self.insert_pos(&mut map, "Left", quote_span.start);
+        self.insert_pos(&mut map, "Right", right);
+        self.insert_bool(&mut map, "Dollar", dollar);
+
+        if quote_type == "SglQuoted" {
+            self.insert_string(
+                &mut map,
+                "Value",
+                self.slice_offsets(content_start, content_end).unwrap_or_default(),
+            );
+        } else {
+            let inner_parts =
+                self.encode_pattern_quoted_parts(content_start, content_end, parts);
+            self.insert_array(&mut map, "Parts", inner_parts);
+        }
+
+        EncodedNode {
+            value: Value::Object(map),
+            pos: quote_span.start,
+            end: quote_span.end,
+        }
+    }
+
+    fn encode_pattern_quoted_parts(
+        &self,
+        content_start: usize,
+        content_end: usize,
+        parts: &[(&WordPart, Span)],
+    ) -> Vec<Value> {
+        let mut values = Vec::new();
+        let mut cursor = content_start;
+        let mut part_index = 0;
+
+        while cursor < content_end {
+            while parts
+                .get(part_index)
+                .is_some_and(|(_, span)| span.end.offset <= cursor)
+            {
+                part_index += 1;
+            }
+
+            if self.source.as_bytes().get(cursor).copied() == Some(b'$')
+                && let Some((part, _)) = parts
+                    .iter()
+                    .skip(part_index)
+                    .find(|(part, span)| !matches!(part, WordPart::Literal(_)) && span.end.offset > cursor)
+            {
+                let end = self.scan_dollar_expansion_end(cursor, content_end);
+                values.push(
+                    self.encode_word_part(
+                        part,
+                        Span::from_positions(self.pos_at(cursor), self.pos_at(end)),
+                    )
+                    .value,
+                );
+                cursor = end;
+                part_index += 1;
+                continue;
+            }
+
+            let next_dollar = self.slice_offsets(cursor, content_end)
+                .and_then(|slice| slice.find('$'))
+                .map(|rel| cursor + rel)
+                .unwrap_or(content_end);
+            if next_dollar > cursor {
+                let start = self.pos_at(cursor);
+                let end = self.pos_at(next_dollar);
+                values.push(self.lit_node(&self.source[cursor..next_dollar], start, end).value);
+                cursor = next_dollar;
+                continue;
+            }
+
+            cursor += 1;
+        }
+
+        values
+    }
+
+    fn scan_dollar_expansion_end(&self, start: usize, limit: usize) -> usize {
+        let bytes = self.source.as_bytes();
+        if bytes.get(start) != Some(&b'$') {
+            return (start + 1).min(limit);
+        }
+        match (bytes.get(start + 1).copied(), bytes.get(start + 2).copied()) {
+            (Some(b'{'), _) => {
+                let mut idx = start + 2;
+                while idx < limit {
+                    if bytes.get(idx) == Some(&b'}') {
+                        return idx + 1;
+                    }
+                    idx += 1;
+                }
+                limit
+            }
+            (Some(b'('), Some(b'(')) => {
+                let mut idx = start + 3;
+                while idx + 1 < limit {
+                    if bytes.get(idx) == Some(&b')') && bytes.get(idx + 1) == Some(&b')') {
+                        return idx + 2;
+                    }
+                    idx += 1;
+                }
+                limit
+            }
+            (Some(b'('), _) => {
+                let mut idx = start + 2;
+                let mut depth = 1usize;
+                while idx < limit {
+                    match bytes.get(idx).copied() {
+                        Some(b'(') => depth += 1,
+                        Some(b')') => {
+                            depth = depth.saturating_sub(1);
+                            if depth == 0 {
+                                return idx + 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                    idx += 1;
+                }
+                limit
+            }
+            _ => {
+                let mut idx = start + 1;
+                while idx < limit
+                    && bytes
+                        .get(idx)
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                {
+                    idx += 1;
+                }
+                idx
+            }
+        }
+    }
+
+    fn find_pattern_boundary(&self, start_offset: usize, end_offset: usize) -> usize {
+        let Some(slice) = self.slice_offsets(start_offset, end_offset) else {
+            return start_offset;
+        };
+        slice
+            .bytes()
+            .position(|byte| matches!(byte, b'*' | b'?' | b'"' | b'\''))
+            .map(|rel| start_offset + rel)
+            .unwrap_or(end_offset)
+    }
+
+    fn pattern_quote_at(
+        &self,
+        span: Span,
+        valid_parts: &[(&WordPart, Span)],
+        cursor: usize,
+    ) -> Option<(Span, usize)> {
+        let raw = self.slice_span(span)?;
+        let rel = cursor.checked_sub(span.start.offset)?;
+        let bytes = raw.as_bytes();
+        let (quote_start, quote_char, dollar) = match bytes.get(rel).copied() {
+            Some(b'"') | Some(b'\'') => (cursor, bytes[rel], false),
+            Some(b'$')
+                if matches!(bytes.get(rel + 1).copied(), Some(b'"') | Some(b'\'')) =>
+            {
+                (cursor, bytes[rel + 1], true)
+            }
+            _ => return None,
+        };
+        let content_start = quote_start + if dollar { 2 } else { 1 };
+        let mut scan = content_start;
+        while scan < span.end.offset {
+            let byte = *self.source.as_bytes().get(scan)?;
+            if byte == quote_char {
+                let quote_span =
+                    Span::from_positions(self.pos_at(quote_start), self.pos_at(scan + 1));
+                let consumed_parts = valid_parts
+                    .iter()
+                    .take_while(|(_, part_span)| {
+                        part_span.start.offset < scan && part_span.end.offset > content_start
+                    })
+                    .count();
+                return Some((quote_span, consumed_parts));
+            }
+            if quote_char == b'"' && byte == b'\\' {
+                scan += 1;
+            }
+            scan += 1;
+        }
+        None
     }
 
     fn redirect_operator_code(&self, kind: RedirectKind) -> u64 {
@@ -2725,6 +3342,19 @@ impl<'a> Printer<'a> {
         self.find_keyword_after(span, keyword, span.start.offset.saturating_sub(1))
     }
 
+    fn rfind_keyword(&self, span: Span, keyword: &str) -> Option<Position> {
+        let slice = self.slice_span(span)?;
+        let mut search_end = slice.len();
+        while let Some(rel) = slice[..search_end].rfind(keyword) {
+            let absolute = span.start.offset + rel;
+            if self.is_keyword_boundary(absolute, keyword) {
+                return Some(self.pos_at(absolute));
+            }
+            search_end = rel;
+        }
+        None
+    }
+
     fn find_keyword_after(
         &self,
         span: Span,
@@ -2945,7 +3575,7 @@ mod tests {
         assert_eq!(pattern["Stmts"][0]["Cmd"]["X"]["Op"], 45);
         assert_eq!(pattern["Stmts"][0]["Cmd"]["X"]["Y"]["Type"], "CondPattern");
         assert_eq!(
-            pattern["Stmts"][0]["Cmd"]["X"]["Y"]["Word"]["Parts"][0]["Value"],
+            pattern["Stmts"][0]["Cmd"]["X"]["Y"]["Pattern"]["Parts"][0]["Value"],
             "("
         );
 

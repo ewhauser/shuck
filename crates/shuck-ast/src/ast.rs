@@ -5,8 +5,127 @@
 
 #![allow(dead_code)]
 
-use crate::{Name, span::Span};
+use crate::{
+    Name,
+    span::{Position, Span},
+};
 use std::fmt;
+
+/// Source-backed text for AST nodes that need stable spans but only occasionally
+/// need owned cooked text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceText {
+    span: Span,
+    cooked: Option<Box<str>>,
+}
+
+impl SourceText {
+    pub fn source(span: Span) -> Self {
+        Self { span, cooked: None }
+    }
+
+    pub fn cooked(span: Span, text: impl Into<Box<str>>) -> Self {
+        Self {
+            span,
+            cooked: Some(text.into()),
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn slice<'a>(&'a self, source: &'a str) -> &'a str {
+        self.cooked
+            .as_deref()
+            .unwrap_or_else(|| self.span.slice(source))
+    }
+
+    pub fn is_source_backed(&self) -> bool {
+        self.cooked.is_none()
+    }
+
+    pub fn rebased(&mut self, base: Position) {
+        self.span = self.span.rebased(base);
+    }
+}
+
+impl From<Span> for SourceText {
+    fn from(span: Span) -> Self {
+        Self::source(span)
+    }
+}
+
+impl From<&str> for SourceText {
+    fn from(value: &str) -> Self {
+        Self::cooked(Span::new(), value)
+    }
+}
+
+impl From<String> for SourceText {
+    fn from(value: String) -> Self {
+        Self::cooked(Span::new(), value)
+    }
+}
+
+/// Literal text within a word part.
+///
+/// Most literals can be recovered directly from the corresponding `part_spans`
+/// entry. Owned text is kept only for cooked or synthetic literals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiteralText {
+    Source,
+    Owned(Box<str>),
+}
+
+impl LiteralText {
+    pub fn source() -> Self {
+        Self::Source
+    }
+
+    pub fn owned(text: impl Into<Box<str>>) -> Self {
+        Self::Owned(text.into())
+    }
+
+    pub fn as_str<'a>(&'a self, source: &'a str, span: Span) -> &'a str {
+        match self {
+            Self::Source => span.slice(source),
+            Self::Owned(text) => text.as_ref(),
+        }
+    }
+
+    pub fn is_source_backed(&self) -> bool {
+        matches!(self, Self::Source)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::Owned(text) if text.is_empty())
+    }
+}
+
+impl From<&str> for LiteralText {
+    fn from(value: &str) -> Self {
+        Self::owned(value)
+    }
+}
+
+impl From<String> for LiteralText {
+    fn from(value: String) -> Self {
+        Self::owned(value)
+    }
+}
+
+impl PartialEq<str> for LiteralText {
+    fn eq(&self, other: &str) -> bool {
+        matches!(self, Self::Owned(text) if text.as_ref() == other)
+    }
+}
+
+impl PartialEq<&str> for LiteralText {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
+    }
+}
 
 /// A complete bash script.
 #[derive(Debug, Clone)]
@@ -92,8 +211,7 @@ pub struct DeclName {
     pub name: Name,
     pub name_span: Span,
     /// Optional array index for indexed references like `arr[0]`.
-    pub index: Option<String>,
-    pub index_span: Option<Span>,
+    pub index: Option<SourceText>,
     /// Source span of this declaration name operand.
     pub span: Span,
 }
@@ -592,7 +710,7 @@ impl Word {
     /// Create a simple literal word with an explicit source span.
     pub fn literal_with_span(s: impl Into<String>, span: Span) -> Self {
         Self {
-            parts: vec![WordPart::Literal(s.into())],
+            parts: vec![WordPart::Literal(LiteralText::owned(s.into()))],
             part_spans: vec![span],
             quoted: false,
             span,
@@ -607,7 +725,7 @@ impl Word {
     /// Create a quoted literal word with an explicit source span.
     pub fn quoted_literal_with_span(s: impl Into<String>, span: Span) -> Self {
         Self {
-            parts: vec![WordPart::Literal(s.into())],
+            parts: vec![WordPart::Literal(LiteralText::owned(s.into()))],
             part_spans: vec![span],
             quoted: true,
             span,
@@ -632,16 +750,47 @@ impl Word {
     pub fn parts_with_spans(&self) -> impl Iterator<Item = (&WordPart, Span)> + '_ {
         self.parts.iter().zip(self.part_spans.iter().copied())
     }
-}
 
-impl fmt::Display for Word {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for part in &self.parts {
+    /// Render this word using exact source slices when available and owned cooked
+    /// text only where the parser normalized the input.
+    pub fn render(&self, source: &str) -> String {
+        let mut rendered = String::new();
+        self.fmt_with_source(&mut rendered, Some(source))
+            .expect("writing into a String should not fail");
+        rendered
+    }
+
+    fn fmt_with_source(
+        &self,
+        f: &mut impl fmt::Write,
+        source: Option<&str>,
+    ) -> fmt::Result {
+        for (part, span) in self.parts_with_spans() {
             match part {
-                WordPart::Literal(s) => write!(f, "{}", s)?,
+                WordPart::Literal(text) => match source {
+                    Some(source) => f.write_str(text.as_str(source, span))?,
+                    None => match text {
+                        LiteralText::Source => f.write_str("<source>")?,
+                        LiteralText::Owned(text) => f.write_str(text)?,
+                    },
+                },
                 WordPart::Variable(name) => write!(f, "${}", name)?,
-                WordPart::CommandSubstitution(cmd) => write!(f, "$({:?})", cmd)?,
-                WordPart::ArithmeticExpansion(expr) => write!(f, "$(({}))", expr)?,
+                WordPart::CommandSubstitution(commands) => match source {
+                    Some(source) => f.write_str(span.slice(source))?,
+                    None => write!(f, "$({:?})", commands)?,
+                },
+                WordPart::ArithmeticExpansion(expression) => match source {
+                    Some(_) => write!(
+                        f,
+                        "$(({}))",
+                        display_source_text(Some(expression), source)
+                    )?,
+                    None => write!(
+                        f,
+                        "$(({}))",
+                        display_source_text(Some(expression), source)
+                    )?,
+                },
                 WordPart::ParameterExpansion {
                     name,
                     operator,
@@ -650,39 +799,100 @@ impl fmt::Display for Word {
                 } => match operator {
                     ParameterOp::UseDefault => {
                         let c = if *colon_variant { ":" } else { "" };
-                        write!(f, "${{{}{}-{}}}", name, c, operand)?
+                        write!(
+                            f,
+                            "${{{}{}-{}}}",
+                            name,
+                            c,
+                            display_source_text(operand.as_ref(), source)
+                        )?
                     }
                     ParameterOp::AssignDefault => {
                         let c = if *colon_variant { ":" } else { "" };
-                        write!(f, "${{{}{}={}}}", name, c, operand)?
+                        write!(
+                            f,
+                            "${{{}{}={}}}",
+                            name,
+                            c,
+                            display_source_text(operand.as_ref(), source)
+                        )?
                     }
                     ParameterOp::UseReplacement => {
                         let c = if *colon_variant { ":" } else { "" };
-                        write!(f, "${{{}{}+{}}}", name, c, operand)?
+                        write!(
+                            f,
+                            "${{{}{}+{}}}",
+                            name,
+                            c,
+                            display_source_text(operand.as_ref(), source)
+                        )?
                     }
                     ParameterOp::Error => {
                         let c = if *colon_variant { ":" } else { "" };
-                        write!(f, "${{{}{}?{}}}", name, c, operand)?
+                        write!(
+                            f,
+                            "${{{}{}?{}}}",
+                            name,
+                            c,
+                            display_source_text(operand.as_ref(), source)
+                        )?
                     }
-                    ParameterOp::RemovePrefixShort => write!(f, "${{{}#{}}}", name, operand)?,
-                    ParameterOp::RemovePrefixLong => write!(f, "${{{}##{}}}", name, operand)?,
-                    ParameterOp::RemoveSuffixShort => write!(f, "${{{}%{}}}", name, operand)?,
-                    ParameterOp::RemoveSuffixLong => write!(f, "${{{}%%{}}}", name, operand)?,
+                    ParameterOp::RemovePrefixShort => write!(
+                        f,
+                        "${{{}#{}}}",
+                        name,
+                        display_source_text(operand.as_ref(), source)
+                    )?,
+                    ParameterOp::RemovePrefixLong => write!(
+                        f,
+                        "${{{}##{}}}",
+                        name,
+                        display_source_text(operand.as_ref(), source)
+                    )?,
+                    ParameterOp::RemoveSuffixShort => write!(
+                        f,
+                        "${{{}%{}}}",
+                        name,
+                        display_source_text(operand.as_ref(), source)
+                    )?,
+                    ParameterOp::RemoveSuffixLong => write!(
+                        f,
+                        "${{{}%%{}}}",
+                        name,
+                        display_source_text(operand.as_ref(), source)
+                    )?,
                     ParameterOp::ReplaceFirst {
                         pattern,
                         replacement,
-                    } => write!(f, "${{{}/{}/{}}}", name, pattern, replacement)?,
+                    } => write!(
+                        f,
+                        "${{{}/{}/{}}}",
+                        name,
+                        display_source_text(Some(pattern), source),
+                        display_source_text(Some(replacement), source)
+                    )?,
                     ParameterOp::ReplaceAll {
                         pattern,
                         replacement,
-                    } => write!(f, "${{{}///{}/{}}}", name, pattern, replacement)?,
+                    } => write!(
+                        f,
+                        "${{{}///{}/{}}}",
+                        name,
+                        display_source_text(Some(pattern), source),
+                        display_source_text(Some(replacement), source)
+                    )?,
                     ParameterOp::UpperFirst => write!(f, "${{{}^}}", name)?,
                     ParameterOp::UpperAll => write!(f, "${{{}^^}}", name)?,
                     ParameterOp::LowerFirst => write!(f, "{}{{,}}", name)?,
                     ParameterOp::LowerAll => write!(f, "${{{},,}}", name)?,
                 },
                 WordPart::Length(name) => write!(f, "${{#{}}}", name)?,
-                WordPart::ArrayAccess { name, index } => write!(f, "${{{}[{}]}}", name, index)?,
+                WordPart::ArrayAccess { name, index } => write!(
+                    f,
+                    "${{{}[{}]}}",
+                    name,
+                    display_source_text(Some(index), source)
+                )?,
                 WordPart::ArrayLength(name) => write!(f, "${{#{}[@]}}", name)?,
                 WordPart::ArrayIndices(name) => write!(f, "${{!{}[@]}}", name)?,
                 WordPart::Substring {
@@ -690,10 +900,21 @@ impl fmt::Display for Word {
                     offset,
                     length,
                 } => {
-                    if let Some(len) = length {
-                        write!(f, "${{{}:{}:{}}}", name, offset, len)?
+                    if let Some(length) = length {
+                        write!(
+                            f,
+                            "${{{}:{}:{}}}",
+                            name,
+                            display_source_text(Some(offset), source),
+                            display_source_text(Some(length), source)
+                        )?
                     } else {
-                        write!(f, "${{{}:{}}}", name, offset)?
+                        write!(
+                            f,
+                            "${{{}:{}}}",
+                            name,
+                            display_source_text(Some(offset), source)
+                        )?
                     }
                 }
                 WordPart::ArraySlice {
@@ -701,10 +922,21 @@ impl fmt::Display for Word {
                     offset,
                     length,
                 } => {
-                    if let Some(len) = length {
-                        write!(f, "${{{}[@]:{}:{}}}", name, offset, len)?
+                    if let Some(length) = length {
+                        write!(
+                            f,
+                            "${{{}[@]:{}:{}}}",
+                            name,
+                            display_source_text(Some(offset), source),
+                            display_source_text(Some(length), source)
+                        )?
                     } else {
-                        write!(f, "${{{}[@]:{}}}", name, offset)?
+                        write!(
+                            f,
+                            "${{{}[@]:{}}}",
+                            name,
+                            display_source_text(Some(offset), source)
+                        )?
                     }
                 }
                 WordPart::IndirectExpansion {
@@ -722,22 +954,48 @@ impl fmt::Display for Word {
                             ParameterOp::Error => "?",
                             _ => "",
                         };
-                        write!(f, "${{!{}{}{}{}}}", name, c, op_char, operand)?
+                        write!(
+                            f,
+                            "${{!{}{}{}{}}}",
+                            name,
+                            c,
+                            op_char,
+                            display_source_text(operand.as_ref(), source)
+                        )?
                     } else {
                         write!(f, "${{!{}}}", name)?
                     }
                 }
                 WordPart::PrefixMatch(prefix) => write!(f, "${{!{}*}}", prefix)?,
-                WordPart::ProcessSubstitution { commands, is_input } => {
-                    let prefix = if *is_input { "<" } else { ">" };
-                    write!(f, "{}({:?})", prefix, commands)?
-                }
+                WordPart::ProcessSubstitution { commands, is_input } => match source {
+                    Some(source) => f.write_str(span.slice(source))?,
+                    None => {
+                        let prefix = if *is_input { "<" } else { ">" };
+                        write!(f, "{}({:?})", prefix, commands)?
+                    }
+                },
                 WordPart::Transformation { name, operator } => {
                     write!(f, "${{{}@{}}}", name, operator)?
                 }
             }
         }
+
         Ok(())
+    }
+}
+
+impl fmt::Display for Word {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_with_source(f, None)
+    }
+}
+
+fn display_source_text<'a>(text: Option<&'a SourceText>, source: Option<&'a str>) -> &'a str {
+    match (text, source) {
+        (Some(text), Some(source)) => text.slice(source),
+        (Some(SourceText { cooked: Some(text), .. }), None) => text.as_ref(),
+        (Some(_), None) => "...",
+        (None, _) => "",
     }
 }
 
@@ -745,25 +1003,25 @@ impl fmt::Display for Word {
 #[derive(Debug, Clone)]
 pub enum WordPart {
     /// Literal text
-    Literal(String),
+    Literal(LiteralText),
     /// Variable expansion ($VAR or ${VAR})
     Variable(Name),
     /// Command substitution ($(...))
     CommandSubstitution(Vec<Command>),
     /// Arithmetic expansion ($((...)))
-    ArithmeticExpansion(String),
+    ArithmeticExpansion(SourceText),
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.
     /// `colon_variant` distinguishes `:-` (unset-or-empty) from `-` (unset-only).
     ParameterExpansion {
         name: Name,
         operator: ParameterOp,
-        operand: String,
+        operand: Option<SourceText>,
         colon_variant: bool,
     },
     /// Length expansion ${#var}
     Length(Name),
     /// Array element access `${arr[index]}` or `${arr[@]}` or `${arr[*]}`
-    ArrayAccess { name: Name, index: String },
+    ArrayAccess { name: Name, index: SourceText },
     /// Array length `${#arr[@]}` or `${#arr[*]}`
     ArrayLength(Name),
     /// Array indices `${!arr[@]}` or `${!arr[*]}`
@@ -771,21 +1029,21 @@ pub enum WordPart {
     /// Substring extraction `${var:offset}` or `${var:offset:length}`
     Substring {
         name: Name,
-        offset: String,
-        length: Option<String>,
+        offset: SourceText,
+        length: Option<SourceText>,
     },
     /// Array slice `${arr[@]:offset:length}`
     ArraySlice {
         name: Name,
-        offset: String,
-        length: Option<String>,
+        offset: SourceText,
+        length: Option<SourceText>,
     },
     /// Indirect expansion `${!var}` - expands to value of variable named by var's value
     /// Optionally composed with an operator: `${!var:-default}`, `${!var:=val}`, etc.
     IndirectExpansion {
         name: Name,
         operator: Option<ParameterOp>,
-        operand: String,
+        operand: Option<SourceText>,
         colon_variant: bool,
     },
     /// Prefix matching `${!prefix*}` or `${!prefix@}` - names of variables with given prefix
@@ -822,13 +1080,13 @@ pub enum ParameterOp {
     RemoveSuffixLong,
     /// / pattern replacement (first occurrence)
     ReplaceFirst {
-        pattern: String,
-        replacement: String,
+        pattern: SourceText,
+        replacement: SourceText,
     },
     /// // pattern replacement (all occurrences)
     ReplaceAll {
-        pattern: String,
-        replacement: String,
+        pattern: SourceText,
+        replacement: SourceText,
     },
     /// ^ uppercase first char
     UpperFirst,
@@ -888,8 +1146,7 @@ pub struct Assignment {
     pub name: Name,
     pub name_span: Span,
     /// Optional array index for indexed assignments like `arr[0]=value`
-    pub index: Option<String>,
-    pub index_span: Option<Span>,
+    pub index: Option<SourceText>,
     pub value: AssignmentValue,
     /// Whether this is an append assignment (+=)
     pub append: bool,
@@ -1036,7 +1293,7 @@ mod tests {
         let w = word(vec![WordPart::IndirectExpansion {
             name: "ref".into(),
             operator: None,
-            operand: String::new(),
+            operand: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${!ref}");
@@ -1071,7 +1328,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::UseDefault,
-            operand: "fallback".into(),
+            operand: Some("fallback".into()),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:-fallback}");
@@ -1082,7 +1339,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::UseDefault,
-            operand: "fallback".into(),
+            operand: Some("fallback".into()),
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var-fallback}");
@@ -1093,7 +1350,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::AssignDefault,
-            operand: "val".into(),
+            operand: Some("val".into()),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:=val}");
@@ -1104,7 +1361,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::UseReplacement,
-            operand: "alt".into(),
+            operand: Some("alt".into()),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:+alt}");
@@ -1115,7 +1372,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::Error,
-            operand: "msg".into(),
+            operand: Some("msg".into()),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:?msg}");
@@ -1127,7 +1384,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::RemovePrefixShort,
-            operand: "pat".into(),
+            operand: Some("pat".into()),
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var#pat}");
@@ -1136,7 +1393,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::RemovePrefixLong,
-            operand: "pat".into(),
+            operand: Some("pat".into()),
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var##pat}");
@@ -1145,7 +1402,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::RemoveSuffixShort,
-            operand: "pat".into(),
+            operand: Some("pat".into()),
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var%pat}");
@@ -1154,7 +1411,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::RemoveSuffixLong,
-            operand: "pat".into(),
+            operand: Some("pat".into()),
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var%%pat}");
@@ -1168,7 +1425,7 @@ mod tests {
                 pattern: "old".into(),
                 replacement: "new".into(),
             },
-            operand: String::new(),
+            operand: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var/old/new}");
@@ -1179,7 +1436,7 @@ mod tests {
                 pattern: "old".into(),
                 replacement: "new".into(),
             },
-            operand: String::new(),
+            operand: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var///old/new}");
@@ -1191,7 +1448,7 @@ mod tests {
             let w = word(vec![WordPart::ParameterExpansion {
                 name: "var".into(),
                 operator: op,
-                operand: String::new(),
+                operand: None,
                 colon_variant: false,
             }]);
             assert_eq!(format!("{w}"), expected);
@@ -1248,7 +1505,6 @@ mod tests {
                 name: "FOO".into(),
                 name_span: Span::new(),
                 index: None,
-                index_span: None,
                 value: AssignmentValue::Scalar(Word::literal("bar")),
                 append: false,
                 span: Span::new(),
@@ -1298,7 +1554,6 @@ mod tests {
                 name: "FOO".into(),
                 name_span: Span::new(),
                 index: None,
-                index_span: None,
                 value: AssignmentValue::Scalar(Word::literal("bar")),
                 append: false,
                 span: Span::new(),
@@ -1431,7 +1686,6 @@ mod tests {
             name: "X".into(),
             name_span: Span::new(),
             index: None,
-            index_span: None,
             value: AssignmentValue::Scalar(Word::literal("1")),
             append: false,
             span: Span::new(),
@@ -1447,7 +1701,6 @@ mod tests {
             name: "ARR".into(),
             name_span: Span::new(),
             index: None,
-            index_span: None,
             value: AssignmentValue::Array(vec![
                 Word::literal("a"),
                 Word::literal("b"),
@@ -1469,7 +1722,6 @@ mod tests {
             name: "PATH".into(),
             name_span: Span::new(),
             index: None,
-            index_span: None,
             value: AssignmentValue::Scalar(Word::literal("/usr/bin")),
             append: true,
             span: Span::new(),
@@ -1483,12 +1735,11 @@ mod tests {
             name: "arr".into(),
             name_span: Span::new(),
             index: Some("0".into()),
-            index_span: Some(Span::new()),
             value: AssignmentValue::Scalar(Word::literal("val")),
             append: false,
             span: Span::new(),
         };
-        assert_eq!(a.index.as_deref(), Some("0"));
+        assert_eq!(a.index.as_ref().map(|index| index.slice("")), Some("0"));
     }
 
     // --- CaseTerminator ---
