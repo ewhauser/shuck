@@ -65,20 +65,62 @@ impl<'a> Printer<'a> {
     }
 
     fn encode_file(&self, script: &Script) -> EncodedNode {
-        let mut map = self.node_object(Some("File"), script.span.start, script.span.end);
-        self.insert_array(&mut map, "Stmts", self.encode_stmt_values(&script.commands));
+        let stmts = self.encode_stmts(&script.commands);
+        let pos = stmts
+            .first()
+            .map(|stmt| stmt.pos)
+            .unwrap_or(script.span.start);
+        let end = stmts.last().map(|stmt| stmt.end).unwrap_or(script.span.end);
+
+        let mut map = self.node_object(Some("File"), pos, end);
+        self.insert_array(
+            &mut map,
+            "Stmts",
+            stmts.iter().map(|stmt| stmt.value.clone()).collect(),
+        );
         EncodedNode {
             value: Value::Object(map),
-            pos: script.span.start,
-            end: script.span.end,
+            pos,
+            end,
         }
     }
 
     fn encode_stmt_values(&self, commands: &[Command]) -> Vec<Value> {
+        self.encode_stmts(commands)
+            .into_iter()
+            .map(|stmt| stmt.value)
+            .collect()
+    }
+
+    fn encode_stmt_values_before(
+        &self,
+        commands: &[Command],
+        before: Position,
+        operator: &str,
+    ) -> Vec<Value> {
+        let mut stmts = self.encode_stmts(commands);
+        if let Some((stmt, command)) = stmts.last_mut().zip(commands.last()) {
+            if let Value::Object(map) = &mut stmt.value {
+                if !map.contains_key("Semicolon") {
+                    if let Some(separator) = self.find_operator_after_span(
+                        self.command_span(command),
+                        before.offset,
+                        operator,
+                    ) {
+                        self.insert_pos(map, "Semicolon", separator);
+                        self.insert_pos(map, "End", separator.advanced_by(operator));
+                    }
+                }
+            }
+        }
+        stmts.into_iter().map(|stmt| stmt.value).collect()
+    }
+
+    fn encode_stmts(&self, commands: &[Command]) -> Vec<EncodedStmt> {
         commands
             .iter()
             .flat_map(|command| self.fragments_for_command(command))
-            .map(|fragment| self.encode_fragment(&fragment).value)
+            .map(|fragment| self.encode_fragment(&fragment))
             .collect()
     }
 
@@ -109,8 +151,8 @@ impl<'a> Printer<'a> {
                     } else {
                         self.command_span(next).start.offset
                     };
-                    let semicolon = self.find_operator_between(
-                        self.command_span(current_last).end.offset,
+                    let semicolon = self.find_operator_after_span(
+                        self.command_span(current_last),
                         search_end,
                         match op {
                             ListOperator::Semicolon => ";",
@@ -163,9 +205,9 @@ impl<'a> Printer<'a> {
 
         for (op, rhs_cmd) in &fragment.chain {
             let rhs_stmt = self.encode_stmt_without_separator(rhs_cmd);
-            let op_pos = self.find_operator_between(
-                self.command_span(lhs_cmd).end.offset,
-                self.command_span(rhs_cmd).start.offset,
+            let op_pos = self.find_operator_between_spans(
+                self.command_span(lhs_cmd),
+                self.command_span(rhs_cmd),
                 match op {
                     ListOperator::And => "&&",
                     ListOperator::Or => "||",
@@ -327,7 +369,7 @@ impl<'a> Printer<'a> {
             &mut map,
             "Variant",
             Some(
-                self.lit_node(
+                self.value_lit_node(
                     &command.variant,
                     command.variant_span.start,
                     command.variant_span.end,
@@ -374,9 +416,9 @@ impl<'a> Printer<'a> {
 
         for rhs_command in pipeline.commands.iter().skip(1) {
             let rhs = self.encode_stmt_without_separator(rhs_command);
-            let op_pos = self.find_operator_between(
-                self.command_span(last).end.offset,
-                self.command_span(rhs_command).start.offset,
+            let op_pos = self.find_operator_between_spans(
+                self.command_span(last),
+                self.command_span(rhs_command),
                 "|",
             );
             let current = self.encode_binary_cmd(lhs.clone(), rhs.clone(), 13, op_pos);
@@ -531,7 +573,7 @@ impl<'a> Printer<'a> {
                 &mut map,
                 "Name",
                 Some(
-                    self.lit_node(
+                    self.value_lit_node(
                         &function.name,
                         function.name_span.start,
                         function.name_span.end,
@@ -545,7 +587,7 @@ impl<'a> Printer<'a> {
                 &mut map,
                 "Name",
                 Some(
-                    self.lit_node(
+                    self.value_lit_node(
                         &function.name,
                         function.name_span.start,
                         function.name_span.end,
@@ -585,6 +627,7 @@ impl<'a> Printer<'a> {
             .find_keyword(command.span, "fi")
             .unwrap_or(command.span.end);
         self.encode_if_clause_chain(
+            true,
             command.span,
             "if",
             self.find_keyword(command.span, "if")
@@ -599,6 +642,7 @@ impl<'a> Printer<'a> {
 
     fn encode_if_clause_chain(
         &self,
+        typed: bool,
         span: Span,
         kind: &str,
         position: Position,
@@ -614,12 +658,16 @@ impl<'a> Printer<'a> {
             self.find_keyword_after(span, "then", position.offset)
                 .unwrap_or_default()
         };
-        let mut map = self.node_object(Some("IfClause"), position, span.end);
+        let mut map = self.node_object(typed.then_some("IfClause"), position, span.end);
         self.insert_pos(&mut map, "Position", position);
         self.insert_string(&mut map, "Kind", kind);
         self.insert_pos(&mut map, "ThenPos", then_pos);
         self.insert_pos(&mut map, "FiPos", fi_pos);
-        self.insert_array(&mut map, "Cond", self.encode_stmt_values(condition));
+        self.insert_array(
+            &mut map,
+            "Cond",
+            self.encode_stmt_values_before(condition, then_pos, ";"),
+        );
         self.insert_array(&mut map, "Then", self.encode_stmt_values(then_branch));
 
         let else_node = if let Some(((elif_cond, elif_then), rest)) = elif_branches.split_first() {
@@ -628,6 +676,7 @@ impl<'a> Printer<'a> {
                 .unwrap_or_default();
             Some(
                 self.encode_if_clause_chain(
+                    false,
                     span,
                     "elif",
                     elif_pos,
@@ -645,6 +694,7 @@ impl<'a> Printer<'a> {
                 .unwrap_or_default();
             Some(
                 self.encode_if_clause_chain(
+                    false,
                     span,
                     "else",
                     else_pos,
@@ -796,7 +846,7 @@ impl<'a> Printer<'a> {
         self.insert_array(
             &mut map,
             "Cond",
-            self.encode_stmt_values(&command.condition),
+            self.encode_stmt_values_before(&command.condition, do_pos, ";"),
         );
         self.insert_array(&mut map, "Do", self.encode_stmt_values(&command.body));
         EncodedNode {
@@ -880,7 +930,7 @@ impl<'a> Printer<'a> {
             CaseTerminator::Continue => ";;&",
         };
         let op_pos = self
-            .find_operator_between(body_end.offset, next_start, op_str)
+            .rfind_operator_between(pos.offset, next_start, op_str)
             .unwrap_or_default();
         let end = if self.is_valid_pos(op_pos) {
             op_pos.advanced_by(op_str)
@@ -888,7 +938,7 @@ impl<'a> Printer<'a> {
             body_end
         };
 
-        let mut map = self.node_object(Some("CaseItem"), pos, end);
+        let mut map = self.node_object(None, pos, end);
         self.insert_number(
             &mut map,
             "Op",
@@ -981,6 +1031,8 @@ impl<'a> Printer<'a> {
 
     fn encode_arithm_cmd(&self, command: &ArithmeticCommand) -> EncodedNode {
         let mut map = self.node_object(Some("ArithmCmd"), command.span.start, command.span.end);
+        self.insert_pos(&mut map, "Left", command.left_paren_span.start);
+        self.insert_pos(&mut map, "Right", command.right_paren_span.start);
         let source = command
             .expr_span
             .and_then(|span| self.slice_span(span))
@@ -1094,7 +1146,7 @@ impl<'a> Printer<'a> {
             &mut map,
             "Name",
             Some(
-                self.lit_node(variable, name_span.start, name_span.end)
+                self.value_lit_node(variable, name_span.start, name_span.end)
                     .value,
             ),
         );
@@ -1240,6 +1292,11 @@ impl<'a> Printer<'a> {
                 );
             }
         }
+        self.insert_value(
+            &mut map,
+            "Surface",
+            self.assignment_surface(assignment).map(Value::Object),
+        );
         EncodedNode {
             value: Value::Object(map),
             pos: assignment.span.start,
@@ -1304,7 +1361,7 @@ impl<'a> Printer<'a> {
             assignment.name_span,
             assignment.index.as_deref(),
             assignment.index_span,
-            assignment.span.end,
+            self.var_ref_end(assignment.name_span, assignment.index_span),
         )
     }
 
@@ -1314,7 +1371,7 @@ impl<'a> Printer<'a> {
             name.name_span,
             name.index.as_deref(),
             name.index_span,
-            name.span.end,
+            self.var_ref_end(name.name_span, name.index_span),
         )
     }
 
@@ -1326,11 +1383,14 @@ impl<'a> Printer<'a> {
         index_span: Option<Span>,
         end: Position,
     ) -> EncodedNode {
-        let mut map = self.node_object(Some("VarRef"), name_span.start, end);
+        let mut map = self.node_object(None, name_span.start, end);
         self.insert_value(
             &mut map,
             "Name",
-            Some(self.lit_node(name, name_span.start, name_span.end).value),
+            Some(
+                self.value_lit_node(name, name_span.start, name_span.end)
+                    .value,
+            ),
         );
         if let Some(index) = index {
             self.insert_value(
@@ -1357,7 +1417,7 @@ impl<'a> Printer<'a> {
         let rparen = self
             .rfind_operator_between(span.start.offset, span.end.offset, ")")
             .unwrap_or_default();
-        let mut map = self.node_object(Some("ArrayExpr"), lparen, span.end);
+        let mut map = self.node_object(None, lparen, span.end);
         self.insert_pos(&mut map, "Lparen", lparen);
         self.insert_pos(&mut map, "Rparen", rparen);
         self.insert_array(
@@ -1376,7 +1436,7 @@ impl<'a> Printer<'a> {
     }
 
     fn encode_array_elem(&self, word: &Word) -> EncodedNode {
-        let mut map = self.node_object(Some("ArrayElem"), word.span.start, word.span.end);
+        let mut map = self.node_object(None, word.span.start, word.span.end);
         self.insert_value(&mut map, "Value", Some(self.encode_word(word).value));
         EncodedNode {
             value: Value::Object(map),
@@ -1419,7 +1479,7 @@ impl<'a> Printer<'a> {
                 self.insert_value(
                     &mut map,
                     "Word",
-                    Some(self.encode_word(&redirect.target).value),
+                    Some(self.encode_redirect_target_word(redirect, op_pos).value),
                 );
             }
         }
@@ -1433,23 +1493,91 @@ impl<'a> Printer<'a> {
     fn encode_redirect_n(&self, redirect: &Redirect, op_pos: Position) -> Option<EncodedNode> {
         if let Some(fd_var) = &redirect.fd_var {
             if let Some(span) = redirect.fd_var_span {
-                return Some(self.lit_node(fd_var, span.start, span.end));
+                return Some(self.value_lit_node(fd_var, span.start, span.end));
             }
             let start = redirect.span.start.advanced_by("{");
             let end = start.advanced_by(fd_var);
-            return Some(self.lit_node(fd_var, start, end));
+            return Some(self.value_lit_node(fd_var, start, end));
         }
         redirect.fd.map(|fd| {
             let text = fd.to_string();
             let start = self
                 .find_operator_between(redirect.span.start.offset, op_pos.offset, &text)
                 .unwrap_or(redirect.span.start);
-            self.lit_node(&text, start, start.advanced_by(&text))
+            self.value_lit_node(&text, start, start.advanced_by(&text))
         })
     }
 
+    fn encode_redirect_target_word(&self, redirect: &Redirect, op_pos: Position) -> EncodedNode {
+        let encoded = self.encode_word(&redirect.target);
+        if self.is_valid_pos(encoded.pos) && self.is_valid_pos(encoded.end) {
+            return encoded;
+        }
+
+        let mut start_offset = op_pos
+            .offset
+            .saturating_add(self.redirect_operator_text(redirect.kind).len());
+        while start_offset < redirect.span.end.offset {
+            let Some(byte) = self.source.as_bytes().get(start_offset).copied() else {
+                break;
+            };
+            if !byte.is_ascii_whitespace() {
+                break;
+            }
+            start_offset += 1;
+        }
+        let start = self.pos_at(start_offset);
+        let end = redirect.span.end;
+
+        if redirect.target.parts.len() == 1
+            && redirect
+                .target
+                .part_spans
+                .first()
+                .is_some_and(|span| !self.is_valid_pos(span.start))
+            && let WordPart::Literal(value) = &redirect.target.parts[0]
+        {
+            return self.synthetic_literal_word_node(value, Span::from_positions(start, end));
+        }
+
+        let mut map = self.node_object(None, start, end);
+        self.insert_array(
+            &mut map,
+            "Parts",
+            redirect
+                .target
+                .parts_with_spans()
+                .map(|(part, span)| self.encode_word_part(part, span).value)
+                .collect(),
+        );
+        EncodedNode {
+            value: Value::Object(map),
+            pos: start,
+            end,
+        }
+    }
+
     fn encode_word(&self, word: &Word) -> EncodedNode {
-        let mut map = self.node_object(None, word.span.start, word.span.end);
+        let pos = if self.is_valid_pos(word.span.start) {
+            word.span.start
+        } else {
+            word.part_spans
+                .iter()
+                .find(|span| self.is_valid_pos(span.start))
+                .map(|span| span.start)
+                .unwrap_or_default()
+        };
+        let end = if self.is_valid_pos(word.span.end) {
+            word.span.end
+        } else {
+            word.part_spans
+                .iter()
+                .rev()
+                .find(|span| self.is_valid_pos(span.end))
+                .map(|span| span.end)
+                .unwrap_or_default()
+        };
+        let mut map = self.node_object(None, pos, end);
         let parts = if let Some(wrapper) = self.quoted_wrapper(word) {
             vec![self.encode_quoted_wrapper(word, wrapper).value]
         } else {
@@ -1460,8 +1588,8 @@ impl<'a> Printer<'a> {
         self.insert_array(&mut map, "Parts", parts);
         EncodedNode {
             value: Value::Object(map),
-            pos: word.span.start,
-            end: word.span.end,
+            pos,
+            end,
         }
     }
 
@@ -1546,7 +1674,13 @@ impl<'a> Printer<'a> {
                     &mut map,
                     "Parts",
                     word.parts_with_spans()
-                        .map(|(part, span)| self.encode_word_part(part, span).value)
+                        .map(|(part, span)| {
+                            self.encode_word_part(
+                                part,
+                                self.adjust_quoted_part_span(word, span, dollar),
+                            )
+                            .value
+                        })
                         .collect(),
                 );
                 EncodedNode {
@@ -1570,7 +1704,7 @@ impl<'a> Printer<'a> {
         let param_pos = self
             .find_in_span(span, name, if short { 1 } else { 2 })
             .unwrap_or(span.start.advanced_by("$"));
-        let param = self.lit_node(name, param_pos, param_pos.advanced_by(name));
+        let param = self.value_lit_node(name, param_pos, param_pos.advanced_by(name));
 
         let mut map = self.node_object(Some("ParamExp"), span.start, span.end);
         self.insert_pos(&mut map, "Dollar", dollar);
@@ -1612,7 +1746,7 @@ impl<'a> Printer<'a> {
         let param_pos = self
             .find_in_span(span, name, if short { 1 } else { 2 })
             .unwrap_or(span.start.advanced_by("$"));
-        let param = self.lit_node(name, param_pos, param_pos.advanced_by(name));
+        let param = self.value_lit_node(name, param_pos, param_pos.advanced_by(name));
 
         let mut map = self.node_object(Some("ParamExp"), span.start, span.end);
         self.insert_pos(&mut map, "Dollar", dollar);
@@ -1629,7 +1763,7 @@ impl<'a> Printer<'a> {
                 pattern,
                 replacement,
             } => {
-                let mut repl = self.node_object(None, span.start, span.end);
+                let mut repl = Map::new();
                 self.insert_bool(
                     &mut repl,
                     "All",
@@ -1654,7 +1788,7 @@ impl<'a> Printer<'a> {
             | ParameterOp::RemovePrefixLong
             | ParameterOp::RemoveSuffixShort
             | ParameterOp::RemoveSuffixLong => {
-                let mut exp = self.node_object(None, span.start, span.end);
+                let mut exp = Map::new();
                 self.insert_number(
                     &mut exp,
                     "Op",
@@ -1668,7 +1802,7 @@ impl<'a> Printer<'a> {
                 self.insert_value(&mut map, "Exp", Some(Value::Object(exp)));
             }
             _ => {
-                let mut exp = self.node_object(None, span.start, span.end);
+                let mut exp = Map::new();
                 self.insert_number(
                     &mut exp,
                     "Op",
@@ -1678,7 +1812,7 @@ impl<'a> Printer<'a> {
                     self.insert_value(
                         &mut exp,
                         "Word",
-                        Some(self.synthetic_literal_word_node(operand, Span::new()).value),
+                        Some(self.literal_word_in_span(operand, span).value),
                     );
                 }
                 self.insert_value(&mut map, "Exp", Some(Value::Object(exp)));
@@ -1744,16 +1878,16 @@ impl<'a> Printer<'a> {
         let Value::Object(map) = &mut node.value else {
             unreachable!()
         };
-        let mut slice = self.node_object(None, span.start, span.end);
+        let mut slice = Map::new();
         self.insert_value(
             &mut slice,
             "Offset",
-            Some(self.synthetic_expression_word(offset, Span::new()).value),
+            Some(self.expression_word_in_span(offset, span).value),
         );
         self.insert_value(
             &mut slice,
             "Length",
-            length.map(|length| self.synthetic_expression_word(length, Span::new()).value),
+            length.map(|length| self.expression_word_in_span(length, span).value),
         );
         self.insert_value(map, "Slice", Some(Value::Object(slice)));
         node
@@ -1775,16 +1909,16 @@ impl<'a> Printer<'a> {
             "Index",
             Some(self.encode_all_elements_subscript(span, true).value),
         );
-        let mut slice = self.node_object(None, span.start, span.end);
+        let mut slice = Map::new();
         self.insert_value(
             &mut slice,
             "Offset",
-            Some(self.synthetic_expression_word(offset, Span::new()).value),
+            Some(self.expression_word_in_span(offset, span).value),
         );
         self.insert_value(
             &mut slice,
             "Length",
-            length.map(|length| self.synthetic_expression_word(length, Span::new()).value),
+            length.map(|length| self.expression_word_in_span(length, span).value),
         );
         self.insert_value(map, "Slice", Some(Value::Object(slice)));
         node
@@ -1804,7 +1938,7 @@ impl<'a> Printer<'a> {
         };
         self.insert_bool(map, "Excl", true);
         if let Some(operator) = operator {
-            let mut exp = self.node_object(None, span.start, span.end);
+            let mut exp = Map::new();
             self.insert_number(
                 &mut exp,
                 "Op",
@@ -1814,7 +1948,7 @@ impl<'a> Printer<'a> {
                 self.insert_value(
                     &mut exp,
                     "Word",
-                    Some(self.synthetic_literal_word_node(operand, Span::new()).value),
+                    Some(self.literal_word_in_span(operand, span).value),
                 );
             }
             self.insert_value(map, "Exp", Some(Value::Object(exp)));
@@ -1837,15 +1971,12 @@ impl<'a> Printer<'a> {
         let Value::Object(map) = &mut node.value else {
             unreachable!()
         };
-        let mut exp = self.node_object(None, span.start, span.end);
+        let mut exp = Map::new();
         self.insert_number(&mut exp, "Op", 100);
         self.insert_value(
             &mut exp,
             "Word",
-            Some(
-                self.synthetic_literal_word_node(&operator.to_string(), Span::new())
-                    .value,
-            ),
+            Some(self.literal_word_in_span(&operator.to_string(), span).value),
         );
         self.insert_value(map, "Exp", Some(Value::Object(exp)));
         node
@@ -1857,6 +1988,7 @@ impl<'a> Printer<'a> {
         self.insert_pos(&mut map, "Left", span.start);
         self.insert_pos(&mut map, "Right", right);
         self.insert_array(&mut map, "Stmts", self.encode_stmt_values(commands));
+        self.insert_pos(&mut map, "DiagnosticEnd", self.diagnostic_end(span.end));
         EncodedNode {
             value: Value::Object(map),
             pos: span.start,
@@ -1919,7 +2051,7 @@ impl<'a> Printer<'a> {
     fn encode_subscript(&self, index: &str, base: Position) -> EncodedNode {
         let left = base.advanced_by("[");
         let right = left.advanced_by(index);
-        let mut map = self.node_object(Some("Subscript"), left, right.advanced_by("]"));
+        let mut map = self.node_object(None, left, right.advanced_by("]"));
         self.insert_pos(&mut map, "Left", left);
         self.insert_pos(&mut map, "Right", right);
         if index == "@" {
@@ -1943,7 +2075,7 @@ impl<'a> Printer<'a> {
     fn encode_subscript_with_span(&self, index: &str, span: Span) -> EncodedNode {
         let left = self.pos_at(span.start.offset.saturating_sub(1));
         let right = span.end;
-        let mut map = self.node_object(Some("Subscript"), left, right.advanced_by("]"));
+        let mut map = self.node_object(None, left, right.advanced_by("]"));
         self.insert_pos(&mut map, "Left", left);
         self.insert_pos(&mut map, "Right", right);
         if index == "@" {
@@ -1970,7 +2102,7 @@ impl<'a> Printer<'a> {
         if let Some(rel) = raw.find(needle) {
             let left = self.pos_at(span.start.offset + rel);
             let right = self.pos_at(span.start.offset + rel + 2);
-            let mut map = self.node_object(Some("Subscript"), left, right.advanced_by("]"));
+            let mut map = self.node_object(None, left, right.advanced_by("]"));
             self.insert_pos(&mut map, "Left", left);
             self.insert_pos(&mut map, "Right", right);
             self.insert_number(&mut map, "Kind", if at { 1 } else { 2 });
@@ -2006,6 +2138,18 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn value_lit_node(&self, value: &str, start: Position, end: Position) -> EncodedNode {
+        let mut map = self.node_object(None, start, end);
+        self.insert_pos(&mut map, "ValuePos", start);
+        self.insert_pos(&mut map, "ValueEnd", end);
+        self.insert_string(&mut map, "Value", value);
+        EncodedNode {
+            value: Value::Object(map),
+            pos: start,
+            end,
+        }
+    }
+
     fn synthetic_literal_word(&self, value: &str, span: Span) -> Word {
         Word::literal_with_span(value, span)
     }
@@ -2015,13 +2159,43 @@ impl<'a> Printer<'a> {
         self.encode_word(&word)
     }
 
+    fn typed_word_node(&self, word: &Word) -> EncodedNode {
+        let encoded = self.encode_word(word);
+        let mut map = self.node_object(Some("Word"), encoded.pos, encoded.end);
+        let parts = encoded
+            .value
+            .get("Parts")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        self.insert_array(&mut map, "Parts", parts);
+        EncodedNode {
+            value: Value::Object(map),
+            pos: encoded.pos,
+            end: encoded.end,
+        }
+    }
+
+    fn literal_word_in_span(&self, value: &str, span: Span) -> EncodedNode {
+        let word_span = self
+            .rfind_in_span(span, value)
+            .map(|start| Span::from_positions(start, start.advanced_by(value)))
+            .unwrap_or_else(Span::new);
+        self.synthetic_literal_word_node(value, word_span)
+    }
+
+    fn expression_word_in_span(&self, value: &str, span: Span) -> EncodedNode {
+        self.literal_word_in_span(value, span)
+    }
+
     fn synthetic_expression_word(&self, value: &str, span: Span) -> EncodedNode {
         let span = if self.is_valid_pos(span.start) || self.is_valid_pos(span.end) {
             span
         } else {
             Span::from_positions(Position::default(), Position::default())
         };
-        self.synthetic_literal_word_node(value, span)
+        let word = self.synthetic_literal_word(value, span);
+        self.typed_word_node(&word)
     }
 
     fn wrap_stmt(
@@ -2134,6 +2308,33 @@ impl<'a> Printer<'a> {
         base_end
     }
 
+    fn assignment_surface(&self, assignment: &Assignment) -> Option<Map<String, Value>> {
+        let operator = if assignment.append { "+=" } else { "=" };
+        let ref_end = self.var_ref_end(assignment.name_span, assignment.index_span);
+        let value_pos = match &assignment.value {
+            AssignmentValue::Scalar(word) => word.span.start,
+            AssignmentValue::Array(_) => self
+                .find_operator_between(ref_end.offset, assignment.span.end.offset, "(")
+                .unwrap_or_else(|| ref_end.advanced_by(operator)),
+        };
+        let operator_pos = self
+            .find_operator_between(ref_end.offset, value_pos.offset, operator)
+            .or(Some(ref_end))?;
+        let operator_end = operator_pos.advanced_by(operator);
+
+        let mut map = Map::new();
+        self.insert_pos(&mut map, "OperatorPos", operator_pos);
+        self.insert_pos(&mut map, "OperatorEnd", operator_end);
+        self.insert_pos(&mut map, "ValuePos", value_pos);
+        Some(map)
+    }
+
+    fn var_ref_end(&self, name_span: Span, index_span: Option<Span>) -> Position {
+        index_span
+            .map(|span| span.end.advanced_by("]"))
+            .unwrap_or(name_span.end)
+    }
+
     fn last_redirect_end(&self, redirects: &[Redirect]) -> Position {
         redirects
             .last()
@@ -2164,6 +2365,23 @@ impl<'a> Printer<'a> {
         }
         let name_rel = text.find(name)?;
         Some((false, true, self.pos_at(span.start.offset + name_rel)))
+    }
+
+    fn diagnostic_end(&self, end: Position) -> Position {
+        self.pos_at((end.offset + 1).min(self.source.len()))
+    }
+
+    fn adjust_quoted_part_span(&self, word: &Word, span: Span, dollar: bool) -> Span {
+        if word.quoted {
+            return span;
+        }
+
+        let prefix_len = if dollar { 2 } else { 1 };
+        let mut start = span.start;
+        if start.offset == word.span.start.offset {
+            start = self.pos_at(start.offset.saturating_add(prefix_len));
+        }
+        Span::from_positions(start, span.end)
     }
 
     fn redirect_operator_code(&self, kind: RedirectKind) -> u64 {
@@ -2307,9 +2525,6 @@ impl<'a> Printer<'a> {
     }
 
     fn quoted_wrapper(&self, word: &Word) -> Option<QuoteWrapper> {
-        if !word.quoted {
-            return None;
-        }
         let raw = self.slice_span(word.span)?;
         if raw.starts_with("$'") && raw.ends_with('\'') {
             return Some(QuoteWrapper::Single { dollar: true });
@@ -2347,6 +2562,7 @@ impl<'a> Printer<'a> {
         pos: Position,
         end: Position,
     ) -> Map<String, Value> {
+        let end = self.normalize_end(end);
         let mut map = Map::new();
         if let Some(type_name) = type_name {
             map.insert("Type".into(), Value::String(type_name.to_owned()));
@@ -2405,6 +2621,24 @@ impl<'a> Printer<'a> {
         pos.line > 0 && pos.column > 0
     }
 
+    fn normalize_end(&self, mut end: Position) -> Position {
+        while end.offset > 0 {
+            let Some(byte) = self
+                .source
+                .as_bytes()
+                .get(end.offset.saturating_sub(1))
+                .copied()
+            else {
+                break;
+            };
+            if byte != b'\n' && byte != b'\r' {
+                break;
+            }
+            end = self.pos_at(end.offset.saturating_sub(1));
+        }
+        end
+    }
+
     fn pos_at(&self, offset: usize) -> Position {
         if offset > self.source.len() {
             return Position::default();
@@ -2438,6 +2672,12 @@ impl<'a> Printer<'a> {
         Some(self.pos_at(span.start.offset + rel))
     }
 
+    fn rfind_in_span(&self, span: Span, needle: &str) -> Option<Position> {
+        let haystack = self.slice_span(span)?;
+        let rel = haystack.rfind(needle)?;
+        Some(self.pos_at(span.start.offset + rel))
+    }
+
     fn find_operator_between(
         &self,
         start_offset: usize,
@@ -2458,6 +2698,27 @@ impl<'a> Printer<'a> {
         let slice = self.slice_offsets(start_offset, end_offset)?;
         let rel = slice.rfind(operator)?;
         Some(self.pos_at(start_offset + rel))
+    }
+
+    fn find_operator_between_spans(
+        &self,
+        left: Span,
+        right: Span,
+        operator: &str,
+    ) -> Option<Position> {
+        self.find_operator_after_span(left, right.start.offset, operator)
+    }
+
+    fn find_operator_after_span(
+        &self,
+        left: Span,
+        right_start_offset: usize,
+        operator: &str,
+    ) -> Option<Position> {
+        self.find_operator_between(left.end.offset, right_start_offset, operator)
+            .or_else(|| {
+                self.rfind_operator_between(left.start.offset, right_start_offset, operator)
+            })
     }
 
     fn find_keyword(&self, span: Span, keyword: &str) -> Option<Position> {
