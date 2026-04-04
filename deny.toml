@@ -1,0 +1,43 @@
+# cargo-deny configuration for license checking
+# Run: cargo deny check
+
+[licenses]
+# Allow these license types
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",  # LLVM exception (target-lexicon via pyo3)
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",                # Mozilla Public License 2.0 (colored crate)
+    "Unicode-3.0",            # Unicode License v3 (icu_* crates)
+    "CDLA-Permissive-2.0",    # Community Data License Agreement (webpki-root-certs)
+    "Unicode-DFS-2016",       # Unicode Data Files and Software License (unicode_names2 via monty/ruff, --all-features only)
+]
+
+# Review unclear/dual licenses
+confidence-threshold = 0.8
+
+# Allow specific exceptions
+exceptions = []
+
+# No license clarifications currently needed. All dependencies have
+# clear license metadata. Add [[licenses.clarify]] entries here if
+# cargo-deny reports ambiguous licenses for any dependency.
+
+[advisories]
+# Ignore unmaintained transitive dependencies we can't control
+ignore = []
+
+[bans]
+# Warn on multiple versions of the same crate
+multiple-versions = "warn"
+# Deny specific crates (security or legal issues)
+deny = []
+
+[sources]
+# Ensure all dependencies come from crates.io or known Git repos
+unknown-registry = "deny"
+unknown-git = "deny"
