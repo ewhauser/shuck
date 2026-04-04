@@ -1,27 +1,21 @@
-//! Parser module for Bashkit
+//! Parser module for shuck
 //!
 //! Implements a recursive descent parser for bash scripts.
-//!
-//! # Design Notes
-//!
-//! Reserved words (like `done`, `fi`, `then`) are only treated as special in command
-//! position - when they would start a command. In argument position, they are regular
-//! words. The termination of compound commands is handled by `parse_compound_list_until`
-//! which checks for terminators BEFORE parsing each command.
 
 // Parser uses chars().next().unwrap() after validating character presence.
 // This is safe because we check bounds before accessing.
 #![allow(clippy::unwrap_used)]
 
-mod ast;
 mod lexer;
-mod span;
-mod tokens;
 
-pub use ast::*;
 pub use lexer::{Lexer, SpannedToken};
-pub use span::{Position, Span};
-pub use tokens::Token;
+
+use shuck_ast::{
+    ArithmeticForCommand, Assignment, AssignmentValue, CaseCommand, CaseItem, CaseTerminator,
+    Command, CommandList, CompoundCommand, CoprocCommand, ForCommand, FunctionDef, IfCommand,
+    ListOperator, ParameterOp, Pipeline, Position, Redirect, RedirectKind, Script, SelectCommand,
+    SimpleCommand, Span, TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
+};
 
 use crate::error::{Error, Result};
 
@@ -46,7 +40,7 @@ const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 pub struct Parser<'a> {
     input: &'a str,
     lexer: Lexer<'a>,
-    current_token: Option<tokens::Token>,
+    current_token: Option<Token>,
     /// Span of the current token
     current_span: Span,
     /// Lookahead token for function parsing
@@ -145,18 +139,18 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn word_from_token(&self, token: &tokens::Token, span: Span) -> Option<Word> {
+    fn word_from_token(&self, token: &Token, span: Span) -> Option<Word> {
         match token {
-            tokens::Token::Word(w) => {
+            Token::Word(w) => {
                 Some(self.parse_word_with_context(w.clone(), span, span.start))
             }
-            tokens::Token::QuotedWord(w) => {
+            Token::QuotedWord(w) => {
                 let mut word =
                     self.parse_word_with_context(w.clone(), span, span.start.advanced_by("\""));
                 word.quoted = true;
                 Some(word)
             }
-            tokens::Token::LiteralWord(w) => Some(Word::quoted_literal_with_span(w.clone(), span)),
+            Token::LiteralWord(w) => Some(Word::quoted_literal_with_span(w.clone(), span)),
             _ => None,
         }
     }
@@ -462,7 +456,7 @@ impl<'a> Parser<'a> {
 
     /// Check if current token is an error token and return the error if so
     fn check_error_token(&self) -> Result<()> {
-        if let Some(tokens::Token::Error(msg)) = &self.current_token {
+        if let Some(Token::Error(msg)) = &self.current_token {
             return Err(self.error(format!("syntax error: {}", msg)));
         }
         Ok(())
@@ -481,18 +475,18 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| self.error("expected command"))
     }
 
-    fn is_recovery_separator(token: &tokens::Token) -> bool {
+    fn is_recovery_separator(token: &Token) -> bool {
         matches!(
             token,
-            tokens::Token::Newline
-                | tokens::Token::Semicolon
-                | tokens::Token::Background
-                | tokens::Token::And
-                | tokens::Token::Or
-                | tokens::Token::Pipe
-                | tokens::Token::DoubleSemicolon
-                | tokens::Token::SemiAmp
-                | tokens::Token::DoubleSemiAmp
+            Token::Newline
+                | Token::Semicolon
+                | Token::Background
+                | Token::And
+                | Token::Or
+                | Token::Pipe
+                | Token::DoubleSemicolon
+                | Token::SemiAmp
+                | Token::DoubleSemiAmp
         )
     }
 
@@ -626,7 +620,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Peek at the next token without consuming the current one
-    fn peek_next(&mut self) -> Option<&tokens::Token> {
+    fn peek_next(&mut self) -> Option<&Token> {
         if self.peeked_token.is_none() {
             self.peeked_token = self.lexer.next_spanned_token();
         }
@@ -634,7 +628,7 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_newlines(&mut self) -> Result<()> {
-        while matches!(self.current_token, Some(tokens::Token::Newline)) {
+        while matches!(self.current_token, Some(Token::Newline)) {
             self.tick()?;
             self.advance();
         }
@@ -654,31 +648,31 @@ impl<'a> Parser<'a> {
 
         loop {
             let op = match &self.current_token {
-                Some(tokens::Token::And) => {
+                Some(Token::And) => {
                     self.advance();
                     ListOperator::And
                 }
-                Some(tokens::Token::Or) => {
+                Some(Token::Or) => {
                     self.advance();
                     ListOperator::Or
                 }
-                Some(tokens::Token::Semicolon) => {
+                Some(Token::Semicolon) => {
                     self.advance();
                     self.skip_newlines()?;
                     // Check if there's more to parse
                     if self.current_token.is_none()
-                        || matches!(self.current_token, Some(tokens::Token::Newline))
+                        || matches!(self.current_token, Some(Token::Newline))
                     {
                         break;
                     }
                     ListOperator::Semicolon
                 }
-                Some(tokens::Token::Background) => {
+                Some(Token::Background) => {
                     self.advance();
                     self.skip_newlines()?;
                     // Check if there's more to parse after &
                     if self.current_token.is_none()
-                        || matches!(self.current_token, Some(tokens::Token::Newline))
+                        || matches!(self.current_token, Some(Token::Newline))
                     {
                         // Just & at end - return as background
                         rest.push((
@@ -726,7 +720,7 @@ impl<'a> Parser<'a> {
 
         // Check for pipeline negation: `! command`
         let negated = match &self.current_token {
-            Some(tokens::Token::Word(w)) if w == "!" => {
+            Some(Token::Word(w)) if w == "!" => {
                 self.advance();
                 true
             }
@@ -745,7 +739,7 @@ impl<'a> Parser<'a> {
 
         let mut commands = vec![first];
 
-        while matches!(self.current_token, Some(tokens::Token::Pipe)) {
+        while matches!(self.current_token, Some(Token::Pipe)) {
             self.advance();
             self.skip_newlines()?;
 
@@ -772,9 +766,9 @@ impl<'a> Parser<'a> {
         let mut redirects = Vec::new();
         loop {
             match &self.current_token {
-                Some(tokens::Token::RedirectOut) | Some(tokens::Token::Clobber) => {
+                Some(Token::RedirectOut) | Some(Token::Clobber) => {
                     let operator_span = self.current_span;
-                    let kind = if matches!(&self.current_token, Some(tokens::Token::Clobber)) {
+                    let kind = if matches!(&self.current_token, Some(Token::Clobber)) {
                         RedirectKind::Clobber
                     } else {
                         RedirectKind::Output
@@ -790,7 +784,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::RedirectAppend) => {
+                Some(Token::RedirectAppend) => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -803,7 +797,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::RedirectIn) => {
+                Some(Token::RedirectIn) => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -816,7 +810,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::RedirectBoth) => {
+                Some(Token::RedirectBoth) => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -829,7 +823,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::DupOutput) => {
+                Some(Token::DupOutput) => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -842,7 +836,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::RedirectFd(fd)) => {
+                Some(Token::RedirectFd(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -856,7 +850,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::RedirectFdAppend(fd)) => {
+                Some(Token::RedirectFdAppend(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -870,7 +864,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::DupFd(src_fd, dst_fd)) => {
+                Some(Token::DupFd(src_fd, dst_fd)) => {
                     let src_fd = *src_fd;
                     let dst_fd = *dst_fd;
                     let operator_span = self.current_span;
@@ -883,7 +877,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal(dst_fd.to_string()),
                     });
                 }
-                Some(tokens::Token::DupInput) => {
+                Some(Token::DupInput) => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -896,7 +890,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::DupFdIn(src_fd, dst_fd)) => {
+                Some(Token::DupFdIn(src_fd, dst_fd)) => {
                     let src_fd = *src_fd;
                     let dst_fd = *dst_fd;
                     let operator_span = self.current_span;
@@ -909,7 +903,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal(dst_fd.to_string()),
                     });
                 }
-                Some(tokens::Token::DupFdClose(fd)) => {
+                Some(Token::DupFdClose(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -921,7 +915,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal("-"),
                     });
                 }
-                Some(tokens::Token::RedirectFdIn(fd)) => {
+                Some(Token::RedirectFdIn(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -935,7 +929,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::HereString) => {
+                Some(Token::HereString) => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -948,15 +942,15 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(tokens::Token::HereDoc) | Some(tokens::Token::HereDocStrip) => {
+                Some(Token::HereDoc) | Some(Token::HereDocStrip) => {
                     let operator_span = self.current_span;
                     let strip_tabs =
-                        matches!(self.current_token, Some(tokens::Token::HereDocStrip));
+                        matches!(self.current_token, Some(Token::HereDocStrip));
                     self.advance();
                     let (delimiter, quoted) = match &self.current_token {
-                        Some(tokens::Token::Word(w)) => (w.clone(), false),
-                        Some(tokens::Token::LiteralWord(w)) => (w.clone(), true),
-                        Some(tokens::Token::QuotedWord(w)) => (w.clone(), true),
+                        Some(Token::Word(w)) => (w.clone(), false),
+                        Some(Token::LiteralWord(w)) => (w.clone(), true),
+                        Some(Token::QuotedWord(w)) => (w.clone(), true),
                         _ => break,
                     };
                     let content = self.lexer.read_heredoc(&delimiter);
@@ -1018,7 +1012,7 @@ impl<'a> Parser<'a> {
         self.check_error_token()?;
 
         // Check for compound commands and function keyword
-        if let Some(tokens::Token::Word(w)) = &self.current_token {
+        if let Some(Token::Word(w)) = &self.current_token {
             let word = w.clone();
             match word.as_str() {
                 "if" => return self.parse_compound_with_redirects(|s| s.parse_if()),
@@ -1034,7 +1028,7 @@ impl<'a> Parser<'a> {
                     // Check for POSIX-style function: name() { body }
                     // Don't match if word contains '=' (that's an assignment like arr=(a b c))
                     if !word.contains('=')
-                        && matches!(self.peek_next(), Some(tokens::Token::LeftParen))
+                        && matches!(self.peek_next(), Some(Token::LeftParen))
                     {
                         return self.parse_function_posix().map(Some);
                     }
@@ -1043,22 +1037,22 @@ impl<'a> Parser<'a> {
         }
 
         // Check for conditional expression [[ ... ]]
-        if matches!(self.current_token, Some(tokens::Token::DoubleLeftBracket)) {
+        if matches!(self.current_token, Some(Token::DoubleLeftBracket)) {
             return self.parse_compound_with_redirects(|s| s.parse_conditional());
         }
 
         // Check for arithmetic command ((expression))
-        if matches!(self.current_token, Some(tokens::Token::DoubleLeftParen)) {
+        if matches!(self.current_token, Some(Token::DoubleLeftParen)) {
             return self.parse_compound_with_redirects(|s| s.parse_arithmetic_command());
         }
 
         // Check for subshell
-        if matches!(self.current_token, Some(tokens::Token::LeftParen)) {
+        if matches!(self.current_token, Some(Token::LeftParen)) {
             return self.parse_compound_with_redirects(|s| s.parse_subshell());
         }
 
         // Check for brace group
-        if matches!(self.current_token, Some(tokens::Token::LeftBrace)) {
+        if matches!(self.current_token, Some(Token::LeftBrace)) {
             return self.parse_compound_with_redirects(|s| s.parse_brace_group());
         }
 
@@ -1151,7 +1145,7 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Check for C-style for loop: for ((init; cond; step))
-        if matches!(self.current_token, Some(tokens::Token::DoubleLeftParen)) {
+        if matches!(self.current_token, Some(Token::DoubleLeftParen)) {
             let result = self.parse_arithmetic_for_inner(start_span);
             self.pop_depth();
             return result;
@@ -1159,9 +1153,9 @@ impl<'a> Parser<'a> {
 
         // Expect variable name
         let variable = match &self.current_token {
-            Some(tokens::Token::Word(w))
-            | Some(tokens::Token::LiteralWord(w))
-            | Some(tokens::Token::QuotedWord(w)) => w.clone(),
+            Some(Token::Word(w))
+            | Some(Token::LiteralWord(w))
+            | Some(Token::QuotedWord(w)) => w.clone(),
             _ => {
                 self.pop_depth();
                 return Err(Error::parse(
@@ -1179,16 +1173,16 @@ impl<'a> Parser<'a> {
             let mut words = Vec::new();
             loop {
                 match &self.current_token {
-                    Some(tokens::Token::Word(w)) if w == "do" => break,
-                    Some(tokens::Token::Word(_))
-                    | Some(tokens::Token::LiteralWord(_))
-                    | Some(tokens::Token::QuotedWord(_)) => {
+                    Some(Token::Word(w)) if w == "do" => break,
+                    Some(Token::Word(_))
+                    | Some(Token::LiteralWord(_))
+                    | Some(Token::QuotedWord(_)) => {
                         if let Some(word) = self.current_word_to_word() {
                             words.push(word);
                         }
                         self.advance();
                     }
-                    Some(tokens::Token::Newline) | Some(tokens::Token::Semicolon) => {
+                    Some(Token::Newline) | Some(Token::Semicolon) => {
                         self.advance();
                         break;
                     }
@@ -1199,7 +1193,7 @@ impl<'a> Parser<'a> {
         } else {
             // for var; do ... (iterates over positional params)
             // Consume optional semicolon before 'do'
-            if matches!(self.current_token, Some(tokens::Token::Semicolon)) {
+            if matches!(self.current_token, Some(Token::Semicolon)) {
                 self.advance();
             }
             None
@@ -1241,9 +1235,9 @@ impl<'a> Parser<'a> {
 
         // Expect variable name
         let variable = match &self.current_token {
-            Some(tokens::Token::Word(w))
-            | Some(tokens::Token::LiteralWord(w))
-            | Some(tokens::Token::QuotedWord(w)) => w.clone(),
+            Some(Token::Word(w))
+            | Some(Token::LiteralWord(w))
+            | Some(Token::QuotedWord(w)) => w.clone(),
             _ => {
                 self.pop_depth();
                 return Err(Error::parse("expected variable name in select".to_string()));
@@ -1262,16 +1256,16 @@ impl<'a> Parser<'a> {
         let mut words = Vec::new();
         loop {
             match &self.current_token {
-                Some(tokens::Token::Word(w)) if w == "do" => break,
-                Some(tokens::Token::Word(_))
-                | Some(tokens::Token::LiteralWord(_))
-                | Some(tokens::Token::QuotedWord(_)) => {
+                Some(Token::Word(w)) if w == "do" => break,
+                Some(Token::Word(_))
+                | Some(Token::LiteralWord(_))
+                | Some(Token::QuotedWord(_)) => {
                     if let Some(word) = self.current_word_to_word() {
                         words.push(word);
                     }
                     self.advance();
                 }
-                Some(tokens::Token::Newline) | Some(tokens::Token::Semicolon) => {
+                Some(Token::Newline) | Some(Token::Semicolon) => {
                     self.advance();
                     break;
                 }
@@ -1318,18 +1312,18 @@ impl<'a> Parser<'a> {
 
         loop {
             match &self.current_token {
-                Some(tokens::Token::DoubleRightParen) => {
+                Some(Token::DoubleRightParen) => {
                     // End of the (( )) section
                     parts.push(current_expr.trim().to_string());
                     self.advance();
                     break;
                 }
-                Some(tokens::Token::LeftParen) => {
+                Some(Token::LeftParen) => {
                     paren_depth += 1;
                     current_expr.push('(');
                     self.advance();
                 }
-                Some(tokens::Token::RightParen) => {
+                Some(Token::RightParen) => {
                     if paren_depth > 0 {
                         paren_depth -= 1;
                         current_expr.push(')');
@@ -1339,7 +1333,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                     }
                 }
-                Some(tokens::Token::Semicolon) => {
+                Some(Token::Semicolon) => {
                     if paren_depth == 0 {
                         // Separator between init, cond, step
                         parts.push(current_expr.trim().to_string());
@@ -1349,9 +1343,9 @@ impl<'a> Parser<'a> {
                     }
                     self.advance();
                 }
-                Some(tokens::Token::Word(w))
-                | Some(tokens::Token::LiteralWord(w))
-                | Some(tokens::Token::QuotedWord(w)) => {
+                Some(Token::Word(w))
+                | Some(Token::LiteralWord(w))
+                | Some(Token::QuotedWord(w)) => {
                     // Don't add space when joining operator pairs like < + =3 → <=3
                     let skip_space = current_expr.ends_with('<')
                         || current_expr.ends_with('>')
@@ -1364,31 +1358,31 @@ impl<'a> Parser<'a> {
                     current_expr.push_str(w);
                     self.advance();
                 }
-                Some(tokens::Token::Newline) => {
+                Some(Token::Newline) => {
                     self.advance();
                 }
                 // Handle operators that are normally special tokens but valid in arithmetic
-                Some(tokens::Token::RedirectIn) => {
+                Some(Token::RedirectIn) => {
                     current_expr.push('<');
                     self.advance();
                 }
-                Some(tokens::Token::RedirectOut) => {
+                Some(Token::RedirectOut) => {
                     current_expr.push('>');
                     self.advance();
                 }
-                Some(tokens::Token::And) => {
+                Some(Token::And) => {
                     current_expr.push_str("&&");
                     self.advance();
                 }
-                Some(tokens::Token::Or) => {
+                Some(Token::Or) => {
                     current_expr.push_str("||");
                     self.advance();
                 }
-                Some(tokens::Token::Pipe) => {
+                Some(Token::Pipe) => {
                     current_expr.push('|');
                     self.advance();
                 }
-                Some(tokens::Token::Background) => {
+                Some(Token::Background) => {
                     current_expr.push('&');
                     self.advance();
                 }
@@ -1415,7 +1409,7 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Skip optional semicolon after ))
-        if matches!(self.current_token, Some(tokens::Token::Semicolon)) {
+        if matches!(self.current_token, Some(Token::Semicolon)) {
             self.advance();
         }
         self.skip_newlines()?;
@@ -1537,28 +1531,28 @@ impl<'a> Parser<'a> {
 
             // Parse patterns (pattern1 | pattern2 | ...)
             // Optional leading (
-            if matches!(self.current_token, Some(tokens::Token::LeftParen)) {
+            if matches!(self.current_token, Some(Token::LeftParen)) {
                 self.advance();
             }
 
             let mut patterns = Vec::new();
             while matches!(
                 &self.current_token,
-                Some(tokens::Token::Word(_))
-                    | Some(tokens::Token::LiteralWord(_))
-                    | Some(tokens::Token::QuotedWord(_))
+                Some(Token::Word(_))
+                    | Some(Token::LiteralWord(_))
+                    | Some(Token::QuotedWord(_))
             ) {
                 let w = match &self.current_token {
-                    Some(tokens::Token::Word(w))
-                    | Some(tokens::Token::LiteralWord(w))
-                    | Some(tokens::Token::QuotedWord(w)) => w.clone(),
+                    Some(Token::Word(w))
+                    | Some(Token::LiteralWord(w))
+                    | Some(Token::QuotedWord(w)) => w.clone(),
                     _ => unreachable!(),
                 };
                 patterns.push(self.parse_word(w));
                 self.advance();
 
                 // Check for | between patterns
-                if matches!(self.current_token, Some(tokens::Token::Pipe)) {
+                if matches!(self.current_token, Some(Token::Pipe)) {
                     self.advance();
                 } else {
                     break;
@@ -1566,7 +1560,7 @@ impl<'a> Parser<'a> {
             }
 
             // Expect )
-            if !matches!(self.current_token, Some(tokens::Token::RightParen)) {
+            if !matches!(self.current_token, Some(Token::RightParen)) {
                 self.pop_depth();
                 return Err(self.error("expected ')' after case pattern"));
             }
@@ -1606,14 +1600,14 @@ impl<'a> Parser<'a> {
     /// Parse a time command: time [-p] [command]
     ///
     /// The time keyword measures execution time of the following command.
-    /// Note: Bashkit only tracks wall-clock time, not CPU user/sys time.
+    /// Note: Shuck only tracks wall-clock time, not CPU user/sys time.
     fn parse_time(&mut self) -> Result<CompoundCommand> {
         let start_span = self.current_span;
         self.advance(); // consume 'time'
         self.skip_newlines()?;
 
         // Check for -p flag (POSIX format)
-        let posix_format = if let Some(tokens::Token::Word(w)) = &self.current_token {
+        let posix_format = if let Some(Token::Word(w)) = &self.current_token {
             if w == "-p" {
                 self.advance();
                 self.skip_newlines()?;
@@ -1649,7 +1643,7 @@ impl<'a> Parser<'a> {
 
         // Determine if next token is a NAME (simple word that is NOT a compound-
         // command keyword and is followed by a compound command start).
-        let (name, consumed_name) = if let Some(tokens::Token::Word(w)) = &self.current_token {
+        let (name, consumed_name) = if let Some(Token::Word(w)) = &self.current_token {
             let word = w.clone();
             let is_compound_keyword = matches!(
                 word.as_str(),
@@ -1657,7 +1651,7 @@ impl<'a> Parser<'a> {
             );
             let next_is_compound_start = matches!(
                 self.peek_next(),
-                Some(tokens::Token::LeftBrace) | Some(tokens::Token::LeftParen)
+                Some(Token::LeftBrace) | Some(Token::LeftParen)
             );
             if !is_compound_keyword && next_is_compound_start {
                 self.advance(); // consume the NAME
@@ -1676,7 +1670,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_pipeline()?;
         let body = body.ok_or_else(|| self.error("coproc: missing command"))?;
 
-        Ok(CompoundCommand::Coproc(ast::CoprocCommand {
+        Ok(CompoundCommand::Coproc(CoprocCommand {
             name,
             body: Box::new(body),
             span: start_span.merge(self.current_span),
@@ -1687,28 +1681,28 @@ impl<'a> Parser<'a> {
     fn is_case_terminator(&self) -> bool {
         matches!(
             self.current_token,
-            Some(tokens::Token::DoubleSemicolon)
-                | Some(tokens::Token::SemiAmp)
-                | Some(tokens::Token::DoubleSemiAmp)
+            Some(Token::DoubleSemicolon)
+                | Some(Token::SemiAmp)
+                | Some(Token::DoubleSemiAmp)
         )
     }
 
     /// Parse case terminator: `;;` (break), `;&` (fallthrough), `;;&` (continue matching)
-    fn parse_case_terminator(&mut self) -> ast::CaseTerminator {
+    fn parse_case_terminator(&mut self) -> CaseTerminator {
         match self.current_token {
-            Some(tokens::Token::SemiAmp) => {
+            Some(Token::SemiAmp) => {
                 self.advance();
-                ast::CaseTerminator::FallThrough
+                CaseTerminator::FallThrough
             }
-            Some(tokens::Token::DoubleSemiAmp) => {
+            Some(Token::DoubleSemiAmp) => {
                 self.advance();
-                ast::CaseTerminator::Continue
+                CaseTerminator::Continue
             }
-            Some(tokens::Token::DoubleSemicolon) => {
+            Some(Token::DoubleSemicolon) => {
                 self.advance();
-                ast::CaseTerminator::Break
+                CaseTerminator::Break
             }
-            _ => ast::CaseTerminator::Break,
+            _ => CaseTerminator::Break,
         }
     }
 
@@ -1721,22 +1715,22 @@ impl<'a> Parser<'a> {
         let mut commands = Vec::new();
         while !matches!(
             self.current_token,
-            Some(tokens::Token::RightParen) | Some(tokens::Token::DoubleRightParen) | None
+            Some(Token::RightParen) | Some(Token::DoubleRightParen) | None
         ) {
             self.skip_newlines()?;
             if matches!(
                 self.current_token,
-                Some(tokens::Token::RightParen) | Some(tokens::Token::DoubleRightParen)
+                Some(Token::RightParen) | Some(Token::DoubleRightParen)
             ) {
                 break;
             }
             commands.push(self.parse_command_list_required()?);
         }
 
-        if matches!(self.current_token, Some(tokens::Token::DoubleRightParen)) {
+        if matches!(self.current_token, Some(Token::DoubleRightParen)) {
             // `))` at end of nested subshells: consume as single `)`, leave `)` for parent
-            self.current_token = Some(tokens::Token::RightParen);
-        } else if !matches!(self.current_token, Some(tokens::Token::RightParen)) {
+            self.current_token = Some(Token::RightParen);
+        } else if !matches!(self.current_token, Some(Token::RightParen)) {
             self.pop_depth();
             return Err(Error::parse("expected ')' to close subshell".to_string()));
         } else {
@@ -1754,15 +1748,15 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         let mut commands = Vec::new();
-        while !matches!(self.current_token, Some(tokens::Token::RightBrace) | None) {
+        while !matches!(self.current_token, Some(Token::RightBrace) | None) {
             self.skip_newlines()?;
-            if matches!(self.current_token, Some(tokens::Token::RightBrace)) {
+            if matches!(self.current_token, Some(Token::RightBrace)) {
                 break;
             }
             commands.push(self.parse_command_list_required()?);
         }
 
-        if !matches!(self.current_token, Some(tokens::Token::RightBrace)) {
+        if !matches!(self.current_token, Some(Token::RightBrace)) {
             self.pop_depth();
             return Err(Error::parse(
                 "expected '}' to close brace group".to_string(),
@@ -1791,16 +1785,16 @@ impl<'a> Parser<'a> {
 
         loop {
             match &self.current_token {
-                Some(tokens::Token::DoubleRightBracket) => {
+                Some(Token::DoubleRightBracket) => {
                     self.advance(); // consume ']]'
                     break;
                 }
-                Some(tokens::Token::Word(w))
-                | Some(tokens::Token::LiteralWord(w))
-                | Some(tokens::Token::QuotedWord(w)) => {
+                Some(Token::Word(w))
+                | Some(Token::LiteralWord(w))
+                | Some(Token::QuotedWord(w)) => {
                     let w_clone = w.clone();
                     let is_quoted =
-                        matches!(self.current_token, Some(tokens::Token::QuotedWord(_)));
+                        matches!(self.current_token, Some(Token::QuotedWord(_)));
 
                     // After =~, handle regex pattern.
                     // If the pattern contains $ (variable reference), parse it as a
@@ -1834,15 +1828,15 @@ impl<'a> Parser<'a> {
                     self.advance();
                 }
                 // Operators that the lexer tokenizes separately
-                Some(tokens::Token::And) => {
+                Some(Token::And) => {
                     words.push(Word::literal("&&"));
                     self.advance();
                 }
-                Some(tokens::Token::Or) => {
+                Some(Token::Or) => {
                     words.push(Word::literal("||"));
                     self.advance();
                 }
-                Some(tokens::Token::LeftParen) => {
+                Some(Token::LeftParen) => {
                     if saw_regex_op {
                         // Regex pattern starts with '(' — collect it
                         let pattern = self.collect_conditional_regex_pattern("(");
@@ -1853,7 +1847,7 @@ impl<'a> Parser<'a> {
                     words.push(Word::literal("("));
                     self.advance();
                 }
-                Some(tokens::Token::RightParen) => {
+                Some(Token::RightParen) => {
                     words.push(Word::literal(")"));
                     self.advance();
                 }
@@ -1880,19 +1874,19 @@ impl<'a> Parser<'a> {
         // Concatenate adjacent tokens that are part of the regex pattern
         loop {
             match &self.current_token {
-                Some(tokens::Token::DoubleRightBracket) => break,
-                Some(tokens::Token::And) | Some(tokens::Token::Or) => break,
-                Some(tokens::Token::LeftParen) => {
+                Some(Token::DoubleRightBracket) => break,
+                Some(Token::And) | Some(Token::Or) => break,
+                Some(Token::LeftParen) => {
                     pattern.push('(');
                     self.advance();
                 }
-                Some(tokens::Token::RightParen) => {
+                Some(Token::RightParen) => {
                     pattern.push(')');
                     self.advance();
                 }
-                Some(tokens::Token::Word(w))
-                | Some(tokens::Token::LiteralWord(w))
-                | Some(tokens::Token::QuotedWord(w)) => {
+                Some(Token::Word(w))
+                | Some(Token::LiteralWord(w))
+                | Some(Token::QuotedWord(w)) => {
                     pattern.push_str(w);
                     self.advance();
                 }
@@ -1907,8 +1901,8 @@ impl<'a> Parser<'a> {
     /// If so, return the rest of the word after `=`.
     fn current_token_starts_with_eq(&self) -> Option<String> {
         match &self.current_token {
-            Some(tokens::Token::Assignment) => Some(String::new()),
-            Some(tokens::Token::Word(w)) | Some(tokens::Token::LiteralWord(w)) => {
+            Some(Token::Assignment) => Some(String::new()),
+            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) => {
                 w.strip_prefix('=').map(|rest| rest.to_string())
             }
             _ => None,
@@ -1924,12 +1918,12 @@ impl<'a> Parser<'a> {
 
         loop {
             match &self.current_token {
-                Some(tokens::Token::DoubleLeftParen) => {
+                Some(Token::DoubleLeftParen) => {
                     depth += 1;
                     expr.push_str("((");
                     self.advance();
                 }
-                Some(tokens::Token::DoubleRightParen) => {
+                Some(Token::DoubleRightParen) => {
                     depth -= 1;
                     if depth == 0 {
                         self.advance(); // consume '))'
@@ -1938,32 +1932,32 @@ impl<'a> Parser<'a> {
                     expr.push_str("))");
                     self.advance();
                 }
-                Some(tokens::Token::LeftParen) => {
+                Some(Token::LeftParen) => {
                     expr.push('(');
                     self.advance();
                 }
-                Some(tokens::Token::RightParen) => {
+                Some(Token::RightParen) => {
                     expr.push(')');
                     self.advance();
                 }
-                Some(tokens::Token::Word(w))
-                | Some(tokens::Token::LiteralWord(w))
-                | Some(tokens::Token::QuotedWord(w)) => {
+                Some(Token::Word(w))
+                | Some(Token::LiteralWord(w))
+                | Some(Token::QuotedWord(w)) => {
                     if !expr.is_empty() && !expr.ends_with(' ') && !expr.ends_with('(') {
                         expr.push(' ');
                     }
                     expr.push_str(w);
                     self.advance();
                 }
-                Some(tokens::Token::Semicolon) => {
+                Some(Token::Semicolon) => {
                     expr.push(';');
                     self.advance();
                 }
-                Some(tokens::Token::Newline) => {
+                Some(Token::Newline) => {
                     self.advance();
                 }
                 // Handle operators that are normally special tokens but valid in arithmetic
-                Some(tokens::Token::RedirectIn) => {
+                Some(Token::RedirectIn) => {
                     self.advance();
                     // Check if next token starts with '=' to form '<='
                     if let Some(rest) = self.current_token_starts_with_eq() {
@@ -1976,7 +1970,7 @@ impl<'a> Parser<'a> {
                         expr.push('<');
                     }
                 }
-                Some(tokens::Token::RedirectOut) => {
+                Some(Token::RedirectOut) => {
                     self.advance();
                     // Check if next token starts with '=' to form '>='
                     if let Some(rest) = self.current_token_starts_with_eq() {
@@ -1989,28 +1983,28 @@ impl<'a> Parser<'a> {
                         expr.push('>');
                     }
                 }
-                Some(tokens::Token::And) => {
+                Some(Token::And) => {
                     expr.push_str("&&");
                     self.advance();
                 }
-                Some(tokens::Token::Or) => {
+                Some(Token::Or) => {
                     expr.push_str("||");
                     self.advance();
                 }
-                Some(tokens::Token::Pipe) => {
+                Some(Token::Pipe) => {
                     expr.push('|');
                     self.advance();
                 }
-                Some(tokens::Token::Background) => {
+                Some(Token::Background) => {
                     expr.push('&');
                     self.advance();
                 }
-                Some(tokens::Token::Assignment) => {
+                Some(Token::Assignment) => {
                     expr.push('=');
                     self.advance();
                 }
                 // In arithmetic context, N> is a number followed by >, not a fd redirect
-                Some(tokens::Token::RedirectFd(fd)) => {
+                Some(Token::RedirectFd(fd)) => {
                     let fd = *fd;
                     self.advance();
                     if let Some(rest) = self.current_token_starts_with_eq() {
@@ -2024,13 +2018,13 @@ impl<'a> Parser<'a> {
                         expr.push_str(&format!("{}>", fd));
                     }
                 }
-                Some(tokens::Token::RedirectFdAppend(fd)) => {
+                Some(Token::RedirectFdAppend(fd)) => {
                     // N>> in arithmetic is N >> (right shift)
                     let fd = *fd;
                     expr.push_str(&format!("{}>>", fd));
                     self.advance();
                 }
-                Some(tokens::Token::RedirectFdIn(fd)) => {
+                Some(Token::RedirectFdIn(fd)) => {
                     let fd = *fd;
                     self.advance();
                     if let Some(rest) = self.current_token_starts_with_eq() {
@@ -2043,7 +2037,7 @@ impl<'a> Parser<'a> {
                         expr.push_str(&format!("{}<", fd));
                     }
                 }
-                Some(tokens::Token::RedirectAppend) => {
+                Some(Token::RedirectAppend) => {
                     // >> in arithmetic is right shift
                     expr.push_str(">>");
                     self.advance();
@@ -2070,16 +2064,16 @@ impl<'a> Parser<'a> {
 
         // Get function name
         let name = match &self.current_token {
-            Some(tokens::Token::Word(w)) => w.clone(),
+            Some(Token::Word(w)) => w.clone(),
             _ => return Err(self.error("expected function name")),
         };
         self.advance();
         self.skip_newlines()?;
 
         // Optional () after name
-        if matches!(self.current_token, Some(tokens::Token::LeftParen)) {
+        if matches!(self.current_token, Some(Token::LeftParen)) {
             self.advance(); // consume '('
-            if !matches!(self.current_token, Some(tokens::Token::RightParen)) {
+            if !matches!(self.current_token, Some(Token::RightParen)) {
                 return Err(Error::parse(
                     "expected ')' in function definition".to_string(),
                 ));
@@ -2089,7 +2083,7 @@ impl<'a> Parser<'a> {
         }
 
         // Expect { for body
-        if !matches!(self.current_token, Some(tokens::Token::LeftBrace)) {
+        if !matches!(self.current_token, Some(Token::LeftBrace)) {
             return Err(Error::parse("expected '{' for function body".to_string()));
         }
 
@@ -2108,25 +2102,25 @@ impl<'a> Parser<'a> {
         let start_span = self.current_span;
         // Get function name
         let name = match &self.current_token {
-            Some(tokens::Token::Word(w)) => w.clone(),
+            Some(Token::Word(w)) => w.clone(),
             _ => return Err(self.error("expected function name")),
         };
         self.advance();
 
         // Consume ()
-        if !matches!(self.current_token, Some(tokens::Token::LeftParen)) {
+        if !matches!(self.current_token, Some(Token::LeftParen)) {
             return Err(self.error("expected '(' in function definition"));
         }
         self.advance(); // consume '('
 
-        if !matches!(self.current_token, Some(tokens::Token::RightParen)) {
+        if !matches!(self.current_token, Some(Token::RightParen)) {
             return Err(self.error("expected ')' in function definition"));
         }
         self.advance(); // consume ')'
         self.skip_newlines()?;
 
         // Expect { for body
-        if !matches!(self.current_token, Some(tokens::Token::LeftBrace)) {
+        if !matches!(self.current_token, Some(Token::LeftBrace)) {
             return Err(self.error("expected '{' for function body"));
         }
 
@@ -2153,7 +2147,7 @@ impl<'a> Parser<'a> {
             self.skip_newlines()?;
 
             // Check for terminators
-            if let Some(tokens::Token::Word(w)) = &self.current_token
+            if let Some(Token::Word(w)) = &self.current_token
                 && terminators.contains(&w.as_str())
             {
                 break;
@@ -2181,7 +2175,7 @@ impl<'a> Parser<'a> {
 
     /// Check if current token is a specific keyword
     fn is_keyword(&self, keyword: &str) -> bool {
-        matches!(&self.current_token, Some(tokens::Token::Word(w)) if w == keyword)
+        matches!(&self.current_token, Some(Token::Word(w)) if w == keyword)
     }
 
     /// Expect a specific keyword
@@ -2269,14 +2263,14 @@ impl<'a> Parser<'a> {
         let mut closing_span = Span::new();
         loop {
             match &self.current_token {
-                Some(tokens::Token::RightParen) => {
+                Some(Token::RightParen) => {
                     closing_span = self.current_span;
                     self.advance();
                     break;
                 }
-                Some(tokens::Token::Word(_))
-                | Some(tokens::Token::LiteralWord(_))
-                | Some(tokens::Token::QuotedWord(_)) => {
+                Some(Token::Word(_))
+                | Some(Token::LiteralWord(_))
+                | Some(Token::QuotedWord(_)) => {
                     if let Some(word) = self.current_word_to_word() {
                         elements.push(word);
                     }
@@ -2330,7 +2324,7 @@ impl<'a> Parser<'a> {
         // Empty value — check for arr=(...) syntax with separate tokens
         if value_str.is_empty() {
             self.advance();
-            if matches!(self.current_token, Some(tokens::Token::LeftParen)) {
+            if matches!(self.current_token, Some(Token::LeftParen)) {
                 let open_paren_span = self.current_span;
                 self.advance(); // consume '('
                 let (elements, close_span) = self.collect_array_elements();
@@ -2393,7 +2387,7 @@ impl<'a> Parser<'a> {
     /// Called when the current word ends with `=` and the next token is `(`.
     /// Returns the compound word if successful, or `None` if not a compound assignment.
     fn try_parse_compound_array_arg(&mut self, saved_w: String) -> Option<Word> {
-        if !matches!(self.current_token, Some(tokens::Token::LeftParen)) {
+        if !matches!(self.current_token, Some(Token::LeftParen)) {
             return None;
         }
         self.advance(); // consume '('
@@ -2401,14 +2395,14 @@ impl<'a> Parser<'a> {
         compound.push('(');
         loop {
             match &self.current_token {
-                Some(tokens::Token::RightParen) => {
+                Some(Token::RightParen) => {
                     compound.push(')');
                     self.advance();
                     break;
                 }
-                Some(tokens::Token::Word(elem))
-                | Some(tokens::Token::LiteralWord(elem))
-                | Some(tokens::Token::QuotedWord(elem)) => {
+                Some(Token::Word(elem))
+                | Some(Token::LiteralWord(elem))
+                | Some(Token::QuotedWord(elem)) => {
                     if !compound.ends_with('(') {
                         compound.push(' ');
                     }
@@ -2434,9 +2428,9 @@ impl<'a> Parser<'a> {
         self.advance();
         // Get the delimiter word and track if it was quoted
         let (delimiter, quoted) = match &self.current_token {
-            Some(tokens::Token::Word(w)) => (w.clone(), false),
-            Some(tokens::Token::LiteralWord(w)) => (w.clone(), true),
-            Some(tokens::Token::QuotedWord(w)) => (w.clone(), true),
+            Some(Token::Word(w)) => (w.clone(), false),
+            Some(Token::LiteralWord(w)) => (w.clone(), true),
+            Some(Token::QuotedWord(w)) => (w.clone(), true),
             _ => return Err(Error::parse("expected delimiter after <<".to_string())),
         };
 
@@ -2490,9 +2484,9 @@ impl<'a> Parser<'a> {
     fn collect_trailing_redirects(&mut self, redirects: &mut Vec<Redirect>) {
         while let Some(tok) = &self.current_token {
             match tok {
-                tokens::Token::RedirectOut | tokens::Token::Clobber => {
+                Token::RedirectOut | Token::Clobber => {
                     let operator_span = self.current_span;
-                    let kind = if matches!(&self.current_token, Some(tokens::Token::Clobber)) {
+                    let kind = if matches!(&self.current_token, Some(Token::Clobber)) {
                         RedirectKind::Clobber
                     } else {
                         RedirectKind::Output
@@ -2508,7 +2502,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                tokens::Token::RedirectAppend => {
+                Token::RedirectAppend => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -2521,7 +2515,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                tokens::Token::RedirectFd(fd) => {
+                Token::RedirectFd(fd) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -2535,7 +2529,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                tokens::Token::DupInput => {
+                Token::DupInput => {
                     let operator_span = self.current_span;
                     self.advance();
                     if let Ok(target) = self.expect_word() {
@@ -2548,7 +2542,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                tokens::Token::DupFdIn(src_fd, dst_fd) => {
+                Token::DupFdIn(src_fd, dst_fd) => {
                     let src_fd = *src_fd;
                     let dst_fd = *dst_fd;
                     let operator_span = self.current_span;
@@ -2561,7 +2555,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal(dst_fd.to_string()),
                     });
                 }
-                tokens::Token::DupFdClose(fd) => {
+                Token::DupFdClose(fd) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -2573,7 +2567,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal("-"),
                     });
                 }
-                tokens::Token::RedirectFdIn(fd) => {
+                Token::RedirectFdIn(fd) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -2625,11 +2619,11 @@ impl<'a> Parser<'a> {
 
         loop {
             match &self.current_token {
-                Some(tokens::Token::Word(w))
-                | Some(tokens::Token::LiteralWord(w))
-                | Some(tokens::Token::QuotedWord(w)) => {
+                Some(Token::Word(w))
+                | Some(Token::LiteralWord(w))
+                | Some(Token::QuotedWord(w)) => {
                     let is_literal =
-                        matches!(&self.current_token, Some(tokens::Token::LiteralWord(_)));
+                        matches!(&self.current_token, Some(Token::LiteralWord(_)));
                     // Clone early to release borrow on self.current_token
                     let w = w.clone();
 
@@ -2670,9 +2664,9 @@ impl<'a> Parser<'a> {
                     }
                     self.advance();
                 }
-                Some(tokens::Token::RedirectOut) | Some(tokens::Token::Clobber) => {
+                Some(Token::RedirectOut) | Some(Token::Clobber) => {
                     let operator_span = self.current_span;
-                    let kind = if matches!(&self.current_token, Some(tokens::Token::Clobber)) {
+                    let kind = if matches!(&self.current_token, Some(Token::Clobber)) {
                         RedirectKind::Clobber
                     } else {
                         RedirectKind::Output
@@ -2688,7 +2682,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::RedirectAppend) => {
+                Some(Token::RedirectAppend) => {
                     let operator_span = self.current_span;
                     let fd_var = Self::pop_fd_var(&mut words);
                     self.advance();
@@ -2701,7 +2695,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::RedirectIn) => {
+                Some(Token::RedirectIn) => {
                     let operator_span = self.current_span;
                     let fd_var = Self::pop_fd_var(&mut words);
                     self.advance();
@@ -2714,7 +2708,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::HereString) => {
+                Some(Token::HereString) => {
                     let operator_span = self.current_span;
                     let fd_var = Self::pop_fd_var(&mut words);
                     self.advance();
@@ -2727,17 +2721,17 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::HereDoc) | Some(tokens::Token::HereDocStrip) => {
+                Some(Token::HereDoc) | Some(Token::HereDocStrip) => {
                     let strip_tabs =
-                        matches!(self.current_token, Some(tokens::Token::HereDocStrip));
+                        matches!(self.current_token, Some(Token::HereDocStrip));
                     self.parse_heredoc_redirect(strip_tabs, &mut redirects)?;
                     break;
                 }
-                Some(tokens::Token::ProcessSubIn) | Some(tokens::Token::ProcessSubOut) => {
+                Some(Token::ProcessSubIn) | Some(Token::ProcessSubOut) => {
                     let word = self.expect_word()?;
                     words.push(word);
                 }
-                Some(tokens::Token::RedirectBoth) => {
+                Some(Token::RedirectBoth) => {
                     let operator_span = self.current_span;
                     let fd_var = Self::pop_fd_var(&mut words);
                     self.advance();
@@ -2750,7 +2744,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::DupOutput) => {
+                Some(Token::DupOutput) => {
                     let operator_span = self.current_span;
                     let fd_var = Self::pop_fd_var(&mut words);
                     self.advance();
@@ -2763,7 +2757,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::RedirectFd(fd)) => {
+                Some(Token::RedirectFd(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -2776,7 +2770,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::RedirectFdAppend(fd)) => {
+                Some(Token::RedirectFdAppend(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -2789,7 +2783,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::DupFd(src_fd, dst_fd)) => {
+                Some(Token::DupFd(src_fd, dst_fd)) => {
                     let src_fd = *src_fd;
                     let dst_fd = *dst_fd;
                     let operator_span = self.current_span;
@@ -2802,7 +2796,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal(dst_fd.to_string()),
                     });
                 }
-                Some(tokens::Token::DupInput) => {
+                Some(Token::DupInput) => {
                     let operator_span = self.current_span;
                     let fd_var = Self::pop_fd_var(&mut words);
                     self.advance();
@@ -2815,7 +2809,7 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
-                Some(tokens::Token::DupFdIn(src_fd, dst_fd)) => {
+                Some(Token::DupFdIn(src_fd, dst_fd)) => {
                     let src_fd = *src_fd;
                     let dst_fd = *dst_fd;
                     let operator_span = self.current_span;
@@ -2828,7 +2822,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal(dst_fd.to_string()),
                     });
                 }
-                Some(tokens::Token::DupFdClose(fd)) => {
+                Some(Token::DupFdClose(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -2840,7 +2834,7 @@ impl<'a> Parser<'a> {
                         target: Word::literal("-"),
                     });
                 }
-                Some(tokens::Token::RedirectFdIn(fd)) => {
+                Some(Token::RedirectFdIn(fd)) => {
                     let fd = *fd;
                     let operator_span = self.current_span;
                     self.advance();
@@ -2854,10 +2848,10 @@ impl<'a> Parser<'a> {
                     });
                 }
                 // { and } as arguments (not in command position) are literal words
-                Some(tokens::Token::LeftBrace) | Some(tokens::Token::RightBrace)
+                Some(Token::LeftBrace) | Some(Token::RightBrace)
                     if !words.is_empty() =>
                 {
-                    let sym = if matches!(self.current_token, Some(tokens::Token::LeftBrace)) {
+                    let sym = if matches!(self.current_token, Some(Token::LeftBrace)) {
                         "{"
                     } else {
                         "}"
@@ -2865,11 +2859,11 @@ impl<'a> Parser<'a> {
                     words.push(Word::literal_with_span(sym, self.current_span));
                     self.advance();
                 }
-                Some(tokens::Token::Newline)
-                | Some(tokens::Token::Semicolon)
-                | Some(tokens::Token::Pipe)
-                | Some(tokens::Token::And)
-                | Some(tokens::Token::Or)
+                Some(Token::Newline)
+                | Some(Token::Semicolon)
+                | Some(Token::Pipe)
+                | Some(Token::And)
+                | Some(Token::Or)
                 | None => break,
                 _ => break,
             }
@@ -2905,18 +2899,18 @@ impl<'a> Parser<'a> {
     /// Expect a word token and return it as a Word
     fn expect_word(&mut self) -> Result<Word> {
         match &self.current_token {
-            Some(tokens::Token::Word(_))
-            | Some(tokens::Token::LiteralWord(_))
-            | Some(tokens::Token::QuotedWord(_)) => {
+            Some(Token::Word(_))
+            | Some(Token::LiteralWord(_))
+            | Some(Token::QuotedWord(_)) => {
                 let word = self
                     .current_word_to_word()
                     .ok_or_else(|| self.error("expected word"))?;
                 self.advance();
                 Ok(word)
             }
-            Some(tokens::Token::ProcessSubIn) | Some(tokens::Token::ProcessSubOut) => {
+            Some(Token::ProcessSubIn) | Some(Token::ProcessSubOut) => {
                 // Process substitution <(cmd) or >(cmd)
-                let is_input = matches!(self.current_token, Some(tokens::Token::ProcessSubIn));
+                let is_input = matches!(self.current_token, Some(Token::ProcessSubIn));
                 let process_span = self.current_span;
                 self.advance();
 
@@ -2925,11 +2919,11 @@ impl<'a> Parser<'a> {
                 let mut depth = 1;
                 let close_span = loop {
                     match &self.current_token {
-                        Some(tokens::Token::LeftParen) => {
+                        Some(Token::LeftParen) => {
                             depth += 1;
                             self.advance();
                         }
-                        Some(tokens::Token::RightParen) => {
+                        Some(Token::RightParen) => {
                             depth -= 1;
                             if depth == 0 {
                                 let close_span = self.current_span;
@@ -2968,9 +2962,9 @@ impl<'a> Parser<'a> {
     fn is_current_word(&self) -> bool {
         matches!(
             &self.current_token,
-            Some(tokens::Token::Word(_))
-                | Some(tokens::Token::LiteralWord(_))
-                | Some(tokens::Token::QuotedWord(_))
+            Some(Token::Word(_))
+                | Some(Token::LiteralWord(_))
+                | Some(Token::QuotedWord(_))
         )
     }
 
@@ -2978,9 +2972,9 @@ impl<'a> Parser<'a> {
     /// Get the string content if current token is a word
     fn current_word_str(&self) -> Option<String> {
         match &self.current_token {
-            Some(tokens::Token::Word(w))
-            | Some(tokens::Token::LiteralWord(w))
-            | Some(tokens::Token::QuotedWord(w)) => Some(w.clone()),
+            Some(Token::Word(w))
+            | Some(Token::LiteralWord(w))
+            | Some(Token::QuotedWord(w)) => Some(w.clone()),
             _ => None,
         }
     }

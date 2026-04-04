@@ -1,5 +1,7 @@
+# shuck-ast - AST types for parsed bash scripts
+
 [package]
-name = "shuck-syntax"
+name = "shuck-ast"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,8 +10,8 @@ repository.workspace = true
 description.workspace = true
 keywords.workspace = true
 categories.workspace = true
+readme = "../../README.md"
 
 [dependencies]
-shuck-ast = { path = "../shuck-ast" }
-shuck-parser = { path = "../shuck-parser" }
-thiserror = { workspace = true }
+
+[dev-dependencies]

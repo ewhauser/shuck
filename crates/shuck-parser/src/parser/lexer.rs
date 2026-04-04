@@ -4,8 +4,7 @@
 
 use std::collections::VecDeque;
 
-use super::span::{Position, Span};
-use super::tokens::Token;
+use shuck_ast::{Position, Span, Token};
 
 /// A token with its source location span.
 #[derive(Debug, Clone, PartialEq)]

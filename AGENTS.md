@@ -55,7 +55,6 @@ The parser (`crates/shuck-parser/src/parser/`) is a recursive descent parser wit
 - `ast.rs` — AST node types (`Script`, `Command`, `Pipeline`, etc.)
 - `tokens.rs` — Token enum
 - `span.rs` — Position/Span tracking
-- `budget.rs` — Parser fuel/budget limits
 
 ## Key conventions
 

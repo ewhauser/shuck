@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use super::span::Span;
+use crate::span::Span;
 use std::fmt;
 
 /// A complete bash script.
@@ -133,7 +133,7 @@ pub struct CoprocCommand {
 
 /// Time command - wraps a command and measures its execution time.
 ///
-/// Note: Bashkit only supports wall-clock time measurement.
+/// Note: Shuck only supports wall-clock time measurement.
 /// User/system CPU time is not tracked (always reported as 0).
 /// This is a known incompatibility with bash.
 #[derive(Debug, Clone)]

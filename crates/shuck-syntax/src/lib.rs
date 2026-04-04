@@ -3,16 +3,15 @@
 mod dialects;
 mod suppressions;
 
-pub use shuck_parser::parser::Script;
+pub use shuck_ast::Script;
 pub use dialects::{
     Dialect, DialectProfile, Grammar, ParseMode, ParseOptions, ParseStrategy, ParseView,
 };
 pub use suppressions::{Suppression, SuppressionIndex, SuppressionKind};
 
+use shuck_ast::{Position, Span, Token};
 use shuck_parser::Error as ParserError;
-use shuck_parser::parser::{
-    Lexer, ParseDiagnostic as ParserParseDiagnostic, Parser, Position, Span, Token,
-};
+use shuck_parser::parser::{Lexer, ParseDiagnostic as ParserParseDiagnostic, Parser};
 use thiserror::Error;
 
 /// Source position tracked through lexing.
@@ -966,7 +965,6 @@ mod tests {
             ParseOptions {
                 dialect: Dialect::Zsh,
                 mode: ParseMode::Permissive,
-                ..ParseOptions::default()
             },
         )
         .unwrap_err();

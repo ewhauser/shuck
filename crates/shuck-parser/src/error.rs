@@ -1,9 +1,9 @@
-//! Error types for Bashkit
+//! Error types for shuck
 
-/// Result type alias using Bashkit's Error.
+/// Result type alias using shuck's Error.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Bashkit error types.
+/// Shuck error types.
 #[derive(Debug)]
 pub enum Error {
     /// Parse error occurred while parsing the script.

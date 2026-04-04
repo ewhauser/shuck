@@ -13,5 +13,6 @@ categories.workspace = true
 readme = "../../README.md"
 
 [dependencies]
+shuck-ast = { path = "../shuck-ast" }
 
 [dev-dependencies]

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use shuck_parser::parser::{
+use shuck_ast::{
     Assignment, AssignmentValue, CaseItem, Command, CompoundCommand, Script, Span, Word, WordPart,
 };
 
@@ -338,7 +338,7 @@ fn collect_command_ranges_from_command(command: &Command, ranges: &mut Vec<Comma
 }
 
 fn collect_command_ranges_from_simple(
-    command: &shuck_parser::parser::SimpleCommand,
+    command: &shuck_ast::SimpleCommand,
     ranges: &mut Vec<CommandLineRange>,
 ) {
     collect_command_ranges_from_word(&command.name, ranges);
