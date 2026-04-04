@@ -12,7 +12,6 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 shuck-cache = { path = "../shuck-cache" }
-shuck-syntax = { path = "../shuck-syntax" }
 walkdir = "2"
 
 [dev-dependencies]

@@ -119,6 +119,14 @@ impl Span {
         &source[self.start.offset..self.end.offset]
     }
 
+    /// Convert this span to a [`TextRange`] using only the byte offsets.
+    pub fn to_range(self) -> TextRange {
+        TextRange::new(
+            TextSize::new(self.start.offset as u32),
+            TextSize::new(self.end.offset as u32),
+        )
+    }
+
     /// Get the starting line number.
     pub fn line(&self) -> usize {
         self.start.line
@@ -131,6 +139,95 @@ impl std::fmt::Display for Span {
             write!(f, "line {}", self.start.line)
         } else {
             write!(f, "lines {}-{}", self.start.line, self.end.line)
+        }
+    }
+}
+
+/// A byte offset in source text, analogous to ruff's `TextSize`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct TextSize(u32);
+
+impl TextSize {
+    /// Create a new `TextSize` from a raw `u32` byte offset.
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Return the raw `u32` value.
+    pub const fn to_u32(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for TextSize {
+    fn from(raw: u32) -> Self {
+        Self(raw)
+    }
+}
+
+impl From<TextSize> for usize {
+    fn from(size: TextSize) -> Self {
+        size.0 as usize
+    }
+}
+
+impl std::ops::Add for TextSize {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl std::ops::Sub for TextSize {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self(self.0 - rhs.0)
+    }
+}
+
+/// A half-open byte range in source text, analogous to ruff's `TextRange`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct TextRange {
+    start: TextSize,
+    end: TextSize,
+}
+
+impl TextRange {
+    /// Create a new range from start (inclusive) to end (exclusive).
+    pub const fn new(start: TextSize, end: TextSize) -> Self {
+        Self { start, end }
+    }
+
+    /// Start offset (inclusive).
+    pub const fn start(self) -> TextSize {
+        self.start
+    }
+
+    /// End offset (exclusive).
+    pub const fn end(self) -> TextSize {
+        self.end
+    }
+
+    /// Length in bytes.
+    pub const fn len(self) -> TextSize {
+        TextSize(self.end.0 - self.start.0)
+    }
+
+    /// Whether the range is empty.
+    pub const fn is_empty(self) -> bool {
+        self.start.0 == self.end.0
+    }
+
+    /// Slice the source text covered by this range.
+    pub fn slice<'a>(&self, source: &'a str) -> &'a str {
+        &source[usize::from(self.start)..usize::from(self.end)]
+    }
+
+    /// Shift the range by adding a base offset to both start and end.
+    pub fn offset_by(self, base: TextSize) -> Self {
+        Self {
+            start: self.start + base,
+            end: self.end + base,
         }
     }
 }

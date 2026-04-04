@@ -7,7 +7,7 @@
 
 use crate::{
     Name,
-    span::{Position, Span},
+    span::{Position, Span, TextRange},
 };
 use std::fmt;
 
@@ -127,13 +127,13 @@ impl PartialEq<&str> for LiteralText {
     }
 }
 
-/// A shell comment located by its source span.
+/// A shell comment located by its byte range in the source.
 ///
 /// The comment text (without the leading `#`) is obtained by slicing the
-/// source: `comment.span.slice(source)`.
+/// source: `comment.range.slice(source)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comment {
-    pub span: Span,
+    pub range: TextRange,
 }
 
 /// A complete bash script.

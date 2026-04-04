@@ -7,5 +7,5 @@ mod tokens;
 
 pub use ast::*;
 pub use name::Name;
-pub use span::{Position, Span};
+pub use span::{Position, Span, TextRange, TextSize};
 pub use tokens::Token;

@@ -18,7 +18,7 @@ use shuck_ast::{
     ContinueCommand, CoprocCommand, DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand,
     FunctionDef, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position,
     Redirect, RedirectKind, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
-    TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
+    TextSize, TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 use crate::error::{Error, Result};
@@ -118,7 +118,7 @@ impl<'a> Parser<'a> {
         let (current_token, current_span) = loop {
             match lexer.next_spanned_token_with_comments() {
                 Some(st) if matches!(st.token, Token::Comment(_)) => {
-                    comments.push(Comment { span: st.span });
+                    comments.push(Comment { range: st.span.to_range() });
                 }
                 Some(st) => break (Some(st.token), st.span),
                 None => break (None, Span::new()),
@@ -201,8 +201,9 @@ impl<'a> Parser<'a> {
         let inner_parser = Parser::with_limits(source, remaining_depth, self.fuel);
         match inner_parser.parse() {
             Ok(mut output) => {
+                let base_offset = TextSize::new(base.offset as u32);
                 for comment in &mut output.comments {
-                    comment.span = comment.span.rebased(base);
+                    comment.range = comment.range.offset_by(base_offset);
                 }
                 self.comments.extend(output.comments);
                 Self::rebase_commands(&mut output.script.commands, base);
@@ -854,7 +855,7 @@ impl<'a> Parser<'a> {
             loop {
                 match self.lexer.next_spanned_token_with_comments() {
                     Some(st) if matches!(st.token, Token::Comment(_)) => {
-                        self.comments.push(Comment { span: st.span });
+                        self.comments.push(Comment { range: st.span.to_range() });
                     }
                     Some(st) => {
                         self.current_token = Some(st.token);
@@ -877,7 +878,7 @@ impl<'a> Parser<'a> {
             loop {
                 match self.lexer.next_spanned_token_with_comments() {
                     Some(st) if matches!(st.token, Token::Comment(_)) => {
-                        self.comments.push(Comment { span: st.span });
+                        self.comments.push(Comment { range: st.span.to_range() });
                     }
                     other => {
                         self.peeked_token = other;
