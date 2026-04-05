@@ -20,7 +20,7 @@ use shuck_ast::{
     ContinueCommand, CoprocCommand, DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand,
     FunctionDef, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position,
     Redirect, RedirectKind, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
-    TextSize, TimeCommand, Token, UntilCommand, WhileCommand, Word, WordPart,
+    TextSize, TimeCommand, Token, TokenKind, UntilCommand, WhileCommand, Word, WordPart,
 };
 
 use crate::error::{Error, Result};
@@ -56,6 +56,7 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     synthetic_tokens: VecDeque<SpannedToken>,
     current_token: Option<Token>,
+    current_token_kind: Option<TokenKind>,
     /// Span of the current token
     current_span: Span,
     /// Lookahead token for function parsing
@@ -132,15 +133,15 @@ impl<'a> Parser<'a> {
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
         let mut comments = Vec::new();
-        let (current_token, current_span) = loop {
+        let (current_token, current_token_kind, current_span) = loop {
             match lexer.next_spanned_token_with_comments() {
-                Some(st) if matches!(st.token, Token::Comment(_)) => {
+                Some(st) if st.kind == TokenKind::Comment => {
                     comments.push(Comment {
                         range: st.span.to_range(),
                     });
                 }
-                Some(st) => break (Some(st.token), st.span),
-                None => break (None, Span::new()),
+                Some(st) => break (Some(st.token), Some(st.kind), st.span),
+                None => break (None, None, Span::new()),
             }
         };
         Self {
@@ -148,6 +149,7 @@ impl<'a> Parser<'a> {
             lexer,
             synthetic_tokens: VecDeque::new(),
             current_token,
+            current_token_kind,
             current_span,
             peeked_token: None,
             max_depth: max_depth.min(HARD_MAX_AST_DEPTH),
@@ -222,12 +224,11 @@ impl<'a> Parser<'a> {
     }
 
     fn current_name_token(&self) -> Option<(Name, Span)> {
-        match &self.current_token {
-            Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                Some((Name::from(w.as_str()), self.current_span))
-            }
-            _ => None,
-        }
+        let token = self.current_token.as_ref()?;
+        self.current_token_kind
+            .filter(|kind| kind.is_word_like())
+            .and_then(|_| token.word_text())
+            .map(|word| (Name::from(word), self.current_span))
     }
 
     fn nested_commands_from_source(&mut self, source: &str, base: Position) -> Vec<Command> {
@@ -703,38 +704,55 @@ impl<'a> Parser<'a> {
         Self::fd_var_from_text(&text, word.span)
     }
 
-    fn is_redirect_token(token: &Token) -> bool {
+    fn is_redirect_kind(kind: TokenKind) -> bool {
         matches!(
-            token,
-            Token::RedirectOut
-                | Token::Clobber
-                | Token::RedirectAppend
-                | Token::RedirectIn
-                | Token::RedirectReadWrite
-                | Token::HereString
-                | Token::HereDoc
-                | Token::HereDocStrip
-                | Token::RedirectBoth
-                | Token::DupOutput
-                | Token::RedirectFd(_)
-                | Token::RedirectFdAppend(_)
-                | Token::DupFd(_, _)
-                | Token::DupInput
-                | Token::DupFdIn(_, _)
-                | Token::DupFdClose(_)
-                | Token::RedirectFdIn(_)
-                | Token::RedirectFdReadWrite(_)
+            kind,
+            TokenKind::RedirectOut
+                | TokenKind::Clobber
+                | TokenKind::RedirectAppend
+                | TokenKind::RedirectIn
+                | TokenKind::RedirectReadWrite
+                | TokenKind::HereString
+                | TokenKind::HereDoc
+                | TokenKind::HereDocStrip
+                | TokenKind::RedirectBoth
+                | TokenKind::DupOutput
+                | TokenKind::RedirectFd
+                | TokenKind::RedirectFdAppend
+                | TokenKind::DupFd
+                | TokenKind::DupInput
+                | TokenKind::DupFdIn
+                | TokenKind::DupFdClose
+                | TokenKind::RedirectFdIn
+                | TokenKind::RedirectFdReadWrite
         )
     }
 
     fn current_static_word(&mut self) -> Option<(String, bool)> {
         let quoted = matches!(
-            self.current_token,
-            Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_))
+            self.current_token_kind,
+            Some(TokenKind::LiteralWord | TokenKind::QuotedWord)
         );
         let word = self.current_word_to_word()?;
         let text = self.literal_word_text(&word)?;
         Some((text, quoted))
+    }
+
+    fn set_current_spanned(&mut self, token: SpannedToken) {
+        self.current_token_kind = Some(token.kind);
+        self.current_token = Some(token.token);
+        self.current_span = token.span;
+    }
+
+    fn set_current_token(&mut self, token: Token, span: Span) {
+        self.current_token_kind = Some(token.kind());
+        self.current_token = Some(token);
+        self.current_span = span;
+    }
+
+    fn clear_current_token(&mut self) {
+        self.current_token = None;
+        self.current_token_kind = None;
     }
 
     fn next_spanned_token_with_comments(&mut self) -> Option<SpannedToken> {
@@ -748,10 +766,7 @@ impl<'a> Parser<'a> {
         let mut queued = Vec::new();
 
         while let Some(token) = lexer.next_spanned_token_with_comments() {
-            queued.push(SpannedToken {
-                token: token.token,
-                span: token.span.rebased(base),
-            });
+            queued.push(SpannedToken::new(token.token, token.span.rebased(base)));
         }
 
         for token in queued.into_iter().rev() {
@@ -769,13 +784,16 @@ impl<'a> Parser<'a> {
         let mut expands_next_word = false;
 
         loop {
-            let Some(Token::Word(name)) = &self.current_token else {
+            if self.current_token_kind != Some(TokenKind::Word) {
+                break;
+            }
+            let Some(name) = self.current_token.as_ref().and_then(Token::word_text) else {
                 break;
             };
             let Some(alias) = self.aliases.get(name).cloned() else {
                 break;
             };
-            if !seen.insert(name.clone()) {
+            if !seen.insert(name.to_string()) {
                 break;
             }
 
@@ -992,7 +1010,12 @@ impl<'a> Parser<'a> {
 
     /// Check if current token is an error token and return the error if so
     fn check_error_token(&self) -> Result<()> {
-        if let Some(Token::Error(msg)) = &self.current_token {
+        if self.current_token_kind == Some(TokenKind::Error) {
+            let msg = self
+                .current_token
+                .as_ref()
+                .and_then(Token::error_message)
+                .unwrap_or("unknown lexer error");
             return Err(self.error(format!("syntax error: {}", msg)));
         }
         Ok(())
@@ -1011,31 +1034,31 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| self.error("expected command"))
     }
 
-    fn is_recovery_separator(token: &Token) -> bool {
+    fn is_recovery_separator(kind: TokenKind) -> bool {
         matches!(
-            token,
-            Token::Newline
-                | Token::Semicolon
-                | Token::Background
-                | Token::And
-                | Token::Or
-                | Token::Pipe
-                | Token::DoubleSemicolon
-                | Token::SemiAmp
-                | Token::DoubleSemiAmp
+            kind,
+            TokenKind::Newline
+                | TokenKind::Semicolon
+                | TokenKind::Background
+                | TokenKind::And
+                | TokenKind::Or
+                | TokenKind::Pipe
+                | TokenKind::DoubleSemicolon
+                | TokenKind::SemiAmp
+                | TokenKind::DoubleSemiAmp
         )
     }
 
     fn recover_to_command_boundary(&mut self, failed_offset: usize) -> bool {
         let mut advanced = false;
 
-        while let Some(token) = &self.current_token {
-            if Self::is_recovery_separator(token) {
+        while let Some(kind) = self.current_token_kind {
+            if Self::is_recovery_separator(kind) {
                 loop {
-                    let Some(token) = &self.current_token else {
+                    let Some(kind) = self.current_token_kind else {
                         break;
                     };
-                    if !Self::is_recovery_separator(token) {
+                    if !Self::is_recovery_separator(kind) {
                         break;
                     }
                     self.advance();
@@ -1148,23 +1171,21 @@ impl<'a> Parser<'a> {
 
     fn advance_raw(&mut self) {
         if let Some(peeked) = self.peeked_token.take() {
-            self.current_token = Some(peeked.token);
-            self.current_span = peeked.span;
+            self.set_current_spanned(peeked);
         } else {
             loop {
                 match self.next_spanned_token_with_comments() {
-                    Some(st) if matches!(st.token, Token::Comment(_)) => {
+                    Some(st) if st.kind == TokenKind::Comment => {
                         self.comments.push(Comment {
                             range: st.span.to_range(),
                         });
                     }
                     Some(st) => {
-                        self.current_token = Some(st.token);
-                        self.current_span = st.span;
+                        self.set_current_spanned(st);
                         break;
                     }
                     None => {
-                        self.current_token = None;
+                        self.clear_current_token();
                         // Keep the last span for error reporting
                         break;
                     }
@@ -1186,7 +1207,7 @@ impl<'a> Parser<'a> {
         if self.peeked_token.is_none() {
             loop {
                 match self.next_spanned_token_with_comments() {
-                    Some(st) if matches!(st.token, Token::Comment(_)) => {
+                    Some(st) if st.kind == TokenKind::Comment => {
                         self.comments.push(Comment {
                             range: st.span.to_range(),
                         });
@@ -1201,8 +1222,13 @@ impl<'a> Parser<'a> {
         self.peeked_token.as_ref().map(|st| &st.token)
     }
 
+    fn peek_next_kind(&mut self) -> Option<TokenKind> {
+        self.peek_next()?;
+        self.peeked_token.as_ref().map(|st| st.kind)
+    }
+
     fn skip_newlines(&mut self) -> Result<()> {
-        while matches!(self.current_token, Some(Token::Newline)) {
+        while self.current_token_kind == Some(TokenKind::Newline) {
             self.tick()?;
             self.advance();
         }
@@ -1395,7 +1421,7 @@ impl<'a> Parser<'a> {
         loop {
             if pending_fd_var.is_none()
                 && let Some((fd_var, fd_var_span)) = self.current_fd_var()
-                && matches!(self.peek_next(), Some(token) if Self::is_redirect_token(token))
+                && self.peek_next_kind().is_some_and(Self::is_redirect_kind)
             {
                 pending_fd_var = Some((fd_var, fd_var_span));
                 self.advance();
@@ -1864,12 +1890,9 @@ impl<'a> Parser<'a> {
 
     fn split_current_double_left_paren(&mut self) {
         let (left_span, right_span) = Self::split_double_left_paren(self.current_span);
-        self.current_token = Some(Token::LeftParen);
-        self.current_span = left_span;
-        self.synthetic_tokens.push_front(SpannedToken {
-            token: Token::LeftParen,
-            span: right_span,
-        });
+        self.set_current_token(Token::LeftParen, left_span);
+        self.synthetic_tokens
+            .push_front(SpannedToken::new(Token::LeftParen, right_span));
     }
 
     /// Parse a single command (simple or compound)
@@ -1880,8 +1903,10 @@ impl<'a> Parser<'a> {
         self.check_error_token()?;
 
         // Check for compound commands and function keyword
-        if let Some(Token::Word(w)) = &self.current_token {
-            let word = w.clone();
+        if self.current_token_kind == Some(TokenKind::Word)
+            && let Some(word) = self.current_token.as_ref().and_then(Token::word_text)
+        {
+            let word = word.to_string();
             match word.as_str() {
                 "if" => return self.parse_compound_with_redirects(|s| s.parse_if()),
                 "for" => return self.parse_compound_with_redirects(|s| s.parse_for()),
@@ -1897,7 +1922,7 @@ impl<'a> Parser<'a> {
                     // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
                     if !word.contains('=')
                         && !word.contains('[')
-                        && matches!(self.peek_next(), Some(Token::LeftParen))
+                        && self.peek_next_kind() == Some(TokenKind::LeftParen)
                     {
                         return self.parse_function_posix().map(Some);
                     }
@@ -1906,12 +1931,12 @@ impl<'a> Parser<'a> {
         }
 
         // Check for conditional expression [[ ... ]]
-        if matches!(self.current_token, Some(Token::DoubleLeftBracket)) {
+        if self.current_token_kind == Some(TokenKind::DoubleLeftBracket) {
             return self.parse_compound_with_redirects(|s| s.parse_conditional());
         }
 
         // Check for arithmetic command ((expression))
-        if matches!(self.current_token, Some(Token::DoubleLeftParen)) {
+        if self.current_token_kind == Some(TokenKind::DoubleLeftParen) {
             if self.looks_like_command_style_double_paren() {
                 self.split_current_double_left_paren();
                 return self.parse_compound_with_redirects(|s| s.parse_subshell());
@@ -2601,7 +2626,7 @@ impl<'a> Parser<'a> {
 
         if matches!(self.current_token, Some(Token::DoubleRightParen)) {
             // `))` at end of nested subshells: consume as single `)`, leave `)` for parent
-            self.current_token = Some(Token::RightParen);
+            self.set_current_token(Token::RightParen, self.current_span);
         } else if !matches!(self.current_token, Some(Token::RightParen)) {
             self.pop_depth();
             return Err(Error::parse("expected ')' to close subshell".to_string()));

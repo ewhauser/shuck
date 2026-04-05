@@ -61,8 +61,8 @@ The end state should look like this:
 
 ### Stage 0: Baseline And Guardrails
 
-- [ ] Record current `lexer`, `parser`, and `linter` Criterion means for all benchmark cases.
-- [ ] Save baseline profiles for `parser/all`, `parser/nvm`, `linter/all`, and `linter/nvm`.
+- [x] Record current `lexer`, `parser`, and `linter` Criterion means for all benchmark cases.
+- [x] Save baseline profiles for `parser/all`, `parser/nvm`, `linter/all`, and `linter/nvm`.
 - [ ] Capture current top inclusive and self-time hotspots for future comparison.
 - [ ] Write down baseline numbers in this file before starting the refactor.
 - [ ] Decide final target metrics for parser and linter throughput.
@@ -78,6 +78,31 @@ PROFILE_CASE=nvm make profile-parser
 PROFILE_CASE=all make profile-linter
 PROFILE_CASE=nvm make profile-linter
 ```
+
+#### Stage 0 Baseline
+
+Captured on 2026-04-05 from the terminal output of the Stage 0 Criterion commands. Time and throughput values use the center estimate from Criterion's `[low estimate high]` output. Byte counts come from `crates/shuck-benchmark/resources/manifest.json`, with `all` equal to the sum of the five fixtures.
+
+| Benchmark | Case | Bytes | Mean time | Throughput |
+| --- | --- | ---: | ---: | ---: |
+| `lexer` | `fzf-install` | 12,760 | 68.827 µs | 176.80 MiB/s |
+| `lexer` | `homebrew-install` | 33,212 | 162.59 µs | 194.81 MiB/s |
+| `lexer` | `ruby-build` | 47,738 | 228.08 µs | 199.61 MiB/s |
+| `lexer` | `pyenv-python-build` | 81,725 | 392.70 µs | 198.47 MiB/s |
+| `lexer` | `nvm` | 150,227 | 749.45 µs | 191.16 MiB/s |
+| `lexer` | `all` | 325,662 | 1.6987 ms | 182.83 MiB/s |
+| `parser` | `fzf-install` | 12,760 | 256.82 µs | 47.383 MiB/s |
+| `parser` | `homebrew-install` | 33,212 | 580.14 µs | 54.596 MiB/s |
+| `parser` | `ruby-build` | 47,738 | 1.0388 ms | 43.827 MiB/s |
+| `parser` | `pyenv-python-build` | 81,725 | 1.5486 ms | 50.329 MiB/s |
+| `parser` | `nvm` | 150,227 | 3.1278 ms | 45.805 MiB/s |
+| `parser` | `all` | 325,662 | 6.6999 ms | 46.355 MiB/s |
+| `linter` | `fzf-install` | 12,760 | 341.97 µs | 35.584 MiB/s |
+| `linter` | `homebrew-install` | 33,212 | 797.29 µs | 39.726 MiB/s |
+| `linter` | `ruby-build` | 47,738 | 1.6558 ms | 27.495 MiB/s |
+| `linter` | `pyenv-python-build` | 81,725 | 2.8639 ms | 27.215 MiB/s |
+| `linter` | `nvm` | 150,227 | 6.0955 ms | 23.504 MiB/s |
+| `linter` | `all` | 325,662 | 12.068 ms | 25.735 MiB/s |
 
 ### Stage 1: Split Token Kind From Payload
 

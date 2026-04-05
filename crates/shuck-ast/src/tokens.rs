@@ -143,3 +143,125 @@ pub enum Token {
     /// Lexer error (e.g., unterminated string)
     Error(String),
 }
+
+/// Cheap token classification for parser dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TokenKind {
+    Word,
+    LiteralWord,
+    QuotedWord,
+    Comment,
+    Newline,
+    Semicolon,
+    DoubleSemicolon,
+    SemiAmp,
+    DoubleSemiAmp,
+    Pipe,
+    PipeBoth,
+    And,
+    Or,
+    Background,
+    RedirectOut,
+    RedirectAppend,
+    RedirectIn,
+    RedirectReadWrite,
+    HereDoc,
+    HereDocStrip,
+    HereString,
+    LeftParen,
+    RightParen,
+    DoubleLeftParen,
+    DoubleRightParen,
+    LeftBrace,
+    RightBrace,
+    DoubleLeftBracket,
+    DoubleRightBracket,
+    Assignment,
+    ProcessSubIn,
+    ProcessSubOut,
+    RedirectBoth,
+    RedirectBothAppend,
+    Clobber,
+    DupOutput,
+    DupInput,
+    RedirectFd,
+    RedirectFdAppend,
+    DupFd,
+    DupFdIn,
+    DupFdClose,
+    RedirectFdIn,
+    RedirectFdReadWrite,
+    Error,
+}
+
+impl TokenKind {
+    pub const fn is_word_like(self) -> bool {
+        matches!(self, Self::Word | Self::LiteralWord | Self::QuotedWord)
+    }
+}
+
+impl Token {
+    pub const fn kind(&self) -> TokenKind {
+        match self {
+            Self::Word(_) => TokenKind::Word,
+            Self::LiteralWord(_) => TokenKind::LiteralWord,
+            Self::QuotedWord(_) => TokenKind::QuotedWord,
+            Self::Comment(_) => TokenKind::Comment,
+            Self::Newline => TokenKind::Newline,
+            Self::Semicolon => TokenKind::Semicolon,
+            Self::DoubleSemicolon => TokenKind::DoubleSemicolon,
+            Self::SemiAmp => TokenKind::SemiAmp,
+            Self::DoubleSemiAmp => TokenKind::DoubleSemiAmp,
+            Self::Pipe => TokenKind::Pipe,
+            Self::PipeBoth => TokenKind::PipeBoth,
+            Self::And => TokenKind::And,
+            Self::Or => TokenKind::Or,
+            Self::Background => TokenKind::Background,
+            Self::RedirectOut => TokenKind::RedirectOut,
+            Self::RedirectAppend => TokenKind::RedirectAppend,
+            Self::RedirectIn => TokenKind::RedirectIn,
+            Self::RedirectReadWrite => TokenKind::RedirectReadWrite,
+            Self::HereDoc => TokenKind::HereDoc,
+            Self::HereDocStrip => TokenKind::HereDocStrip,
+            Self::HereString => TokenKind::HereString,
+            Self::LeftParen => TokenKind::LeftParen,
+            Self::RightParen => TokenKind::RightParen,
+            Self::DoubleLeftParen => TokenKind::DoubleLeftParen,
+            Self::DoubleRightParen => TokenKind::DoubleRightParen,
+            Self::LeftBrace => TokenKind::LeftBrace,
+            Self::RightBrace => TokenKind::RightBrace,
+            Self::DoubleLeftBracket => TokenKind::DoubleLeftBracket,
+            Self::DoubleRightBracket => TokenKind::DoubleRightBracket,
+            Self::Assignment => TokenKind::Assignment,
+            Self::ProcessSubIn => TokenKind::ProcessSubIn,
+            Self::ProcessSubOut => TokenKind::ProcessSubOut,
+            Self::RedirectBoth => TokenKind::RedirectBoth,
+            Self::RedirectBothAppend => TokenKind::RedirectBothAppend,
+            Self::Clobber => TokenKind::Clobber,
+            Self::DupOutput => TokenKind::DupOutput,
+            Self::DupInput => TokenKind::DupInput,
+            Self::RedirectFd(_) => TokenKind::RedirectFd,
+            Self::RedirectFdAppend(_) => TokenKind::RedirectFdAppend,
+            Self::DupFd(_, _) => TokenKind::DupFd,
+            Self::DupFdIn(_, _) => TokenKind::DupFdIn,
+            Self::DupFdClose(_) => TokenKind::DupFdClose,
+            Self::RedirectFdIn(_) => TokenKind::RedirectFdIn,
+            Self::RedirectFdReadWrite(_) => TokenKind::RedirectFdReadWrite,
+            Self::Error(_) => TokenKind::Error,
+        }
+    }
+
+    pub fn word_text(&self) -> Option<&str> {
+        match self {
+            Self::Word(text) | Self::LiteralWord(text) | Self::QuotedWord(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    pub fn error_message(&self) -> Option<&str> {
+        match self {
+            Self::Error(message) => Some(message),
+            _ => None,
+        }
+    }
+}

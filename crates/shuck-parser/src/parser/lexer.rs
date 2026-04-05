@@ -5,13 +5,24 @@
 use std::collections::VecDeque;
 
 use memchr::memchr;
-use shuck_ast::{Position, Span, Token};
+use shuck_ast::{Position, Span, Token, TokenKind};
 
 /// A token with its source location span.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpannedToken {
+    pub kind: TokenKind,
     pub token: Token,
     pub span: Span,
+}
+
+impl SpannedToken {
+    pub(crate) fn new(token: Token, span: Span) -> Self {
+        Self {
+            kind: token.kind(),
+            token,
+            span,
+        }
+    }
 }
 
 /// Result of reading a heredoc body from the source.
@@ -192,10 +203,7 @@ impl<'a> Lexer<'a> {
         let start = self.position;
         let token = self.next_token_inner(false)?;
         let end = self.position;
-        Some(SpannedToken {
-            token,
-            span: Span::from_positions(start, end),
-        })
+        Some(SpannedToken::new(token, Span::from_positions(start, end)))
     }
 
     /// Get the next token with its source span, preserving line comments.
@@ -204,10 +212,7 @@ impl<'a> Lexer<'a> {
         let start = self.position;
         let token = self.next_token_inner(true)?;
         let end = self.position;
-        Some(SpannedToken {
-            token,
-            span: Span::from_positions(start, end),
-        })
+        Some(SpannedToken::new(token, Span::from_positions(start, end)))
     }
 
     /// Internal: get next token without recording position (called after whitespace skip)
