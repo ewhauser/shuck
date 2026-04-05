@@ -43,6 +43,14 @@ impl TokenFlags {
     pub(crate) const fn with_synthetic(self) -> Self {
         Self(self.0 | Self::SYNTHETIC)
     }
+
+    pub(crate) const fn has_cooked_text(self) -> bool {
+        self.0 & Self::COOKED_TEXT != 0
+    }
+
+    pub(crate) const fn is_synthetic(self) -> bool {
+        self.0 & Self::SYNTHETIC != 0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -363,6 +371,15 @@ impl<'a> LexedToken<'a> {
             TokenPayload::Word(word) => Some(word),
             _ => None,
         }
+    }
+
+    pub(crate) fn source_slice<'b>(&self, source: &'b str) -> Option<&'b str> {
+        if !self.kind.is_word_like() || self.flags.has_cooked_text() || self.flags.is_synthetic() {
+            return None;
+        }
+
+        (self.span.start.offset <= self.span.end.offset && self.span.end.offset <= source.len())
+            .then(|| &source[self.span.start.offset..self.span.end.offset])
     }
 
     pub(crate) fn fd_value(&self) -> Option<i32> {

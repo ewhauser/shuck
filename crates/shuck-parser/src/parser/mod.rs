@@ -8,7 +8,10 @@
 
 mod lexer;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet, VecDeque},
+};
 
 pub use lexer::{HeredocRead, Lexer, SpannedToken};
 use lexer::{LexedToken, LexedWordSegmentKind};
@@ -193,31 +196,12 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn parse_word_from_text(&mut self, kind: TokenKind, text: &str, span: Span) -> Option<Word> {
-        match kind {
-            TokenKind::Word => Some(self.parse_word_with_context(text, span, span.start)),
-            TokenKind::QuotedWord => {
-                let mut word =
-                    self.parse_word_with_context(text, span, span.start.advanced_by("\""));
-                word.quoted = true;
-                Some(word)
-            }
-            TokenKind::LiteralWord => Some(Word::quoted_literal_with_span(text, span)),
-            _ => None,
-        }
-    }
-
     fn word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
         if let Some(word) = self.simple_word_from_token(token, span) {
             return Some(word);
         }
 
-        if let Some(text) = token.word_text() {
-            return self.parse_word_from_text(token.kind, text, span);
-        }
-
-        let text = token.word_string()?;
-        self.parse_word_from_text(token.kind, &text, span)
+        self.decode_word_from_token(token, span)
     }
 
     fn word_text_needs_parse(text: &str) -> bool {
@@ -259,6 +243,114 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn push_literal_part_from_segment(
+        &self,
+        parts: &mut Vec<WordPart>,
+        part_spans: &mut Vec<Span>,
+        text: &str,
+        span: Span,
+        source_backed: bool,
+    ) {
+        parts.push(WordPart::Literal(if source_backed {
+            LiteralText::source()
+        } else {
+            LiteralText::owned(text.to_string())
+        }));
+        part_spans.push(span);
+    }
+
+    fn decode_word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
+        let word = token.word()?;
+
+        if let Some(segment) = word.single_segment() {
+            let text = segment.as_str();
+            let segment_span = segment.span().unwrap_or(span);
+
+            return match segment.kind() {
+                LexedWordSegmentKind::Literal => Some(Word {
+                    parts: vec![WordPart::Literal(if segment.span().is_some() {
+                        LiteralText::source()
+                    } else {
+                        LiteralText::owned(text.to_string())
+                    })],
+                    part_spans: vec![segment_span],
+                    quoted: true,
+                    span,
+                }),
+                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => {
+                    Some(self.decode_word_text(text, span, segment_span.start, false))
+                }
+                LexedWordSegmentKind::DoubleQuoted if Self::word_text_needs_parse(text) => {
+                    Some(self.decode_word_text(text, span, segment_span.start, true))
+                }
+                LexedWordSegmentKind::Plain | LexedWordSegmentKind::DoubleQuoted => Some(Word {
+                    parts: vec![WordPart::Literal(if segment.span().is_some() {
+                        LiteralText::source()
+                    } else {
+                        LiteralText::owned(text.to_string())
+                    })],
+                    part_spans: vec![segment_span],
+                    quoted: matches!(token.kind, TokenKind::LiteralWord | TokenKind::QuotedWord),
+                    span,
+                }),
+                LexedWordSegmentKind::Composite => None,
+            };
+        }
+
+        let mut parts = Vec::new();
+        let mut part_spans = Vec::new();
+        let mut cursor = span.start;
+
+        for segment in word.segments() {
+            let text = segment.as_str();
+            let segment_span = if let Some(segment_span) = segment.span() {
+                cursor = segment_span.end;
+                segment_span
+            } else {
+                let start = cursor;
+                let end = start.advanced_by(text);
+                cursor = end;
+                Span::from_positions(start, end)
+            };
+
+            match segment.kind() {
+                LexedWordSegmentKind::Literal => self.push_literal_part_from_segment(
+                    &mut parts,
+                    &mut part_spans,
+                    text,
+                    segment_span,
+                    segment.span().is_some(),
+                ),
+                LexedWordSegmentKind::Plain | LexedWordSegmentKind::DoubleQuoted => {
+                    if Self::word_text_needs_parse(text) {
+                        self.decode_word_parts_into(
+                            text,
+                            segment_span.start,
+                            &mut parts,
+                            &mut part_spans,
+                        );
+                    } else {
+                        self.push_literal_part_from_segment(
+                            &mut parts,
+                            &mut part_spans,
+                            text,
+                            segment_span,
+                            segment.span().is_some(),
+                        );
+                    }
+                }
+                LexedWordSegmentKind::Composite => return None,
+            }
+        }
+
+        Some(Word {
+            parts,
+            part_spans,
+            quoted: matches!(token.kind, TokenKind::LiteralWord | TokenKind::QuotedWord),
+            span,
+        })
+    }
+
     fn current_word(&mut self) -> Option<Word> {
         let span = self.current_span;
 
@@ -268,15 +360,24 @@ impl<'a> Parser<'a> {
             return Some(word);
         }
 
-        let kind = self.current_token_kind?;
-        let token = self.current_token.clone()?;
+        let token = self.current_token.take()?;
+        let word = self.decode_word_from_token(&token, span);
+        self.current_token = Some(token);
+        word
+    }
 
-        if let Some(text) = token.word_text() {
-            return self.parse_word_from_text(kind, text, span);
-        }
+    fn token_source_like_word_text(&self, token: &LexedToken<'a>) -> Option<Cow<'a, str>> {
+        token
+            .source_slice(self.input)
+            .map(Cow::Borrowed)
+            .or_else(|| token.word_string().map(Cow::Owned))
+    }
 
-        let text = token.word_string()?;
-        self.parse_word_from_text(kind, &text, span)
+    fn current_source_like_word_text(&self) -> Option<Cow<'a, str>> {
+        self.current_token_kind
+            .filter(|kind| kind.is_word_like())
+            .and(self.current_token.as_ref())
+            .and_then(|token| self.token_source_like_word_text(token))
     }
 
     fn current_conditional_literal_word(&self) -> Option<Word> {
@@ -3601,7 +3702,7 @@ impl<'a> Parser<'a> {
         if !self.at(TokenKind::Word) {
             return None;
         }
-        let word = self.current_word_text()?;
+        let word = self.current_source_like_word_text()?;
         if !word.contains('[') || Self::is_assignment(&word).is_some() {
             return None;
         }
@@ -3660,6 +3761,255 @@ impl<'a> Parser<'a> {
         }
 
         elements
+    }
+
+    fn raw_value_is_fully_quoted(raw: &str) -> bool {
+        raw.len() >= 2
+            && ((raw.starts_with('"') && raw.ends_with('"'))
+                || (raw.starts_with('\'') && raw.ends_with('\'')))
+    }
+
+    fn trim_literal_prefix(
+        &self,
+        literal: LiteralText,
+        span: Span,
+        start: Position,
+    ) -> Option<(LiteralText, Span)> {
+        if start.offset <= span.start.offset {
+            return Some((literal, span));
+        }
+        if start.offset >= span.end.offset {
+            return None;
+        }
+
+        let trimmed_span = Span::from_positions(start, span.end);
+        let literal = match literal {
+            LiteralText::Source => LiteralText::source(),
+            LiteralText::Owned(text) => {
+                let split_at = start.offset.saturating_sub(span.start.offset);
+                LiteralText::owned(text.get(split_at..)?.to_string())
+            }
+        };
+        Some((literal, trimmed_span))
+    }
+
+    fn trim_word_part_prefix(
+        &self,
+        part: WordPart,
+        span: Span,
+        start: Position,
+    ) -> Option<(WordPart, Span)> {
+        if start.offset <= span.start.offset {
+            return Some((part, span));
+        }
+        if start.offset >= span.end.offset {
+            return None;
+        }
+
+        match part {
+            WordPart::Literal(literal) => self
+                .trim_literal_prefix(literal, span, start)
+                .map(|(literal, span)| (WordPart::Literal(literal), span)),
+            _ => None,
+        }
+    }
+
+    fn split_word_at(&self, word: Word, start: Position, quoted: bool) -> Word {
+        let value_span = Span::from_positions(start, word.span.end);
+        let mut parts = Vec::new();
+        let mut part_spans = Vec::new();
+
+        for (part, span) in word.parts.into_iter().zip(word.part_spans) {
+            if let Some((part, span)) = self.trim_word_part_prefix(part, span, start) {
+                parts.push(part);
+                part_spans.push(span);
+            }
+        }
+
+        Word {
+            parts,
+            part_spans,
+            quoted,
+            span: value_span,
+        }
+    }
+
+    fn decode_assignment_value_from_token(
+        &mut self,
+        token: &LexedToken<'_>,
+        value_start: Position,
+        quoted: bool,
+    ) -> Option<Word> {
+        let lexed = token.word()?;
+        let value_span = Span::from_positions(value_start, token.span.end);
+        let mut parts = Vec::new();
+        let mut part_spans = Vec::new();
+        let mut cursor = token.span.start;
+
+        for segment in lexed.segments() {
+            let text = segment.as_str();
+            let mut segment_span = if let Some(segment_span) = segment.span() {
+                cursor = segment_span.end;
+                segment_span
+            } else {
+                let start = cursor;
+                let end = start.advanced_by(text);
+                cursor = end;
+                Span::from_positions(start, end)
+            };
+            if segment_span.end.offset <= value_start.offset {
+                continue;
+            }
+
+            let mut text = text;
+            if segment_span.start.offset < value_start.offset {
+                let split_at = value_start.offset.saturating_sub(segment_span.start.offset);
+                text = text.get(split_at..)?;
+                segment_span = Span::from_positions(value_start, segment_span.end);
+            }
+
+            match segment.kind() {
+                LexedWordSegmentKind::Literal => self.push_literal_part_from_segment(
+                    &mut parts,
+                    &mut part_spans,
+                    text,
+                    segment_span,
+                    true,
+                ),
+                LexedWordSegmentKind::Plain | LexedWordSegmentKind::DoubleQuoted => {
+                    if Self::word_text_needs_parse(text) {
+                        self.decode_word_parts_into(
+                            text,
+                            segment_span.start,
+                            &mut parts,
+                            &mut part_spans,
+                        );
+                    } else {
+                        self.push_literal_part_from_segment(
+                            &mut parts,
+                            &mut part_spans,
+                            text,
+                            segment_span,
+                            true,
+                        );
+                    }
+                }
+                LexedWordSegmentKind::Composite => return None,
+            }
+        }
+
+        Some(Word {
+            parts,
+            part_spans,
+            quoted,
+            span: value_span,
+        })
+    }
+
+    fn parse_assignment_from_current_token(&mut self, raw: &str) -> Option<Assignment> {
+        let token = self.current_token.take()?;
+        let assignment = (|| {
+            let assignment_span = token.span;
+            let (name, index, value, is_append) = Self::is_assignment(raw)?;
+            let name_span = Span::from_positions(
+                assignment_span.start,
+                assignment_span.start.advanced_by(name),
+            );
+            let index_span = index.map(|index| {
+                let start = name_span.end.advanced_by("[");
+                Span::from_positions(start, start.advanced_by(index))
+            });
+            let value_start_offset = if let Some(pos) = raw.find("+=") {
+                pos + 2
+            } else {
+                raw.find('=')? + 1
+            };
+            let value_start = assignment_span
+                .start
+                .advanced_by(&raw[..value_start_offset]);
+            let value_span = Span::from_positions(value_start, assignment_span.end);
+            let name = Name::from(name);
+            let index = index
+                .zip(index_span)
+                .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
+
+            let value = if value.starts_with('(') && value.ends_with(')') {
+                let inner = &value[1..value.len() - 1];
+                AssignmentValue::Array(
+                    self.parse_array_words_from_text(inner, value_start.advanced_by("(")),
+                )
+            } else if value.is_empty() {
+                AssignmentValue::Scalar(Word::literal_with_span("", value_span))
+            } else {
+                AssignmentValue::Scalar(self.decode_assignment_value_from_token(
+                    &token,
+                    value_start,
+                    Self::raw_value_is_fully_quoted(value),
+                )?)
+            };
+
+            Some(Assignment {
+                name,
+                name_span,
+                index,
+                value,
+                append: is_append,
+                span: assignment_span,
+            })
+        })();
+        self.current_token = Some(token);
+        assignment
+    }
+
+    fn parse_assignment_from_word(&mut self, word: Word, raw: &str) -> Option<Assignment> {
+        let assignment_span = word.span;
+        let (name, index, value, is_append) = Self::is_assignment(raw)?;
+        let name_span = Span::from_positions(
+            assignment_span.start,
+            assignment_span.start.advanced_by(name),
+        );
+        let index_span = index.map(|index| {
+            let start = name_span.end.advanced_by("[");
+            Span::from_positions(start, start.advanced_by(index))
+        });
+        let value_start_offset = if let Some(pos) = raw.find("+=") {
+            pos + 2
+        } else {
+            raw.find('=')? + 1
+        };
+        let value_start = assignment_span
+            .start
+            .advanced_by(&raw[..value_start_offset]);
+        let name = Name::from(name);
+        let index = index
+            .zip(index_span)
+            .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
+
+        let value = if value.starts_with('(') && value.ends_with(')') {
+            let inner = &value[1..value.len() - 1];
+            AssignmentValue::Array(
+                self.parse_array_words_from_text(inner, value_start.advanced_by("(")),
+            )
+        } else if value.is_empty() {
+            let value_span = Span::from_positions(value_start, assignment_span.end);
+            AssignmentValue::Scalar(Word::literal_with_span("", value_span))
+        } else {
+            let scalar =
+                self.split_word_at(word, value_start, Self::raw_value_is_fully_quoted(value));
+            if scalar.parts.is_empty() {
+                return self.parse_assignment_from_text(raw, assignment_span);
+            }
+            AssignmentValue::Scalar(scalar)
+        };
+
+        Some(Assignment {
+            name,
+            name_span,
+            index,
+            value,
+            append: is_append,
+            span: assignment_span,
+        })
     }
 
     fn parse_assignment_from_text(&mut self, w: &str, assignment_span: Span) -> Option<Assignment> {
@@ -3771,12 +4121,16 @@ impl<'a> Parser<'a> {
     }
 
     fn word_source_text(&self, word: &Word) -> String {
+        let rendered = word.render(self.input);
         if word.span.start.offset <= word.span.end.offset
             && word.span.end.offset <= self.input.len()
         {
-            return self.input[word.span.start.offset..word.span.end.offset].to_string();
+            let source = &self.input[word.span.start.offset..word.span.end.offset];
+            if rendered == source {
+                return source.to_string();
+            }
         }
-        word.to_string()
+        rendered
     }
 
     fn is_literal_flag_word(word: &Word, raw: &str) -> bool {
@@ -3807,7 +4161,7 @@ impl<'a> Parser<'a> {
             return DeclOperand::Flag(word);
         }
 
-        if let Some(assignment) = self.parse_assignment_from_text(&raw, word.span) {
+        if let Some(assignment) = self.parse_assignment_from_word(word.clone(), &raw) {
             return DeclOperand::Assignment(assignment);
         }
 
@@ -3821,13 +4175,13 @@ impl<'a> Parser<'a> {
     /// Parse the value side of an assignment (`VAR=value`).
     /// Returns `Some((Assignment, needs_advance))` if the current word is an assignment.
     /// The bool indicates whether the caller must call `self.advance()` afterward.
-    fn try_parse_assignment(&mut self, w: &str) -> Option<(Assignment, bool)> {
-        let (_, _, value_str, _) = Self::is_assignment(w)?;
+    fn try_parse_assignment(&mut self, raw: &str) -> Option<(Assignment, bool)> {
+        let (_, _, value_str, _) = Self::is_assignment(raw)?;
 
         // Empty value — check for arr=(...) syntax with separate tokens
         if value_str.is_empty() {
             let assignment_span = self.current_span;
-            let (name, index, _, is_append) = Self::is_assignment(w)?;
+            let (name, index, _, is_append) = Self::is_assignment(raw)?;
             let name_span = Span::from_positions(
                 assignment_span.start,
                 assignment_span.start.advanced_by(name),
@@ -3859,13 +4213,15 @@ impl<'a> Parser<'a> {
                 ));
             }
             // Empty assignment: VAR=
-            let value_start_offset = if let Some(pos) = w.find("+=") {
+            let value_start_offset = if let Some(pos) = raw.find("+=") {
                 pos + 2
             } else {
-                w.find('=')? + 1
+                raw.find('=')? + 1
             };
             let value_span = Span::from_positions(
-                assignment_span.start.advanced_by(&w[..value_start_offset]),
+                assignment_span
+                    .start
+                    .advanced_by(&raw[..value_start_offset]),
                 assignment_span.end,
             );
             return Some((
@@ -3883,7 +4239,11 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        self.parse_assignment_from_text(w, self.current_span)
+        self.parse_assignment_from_current_token(raw)
+            .or_else(|| {
+                self.current_word()
+                    .and_then(|word| self.parse_assignment_from_word(word, raw))
+            })
             .map(|assignment| (assignment, true))
     }
 
@@ -3906,7 +4266,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Some(kind) if kind.is_word_like() => {
-                    let elem = self.current_word_text().unwrap();
+                    let elem = self.current_source_like_word_text().unwrap();
                     compound.push(' ');
                     compound.push_str(&elem);
                     self.advance();
@@ -4182,18 +4542,18 @@ impl<'a> Parser<'a> {
             match self.current_token_kind {
                 Some(kind) if kind.is_word_like() => {
                     let is_literal = kind == TokenKind::LiteralWord;
-                    // Clone early to release borrow on self.current_token
-                    let w = self.current_word_text().unwrap();
+                    let word_text = self.current_source_like_word_text().unwrap();
 
                     // Stop if this word cannot start a command (like 'then', 'fi', etc.)
-                    if words.is_empty() && Self::is_non_command_word(&w) {
+                    if words.is_empty() && Self::is_non_command_word(word_text.as_ref()) {
                         break;
                     }
 
                     // Check for assignment (only before the command name, not for literal words)
                     if words.is_empty()
                         && !is_literal
-                        && let Some((assignment, needs_advance)) = self.try_parse_assignment(&w)
+                        && let Some((assignment, needs_advance)) =
+                            self.try_parse_assignment(word_text.as_ref())
                     {
                         if needs_advance {
                             self.advance();
@@ -4212,11 +4572,12 @@ impl<'a> Parser<'a> {
 
                     // Handle compound array assignment in arg position:
                     // declare -a arr=(x y z) → arr=(x y z) as single arg
-                    if w.ends_with('=') && !words.is_empty() {
+                    if word_text.ends_with('=') && !words.is_empty() {
                         let original_word = self.current_word();
                         let saved_span = self.current_span;
                         self.advance();
-                        if let Some(word) = self.try_parse_compound_array_arg(w.clone(), saved_span)
+                        if let Some(word) =
+                            self.try_parse_compound_array_arg(word_text.into_owned(), saved_span)
                         {
                             words.push(word);
                             continue;
@@ -4565,9 +4926,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_word_with_context(&mut self, s: &str, span: Span, base: Position) -> Word {
-        let mut parts = Vec::new();
-        let mut part_spans = Vec::new();
+    fn decode_word_parts_into(
+        &mut self,
+        s: &str,
+        base: Position,
+        parts: &mut Vec<WordPart>,
+        part_spans: &mut Vec<Span>,
+    ) {
         let mut chars = s.chars().peekable();
         let mut current = String::new();
         let mut current_start = base;
@@ -4595,13 +4960,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            self.flush_literal_part(
-                &mut parts,
-                &mut part_spans,
-                &mut current,
-                current_start,
-                part_start,
-            );
+            self.flush_literal_part(parts, part_spans, &mut current, current_start, part_start);
 
             if chars.peek() == Some(&'\'') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4632,8 +4991,8 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Self::push_word_part(
-                    &mut parts,
-                    &mut part_spans,
+                    parts,
+                    part_spans,
                     WordPart::Literal(self.literal_text(ansi, part_start, cursor)),
                     part_start,
                     cursor,
@@ -4667,8 +5026,8 @@ impl<'a> Parser<'a> {
                         expr.pop();
                     }
                     Self::push_word_part(
-                        &mut parts,
-                        &mut part_spans,
+                        parts,
+                        part_spans,
                         WordPart::ArithmeticExpansion(self.source_text(
                             expr.clone(),
                             expr_start,
@@ -4696,8 +5055,8 @@ impl<'a> Parser<'a> {
                         }
                     }
                     Self::push_word_part(
-                        &mut parts,
-                        &mut part_spans,
+                        parts,
+                        part_spans,
                         WordPart::CommandSubstitution(
                             self.nested_commands_from_source(&cmd_str, inner_start),
                         ),
@@ -4724,12 +5083,12 @@ impl<'a> Parser<'a> {
                         } else {
                             WordPart::Length(format!("{}[{}]", var_name, index).into())
                         };
-                        Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
+                        Self::push_word_part(parts, part_spans, part, part_start, cursor);
                     } else {
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                         Self::push_word_part(
-                            &mut parts,
-                            &mut part_spans,
+                            parts,
+                            part_spans,
                             WordPart::Length(var_name.into()),
                             part_start,
                             cursor,
@@ -4753,11 +5112,11 @@ impl<'a> Parser<'a> {
                         } else {
                             WordPart::Variable(format!("!{}[{}]", var_name, index).into())
                         };
-                        Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
+                        Self::push_word_part(parts, part_spans, part, part_start, cursor);
                     } else if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
                         Self::push_word_part(
-                            &mut parts,
-                            &mut part_spans,
+                            parts,
+                            part_spans,
                             WordPart::IndirectExpansion {
                                 name: var_name.into(),
                                 operator: None,
@@ -4779,8 +5138,8 @@ impl<'a> Parser<'a> {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let operand = self.read_brace_operand(&mut chars, &mut cursor);
                             Self::push_word_part(
-                                &mut parts,
-                                &mut part_spans,
+                                parts,
+                                part_spans,
                                 WordPart::IndirectExpansion {
                                     name: var_name.into(),
                                     operator: Some(operator),
@@ -4800,8 +5159,8 @@ impl<'a> Parser<'a> {
                                 suffix.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
                             }
                             Self::push_word_part(
-                                &mut parts,
-                                &mut part_spans,
+                                parts,
+                                part_spans,
                                 WordPart::Variable(format!("!{}{}", var_name, suffix).into()),
                                 part_start,
                                 cursor,
@@ -4821,8 +5180,8 @@ impl<'a> Parser<'a> {
                             _ => unreachable!(),
                         };
                         Self::push_word_part(
-                            &mut parts,
-                            &mut part_spans,
+                            parts,
+                            part_spans,
                             WordPart::IndirectExpansion {
                                 name: var_name.into(),
                                 operator: Some(operator),
@@ -4848,7 +5207,7 @@ impl<'a> Parser<'a> {
                         } else {
                             WordPart::Variable(format!("!{}{}", var_name, suffix).into())
                         };
-                        Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
+                        Self::push_word_part(parts, part_spans, part, part_start, cursor);
                     }
 
                     current_start = cursor;
@@ -4991,7 +5350,7 @@ impl<'a> Parser<'a> {
                         }
                     };
 
-                    Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
+                    Self::push_word_part(parts, part_spans, part, part_start, cursor);
                     current_start = cursor;
                     continue;
                 }
@@ -5216,7 +5575,7 @@ impl<'a> Parser<'a> {
                     WordPart::Variable(var_name.into())
                 };
 
-                Self::push_word_part(&mut parts, &mut part_spans, part, part_start, cursor);
+                Self::push_word_part(parts, part_spans, part, part_start, cursor);
                 current_start = cursor;
                 continue;
             }
@@ -5225,8 +5584,8 @@ impl<'a> Parser<'a> {
                 if matches!(c, '?' | '#' | '@' | '*' | '!' | '$' | '-') || c.is_ascii_digit() {
                     let name = Self::next_word_char_unwrap(&mut chars, &mut cursor).to_string();
                     Self::push_word_part(
-                        &mut parts,
-                        &mut part_spans,
+                        parts,
+                        part_spans,
                         WordPart::Variable(name.into()),
                         part_start,
                         cursor,
@@ -5238,8 +5597,8 @@ impl<'a> Parser<'a> {
                     });
                     if !var_name.is_empty() {
                         Self::push_word_part(
-                            &mut parts,
-                            &mut part_spans,
+                            parts,
+                            part_spans,
                             WordPart::Variable(var_name.into()),
                             part_start,
                             cursor,
@@ -5260,30 +5619,33 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.flush_literal_part(
-            &mut parts,
-            &mut part_spans,
-            &mut current,
-            current_start,
-            cursor,
-        );
+        self.flush_literal_part(parts, part_spans, &mut current, current_start, cursor);
 
         if parts.is_empty() {
             Self::push_word_part(
-                &mut parts,
-                &mut part_spans,
+                parts,
+                part_spans,
                 WordPart::Literal(self.literal_text(String::new(), base, cursor)),
                 base,
                 cursor,
             );
         }
+    }
 
+    fn decode_word_text(&mut self, s: &str, span: Span, base: Position, quoted: bool) -> Word {
+        let mut parts = Vec::new();
+        let mut part_spans = Vec::new();
+        self.decode_word_parts_into(s, base, &mut parts, &mut part_spans);
         Word {
             parts,
             part_spans,
-            quoted: false,
+            quoted,
             span,
         }
+    }
+
+    fn parse_word_with_context(&mut self, s: &str, span: Span, base: Position) -> Word {
+        self.decode_word_text(s, span, base, false)
     }
 
     /// Read operand for brace expansion (everything until closing brace)
@@ -6061,6 +6423,72 @@ mod tests {
             .collect();
 
         assert_eq!(slices, vec!["x", "$HOME", "$(pwd)", "y"]);
+    }
+
+    #[test]
+    fn test_mixed_segment_word_preserves_expansion_boundaries() {
+        let input = "echo foo\"$bar\"baz\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let word = &command.args[0];
+
+        let slices: Vec<&str> = word
+            .part_spans
+            .iter()
+            .map(|span| &input[span.start.offset..span.end.offset])
+            .collect();
+
+        assert_eq!(slices, vec!["foo", "$bar", "baz"]);
+        assert!(matches!(word.parts[1], WordPart::Variable(_)));
+    }
+
+    #[test]
+    fn test_assignment_value_preserves_mixed_quoted_boundaries() {
+        let input = "foo=\"$bar\"baz echo\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+
+        let slices: Vec<&str> = word
+            .part_spans
+            .iter()
+            .map(|span| &input[span.start.offset..span.end.offset])
+            .collect();
+
+        assert!(!word.quoted);
+        assert_eq!(slices, vec!["$bar", "baz"]);
+        assert!(matches!(word.parts[0], WordPart::Variable(_)));
+    }
+
+    #[test]
+    fn test_assignment_value_stays_quoted_when_entire_value_is_quoted() {
+        let input = "foo=\"$bar\"\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+
+        let slices: Vec<&str> = word
+            .part_spans
+            .iter()
+            .map(|span| &input[span.start.offset..span.end.offset])
+            .collect();
+
+        assert!(word.quoted);
+        assert_eq!(slices, vec!["$bar"]);
+        assert!(matches!(word.parts[0], WordPart::Variable(_)));
     }
 
     #[test]

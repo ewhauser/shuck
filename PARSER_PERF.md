@@ -151,6 +151,14 @@ Exit criteria:
 - `parse_word_with_context` is no longer a first-order hotspot in the main parser profile.
 - Normal command parsing does not scan the same word text twice.
 
+#### Stage 3 Notes
+
+- 2026-04-05: a first segment-aware decode pass now preserves mixed quoted/unquoted expansion boundaries for normal words and assignment values, with regression tests covering `foo"$bar"baz` and `foo="$bar"baz`.
+- 2026-04-05: the temporary segment-by-segment wrapper has been replaced with a shared append-style decoder (`decode_word_parts_into`) so normal word decoding no longer constructs intermediate `Word` values just to splice their parts into another `Word`.
+- 2026-04-05: current-token word decoding and assignment-value decoding also avoid cloning `current_token` on their slower paths by temporarily taking and restoring the token around decode work.
+- 2026-04-05: warm `cargo bench -p shuck-benchmark --bench parser -- nvm --noplot` runs after these changes stayed roughly flat in the `5.21 ms` to `6.06 ms` range, so this is still intermediate Stage 3 groundwork rather than the benchmark-positive landing.
+- 2026-04-05: `cargo flamegraph --profile profiling -p shuck-benchmark --bench parser -- nvm --noplot` did not produce a local profile here; on this machine it failed with `Cannot create output document ... cargo-flamegraph.trace` / exit code `8`, so hotspot confirmation still needs either a working local profiler run or an alternate profiling path.
+
 ### Stage 4: Make Nested Shell Constructs Source-Backed Too
 
 - [ ] Stop building temporary `String`s for command substitution and parameter expansion when the original source span is available.
