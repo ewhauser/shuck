@@ -348,7 +348,10 @@ impl<'a> Lexer<'a> {
             '[' => {
                 self.advance();
                 if self.peek_char() == Some('[')
-                    && matches!(self.peek_nth_char(1), Some(' ') | Some('\t') | Some('\n') | None)
+                    && matches!(
+                        self.peek_nth_char(1),
+                        Some(' ') | Some('\t') | Some('\n') | None
+                    )
                 {
                     self.advance();
                     Some(Token::DoubleLeftBracket)
@@ -1576,21 +1579,55 @@ impl<'a> Lexer<'a> {
         let mut in_double = false;
         while let Some(c) = self.peek_char() {
             if in_single {
-                content.push(c);
-                self.advance();
-                if c == '\'' {
-                    in_single = false;
+                match c {
+                    '\'' => {
+                        content.push(c);
+                        self.advance();
+                        in_single = false;
+                    }
+                    '\\' => {
+                        self.advance();
+                        if let Some(esc) = self.peek_char() {
+                            match esc {
+                                '$' => {
+                                    content.push('\x00');
+                                    content.push('$');
+                                    self.advance();
+                                }
+                                '"' | '\\' | '`' => {
+                                    content.push(esc);
+                                    self.advance();
+                                }
+                                '}' => {
+                                    content.push('\\');
+                                    content.push('}');
+                                    self.advance();
+                                }
+                                _ => {
+                                    content.push('\\');
+                                    content.push(esc);
+                                    self.advance();
+                                }
+                            }
+                        } else {
+                            content.push('\\');
+                        }
+                    }
+                    _ => {
+                        content.push(c);
+                        self.advance();
+                    }
                 }
                 continue;
             }
 
             match c {
-                '{' if !in_double => {
+                '{' if !in_single && !in_double => {
                     depth += 1;
                     content.push(c);
                     self.advance();
                 }
-                '}' if !in_double => {
+                '}' if !in_single && !in_double => {
                     depth -= 1;
                     self.advance();
                     content.push('}');

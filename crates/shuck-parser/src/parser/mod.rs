@@ -213,7 +213,8 @@ impl<'a> Parser<'a> {
     fn current_conditional_literal_word(&self) -> Option<Word> {
         match self.current_token.as_ref()? {
             Token::LeftBrace | Token::RightBrace => Some(Word::literal_with_span(
-                self.input[self.current_span.start.offset..self.current_span.end.offset].to_string(),
+                self.input[self.current_span.start.offset..self.current_span.end.offset]
+                    .to_string(),
                 self.current_span,
             )),
             _ => None,
@@ -1312,7 +1313,10 @@ impl<'a> Parser<'a> {
 
         let mut commands = vec![first];
 
-        while matches!(self.current_token, Some(Token::Pipe) | Some(Token::PipeBoth)) {
+        while matches!(
+            self.current_token,
+            Some(Token::Pipe) | Some(Token::PipeBoth)
+        ) {
             let pipe_both = matches!(self.current_token, Some(Token::PipeBoth));
             let operator_span = self.current_span;
             self.advance();
@@ -1840,7 +1844,9 @@ impl<'a> Parser<'a> {
                     previous_top_level_operand = false;
                     probe.advance();
                 }
-                Some(token) if paren_depth == 0 && Self::is_operand_like_double_paren_token(token) => {
+                Some(token)
+                    if paren_depth == 0 && Self::is_operand_like_double_paren_token(token) =>
+                {
                     if previous_top_level_operand {
                         return true;
                     }
@@ -5588,7 +5594,8 @@ mod tests {
         let Command::Function(function) = &script.commands[0] else {
             panic!("expected function definition");
         };
-        let Command::Compound(CompoundCommand::BraceGroup(body), redirects) = function.body.as_ref()
+        let Command::Compound(CompoundCommand::BraceGroup(body), redirects) =
+            function.body.as_ref()
         else {
             panic!("expected brace-group function body");
         };
@@ -5631,7 +5638,10 @@ mod tests {
     #[test]
     fn test_dynamic_heredoc_delimiter_is_rejected() {
         let parser = Parser::new("cat <<\"$@\"\nbody\n$@\n");
-        assert!(parser.parse().is_err(), "dynamic heredoc delimiter should fail");
+        assert!(
+            parser.parse().is_err(),
+            "dynamic heredoc delimiter should fail"
+        );
     }
 
     #[test]
@@ -5654,7 +5664,8 @@ mod tests {
 
     #[test]
     fn test_heredoc_multiple_lines_preserve_while_do_boundary() {
-        let input = "while cat <<E1 && cat <<E2\n1\nE1\n2\nE2\ndo\n  cat <<E3\n3\nE3\n  break\ndone\n";
+        let input =
+            "while cat <<E1 && cat <<E2\n1\nE1\n2\nE2\ndo\n  cat <<E3\n3\nE3\n  break\ndone\n";
         let script = Parser::new(input).parse().unwrap().script;
 
         let (compound, redirects) = expect_compound(&script.commands[0]);
@@ -6033,12 +6044,16 @@ mod tests {
         };
         assert!(redirects.is_empty());
         assert_eq!(commands.len(), 1);
-        assert!(matches!(commands[0], Command::Compound(CompoundCommand::Subshell(_), _)));
+        assert!(matches!(
+            commands[0],
+            Command::Compound(CompoundCommand::Subshell(_), _)
+        ));
     }
 
     #[test]
     fn test_double_left_paren_test_clause_parses_as_command() {
-        let input = "if ! ((test x\\\"$i\\\" = x-g) || (test x\\\"$i\\\" = x-O2)); then\n  echo bye\nfi\n";
+        let input =
+            "if ! ((test x\\\"$i\\\" = x-g) || (test x\\\"$i\\\" = x-O2)); then\n  echo bye\nfi\n";
         Parser::new(input).parse().unwrap();
     }
 
