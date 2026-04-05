@@ -1638,8 +1638,11 @@ impl<'a> Parser<'a> {
                 "function" => return self.parse_function_keyword().map(Some),
                 _ => {
                     // Check for POSIX-style function: name() { body }
-                    // Don't match if word contains '=' (that's an assignment like arr=(a b c))
-                    if !word.contains('=') && matches!(self.peek_next(), Some(Token::LeftParen)) {
+                    // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
+                    if !word.contains('=')
+                        && !word.contains('[')
+                        && matches!(self.peek_next(), Some(Token::LeftParen))
+                    {
                         return self.parse_function_posix().map(Some);
                     }
                 }
@@ -1922,6 +1925,10 @@ impl<'a> Parser<'a> {
         let right_paren_span = loop {
             match &self.current_token {
                 Some(Token::DoubleLeftParen) | Some(Token::LeftParen) => {
+                    paren_depth += 1;
+                    self.advance();
+                }
+                Some(Token::ProcessSubIn) | Some(Token::ProcessSubOut) => {
                     paren_depth += 1;
                     self.advance();
                 }
@@ -2806,6 +2813,10 @@ impl<'a> Parser<'a> {
                     depth += 1;
                     self.advance();
                 }
+                Some(Token::ProcessSubIn) | Some(Token::ProcessSubOut) => {
+                    depth += 1;
+                    self.advance();
+                }
                 Some(Token::DoubleRightParen) => {
                     if depth == 0 {
                         let right_paren_span = self.current_span;
@@ -3045,6 +3056,130 @@ impl<'a> Parser<'a> {
             return Some((lhs, None, value, is_append));
         }
         None
+    }
+
+    fn scan_split_indexed_assignment(&self, start: Position) -> Option<(String, Position)> {
+        if start.offset >= self.input.len() {
+            return None;
+        }
+
+        let source = &self.input[start.offset..];
+        let mut chars = source.chars().peekable();
+        let mut cursor = start;
+        let mut text = String::new();
+
+        let first = *chars.peek()?;
+        if !first.is_ascii_alphabetic() && first != '_' {
+            return None;
+        }
+        text.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+        text.push_str(&Self::read_word_while(&mut chars, &mut cursor, |c| {
+            c.is_ascii_alphanumeric() || c == '_'
+        }));
+
+        if chars.peek() != Some(&'[') {
+            return None;
+        }
+        text.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+
+        let mut bracket_depth = 1_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while let Some(ch) = Self::next_word_char(&mut chars, &mut cursor) {
+            text.push(ch);
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '[' if !in_single && !in_double => bracket_depth += 1,
+                ']' if !in_single && !in_double => {
+                    bracket_depth -= 1;
+                    if bracket_depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if bracket_depth != 0 {
+            return None;
+        }
+
+        if chars.peek() == Some(&'+') {
+            text.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+        }
+
+        if chars.peek() != Some(&'=') {
+            return None;
+        }
+        text.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+
+        let mut paren_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while let Some(&ch) = chars.peek() {
+            if !in_single
+                && !in_double
+                && paren_depth == 0
+                && brace_depth == 0
+                && matches!(ch, ' ' | '\t' | '\n' | ';' | '|' | '&' | '>' | '<' | ')')
+            {
+                break;
+            }
+
+            let ch = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+            text.push(ch);
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '(' if !in_single && !in_double => paren_depth += 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                _ => {}
+            }
+        }
+
+        Some((text, cursor))
+    }
+
+    fn try_parse_split_indexed_assignment(&mut self) -> Option<Assignment> {
+        let Some(Token::Word(word)) = &self.current_token else {
+            return None;
+        };
+        if !word.contains('[') || Self::is_assignment(word).is_some() {
+            return None;
+        }
+
+        let start = self.current_span.start;
+        let (text, end) = self.scan_split_indexed_assignment(start)?;
+        let span = Span::from_positions(start, end);
+        let assignment = self.parse_assignment_from_text(&text, span)?;
+
+        while self.current_token.is_some() && self.current_span.start.offset < end.offset {
+            self.advance();
+        }
+
+        Some(assignment)
     }
 
     /// Parse a simple command with redirections
@@ -3599,6 +3734,14 @@ impl<'a> Parser<'a> {
                         if needs_advance {
                             self.advance();
                         }
+                        assignments.push(assignment);
+                        continue;
+                    }
+
+                    if words.is_empty()
+                        && !is_literal
+                        && let Some(assignment) = self.try_parse_split_indexed_assignment()
+                    {
                         assignments.push(assignment);
                         continue;
                     }
@@ -5105,6 +5248,40 @@ mod tests {
     }
 
     #[test]
+    fn test_indexed_assignment_with_spaces_in_subscript_parses() {
+        let input = "a[1 + 2]=3\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.assignments.len(), 1);
+        assert_eq!(command.assignments[0].name, "a");
+        assert_eq!(
+            command.assignments[0].index.as_ref().unwrap().slice(input),
+            "1 + 2"
+        );
+        assert!(command.name.render(input).is_empty());
+    }
+
+    #[test]
+    fn test_parenthesized_indexed_assignment_is_not_function_definition() {
+        let input = "a[(1+2)*3]=9\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.assignments.len(), 1);
+        assert_eq!(command.assignments[0].name, "a");
+        assert_eq!(
+            command.assignments[0].index.as_ref().unwrap().slice(input),
+            "(1+2)*3"
+        );
+        assert!(command.name.render(input).is_empty());
+    }
+
+    #[test]
     fn test_leaf_spans_track_words_assignments_and_redirects() {
         let script = Parser::new("foo=bar echo hi > out\n")
             .parse()
@@ -5390,6 +5567,34 @@ mod tests {
         assert_eq!(command.second_semicolon_span.slice(input), ";");
         assert_eq!(command.step_span.unwrap().slice(input), " i += ($# - 1)");
         assert_eq!(command.right_paren_span.slice(input), "))");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_treats_less_than_left_paren_as_arithmetic() {
+        let input = "for (( n=0; n<(3-(1)); n++ )) ; do echo $n; done\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.condition_span.unwrap().slice(input), " n<(3-(1))");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_treats_spaced_less_than_left_paren_as_arithmetic() {
+        let input = "for (( n=0; n<(3- (1)); n++ )) ; do echo $n; done\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.condition_span.unwrap().slice(input), " n<(3- (1))");
     }
 
     #[test]

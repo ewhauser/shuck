@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 38 actionable `skip` entries remain in scope.
-- 6 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 35 actionable `skip` entries remain in scope.
+- 9 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 
 ## Expectation Cleanup (Already Parses)
 
@@ -26,9 +26,9 @@ Shared work: add a Bash-like alias expansion and token reinjection phase at the 
 
 Shared work: make assignment detection more grammar-aware. The lexer and parser should keep `name[expr]=value` together even when the subscript contains spaces or parentheses, and function-definition detection should only fire on a bare identifier followed by `()`. Arithmetic `for` headers need a mode where `<(` is less-than plus `(`, not process substitution. AST change: none.
 
-- [ ] `oils/ble-idioms.test.sh::Issue #1069 [53] - LHS array parsing a[1 + 2]=3 (see spec/array-assign for more)` - keep indexed assignment LHS intact and stop misdetecting `a[(1+2)*3]=9` as a POSIX function definition.
-- [ ] `oils/bugs.test.sh::for loop (issue #1446)` - inside arithmetic `for ((...))`, lex `<(` as arithmetic text, not `ProcessSubIn`.
-- [ ] `oils/bugs.test.sh::for loop 2 (issue #1446)` - same arithmetic-header fix for the spaced `3- (1)` variant.
+- [x] `oils/ble-idioms.test.sh::Issue #1069 [53] - LHS array parsing a[1 + 2]=3 (see spec/array-assign for more)` - parser-side indexed-assignment scanning now reconstructs `name[expr]=value` across split tokens, and POSIX function detection only triggers on bare identifiers.
+- [x] `oils/bugs.test.sh::for loop (issue #1446)` - arithmetic parsing now treats `ProcessSubIn/Out` tokens as `<` or `>` plus `(` in arithmetic contexts, so `n<(3-(1))` stays inside the header.
+- [x] `oils/bugs.test.sh::for loop 2 (issue #1446)` - the same arithmetic-context handling now covers the spaced `3- (1)` variant as well.
 
 ## Redirect Placement, Redirect-Only Commands, and Heredocs
 

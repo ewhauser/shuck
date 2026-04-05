@@ -15,10 +15,6 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
-  "oils/ble-idioms.test.sh::Issue #1069 [53] - LHS array parsing a[1 + 2]=3 (see spec/array-assign for more)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/bool-parse.test.sh::Not allowed: [[ ) ]] and [[ ( ]]": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
@@ -26,14 +22,6 @@
   "oils/bugs.test.sh::First word like foo$x() and foo$[1+2] (regression)": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
-  },
-  "oils/bugs.test.sh::for loop (issue #1446)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/bugs.test.sh::for loop 2 (issue #1446)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
   "oils/builtin-echo.test.sh::echo builtin should disallow typed args - literal": {
     "expectation": "skip",
