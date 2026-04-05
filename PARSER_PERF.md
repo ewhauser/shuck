@@ -106,14 +106,14 @@ Captured on 2026-04-05 from the terminal output of the Stage 0 Criterion command
 
 ### Stage 1: Split Token Kind From Payload
 
-- [ ] Introduce a `TokenKind` enum for parser dispatch.
-- [ ] Introduce a lightweight token representation that stores kind, range/span, and flags separately from payload.
-- [ ] Replace `Token::Word(String)`, `Token::QuotedWord(String)`, and `Token::LiteralWord(String)` with kind plus source-backed payload.
-- [ ] Replace `Token::Comment(String)` with a trivia token kind plus range only.
-- [ ] Replace `Token::Error(String)` on the hot path with a lightweight error kind plus side-channel diagnostics where possible.
-- [ ] Update parser branching to use `TokenKind` instead of matching owned payload variants.
-- [ ] Remove parser logic that depends on comment string contents when only the range is needed.
-- [ ] Re-profile before moving on.
+- [x] Introduce a `TokenKind` enum for parser dispatch.
+- [x] Introduce a lightweight token representation that stores kind, range/span, and flags separately from payload.
+- [x] Replace `Token::Word(String)`, `Token::QuotedWord(String)`, and `Token::LiteralWord(String)` with kind plus source-backed payload.
+- [x] Replace `Token::Comment(String)` with a trivia token kind plus range only.
+- [x] Replace `Token::Error(String)` on the hot path with a lightweight error kind plus side-channel diagnostics where possible.
+- [x] Update parser branching to use `TokenKind` instead of matching owned payload variants.
+- [x] Remove parser logic that depends on comment string contents when only the range is needed.
+- [x] Re-profile before moving on.
 
 Exit criteria:
 
@@ -278,16 +278,16 @@ Rejected as the first move because current profiles still show parser cost as th
 
 ## Verification
 
-- [ ] `cargo test -p shuck-parser`
+- [x] `cargo test -p shuck-parser`
 - [ ] `cargo test -p shuck-benchmark`
 - [ ] `cargo test -p shuck-linter`
 - [ ] `cargo bench -p shuck-benchmark --bench lexer -- --noplot`
 - [ ] `cargo bench -p shuck-benchmark --bench parser -- --noplot`
 - [ ] `cargo bench -p shuck-benchmark --bench linter -- --noplot`
-- [ ] `PROFILE_CASE=all make profile-parser`
-- [ ] `PROFILE_CASE=nvm make profile-parser`
-- [ ] `PROFILE_CASE=all make profile-linter`
-- [ ] `PROFILE_CASE=nvm make profile-linter`
+- [x] `PROFILE_CASE=all make profile-parser`
+- [x] `PROFILE_CASE=nvm make profile-parser`
+- [x] `PROFILE_CASE=all make profile-linter`
+- [x] `PROFILE_CASE=nvm make profile-linter`
 
 For every completed stage:
 

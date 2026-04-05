@@ -25,6 +25,212 @@ impl SpannedToken {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct TokenFlags(u8);
+
+impl TokenFlags {
+    const COOKED_TEXT: u8 = 1 << 0;
+    const SYNTHETIC: u8 = 1 << 1;
+
+    const fn empty() -> Self {
+        Self(0)
+    }
+
+    const fn cooked_text() -> Self {
+        Self(Self::COOKED_TEXT)
+    }
+
+    pub(crate) const fn with_synthetic(self) -> Self {
+        Self(self.0 | Self::SYNTHETIC)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TokenText<'a> {
+    Borrowed(&'a str),
+    Owned(String),
+}
+
+impl TokenText<'_> {
+    pub(crate) fn as_str(&self) -> &str {
+        match self {
+            Self::Borrowed(text) => text,
+            Self::Owned(text) => text,
+        }
+    }
+
+    fn into_owned<'a>(self) -> TokenText<'a> {
+        match self {
+            Self::Borrowed(text) => TokenText::Owned(text.to_string()),
+            Self::Owned(text) => TokenText::Owned(text),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LexerErrorKind {
+    CommandSubstitution,
+    BacktickSubstitution,
+    SingleQuote,
+    DoubleQuote,
+}
+
+impl LexerErrorKind {
+    pub(crate) const fn message(self) -> &'static str {
+        match self {
+            Self::CommandSubstitution => "unterminated command substitution",
+            Self::BacktickSubstitution => "unterminated backtick substitution",
+            Self::SingleQuote => "unterminated single quote",
+            Self::DoubleQuote => "unterminated double quote",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TokenPayload<'a> {
+    None,
+    Text(TokenText<'a>),
+    Fd(i32),
+    FdPair(i32, i32),
+    Error(LexerErrorKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LexedToken<'a> {
+    pub kind: TokenKind,
+    pub span: Span,
+    pub flags: TokenFlags,
+    payload: TokenPayload<'a>,
+}
+
+impl<'a> LexedToken<'a> {
+    pub(crate) fn punctuation(kind: TokenKind) -> Self {
+        Self {
+            kind,
+            span: Span::new(),
+            flags: TokenFlags::empty(),
+            payload: TokenPayload::None,
+        }
+    }
+
+    fn borrowed_text(kind: TokenKind, text: &'a str) -> Self {
+        Self {
+            kind,
+            span: Span::new(),
+            flags: TokenFlags::empty(),
+            payload: TokenPayload::Text(TokenText::Borrowed(text)),
+        }
+    }
+
+    fn owned_text(kind: TokenKind, text: String) -> Self {
+        Self {
+            kind,
+            span: Span::new(),
+            flags: TokenFlags::cooked_text(),
+            payload: TokenPayload::Text(TokenText::Owned(text)),
+        }
+    }
+
+    fn comment() -> Self {
+        Self {
+            kind: TokenKind::Comment,
+            span: Span::new(),
+            flags: TokenFlags::empty(),
+            payload: TokenPayload::None,
+        }
+    }
+
+    fn fd(kind: TokenKind, fd: i32) -> Self {
+        Self {
+            kind,
+            span: Span::new(),
+            flags: TokenFlags::empty(),
+            payload: TokenPayload::Fd(fd),
+        }
+    }
+
+    fn fd_pair(kind: TokenKind, src_fd: i32, dst_fd: i32) -> Self {
+        Self {
+            kind,
+            span: Span::new(),
+            flags: TokenFlags::empty(),
+            payload: TokenPayload::FdPair(src_fd, dst_fd),
+        }
+    }
+
+    fn error(kind: LexerErrorKind) -> Self {
+        Self {
+            kind: TokenKind::Error,
+            span: Span::new(),
+            flags: TokenFlags::empty(),
+            payload: TokenPayload::Error(kind),
+        }
+    }
+
+    pub(crate) fn with_span(mut self, span: Span) -> Self {
+        self.span = span;
+        self
+    }
+
+    pub(crate) fn rebased(mut self, base: Position) -> Self {
+        self.span = self.span.rebased(base);
+        self
+    }
+
+    pub(crate) fn with_synthetic_flag(mut self) -> Self {
+        self.flags = self.flags.with_synthetic();
+        self
+    }
+
+    pub(crate) fn into_owned<'b>(self) -> LexedToken<'b> {
+        let payload = match self.payload {
+            TokenPayload::None => TokenPayload::None,
+            TokenPayload::Text(text) => TokenPayload::Text(text.into_owned()),
+            TokenPayload::Fd(fd) => TokenPayload::Fd(fd),
+            TokenPayload::FdPair(src_fd, dst_fd) => TokenPayload::FdPair(src_fd, dst_fd),
+            TokenPayload::Error(kind) => TokenPayload::Error(kind),
+        };
+
+        LexedToken {
+            kind: self.kind,
+            span: self.span,
+            flags: self.flags,
+            payload,
+        }
+    }
+
+    pub(crate) fn word_text(&self) -> Option<&str> {
+        self.kind
+            .is_word_like()
+            .then_some(())
+            .and_then(|_| match &self.payload {
+                TokenPayload::Text(text) => Some(text.as_str()),
+                _ => None,
+            })
+    }
+
+    pub(crate) fn fd_value(&self) -> Option<i32> {
+        match self.payload {
+            TokenPayload::Fd(fd) => Some(fd),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn fd_pair_value(&self) -> Option<(i32, i32)> {
+        match self.payload {
+            TokenPayload::FdPair(src_fd, dst_fd) => Some((src_fd, dst_fd)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn error_kind(&self) -> Option<LexerErrorKind> {
+        match self.payload {
+            TokenPayload::Error(kind) => Some(kind),
+            _ => None,
+        }
+    }
+}
+
 /// Result of reading a heredoc body from the source.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeredocRead {
@@ -135,14 +341,14 @@ impl<'a> Lexer<'a> {
 
     /// Get the next token from the input (without span info).
     pub fn next_token(&mut self) -> Option<Token> {
-        self.skip_whitespace();
-        self.next_token_inner(false)
+        self.next_lexed_token()
+            .map(|token| self.materialize_legacy_token(&token))
     }
 
     /// Get the next token from the input, preserving line comments.
     pub fn next_token_with_comments(&mut self) -> Option<Token> {
-        self.skip_whitespace();
-        self.next_token_inner(true)
+        self.next_lexed_token_with_comments()
+            .map(|token| self.materialize_legacy_token(&token))
     }
 
     fn peek_char(&mut self) -> Option<char> {
@@ -197,32 +403,119 @@ impl<'a> Lexer<'a> {
         self.cursor.skip_bytes(byte_len);
     }
 
+    fn materialize_legacy_token(&self, token: &LexedToken<'_>) -> Token {
+        match token.kind {
+            TokenKind::Word => Token::Word(token.word_text().unwrap_or_default().to_string()),
+            TokenKind::LiteralWord => {
+                Token::LiteralWord(token.word_text().unwrap_or_default().to_string())
+            }
+            TokenKind::QuotedWord => {
+                Token::QuotedWord(token.word_text().unwrap_or_default().to_string())
+            }
+            TokenKind::Comment => {
+                let start = token.span.start.offset.saturating_add(1);
+                Token::Comment(self.input[start..token.span.end.offset].to_string())
+            }
+            TokenKind::Newline => Token::Newline,
+            TokenKind::Semicolon => Token::Semicolon,
+            TokenKind::DoubleSemicolon => Token::DoubleSemicolon,
+            TokenKind::SemiAmp => Token::SemiAmp,
+            TokenKind::DoubleSemiAmp => Token::DoubleSemiAmp,
+            TokenKind::Pipe => Token::Pipe,
+            TokenKind::PipeBoth => Token::PipeBoth,
+            TokenKind::And => Token::And,
+            TokenKind::Or => Token::Or,
+            TokenKind::Background => Token::Background,
+            TokenKind::RedirectOut => Token::RedirectOut,
+            TokenKind::RedirectAppend => Token::RedirectAppend,
+            TokenKind::RedirectIn => Token::RedirectIn,
+            TokenKind::RedirectReadWrite => Token::RedirectReadWrite,
+            TokenKind::HereDoc => Token::HereDoc,
+            TokenKind::HereDocStrip => Token::HereDocStrip,
+            TokenKind::HereString => Token::HereString,
+            TokenKind::LeftParen => Token::LeftParen,
+            TokenKind::RightParen => Token::RightParen,
+            TokenKind::DoubleLeftParen => Token::DoubleLeftParen,
+            TokenKind::DoubleRightParen => Token::DoubleRightParen,
+            TokenKind::LeftBrace => Token::LeftBrace,
+            TokenKind::RightBrace => Token::RightBrace,
+            TokenKind::DoubleLeftBracket => Token::DoubleLeftBracket,
+            TokenKind::DoubleRightBracket => Token::DoubleRightBracket,
+            TokenKind::Assignment => Token::Assignment,
+            TokenKind::ProcessSubIn => Token::ProcessSubIn,
+            TokenKind::ProcessSubOut => Token::ProcessSubOut,
+            TokenKind::RedirectBoth => Token::RedirectBoth,
+            TokenKind::RedirectBothAppend => Token::RedirectBothAppend,
+            TokenKind::Clobber => Token::Clobber,
+            TokenKind::DupOutput => Token::DupOutput,
+            TokenKind::DupInput => Token::DupInput,
+            TokenKind::RedirectFd => Token::RedirectFd(token.fd_value().unwrap_or_default()),
+            TokenKind::RedirectFdAppend => {
+                Token::RedirectFdAppend(token.fd_value().unwrap_or_default())
+            }
+            TokenKind::DupFd => {
+                let (src_fd, dst_fd) = token.fd_pair_value().unwrap_or_default();
+                Token::DupFd(src_fd, dst_fd)
+            }
+            TokenKind::DupFdIn => {
+                let (src_fd, dst_fd) = token.fd_pair_value().unwrap_or_default();
+                Token::DupFdIn(src_fd, dst_fd)
+            }
+            TokenKind::DupFdClose => Token::DupFdClose(token.fd_value().unwrap_or_default()),
+            TokenKind::RedirectFdIn => Token::RedirectFdIn(token.fd_value().unwrap_or_default()),
+            TokenKind::RedirectFdReadWrite => {
+                Token::RedirectFdReadWrite(token.fd_value().unwrap_or_default())
+            }
+            TokenKind::Error => Token::Error(
+                token
+                    .error_kind()
+                    .map(LexerErrorKind::message)
+                    .unwrap_or("unknown lexer error")
+                    .to_string(),
+            ),
+        }
+    }
+
     /// Get the next token with its source span.
     pub fn next_spanned_token(&mut self) -> Option<SpannedToken> {
-        self.skip_whitespace();
-        let start = self.position;
-        let token = self.next_token_inner(false)?;
-        let end = self.position;
-        Some(SpannedToken::new(token, Span::from_positions(start, end)))
+        self.next_lexed_token().map(|token| {
+            let span = token.span;
+            SpannedToken::new(self.materialize_legacy_token(&token), span)
+        })
     }
 
     /// Get the next token with its source span, preserving line comments.
     pub fn next_spanned_token_with_comments(&mut self) -> Option<SpannedToken> {
+        self.next_lexed_token_with_comments().map(|token| {
+            let span = token.span;
+            SpannedToken::new(self.materialize_legacy_token(&token), span)
+        })
+    }
+
+    pub(crate) fn next_lexed_token(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
         let start = self.position;
-        let token = self.next_token_inner(true)?;
+        let token = self.next_lexed_token_inner(false)?;
         let end = self.position;
-        Some(SpannedToken::new(token, Span::from_positions(start, end)))
+        Some(token.with_span(Span::from_positions(start, end)))
+    }
+
+    pub(crate) fn next_lexed_token_with_comments(&mut self) -> Option<LexedToken<'a>> {
+        self.skip_whitespace();
+        let start = self.position;
+        let token = self.next_lexed_token_inner(true)?;
+        let end = self.position;
+        Some(token.with_span(Span::from_positions(start, end)))
     }
 
     /// Internal: get next token without recording position (called after whitespace skip)
-    fn next_token_inner(&mut self, preserve_comments: bool) -> Option<Token> {
+    fn next_lexed_token_inner(&mut self, preserve_comments: bool) -> Option<LexedToken<'a>> {
         let ch = self.peek_char()?;
 
         match ch {
             '\n' => {
                 self.advance();
-                Some(Token::Newline)
+                Some(LexedToken::punctuation(TokenKind::Newline))
             }
             ';' => {
                 self.advance();
@@ -230,62 +523,62 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     if self.peek_char() == Some('&') {
                         self.advance();
-                        Some(Token::DoubleSemiAmp) // ;;&
+                        Some(LexedToken::punctuation(TokenKind::DoubleSemiAmp)) // ;;&
                     } else {
-                        Some(Token::DoubleSemicolon) // ;;
+                        Some(LexedToken::punctuation(TokenKind::DoubleSemicolon)) // ;;
                     }
                 } else if self.peek_char() == Some('&') {
                     self.advance();
-                    Some(Token::SemiAmp) // ;&
+                    Some(LexedToken::punctuation(TokenKind::SemiAmp)) // ;&
                 } else {
-                    Some(Token::Semicolon)
+                    Some(LexedToken::punctuation(TokenKind::Semicolon))
                 }
             }
             '|' => {
                 self.advance();
                 if self.peek_char() == Some('|') {
                     self.advance();
-                    Some(Token::Or)
+                    Some(LexedToken::punctuation(TokenKind::Or))
                 } else if self.peek_char() == Some('&') {
                     self.advance();
-                    Some(Token::PipeBoth)
+                    Some(LexedToken::punctuation(TokenKind::PipeBoth))
                 } else {
-                    Some(Token::Pipe)
+                    Some(LexedToken::punctuation(TokenKind::Pipe))
                 }
             }
             '&' => {
                 self.advance();
                 if self.peek_char() == Some('&') {
                     self.advance();
-                    Some(Token::And)
+                    Some(LexedToken::punctuation(TokenKind::And))
                 } else if self.peek_char() == Some('>') {
                     self.advance();
                     if self.peek_char() == Some('>') {
                         self.advance();
-                        Some(Token::RedirectBothAppend)
+                        Some(LexedToken::punctuation(TokenKind::RedirectBothAppend))
                     } else {
-                        Some(Token::RedirectBoth)
+                        Some(LexedToken::punctuation(TokenKind::RedirectBoth))
                     }
                 } else {
-                    Some(Token::Background)
+                    Some(LexedToken::punctuation(TokenKind::Background))
                 }
             }
             '>' => {
                 self.advance();
                 if self.peek_char() == Some('>') {
                     self.advance();
-                    Some(Token::RedirectAppend)
+                    Some(LexedToken::punctuation(TokenKind::RedirectAppend))
                 } else if self.peek_char() == Some('|') {
                     self.advance();
-                    Some(Token::Clobber)
+                    Some(LexedToken::punctuation(TokenKind::Clobber))
                 } else if self.peek_char() == Some('(') {
                     self.advance();
-                    Some(Token::ProcessSubOut)
+                    Some(LexedToken::punctuation(TokenKind::ProcessSubOut))
                 } else if self.peek_char() == Some('&') {
                     self.advance();
-                    Some(Token::DupOutput)
+                    Some(LexedToken::punctuation(TokenKind::DupOutput))
                 } else {
-                    Some(Token::RedirectOut)
+                    Some(LexedToken::punctuation(TokenKind::RedirectOut))
                 }
             }
             '<' => {
@@ -294,42 +587,42 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     if self.peek_char() == Some('<') {
                         self.advance();
-                        Some(Token::HereString)
+                        Some(LexedToken::punctuation(TokenKind::HereString))
                     } else if self.peek_char() == Some('-') {
                         self.advance();
-                        Some(Token::HereDocStrip)
+                        Some(LexedToken::punctuation(TokenKind::HereDocStrip))
                     } else {
-                        Some(Token::HereDoc)
+                        Some(LexedToken::punctuation(TokenKind::HereDoc))
                     }
                 } else if self.peek_char() == Some('>') {
                     self.advance();
-                    Some(Token::RedirectReadWrite)
+                    Some(LexedToken::punctuation(TokenKind::RedirectReadWrite))
                 } else if self.peek_char() == Some('(') {
                     self.advance();
-                    Some(Token::ProcessSubIn)
+                    Some(LexedToken::punctuation(TokenKind::ProcessSubIn))
                 } else if self.peek_char() == Some('&') {
                     self.advance();
-                    Some(Token::DupInput)
+                    Some(LexedToken::punctuation(TokenKind::DupInput))
                 } else {
-                    Some(Token::RedirectIn)
+                    Some(LexedToken::punctuation(TokenKind::RedirectIn))
                 }
             }
             '(' => {
                 self.advance();
                 if self.peek_char() == Some('(') {
                     self.advance();
-                    Some(Token::DoubleLeftParen)
+                    Some(LexedToken::punctuation(TokenKind::DoubleLeftParen))
                 } else {
-                    Some(Token::LeftParen)
+                    Some(LexedToken::punctuation(TokenKind::LeftParen))
                 }
             }
             ')' => {
                 self.advance();
                 if self.peek_char() == Some(')') {
                     self.advance();
-                    Some(Token::DoubleRightParen)
+                    Some(LexedToken::punctuation(TokenKind::DoubleRightParen))
                 } else {
-                    Some(Token::RightParen)
+                    Some(LexedToken::punctuation(TokenKind::RightParen))
                 }
             }
             '{' => {
@@ -340,7 +633,7 @@ impl<'a> Lexer<'a> {
                     self.read_brace_expansion_word()
                 } else if self.is_brace_group_start() {
                     self.advance();
-                    Some(Token::LeftBrace)
+                    Some(LexedToken::punctuation(TokenKind::LeftBrace))
                 } else {
                     // {single} without comma/dot-dot is kept as literal word
                     self.read_brace_literal_word()
@@ -348,7 +641,7 @@ impl<'a> Lexer<'a> {
             }
             '}' => {
                 self.advance();
-                Some(Token::RightBrace)
+                Some(LexedToken::punctuation(TokenKind::RightBrace))
             }
             '[' => {
                 self.advance();
@@ -359,7 +652,7 @@ impl<'a> Lexer<'a> {
                     )
                 {
                     self.advance();
-                    Some(Token::DoubleLeftBracket)
+                    Some(LexedToken::punctuation(TokenKind::DoubleLeftBracket))
                 } else {
                     // `[` can start the test command when followed by whitespace, or it can be
                     // ordinary word text such as a glob bracket expression.
@@ -369,7 +662,7 @@ impl<'a> Lexer<'a> {
                     // structural tokens mid-word.
                     match self.peek_char() {
                         Some(' ') | Some('\t') | Some('\n') | None => {
-                            Some(Token::Word("[".to_string()))
+                            Some(LexedToken::borrowed_text(TokenKind::Word, "["))
                         }
                         _ => self.read_word_starting_with("["),
                     }
@@ -379,19 +672,20 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 if self.peek_char() == Some(']') {
                     self.advance();
-                    Some(Token::DoubleRightBracket)
+                    Some(LexedToken::punctuation(TokenKind::DoubleRightBracket))
                 } else {
-                    Some(Token::Word("]".to_string()))
+                    Some(LexedToken::borrowed_text(TokenKind::Word, "]"))
                 }
             }
             '\'' => self.read_single_quoted_string(),
             '"' => self.read_double_quoted_string(),
             '#' => {
                 if preserve_comments {
-                    Some(Token::Comment(self.read_comment()))
+                    self.read_comment();
+                    Some(LexedToken::comment())
                 } else {
                     self.skip_comment();
-                    self.next_token_inner(false)
+                    self.next_lexed_token_inner(false)
                 }
             }
             // Handle file descriptor redirects like 2> or 2>&1
@@ -439,34 +733,29 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_comment(&mut self) -> String {
+    fn read_comment(&mut self) {
         debug_assert_eq!(self.peek_char(), Some('#'));
 
         if self.reinject_buf.is_empty() {
             let rest = self.cursor.rest();
             let end = self.cursor.find_byte(b'\n').unwrap_or(rest.len());
-            let comment = rest[1..end].to_string();
             self.consume_source_bytes_without_newline(end);
-            return comment;
+            return;
         }
 
-        let mut comment = String::new();
         self.advance(); // consume '#'
 
         while let Some(ch) = self.peek_char() {
             if ch == '\n' {
                 break;
             }
-            comment.push(ch);
             self.advance();
         }
-
-        comment
     }
 
     /// Check if this is a file descriptor redirect (e.g., 2>, 2>>, 2>&1)
     /// or just a regular word starting with a digit
-    fn read_word_or_fd_redirect(&mut self) -> Option<Token> {
+    fn read_word_or_fd_redirect(&mut self) -> Option<LexedToken<'a>> {
         if let Some(first_digit) = self.peek_char().filter(|ch| ch.is_ascii_digit()) {
             let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
 
@@ -475,7 +764,7 @@ impl<'a> Lexer<'a> {
                     self.advance(); // consume digit
                     self.advance(); // consume >
                     self.advance(); // consume >
-                    return Some(Token::RedirectFdAppend(fd));
+                    return Some(LexedToken::fd(TokenKind::RedirectFdAppend, fd));
                 }
                 (Some('>'), Some('&')) => {
                     self.advance(); // consume digit
@@ -493,16 +782,16 @@ impl<'a> Lexer<'a> {
                     }
 
                     if target_str.is_empty() {
-                        return Some(Token::RedirectFd(fd));
+                        return Some(LexedToken::fd(TokenKind::RedirectFd, fd));
                     }
 
                     let target_fd: i32 = target_str.parse().unwrap_or(1);
-                    return Some(Token::DupFd(fd, target_fd));
+                    return Some(LexedToken::fd_pair(TokenKind::DupFd, fd, target_fd));
                 }
                 (Some('>'), _) => {
                     self.advance(); // consume digit
                     self.advance(); // consume >
-                    return Some(Token::RedirectFd(fd));
+                    return Some(LexedToken::fd(TokenKind::RedirectFd, fd));
                 }
                 (Some('<'), Some('&')) => {
                     self.advance(); // consume digit
@@ -523,22 +812,22 @@ impl<'a> Lexer<'a> {
                     }
 
                     if target_str == "-" {
-                        return Some(Token::DupFdClose(fd));
+                        return Some(LexedToken::fd(TokenKind::DupFdClose, fd));
                     }
                     let target_fd: i32 = target_str.parse().unwrap_or(0);
-                    return Some(Token::DupFdIn(fd, target_fd));
+                    return Some(LexedToken::fd_pair(TokenKind::DupFdIn, fd, target_fd));
                 }
                 (Some('<'), Some('>')) => {
                     self.advance(); // consume digit
                     self.advance(); // consume <
                     self.advance(); // consume >
-                    return Some(Token::RedirectFdReadWrite(fd));
+                    return Some(LexedToken::fd(TokenKind::RedirectFdReadWrite, fd));
                 }
                 (Some('<'), Some('<')) => {}
                 (Some('<'), _) => {
                     self.advance(); // consume digit
                     self.advance(); // consume <
-                    return Some(Token::RedirectFdIn(fd));
+                    return Some(LexedToken::fd(TokenKind::RedirectFdIn, fd));
                 }
                 _ => {}
             }
@@ -548,7 +837,7 @@ impl<'a> Lexer<'a> {
         self.read_word()
     }
 
-    fn read_word_starting_with(&mut self, prefix: &str) -> Option<Token> {
+    fn read_word_starting_with(&mut self, prefix: &str) -> Option<LexedToken<'a>> {
         let mut word = prefix.to_string();
         // Use the same logic as read_word but with pre-seeded content
         while let Some(ch) = self.peek_char() {
@@ -675,12 +964,42 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        Some(Token::Word(word))
+        Some(LexedToken::owned_text(TokenKind::Word, word))
     }
 
-    fn read_word(&mut self) -> Option<Token> {
-        let mut word = String::new();
+    fn read_word(&mut self) -> Option<LexedToken<'a>> {
+        let start = self.position.offset;
 
+        if self.reinject_buf.is_empty() {
+            let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+            if !chunk.is_empty() {
+                self.advance_position_without_newline(chunk);
+
+                let continues = matches!(
+                    self.peek_char(),
+                    Some(next)
+                        if Self::is_word_char(next)
+                            || matches!(next, '\'' | '"')
+                            || next == '{'
+                            || (next == '('
+                                && (chunk.ends_with('=') || chunk.ends_with(['@', '?', '*', '+', '!'])))
+                );
+
+                if !continues {
+                    return Some(LexedToken::borrowed_text(
+                        TokenKind::Word,
+                        &self.input[start..self.position.offset],
+                    ));
+                }
+
+                return self.read_complex_word(chunk.to_string());
+            }
+        }
+
+        self.read_complex_word(String::new())
+    }
+
+    fn read_complex_word(&mut self, mut word: String) -> Option<LexedToken<'a>> {
         while let Some(ch) = self.peek_char() {
             // Handle quoted strings within words (e.g., a="Hello" or VAR="value")
             // This handles the case where a word like `a=` is followed by a quoted string
@@ -736,8 +1055,8 @@ impl<'a> Lexer<'a> {
                             word.push('(');
                             self.advance();
                             if !self.read_command_subst_into(&mut word) {
-                                return Some(Token::Error(
-                                    "unterminated command substitution".to_string(),
+                                return Some(LexedToken::error(
+                                    LexerErrorKind::CommandSubstitution,
                                 ));
                             }
                             continue;
@@ -880,9 +1199,7 @@ impl<'a> Lexer<'a> {
                         }
                     } else {
                         if !self.read_command_subst_into(&mut word) {
-                            return Some(Token::Error(
-                                "unterminated command substitution".to_string(),
-                            ));
+                            return Some(LexedToken::error(LexerErrorKind::CommandSubstitution));
                         }
                     }
                 } else if self.peek_char() == Some('{') {
@@ -959,9 +1276,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 if !closed {
-                    return Some(Token::Error(
-                        "unterminated backtick substitution".to_string(),
-                    ));
+                    return Some(LexedToken::error(LexerErrorKind::BacktickSubstitution));
                 }
                 word.push(')');
             } else if ch == '\\' {
@@ -1072,27 +1387,49 @@ impl<'a> Lexer<'a> {
         if word.is_empty() {
             None
         } else {
-            Some(Token::Word(word))
+            Some(LexedToken::owned_text(TokenKind::Word, word))
         }
     }
 
-    fn read_single_quoted_string(&mut self) -> Option<Token> {
+    fn read_single_quoted_string(&mut self) -> Option<LexedToken<'a>> {
         self.advance(); // consume opening '
+        let content_start = self.position.offset;
+        let can_borrow = self.reinject_buf.is_empty();
+        let mut content_end = content_start;
         let mut content = String::new();
         let mut closed = false;
 
         while let Some(ch) = self.peek_char() {
             if ch == '\'' {
+                content_end = self.position.offset;
                 self.advance(); // consume closing '
                 closed = true;
                 break;
             }
-            content.push(ch);
+            if !can_borrow {
+                content.push(ch);
+            }
             self.advance();
         }
 
         if !closed {
-            return Some(Token::Error("unterminated single quote".to_string()));
+            return Some(LexedToken::error(LexerErrorKind::SingleQuote));
+        }
+
+        if can_borrow
+            && !matches!(
+                self.peek_char(),
+                Some(ch) if Self::is_word_char(ch) || matches!(ch, '\'' | '"' | '$')
+            )
+        {
+            return Some(LexedToken::borrowed_text(
+                TokenKind::LiteralWord,
+                &self.input[content_start..content_end],
+            ));
+        }
+
+        if can_borrow {
+            content.push_str(&self.input[content_start..content_end]);
         }
 
         // If next char is another quote or word char, concatenate (e.g., 'EOF'"2" -> EOF2).
@@ -1100,7 +1437,7 @@ impl<'a> Lexer<'a> {
         self.read_continuation_into(&mut content);
 
         // Single-quoted strings are literal - no variable expansion
-        Some(Token::LiteralWord(content))
+        Some(LexedToken::owned_text(TokenKind::LiteralWord, content))
     }
 
     /// After a closing quote, read any adjacent quoted or unquoted word chars
@@ -1289,12 +1626,36 @@ impl<'a> Lexer<'a> {
         out
     }
 
-    fn read_double_quoted_string(&mut self) -> Option<Token> {
+    fn read_double_quoted_string(&mut self) -> Option<LexedToken<'a>> {
         self.advance(); // consume opening "
+        let content_start = self.position.offset;
+        let mut content_end = content_start;
+        let mut simple = self.reinject_buf.is_empty();
         let mut content = String::new();
         let mut closed = false;
 
         while let Some(ch) = self.peek_char() {
+            if simple {
+                match ch {
+                    '"' => {
+                        content_end = self.position.offset;
+                        self.advance(); // consume closing "
+                        closed = true;
+                        break;
+                    }
+                    '\\' | '$' | '`' => {
+                        simple = false;
+                        content.push_str(&self.input[content_start..self.position.offset]);
+                    }
+                    _ => {
+                        self.advance();
+                    }
+                }
+                if simple {
+                    continue;
+                }
+            }
+
             match ch {
                 '"' => {
                     self.advance(); // consume closing "
@@ -1381,21 +1742,37 @@ impl<'a> Lexer<'a> {
         }
 
         if !closed {
-            return Some(Token::Error("unterminated double quote".to_string()));
+            return Some(LexedToken::error(LexerErrorKind::DoubleQuote));
         }
 
         // Check for continuation after closing quote: "foo"bar or "foo"/* etc.
         // If there's adjacent unquoted content (word chars, globs, more quotes),
         // concatenate and return as Word (not QuotedWord) so glob expansion works
         // on the unquoted portion.
+        if simple
+            && !matches!(
+                self.peek_char(),
+                Some(ch) if Self::is_word_char(ch) || matches!(ch, '\'' | '"' | '$')
+            )
+        {
+            return Some(LexedToken::borrowed_text(
+                TokenKind::QuotedWord,
+                &self.input[content_start..content_end],
+            ));
+        }
+
+        if simple {
+            content.push_str(&self.input[content_start..content_end]);
+        }
+
         if let Some(ch) = self.peek_char()
             && (Self::is_word_char(ch) || ch == '\'' || ch == '"' || ch == '$')
         {
             self.read_continuation_into(&mut content);
-            return Some(Token::Word(content));
+            return Some(LexedToken::owned_text(TokenKind::Word, content));
         }
 
-        Some(Token::QuotedWord(content))
+        Some(LexedToken::owned_text(TokenKind::QuotedWord, content))
     }
 
     /// Read command substitution content after `$(`, handling nested parens and quotes.
@@ -1764,7 +2141,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Read a {literal} pattern without comma/dot-dot as a word
-    fn read_brace_literal_word(&mut self) -> Option<Token> {
+    fn read_brace_literal_word(&mut self) -> Option<LexedToken<'a>> {
         let mut word = String::new();
 
         // Read the opening {
@@ -1808,11 +2185,11 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Some(Token::Word(word))
+        Some(LexedToken::owned_text(TokenKind::Word, word))
     }
 
     /// Read a brace expansion pattern as a word
-    fn read_brace_expansion_word(&mut self) -> Option<Token> {
+    fn read_brace_expansion_word(&mut self) -> Option<LexedToken<'a>> {
         let mut word = String::new();
 
         // Read the opening {
@@ -1871,7 +2248,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Some(Token::Word(word))
+        Some(LexedToken::owned_text(TokenKind::Word, word))
     }
 
     /// Peek ahead (without consuming) to see if `=(` starts an associative
