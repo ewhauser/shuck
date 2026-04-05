@@ -4,7 +4,7 @@
 
 use std::{collections::VecDeque, ops::Range, sync::Arc};
 
-use memchr::memchr;
+use memchr::{memchr, memchr_iter, memrchr};
 use shuck_ast::{Position, Span, Token, TokenKind};
 
 /// A token with its source location span.
@@ -540,19 +540,107 @@ impl<'a> Cursor<'a> {
     }
 }
 
+#[derive(Clone, Debug)]
+struct PositionMap<'a> {
+    source: &'a str,
+    line_starts: Vec<usize>,
+    cached: Position,
+}
+
+impl<'a> PositionMap<'a> {
+    fn new(source: &'a str) -> Self {
+        let mut line_starts =
+            Vec::with_capacity(source.bytes().filter(|byte| *byte == b'\n').count() + 1);
+        line_starts.push(0);
+        line_starts.extend(
+            source
+                .bytes()
+                .enumerate()
+                .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
+        );
+
+        Self {
+            source,
+            line_starts,
+            cached: Position::new(),
+        }
+    }
+
+    fn position(&mut self, offset: usize) -> Position {
+        if offset == self.cached.offset {
+            return self.cached;
+        }
+
+        let position = if offset > self.cached.offset && offset <= self.source.len() {
+            Self::advance_from(self.cached, &self.source[self.cached.offset..offset])
+        } else {
+            self.position_uncached(offset)
+        };
+        self.cached = position;
+        position
+    }
+
+    fn position_uncached(&self, offset: usize) -> Position {
+        let offset = offset.min(self.source.len());
+        let line_index = self
+            .line_starts
+            .partition_point(|start| *start <= offset)
+            .saturating_sub(1);
+        let line_start = self.line_starts[line_index];
+        let line_text = &self.source[line_start..offset];
+        let column = if line_text.is_ascii() {
+            line_text.len() + 1
+        } else {
+            line_text.chars().count() + 1
+        };
+
+        Position {
+            line: line_index + 1,
+            column,
+            offset,
+        }
+    }
+
+    fn advance_from(mut position: Position, text: &str) -> Position {
+        position.offset += text.len();
+        let newline_count = memchr_iter(b'\n', text.as_bytes()).count();
+        if newline_count == 0 {
+            position.column += if text.is_ascii() {
+                text.len()
+            } else {
+                text.chars().count()
+            };
+            return position;
+        }
+
+        position.line += newline_count;
+        let tail_start = memrchr(b'\n', text.as_bytes())
+            .map(|index| index + 1)
+            .unwrap_or_default();
+        let tail = &text[tail_start..];
+        position.column = if tail.is_ascii() {
+            tail.len() + 1
+        } else {
+            tail.chars().count() + 1
+        };
+        position
+    }
+}
+
 /// Lexer for bash scripts.
 #[derive(Clone)]
 pub struct Lexer<'a> {
     #[allow(dead_code)] // Stored for error reporting in future
     input: &'a str,
-    /// Current position in the input
-    position: Position,
+    /// Current byte offset in the input/reinjected stream.
+    offset: usize,
     cursor: Cursor<'a>,
+    position_map: PositionMap<'a>,
     /// Buffer for re-injected characters (e.g., rest-of-line after heredoc delimiter).
     /// Consumed before `cursor`.
     reinject_buf: VecDeque<char>,
-    /// Cursor position to restore once a heredoc replay buffer is exhausted.
-    reinject_resume_position: Option<Position>,
+    /// Cursor byte offset to restore once a heredoc replay buffer is exhausted.
+    reinject_resume_offset: Option<usize>,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
 }
@@ -568,24 +656,29 @@ impl<'a> Lexer<'a> {
     pub fn with_max_subst_depth(input: &'a str, max_depth: usize) -> Self {
         Self {
             input,
-            position: Position::new(),
+            offset: 0,
             cursor: Cursor::new(input),
+            position_map: PositionMap::new(input),
             reinject_buf: VecDeque::new(),
-            reinject_resume_position: None,
+            reinject_resume_offset: None,
             max_subst_depth: max_depth,
         }
     }
 
     /// Get the current position in the input.
     pub fn position(&self) -> Position {
-        self.position
+        self.position_map.position_uncached(self.offset)
     }
 
-    fn sync_position_to_cursor(&mut self) {
+    fn current_position(&mut self) -> Position {
+        self.position_map.position(self.offset)
+    }
+
+    fn sync_offset_to_cursor(&mut self) {
         if self.reinject_buf.is_empty()
-            && let Some(position) = self.reinject_resume_position.take()
+            && let Some(offset) = self.reinject_resume_offset.take()
         {
-            self.position = position;
+            self.offset = offset;
         }
     }
 
@@ -608,7 +701,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn peek_char(&mut self) -> Option<char> {
-        self.sync_position_to_cursor();
+        self.sync_offset_to_cursor();
         if let Some(&ch) = self.reinject_buf.front() {
             Some(ch)
         } else {
@@ -617,14 +710,14 @@ impl<'a> Lexer<'a> {
     }
 
     fn advance(&mut self) -> Option<char> {
-        self.sync_position_to_cursor();
+        self.sync_offset_to_cursor();
         let ch = if !self.reinject_buf.is_empty() {
             self.reinject_buf.pop_front()
         } else {
             self.cursor.bump()
         };
         if let Some(c) = ch {
-            self.position.advance(c);
+            self.offset += c.len_utf8();
         }
         ch
     }
@@ -643,17 +736,12 @@ impl<'a> Lexer<'a> {
     fn advance_position_without_newline(&mut self, text: &str) {
         debug_assert!(!text.contains('\n'));
 
-        self.position.offset += text.len();
-        self.position.column += if text.is_ascii() {
-            text.len()
-        } else {
-            text.chars().count()
-        };
+        self.offset += text.len();
     }
 
     fn consume_source_bytes_without_newline(&mut self, byte_len: usize) {
         debug_assert!(self.reinject_buf.is_empty());
-        self.sync_position_to_cursor();
+        self.sync_offset_to_cursor();
         let text = &self.cursor.rest()[..byte_len];
         self.advance_position_without_newline(text);
         self.cursor.skip_bytes(byte_len);
@@ -685,7 +773,7 @@ impl<'a> Lexer<'a> {
     fn current_word_text<'b>(&'b self, start: Position, capture: &'b Option<String>) -> &'b str {
         capture
             .as_deref()
-            .unwrap_or(&self.input[start.offset..self.position.offset])
+            .unwrap_or(&self.input[start.offset..self.offset])
     }
 
     fn materialize_legacy_token(&self, token: &LexedToken<'_>) -> Token {
@@ -775,17 +863,17 @@ impl<'a> Lexer<'a> {
 
     pub(crate) fn next_lexed_token(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
-        let start = self.position;
+        let start = self.current_position();
         let token = self.next_lexed_token_inner(false)?;
-        let end = self.position;
+        let end = self.current_position();
         Some(token.with_span(Span::from_positions(start, end)))
     }
 
     pub(crate) fn next_lexed_token_with_comments(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
-        let start = self.position;
+        let start = self.current_position();
         let token = self.next_lexed_token_inner(true)?;
-        let end = self.position;
+        let end = self.current_position();
         Some(token.with_span(Span::from_positions(start, end)))
     }
 
@@ -925,7 +1013,7 @@ impl<'a> Lexer<'a> {
                 Some(LexedToken::punctuation(TokenKind::RightBrace))
             }
             '[' => {
-                let start = self.position;
+                let start = self.current_position();
                 self.advance();
                 if self.peek_char() == Some('[')
                     && matches!(
@@ -1139,7 +1227,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_word(&mut self) -> Option<LexedToken<'a>> {
-        let start = self.position;
+        let start = self.current_position();
 
         if self.reinject_buf.is_empty() {
             let chunk = self.cursor.eat_while(Self::is_plain_word_char);
@@ -1157,10 +1245,11 @@ impl<'a> Lexer<'a> {
                 );
 
                 if !continues {
+                    let end = self.current_position();
                     return Some(LexedToken::borrowed_word(
                         TokenKind::Word,
-                        &self.input[start.offset..self.position.offset],
-                        Some(Span::from_positions(start, self.position)),
+                        &self.input[start.offset..self.offset],
+                        Some(Span::from_positions(start, end)),
                     ));
                 }
 
@@ -1170,10 +1259,11 @@ impl<'a> Lexer<'a> {
                     return self.read_complex_word(start);
                 }
 
+                let end = self.current_position();
                 return self.finish_segmented_word(LexedWord::borrowed(
                     LexedWordSegmentKind::Plain,
-                    &self.input[start.offset..self.position.offset],
-                    Some(Span::from_positions(start, self.position)),
+                    &self.input[start.offset..self.offset],
+                    Some(Span::from_positions(start, end)),
                 ));
             }
         }
@@ -1212,7 +1302,7 @@ impl<'a> Lexer<'a> {
                 break;
             } else if ch == '$' {
                 // Handle variable references and command substitution
-                let dollar_start = self.position;
+                let dollar_start = self.current_position();
                 self.advance();
 
                 // $'...' — ANSI-C quoting: resolve escapes at parse time
@@ -1234,7 +1324,7 @@ impl<'a> Lexer<'a> {
                             break;
                         }
                         if c == '\\' {
-                            let escape_start = self.position;
+                            let escape_start = self.current_position();
                             self.advance();
                             if let Some(next) = self.peek_char() {
                                 match next {
@@ -1401,7 +1491,8 @@ impl<'a> Lexer<'a> {
                 }
             } else if ch == '`' {
                 // Backtick command substitution: convert `cmd` to $(cmd)
-                self.ensure_capture_from_source(&mut word, start, self.position);
+                let capture_end = self.current_position();
+                self.ensure_capture_from_source(&mut word, start, capture_end);
                 self.advance(); // consume opening `
                 Self::push_capture_str(&mut word, "$(");
                 let mut closed = false;
@@ -1434,7 +1525,8 @@ impl<'a> Lexer<'a> {
                 }
                 Self::push_capture_char(&mut word, ')');
             } else if ch == '\\' {
-                self.ensure_capture_from_source(&mut word, start, self.position);
+                let capture_end = self.current_position();
+                self.ensure_capture_from_source(&mut word, start, capture_end);
                 self.advance();
                 if let Some(next) = self.peek_char() {
                     if next == '\n' {
@@ -1549,10 +1641,11 @@ impl<'a> Lexer<'a> {
         if let Some(word) = word {
             Ok(LexedWordSegment::owned(LexedWordSegmentKind::Plain, word))
         } else {
+            let end = self.current_position();
             Ok(LexedWordSegment::borrowed(
                 LexedWordSegmentKind::Plain,
-                &self.input[start.offset..self.position.offset],
-                Some(Span::from_positions(start, self.position)),
+                &self.input[start.offset..self.offset],
+                Some(Span::from_positions(start, end)),
             ))
         }
     }
@@ -1574,7 +1667,7 @@ impl<'a> Lexer<'a> {
         debug_assert_eq!(self.peek_char(), Some('\''));
 
         self.advance(); // consume opening '
-        let content_start = self.position;
+        let content_start = self.current_position();
         let can_borrow = self.reinject_buf.is_empty();
         let mut content_end = content_start;
         let mut content = String::new();
@@ -1582,7 +1675,7 @@ impl<'a> Lexer<'a> {
 
         while let Some(ch) = self.peek_char() {
             if ch == '\'' {
-                content_end = self.position;
+                content_end = self.current_position();
                 self.advance(); // consume closing '
                 closed = true;
                 break;
@@ -1612,7 +1705,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_plain_continuation_segment(&mut self) -> Option<LexedWordSegment<'a>> {
-        let start = self.position;
+        let start = self.current_position();
 
         if self.reinject_buf.is_empty() {
             let chunk = self.cursor.eat_while(Self::is_plain_word_char);
@@ -1621,10 +1714,11 @@ impl<'a> Lexer<'a> {
             }
 
             self.advance_position_without_newline(chunk);
+            let end = self.current_position();
             return Some(LexedWordSegment::borrowed(
                 LexedWordSegmentKind::Plain,
-                &self.input[start.offset..self.position.offset],
-                Some(Span::from_positions(start, self.position)),
+                &self.input[start.offset..self.offset],
+                Some(Span::from_positions(start, end)),
             ));
         }
 
@@ -1673,7 +1767,7 @@ impl<'a> Lexer<'a> {
                         continue;
                     }
 
-                    let start = self.position;
+                    let start = self.current_position();
                     let plain = self.read_unquoted_segment(start)?;
                     if plain.as_str().is_empty() {
                         break;
@@ -1829,7 +1923,7 @@ impl<'a> Lexer<'a> {
         debug_assert_eq!(self.peek_char(), Some('"'));
 
         self.advance(); // consume opening "
-        let content_start = self.position;
+        let content_start = self.current_position();
         let mut content_end = content_start;
         let mut simple = self.reinject_buf.is_empty();
         let mut borrowable = self.reinject_buf.is_empty();
@@ -1840,7 +1934,7 @@ impl<'a> Lexer<'a> {
             if simple {
                 match ch {
                     '"' => {
-                        content_end = self.position;
+                        content_end = self.current_position();
                         self.advance(); // consume closing "
                         closed = true;
                         break;
@@ -1849,10 +1943,11 @@ impl<'a> Lexer<'a> {
                         simple = false;
                         if ch == '`' {
                             borrowable = false;
+                            let capture_end = self.current_position();
                             self.ensure_capture_from_source(
                                 &mut content,
                                 content_start,
-                                self.position,
+                                capture_end,
                             );
                         }
                     }
@@ -1868,14 +1963,14 @@ impl<'a> Lexer<'a> {
             match ch {
                 '"' => {
                     if borrowable {
-                        content_end = self.position;
+                        content_end = self.current_position();
                     }
                     self.advance(); // consume closing "
                     closed = true;
                     break;
                 }
                 '\\' => {
-                    let escape_start = self.position;
+                    let escape_start = self.current_position();
                     self.advance();
                     if let Some(next) = self.peek_char() {
                         match next {
@@ -1932,7 +2027,8 @@ impl<'a> Lexer<'a> {
                 }
                 '`' => {
                     borrowable = false;
-                    self.ensure_capture_from_source(&mut content, content_start, self.position);
+                    let capture_end = self.current_position();
+                    self.ensure_capture_from_source(&mut content, content_start, capture_end);
                     self.advance(); // consume opening `
                     Self::push_capture_str(&mut content, "$(");
                     while let Some(c) = self.peek_char() {
@@ -2186,7 +2282,7 @@ impl<'a> Lexer<'a> {
                         in_single = false;
                     }
                     '\\' => {
-                        let escape_start = self.position;
+                        let escape_start = self.current_position();
                         self.advance();
                         if let Some(esc) = self.peek_char() {
                             match esc {
@@ -2264,7 +2360,7 @@ impl<'a> Lexer<'a> {
                 '\\' => {
                     // Inside ${...} within double quotes, same escape rules apply:
                     // \", \\, \$, \` produce the escaped char; others keep backslash
-                    let escape_start = self.position;
+                    let escape_start = self.current_position();
                     self.advance();
                     if let Some(esc) = self.peek_char() {
                         match esc {
@@ -2539,7 +2635,7 @@ impl<'a> Lexer<'a> {
         // Quoted strings may span multiple lines (e.g., `cat <<EOF; echo "two\nthree"`),
         // so we track quoting state and continue across newlines until quotes close.
         let mut rest_of_line = String::new();
-        let rest_of_line_start = self.position;
+        let rest_of_line_start = self.current_position();
         let mut in_double_quote = false;
         let mut in_single_quote = false;
         while let Some(ch) = self.peek_char() {
@@ -2566,9 +2662,9 @@ impl<'a> Lexer<'a> {
         // If we just drained a heredoc replay buffer (for example when multiple
         // heredocs share one command line), resume tracking from the true cursor
         // position before we measure the body span.
-        self.sync_position_to_cursor();
-        let content_start = self.position;
-        let mut current_line_start = self.position;
+        self.sync_offset_to_cursor();
+        let content_start = self.current_position();
+        let mut current_line_start = content_start;
         let content_end;
 
         // Read lines until we find the delimiter
@@ -2576,7 +2672,7 @@ impl<'a> Lexer<'a> {
             if self.reinject_buf.is_empty() {
                 let rest = self.cursor.rest();
                 if rest.is_empty() {
-                    content_end = self.position;
+                    content_end = self.current_position();
                     break;
                 }
 
@@ -2599,11 +2695,11 @@ impl<'a> Lexer<'a> {
                 if has_newline {
                     self.advance();
                     content.push('\n');
-                    current_line_start = self.position;
+                    current_line_start = self.current_position();
                     continue;
                 }
 
-                content_end = self.position;
+                content_end = self.current_position();
                 break;
             }
 
@@ -2618,7 +2714,7 @@ impl<'a> Lexer<'a> {
                     content.push_str(&current_line);
                     content.push('\n');
                     current_line.clear();
-                    current_line_start = self.position;
+                    current_line_start = self.current_position();
                 }
                 Some(ch) => {
                     current_line.push(ch);
@@ -2633,7 +2729,7 @@ impl<'a> Lexer<'a> {
                     if !current_line.is_empty() {
                         content.push_str(&current_line);
                     }
-                    content_end = self.position;
+                    content_end = self.current_position();
                     break;
                 }
             }
@@ -2643,13 +2739,13 @@ impl<'a> Lexer<'a> {
         // redirects, command words, additional heredocs) stay visible to the
         // parser. Always replay a terminating newline so parsing stops before
         // tokens that originally lived on later source lines, like `}` or `do`.
-        let post_heredoc_position = self.position;
-        self.position = rest_of_line_start;
+        let post_heredoc_offset = self.offset;
+        self.offset = rest_of_line_start.offset;
         for ch in rest_of_line.chars() {
             self.reinject_buf.push_back(ch);
         }
         self.reinject_buf.push_back('\n');
-        self.reinject_resume_position = Some(post_heredoc_position);
+        self.reinject_resume_offset = Some(post_heredoc_offset);
 
         HeredocRead {
             content,

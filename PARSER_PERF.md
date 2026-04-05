@@ -209,17 +209,24 @@ Exit criteria:
 
 ### Stage 6: Switch Hot Position Tracking To Byte Offsets
 
-- [ ] Replace hot-path `Position` updates on every character with byte-offset tracking.
-- [ ] Introduce or reuse a line index for deferred line/column mapping.
-- [ ] Store spans as byte ranges or `TextRange`-style offsets internally.
-- [ ] Convert diagnostics, comments, and AST spans to line/column only at reporting or API boundaries.
-- [ ] Audit rebasing for nested constructs and synthetic spans.
-- [ ] Re-profile before moving on.
+- [x] Replace hot-path `Position` updates on every character with byte-offset tracking.
+- [x] Introduce or reuse a line index for deferred line/column mapping.
+- [x] Store spans as byte ranges or `TextRange`-style offsets internally.
+- [x] Convert diagnostics, comments, and AST spans to line/column only at reporting or API boundaries.
+- [x] Audit rebasing for nested constructs and synthetic spans.
+- [x] Re-profile before moving on.
 
 Exit criteria:
 
 - Full line/column updates are not happening on every lexer character advance.
 - Diagnostics and AST span fidelity remain correct.
+
+#### Stage 6 Notes
+
+- 2026-04-05: the lexer hot path now tracks only byte offsets while scanning source and reinjected heredoc tails; line and column data are reconstructed on demand through a cached line-start position map when token spans are emitted.
+- 2026-04-05: span materialization stays monotonic on the common path by capturing token start and end `Position`s at token boundaries, which avoids the backward offset remaps that showed up in the first stage-6 draft.
+- 2026-04-05: heredoc replay, nested construct rebasing, and unicode-sensitive span tests all passed under `cargo test -p shuck-parser`, so the deferred line/column mapping kept the existing AST and diagnostic fidelity.
+- 2026-04-05: focused `cargo bench -p shuck-benchmark --bench parser -- nvm --noplot` measured `parser/nvm` at `3.4819 ms` (`[3.4453 ms 3.4819 ms 3.5714 ms]`), and `cargo bench -p shuck-benchmark --bench lexer -- nvm --noplot` measured `lexer/nvm` at `1.1656 ms` (`[1.1589 ms 1.1656 ms 1.1739 ms]`) after the offset-tracking landing.
 
 ### Stage 7: Tighten Lexer Hot Paths
 
