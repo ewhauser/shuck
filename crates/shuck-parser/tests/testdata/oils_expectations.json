@@ -211,10 +211,6 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
-  "oils/redirect.test.sh::&>> appends stdout and stderr": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/redirect.test.sh::<> for read/write": {
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
@@ -224,10 +220,6 @@
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
   "oils/redirect.test.sh::Named read-write file descriptor": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/redirect.test.sh::noclobber can still write to non-regular files like /dev/null": {
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },

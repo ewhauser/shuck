@@ -1344,6 +1344,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn push_redirect_both_append(redirects: &mut Vec<Redirect>, operator_span: Span, target: Word) {
+        redirects.push(Redirect {
+            fd: None,
+            fd_var: None,
+            fd_var_span: None,
+            kind: RedirectKind::Append,
+            span: Self::redirect_span(operator_span, &target),
+            target,
+        });
+        redirects.push(Redirect {
+            fd: Some(2),
+            fd_var: None,
+            fd_var_span: None,
+            kind: RedirectKind::DupOutput,
+            span: operator_span,
+            target: Word::literal("1"),
+        });
+    }
+
     /// Parse redirections that follow a compound command (>, >>, 2>, etc.)
     fn parse_trailing_redirects(&mut self) -> Vec<Redirect> {
         let mut redirects = Vec::new();
@@ -1422,6 +1441,14 @@ impl<'a> Parser<'a> {
                             span: Self::redirect_span(operator_span, &target),
                             target,
                         });
+                    }
+                }
+                Some(Token::RedirectBothAppend) => {
+                    let operator_span = self.current_span;
+                    let _ = pending_fd_var.take();
+                    self.advance();
+                    if let Ok(target) = self.expect_word() {
+                        Self::push_redirect_both_append(&mut redirects, operator_span, target);
                     }
                 }
                 Some(Token::DupOutput) => {
@@ -3714,6 +3741,13 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
+                Token::RedirectBothAppend => {
+                    let operator_span = self.current_span;
+                    self.advance();
+                    if let Ok(target) = self.expect_word() {
+                        Self::push_redirect_both_append(redirects, operator_span, target);
+                    }
+                }
                 Token::DupInput => {
                     let operator_span = self.current_span;
                     self.advance();
@@ -3949,6 +3983,12 @@ impl<'a> Parser<'a> {
                         span: Self::redirect_span(operator_span, &target),
                         target,
                     });
+                }
+                Some(Token::RedirectBothAppend) => {
+                    let operator_span = self.current_span;
+                    self.advance();
+                    let target = self.expect_word()?;
+                    Self::push_redirect_both_append(&mut redirects, operator_span, target);
                 }
                 Some(Token::DupOutput) => {
                     let operator_span = self.current_span;
@@ -5157,6 +5197,22 @@ mod tests {
         } else {
             panic!("expected simple command");
         }
+    }
+
+    #[test]
+    fn test_parse_redirect_both_append() {
+        let input = "echo hello &>> /tmp/out";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(cmd) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(cmd.redirects.len(), 2);
+        assert_eq!(cmd.redirects[0].kind, RedirectKind::Append);
+        assert_eq!(cmd.redirects[0].target.render(input), "/tmp/out");
+        assert_eq!(cmd.redirects[1].fd, Some(2));
+        assert_eq!(cmd.redirects[1].kind, RedirectKind::DupOutput);
+        assert_eq!(cmd.redirects[1].target.render(input), "1");
     }
 
     #[test]

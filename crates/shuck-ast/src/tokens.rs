@@ -104,6 +104,9 @@ pub enum Token {
     /// Redirect both stdout and stderr (&>)
     RedirectBoth,
 
+    /// Redirect both stdout and stderr with append (&>>)
+    RedirectBothAppend,
+
     /// Clobber redirect (>|) - force overwrite even with noclobber
     Clobber,
 

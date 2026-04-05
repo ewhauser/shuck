@@ -254,7 +254,12 @@ impl<'a> Lexer<'a> {
                     Some(Token::And)
                 } else if self.peek_char() == Some('>') {
                     self.advance();
-                    Some(Token::RedirectBoth)
+                    if self.peek_char() == Some('>') {
+                        self.advance();
+                        Some(Token::RedirectBothAppend)
+                    } else {
+                        Some(Token::RedirectBoth)
+                    }
                 } else {
                     Some(Token::Background)
                 }
@@ -2035,7 +2040,7 @@ EOF
 
     #[test]
     fn test_redirects() {
-        let mut lexer = Lexer::new("a > b >> c < d << e <<< f");
+        let mut lexer = Lexer::new("a > b >> c < d << e <<< f &>> g");
 
         assert_eq!(lexer.next_token(), Some(Token::Word("a".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
@@ -2048,6 +2053,8 @@ EOF
         assert_eq!(lexer.next_token(), Some(Token::Word("e".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::HereString));
         assert_eq!(lexer.next_token(), Some(Token::Word("f".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::RedirectBothAppend));
+        assert_eq!(lexer.next_token(), Some(Token::Word("g".to_string())));
     }
 
     #[test]

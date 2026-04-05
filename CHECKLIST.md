@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 18 actionable `skip` entries remain in scope.
-- 25 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 16 actionable `skip` entries remain in scope.
+- 27 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 - 1 formerly skipped case now intentionally fails parsing and has been reclassified as `parse_err`.
 
 ## Expectation Cleanup (Already Parses)
@@ -57,11 +57,11 @@ Shared work: parser should support redirect-only simple commands, redirect prefi
 Shared work: extend lexer token coverage for `|&`, `&>>`, and `<>`. Parser should lower `|&` to pipe plus `2>&1` on the left-hand command, and can lower `&>>` to existing append-plus-dup redirects if we do not want a dedicated AST node. AST change: add `RedirectKind::ReadWrite` or equivalent for `<>`; AST change for `&>>` is optional and only needed for source fidelity.
 
 - [x] `oils/pipeline.test.sh::|&` - the lexer now recognizes `|&` as a dedicated pipeline operator, and the parser lowers it by appending `2>&1` to the left-hand command before building the pipeline.
-- [ ] `oils/redirect.test.sh::&>> appends stdout and stderr` - recognize `&>>` as append-both, not `&>` followed by `>`.
+- [x] `oils/redirect.test.sh::&>> appends stdout and stderr` - the lexer now recognizes `&>>`, and the parser lowers it to `>> file` plus `2>&1` so append-both redirection parses without a new AST node.
 - [ ] `oils/redirect.test.sh::<> for read/write` - add read-write redirect support.
 - [ ] `oils/redirect.test.sh::<> for read/write named pipes` - same `<>` support on named pipes.
 - [ ] `oils/redirect.test.sh::Named read-write file descriptor` - same `<>` support plus existing `{fdvar}` plumbing.
-- [ ] `oils/redirect.test.sh::noclobber can still write to non-regular files like /dev/null` - this script stays blocked until `&>>` is parsed.
+- [x] `oils/redirect.test.sh::noclobber can still write to non-regular files like /dev/null` - once `&>>` parses as append-both redirection, the `/dev/null` noclobber case is no longer blocked at parse time.
 
 ## Nested Shell Constructs, Function Bodies, and (( Ambiguity)
 
