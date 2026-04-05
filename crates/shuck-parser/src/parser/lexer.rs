@@ -501,6 +501,12 @@ impl<'a> Lexer<'a> {
             .map(|token| self.materialize_legacy_token(&token))
     }
 
+    /// Get the next token kind from the input without rebuilding the legacy
+    /// `Token` payload enum.
+    pub fn next_token_kind(&mut self) -> Option<TokenKind> {
+        self.next_lexed_token().map(|token| token.kind)
+    }
+
     /// Get the next token from the input, preserving line comments.
     pub fn next_token_with_comments(&mut self) -> Option<Token> {
         self.next_lexed_token_with_comments()
