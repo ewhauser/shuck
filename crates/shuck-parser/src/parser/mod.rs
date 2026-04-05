@@ -50,6 +50,7 @@ pub struct ParseOutput {
 }
 
 /// Parser for bash scripts.
+#[derive(Clone)]
 pub struct Parser<'a> {
     input: &'a str,
     lexer: Lexer<'a>,
@@ -282,6 +283,14 @@ impl<'a> Parser<'a> {
 
     fn split_double_semicolon(span: Span) -> (Span, Span) {
         let middle = span.start.advanced_by(";");
+        (
+            Span::from_positions(span.start, middle),
+            Span::from_positions(middle, span.end),
+        )
+    }
+
+    fn split_double_left_paren(span: Span) -> (Span, Span) {
+        let middle = span.start.advanced_by("(");
         (
             Span::from_positions(span.start, middle),
             Span::from_positions(middle, span.end),
@@ -1773,6 +1782,80 @@ impl<'a> Parser<'a> {
         Command::Simple(command)
     }
 
+    fn is_operand_like_double_paren_token(token: &Token) -> bool {
+        match token {
+            Token::LiteralWord(_) | Token::QuotedWord(_) => true,
+            Token::Word(text) => !text.chars().all(|ch| ch.is_ascii_punctuation()),
+            _ => false,
+        }
+    }
+
+    fn looks_like_command_style_double_paren(&self) -> bool {
+        let mut probe = self.clone();
+        if !matches!(probe.current_token, Some(Token::DoubleLeftParen)) {
+            return false;
+        }
+
+        probe.advance();
+        let mut paren_depth = 0_i32;
+        let mut previous_top_level_operand = false;
+
+        loop {
+            match &probe.current_token {
+                Some(Token::DoubleLeftParen) | Some(Token::LeftParen) => {
+                    paren_depth += 1;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(Token::DoubleRightParen) => {
+                    if paren_depth == 0 {
+                        return false;
+                    }
+                    if paren_depth == 1 {
+                        return false;
+                    }
+                    paren_depth -= 2;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(Token::RightParen) => {
+                    if paren_depth == 0 {
+                        return true;
+                    }
+                    paren_depth -= 1;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(Token::Newline) | Some(Token::Semicolon) if paren_depth == 0 => {
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(token) if paren_depth == 0 && Self::is_operand_like_double_paren_token(token) => {
+                    if previous_top_level_operand {
+                        return true;
+                    }
+                    previous_top_level_operand = true;
+                    probe.advance();
+                }
+                Some(_) => {
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                None => return false,
+            }
+        }
+    }
+
+    fn split_current_double_left_paren(&mut self) {
+        let (left_span, right_span) = Self::split_double_left_paren(self.current_span);
+        self.current_token = Some(Token::LeftParen);
+        self.current_span = left_span;
+        self.synthetic_tokens.push_front(SpannedToken {
+            token: Token::LeftParen,
+            span: right_span,
+        });
+    }
+
     /// Parse a single command (simple or compound)
     fn parse_command(&mut self) -> Result<Option<Command>> {
         self.skip_newlines()?;
@@ -1813,7 +1896,20 @@ impl<'a> Parser<'a> {
 
         // Check for arithmetic command ((expression))
         if matches!(self.current_token, Some(Token::DoubleLeftParen)) {
-            return self.parse_compound_with_redirects(|s| s.parse_arithmetic_command());
+            if self.looks_like_command_style_double_paren() {
+                self.split_current_double_left_paren();
+                return self.parse_compound_with_redirects(|s| s.parse_subshell());
+            }
+
+            let mut arithmetic_probe = self.clone();
+            if let Ok(compound) = arithmetic_probe.parse_arithmetic_command() {
+                let redirects = arithmetic_probe.parse_trailing_redirects();
+                *self = arithmetic_probe;
+                return Ok(Some(Command::Compound(compound, redirects)));
+            }
+
+            self.split_current_double_left_paren();
+            return self.parse_compound_with_redirects(|s| s.parse_subshell());
         }
 
         // Check for subshell
@@ -5845,6 +5941,32 @@ mod tests {
         assert_eq!(command.left_paren_span.slice(input), "((");
         assert_eq!(command.right_paren_span.slice(input), "))");
         assert_eq!(command.expr_span.unwrap().slice(input), " a <= (1 || 2)");
+    }
+
+    #[test]
+    fn test_double_left_paren_command_closed_with_spaced_right_parens_parses_as_subshells() {
+        let input = "(( echo 1\necho 2\n(( x ))\n: $(( x ))\necho 3\n) )\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Subshell(commands) = compound else {
+            panic!("expected outer subshell");
+        };
+        assert!(redirects.is_empty());
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands[0], Command::Compound(CompoundCommand::Subshell(_), _)));
+    }
+
+    #[test]
+    fn test_double_left_paren_test_clause_parses_as_command() {
+        let input = "if ! ((test x\\\"$i\\\" = x-g) || (test x\\\"$i\\\" = x-O2)); then\n  echo bye\nfi\n";
+        Parser::new(input).parse().unwrap();
+    }
+
+    #[test]
+    fn test_double_left_paren_pipeline_parses_as_command() {
+        let input = "((cat </dev/zero; echo $? >&7) | true) 7>&1\n";
+        Parser::new(input).parse().unwrap();
     }
 
     #[test]

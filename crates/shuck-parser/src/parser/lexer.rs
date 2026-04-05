@@ -74,6 +74,7 @@ impl<'a> Cursor<'a> {
 }
 
 /// Lexer for bash scripts.
+#[derive(Clone)]
 pub struct Lexer<'a> {
     #[allow(dead_code)] // Stored for error reporting in future
     input: &'a str,

@@ -87,10 +87,6 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
-  "oils/divergence.test.sh::builtin cat crashes a subshell (#2530)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/empty-bodies.test.sh::Empty do/done": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
@@ -134,14 +130,6 @@
   "oils/known-differences.test.sh::nested function declaration - xcb-util-renderutil": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
-  },
-  "oils/paren-ambiguity.test.sh::(( closed with ) ) after multiple lines is command - #2337": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/paren-ambiguity.test.sh::((test example - liblo package - #2337": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
   "oils/parse-errors.test.sh::Incomplete for": {
     "expectation": "parse_err",
