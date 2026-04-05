@@ -193,17 +193,12 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
-        if let Some(word) = self.simple_word_from_token(token, span) {
-            return Some(word);
-        }
-
-        let text = token.word_string()?;
-        match token.kind {
-            TokenKind::Word => Some(self.parse_word_with_context(&text, span, span.start)),
+    fn parse_word_from_text(&mut self, kind: TokenKind, text: &str, span: Span) -> Option<Word> {
+        match kind {
+            TokenKind::Word => Some(self.parse_word_with_context(text, span, span.start)),
             TokenKind::QuotedWord => {
                 let mut word =
-                    self.parse_word_with_context(&text, span, span.start.advanced_by("\""));
+                    self.parse_word_with_context(text, span, span.start.advanced_by("\""));
                 word.quoted = true;
                 Some(word)
             }
@@ -212,49 +207,76 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
+        if let Some(word) = self.simple_word_from_token(token, span) {
+            return Some(word);
+        }
+
+        if let Some(text) = token.word_text() {
+            return self.parse_word_from_text(token.kind, text, span);
+        }
+
+        let text = token.word_string()?;
+        self.parse_word_from_text(token.kind, &text, span)
+    }
+
     fn word_text_needs_parse(text: &str) -> bool {
         text.contains(['$', '`', '\x00'])
     }
 
     fn simple_word_from_token(&self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
         let word = token.word()?;
-        let segment = word.single_segment()?;
-        let part_span = segment.span().unwrap_or(span);
-        let text = segment.as_str();
+        let mut parts = Vec::new();
+        let mut part_spans = Vec::new();
 
-        match (token.kind, segment.kind()) {
-            (TokenKind::Word, LexedWordSegmentKind::Plain)
-                if !Self::word_text_needs_parse(text) =>
-            {
-                Some(if segment.span().is_some() {
-                    Word::source_literal_with_spans(span, part_span)
-                } else {
-                    Word::literal_with_span(text.to_string(), span)
-                })
+        for segment in word.segments() {
+            let text = segment.as_str();
+            match segment.kind() {
+                LexedWordSegmentKind::Plain | LexedWordSegmentKind::DoubleQuoted
+                    if Self::word_text_needs_parse(text) =>
+                {
+                    return None;
+                }
+                LexedWordSegmentKind::Plain
+                | LexedWordSegmentKind::Literal
+                | LexedWordSegmentKind::DoubleQuoted => {}
+                LexedWordSegmentKind::Composite => return None,
             }
-            (TokenKind::LiteralWord, LexedWordSegmentKind::Literal) => {
-                Some(if segment.span().is_some() {
-                    Word::quoted_source_literal_with_spans(span, part_span)
-                } else {
-                    Word::quoted_literal_with_span(text.to_string(), span)
-                })
-            }
-            (TokenKind::QuotedWord, LexedWordSegmentKind::DoubleQuoted)
-                if !Self::word_text_needs_parse(text) =>
-            {
-                Some(if segment.span().is_some() {
-                    Word::quoted_source_literal_with_spans(span, part_span)
-                } else {
-                    Word::quoted_literal_with_span(text.to_string(), span)
-                })
-            }
-            _ => None,
+
+            parts.push(WordPart::Literal(if segment.span().is_some() {
+                LiteralText::source()
+            } else {
+                LiteralText::owned(text.to_string())
+            }));
+            part_spans.push(segment.span().unwrap_or(span));
         }
+
+        Some(Word {
+            parts,
+            part_spans,
+            quoted: matches!(token.kind, TokenKind::LiteralWord | TokenKind::QuotedWord),
+            span,
+        })
     }
 
-    fn current_word_to_word(&mut self) -> Option<Word> {
+    fn current_word(&mut self) -> Option<Word> {
+        let span = self.current_span;
+
+        if let Some(token) = self.current_token.as_ref()
+            && let Some(word) = self.simple_word_from_token(token, span)
+        {
+            return Some(word);
+        }
+
+        let kind = self.current_token_kind?;
         let token = self.current_token.clone()?;
-        self.word_from_token(&token, self.current_span)
+
+        if let Some(text) = token.word_text() {
+            return self.parse_word_from_text(kind, text, span);
+        }
+
+        let text = token.word_string()?;
+        self.parse_word_from_text(kind, &text, span)
     }
 
     fn current_conditional_literal_word(&self) -> Option<Word> {
@@ -767,7 +789,7 @@ impl<'a> Parser<'a> {
             return Some(fd_var);
         }
 
-        let word = self.current_word_to_word()?;
+        let word = self.current_word()?;
         let text = self.literal_word_text(&word)?;
         Self::fd_var_from_text(&text, word.span)
     }
@@ -805,7 +827,7 @@ impl<'a> Parser<'a> {
             self.current_token_kind,
             Some(TokenKind::LiteralWord | TokenKind::QuotedWord)
         );
-        let word = self.current_word_to_word()?;
+        let word = self.current_word()?;
         let text = self.literal_word_text(&word)?;
         Some((text, quoted))
     }
@@ -2186,7 +2208,7 @@ impl<'a> Parser<'a> {
                 match self.current_token_kind {
                     Some(TokenKind::Word) if self.current_word_str() == Some("do") => break,
                     Some(kind) if kind.is_word_like() => {
-                        if let Some(word) = self.current_word_to_word() {
+                        if let Some(word) = self.current_word() {
                             words.push(word);
                         }
                         self.advance();
@@ -2266,7 +2288,7 @@ impl<'a> Parser<'a> {
             match self.current_token_kind {
                 Some(TokenKind::Word) if self.current_word_str() == Some("do") => break,
                 Some(kind) if kind.is_word_like() => {
-                    if let Some(word) = self.current_word_to_word() {
+                    if let Some(word) = self.current_word() {
                         words.push(word);
                     }
                     self.advance();
@@ -2542,7 +2564,7 @@ impl<'a> Parser<'a> {
 
             let mut patterns = Vec::new();
             while self.at_word_like() {
-                if let Some(word) = self.current_word_to_word() {
+                if let Some(word) = self.current_word() {
                     patterns.push(word);
                 }
                 self.advance();
@@ -2926,7 +2948,7 @@ impl<'a> Parser<'a> {
         self.skip_conditional_newlines();
 
         let Some(word) = self
-            .current_word_to_word()
+            .current_word()
             .or_else(|| self.current_conditional_literal_word())
         else {
             return Err(self.error("expected conditional operand"));
@@ -3037,7 +3059,7 @@ impl<'a> Parser<'a> {
             match self.current_token_kind {
                 Some(TokenKind::Word | TokenKind::LiteralWord | TokenKind::QuotedWord) => {
                     let word = self
-                        .current_word_to_word()
+                        .current_word()
                         .ok_or_else(|| self.error("expected conditional operand"))?;
                     if start.is_none() {
                         start = Some(word.span.start);
@@ -3609,7 +3631,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Some(kind) if kind.is_word_like() => {
-                    if let Some(word) = self.current_word_to_word() {
+                    if let Some(word) = self.current_word() {
                         elements.push(word);
                     }
                     self.advance();
@@ -4191,7 +4213,7 @@ impl<'a> Parser<'a> {
                     // Handle compound array assignment in arg position:
                     // declare -a arr=(x y z) → arr=(x y z) as single arg
                     if w.ends_with('=') && !words.is_empty() {
-                        let original_word = self.current_word_to_word();
+                        let original_word = self.current_word();
                         let saved_span = self.current_span;
                         self.advance();
                         if let Some(word) = self.try_parse_compound_array_arg(w.clone(), saved_span)
@@ -4206,7 +4228,7 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
-                    if let Some(word) = self.current_word_to_word() {
+                    if let Some(word) = self.current_word() {
                         words.push(word);
                     }
                     self.advance();
@@ -4490,7 +4512,7 @@ impl<'a> Parser<'a> {
         match self.current_token_kind {
             Some(kind) if kind.is_word_like() => {
                 let word = self
-                    .current_word_to_word()
+                    .current_word()
                     .ok_or_else(|| self.error("expected word"))?;
                 self.advance();
                 Ok(word)
@@ -5419,6 +5441,43 @@ mod tests {
         assert!(command.name.quoted);
         assert_eq!(command.name.render(input), "break");
         assert_eq!(command.args[0].render(input), "2");
+    }
+
+    #[test]
+    fn test_parse_mixed_literal_word_consumes_segmented_token_directly() {
+        let input = "printf foo\"bar\"'baz'";
+        let parser = Parser::new(input);
+        let script = parser.parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        let arg = &command.args[0];
+        assert!(!arg.quoted);
+        assert_eq!(arg.render(input), "foobarbaz");
+        assert_eq!(arg.parts.len(), 3);
+        assert_eq!(arg.part_span(0).unwrap().slice(input), "foo");
+        assert_eq!(arg.part_span(1).unwrap().slice(input), "bar");
+        assert_eq!(arg.part_span(2).unwrap().slice(input), "baz");
+    }
+
+    #[test]
+    fn test_parse_single_quoted_prefix_word_consumes_segmented_token_directly() {
+        let input = "printf 'foo'bar";
+        let parser = Parser::new(input);
+        let script = parser.parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        let arg = &command.args[0];
+        assert!(arg.quoted);
+        assert_eq!(arg.render(input), "foobar");
+        assert_eq!(arg.parts.len(), 2);
+        assert_eq!(arg.part_span(0).unwrap().slice(input), "foo");
+        assert_eq!(arg.part_span(1).unwrap().slice(input), "bar");
     }
 
     #[test]
@@ -6356,6 +6415,55 @@ coproc worker { true; }
             panic!("expected coproc command");
         };
         assert_eq!(command.name_span.unwrap().slice(input), "worker");
+    }
+
+    #[test]
+    fn test_for_loop_words_consume_segmented_tokens_directly() {
+        let input = "for item in foo\"bar\" 'baz'qux; do echo \"$item\"; done";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::For(command) = compound else {
+            panic!("expected for loop");
+        };
+
+        let words = command.words.as_ref().expect("expected explicit for words");
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].render(input), "foobar");
+        assert_eq!(words[0].parts.len(), 2);
+        assert_eq!(words[0].part_span(0).unwrap().slice(input), "foo");
+        assert_eq!(words[0].part_span(1).unwrap().slice(input), "bar");
+
+        assert_eq!(words[1].render(input), "bazqux");
+        assert!(words[1].quoted);
+        assert_eq!(words[1].parts.len(), 2);
+        assert_eq!(words[1].part_span(0).unwrap().slice(input), "baz");
+        assert_eq!(words[1].part_span(1).unwrap().slice(input), "qux");
+    }
+
+    #[test]
+    fn test_case_patterns_consume_segmented_tokens_directly() {
+        let input = "case $x in foo\"bar\"|'baz'qux) echo hi ;; esac";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Case(command) = compound else {
+            panic!("expected case command");
+        };
+
+        let patterns = &command.cases[0].patterns;
+        assert_eq!(patterns.len(), 2);
+
+        assert_eq!(patterns[0].render(input), "foobar");
+        assert_eq!(patterns[0].parts.len(), 2);
+        assert_eq!(patterns[0].part_span(0).unwrap().slice(input), "foo");
+        assert_eq!(patterns[0].part_span(1).unwrap().slice(input), "bar");
+
+        assert_eq!(patterns[1].render(input), "bazqux");
+        assert!(patterns[1].quoted);
+        assert_eq!(patterns[1].parts.len(), 2);
+        assert_eq!(patterns[1].part_span(0).unwrap().slice(input), "baz");
+        assert_eq!(patterns[1].part_span(1).unwrap().slice(input), "qux");
     }
 
     #[test]

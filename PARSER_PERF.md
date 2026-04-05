@@ -126,10 +126,10 @@ Exit criteria:
 - [x] Store enough structure in the word payload to distinguish plain, literal, and double-quoted segments.
 - [x] Preserve quote and expansion semantics with flags or segmented spans instead of flattening into a single owned `String`.
 - [x] Make quote concatenation produce a source-backed or segmented payload instead of eagerly flattening into a new `String`.
-- [ ] Keep owned text only for cases that truly require cooked text, such as ANSI-C escape processing or synthetic text that cannot be represented as a source slice.
-- [ ] Update parser entry points to consume `LexedWord` directly.
-- [ ] Delete normal parser uses of `current_word_to_word` and `word_from_token`.
-- [ ] Re-profile before moving on.
+- [x] Keep owned text only for cases that truly require cooked text, such as ANSI-C escape processing or synthetic text that cannot be represented as a source slice.
+- [x] Update parser entry points to consume `LexedWord` directly.
+- [x] Delete normal parser uses of `current_word_to_word` and `word_from_token`.
+- [x] Re-profile before moving on.
 
 Exit criteria:
 

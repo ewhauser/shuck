@@ -796,6 +796,7 @@ impl<'a> Lexer<'a> {
                 Some(LexedToken::punctuation(TokenKind::RightBrace))
             }
             '[' => {
+                let start = self.position;
                 self.advance();
                 if self.peek_char() == Some('[')
                     && matches!(
@@ -816,7 +817,7 @@ impl<'a> Lexer<'a> {
                         Some(' ') | Some('\t') | Some('\n') | None => {
                             Some(LexedToken::borrowed_word(TokenKind::Word, "[", None))
                         }
-                        _ => self.read_word_starting_with("["),
+                        _ => self.read_word_starting_with("[", start),
                     }
                 }
             }
@@ -989,12 +990,12 @@ impl<'a> Lexer<'a> {
         self.read_word()
     }
 
-    fn read_word_starting_with(&mut self, prefix: &str) -> Option<LexedToken<'a>> {
+    fn read_word_starting_with(&mut self, prefix: &str, start: Position) -> Option<LexedToken<'a>> {
         let word = match self.read_unquoted_segment(prefix.to_string()) {
             Ok(word) => word,
             Err(kind) => return Some(LexedToken::error(kind)),
         };
-        let mut lexed_word = LexedWord::owned(LexedWordSegmentKind::Plain, word);
+        let mut lexed_word = LexedWord::from_segment(self.unquoted_plain_segment(start, word));
         if let Err(kind) = self.append_segmented_continuation(&mut lexed_word) {
             return Some(LexedToken::error(kind));
         }
@@ -1030,7 +1031,7 @@ impl<'a> Lexer<'a> {
                 if self.peek_char() == Some('(')
                     && (chunk.ends_with('=') || chunk.ends_with(['@', '?', '*', '+', '!']))
                 {
-                    return self.read_complex_word(chunk.to_string());
+                    return self.read_complex_word(start, chunk.to_string());
                 }
 
                 return self.finish_segmented_word(LexedWord::borrowed(
@@ -1041,7 +1042,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        self.read_complex_word(String::new())
+        self.read_complex_word(start, String::new())
     }
 
     fn finish_segmented_word(&mut self, mut lexed_word: LexedWord<'a>) -> Option<LexedToken<'a>> {
@@ -1052,7 +1053,24 @@ impl<'a> Lexer<'a> {
         Some(LexedToken::with_word_payload(TokenKind::Word, lexed_word))
     }
 
-    fn read_complex_word(&mut self, mut word: String) -> Option<LexedToken<'a>> {
+    fn unquoted_plain_segment(&self, start: Position, word: String) -> LexedWordSegment<'a> {
+        let end = self.position;
+
+        if self.reinject_buf.is_empty()
+            && let Some(source) = self.input.get(start.offset..end.offset)
+            && source == word.as_str()
+        {
+            return LexedWordSegment::borrowed(
+                LexedWordSegmentKind::Plain,
+                source,
+                Some(Span::from_positions(start, end)),
+            );
+        }
+
+        LexedWordSegment::owned(LexedWordSegmentKind::Plain, word)
+    }
+
+    fn read_complex_word(&mut self, start: Position, mut word: String) -> Option<LexedToken<'a>> {
         let word = match self.read_unquoted_segment(std::mem::take(&mut word)) {
             Ok(word) => word,
             Err(kind) => return Some(LexedToken::error(kind)),
@@ -1062,7 +1080,9 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        self.finish_segmented_word(LexedWord::owned(LexedWordSegmentKind::Plain, word))
+        self.finish_segmented_word(LexedWord::from_segment(
+            self.unquoted_plain_segment(start, word),
+        ))
     }
 
     fn read_unquoted_segment(&mut self, mut word: String) -> Result<String, LexerErrorKind> {
@@ -1500,11 +1520,12 @@ impl<'a> Lexer<'a> {
                         continue;
                     }
 
+                    let start = self.position;
                     let plain = self.read_unquoted_segment(String::new())?;
                     if plain.is_empty() {
                         break;
                     }
-                    word.push_owned_segment(LexedWordSegmentKind::Plain, plain);
+                    word.push_segment(self.unquoted_plain_segment(start, plain));
                 }
             }
         }
@@ -2564,6 +2585,36 @@ mod tests {
                 .slice(source),
             "bar"
         );
+    }
+
+    #[test]
+    fn test_unquoted_command_substitution_word_keeps_source_backing() {
+        let source = "$(printf hi)";
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+
+        let word = token.word().unwrap();
+        let segment = word.single_segment().unwrap();
+        assert_eq!(segment.kind(), LexedWordSegmentKind::Plain);
+        assert_eq!(segment.as_str(), source);
+        assert_eq!(segment.span().unwrap().slice(source), source);
+    }
+
+    #[test]
+    fn test_quoted_prefix_with_command_substitution_continuation_keeps_source_backing() {
+        let source = "\"foo\"$(printf hi)";
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+
+        let word = token.word().unwrap();
+        let continuation = word.segments().nth(1).unwrap();
+        assert_eq!(continuation.kind(), LexedWordSegmentKind::Plain);
+        assert_eq!(continuation.as_str(), "$(printf hi)");
+        assert_eq!(continuation.span().unwrap().slice(source), "$(printf hi)");
     }
 
     #[test]
