@@ -49,6 +49,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: "Install Rust toolchain"
         run: rustup component add clippy
+      - name: "Fetch dependencies"
+        run: cargo fetch
       - name: "Clippy"
         run: cargo clippy --workspace --all-targets --all-features --offline -- -D warnings
 
