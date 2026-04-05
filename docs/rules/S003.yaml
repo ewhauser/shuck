@@ -1,0 +1,22 @@
+legacy_code: SH-004
+legacy_name: loop-from-command-output
+new_category: Style
+new_code: S003
+runtime_kind: ast
+shellcheck_code: SC2045
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Building loop items from raw command output lets whitespace and pathname characters change the iteration set.
+rationale: Iterate over globs, arrays, or explicit delimiters instead of splitting command output.
+source:
+  shell_checks_rule: rules/SH-004.yaml
+  shell_checks_example: examples/004.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/004.sh
+    code: |
+      #!/bin/sh
+      for f in $(ls); do echo "$f"; done

@@ -1,0 +1,21 @@
+legacy_code: SH-263
+legacy_name: c-style-for-in-sh
+new_category: Portability
+new_code: X056
+runtime_kind: ast
+shellcheck_code: SC3063
+shells:
+  - sh
+  - dash
+description: "A C-style `for ((...))` loop is used in a POSIX shell script."
+rationale: "Use a `while` loop with arithmetic for portability."
+source:
+  shell_checks_rule: rules/SH-263.yaml
+  shell_checks_example: examples/263.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/263.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,3018
+      for ((i = 0; i < 5; i++)); do echo "$i"; done

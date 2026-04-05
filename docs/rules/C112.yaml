@@ -1,0 +1,23 @@
+legacy_code: SH-250
+legacy_name: array-slice-in-comparison
+new_category: Correctness
+new_code: C112
+runtime_kind: ast
+shellcheck_code: SC2345
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An array slice is used in a string comparison.
+rationale: Compare individual elements or convert the slice to a string first.
+source:
+  shell_checks_rule: rules/SH-250.yaml
+  shell_checks_example: examples/250.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/250.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      if [[ "${sel[@]:0:4}" == "HELP" ]]; then echo help; fi

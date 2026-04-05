@@ -1,0 +1,23 @@
+legacy_code: SH-158
+legacy_name: plus-equals-append
+new_category: Portability
+new_code: X045
+runtime_kind: ast
+shellcheck_code: SC3055
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Uses `+=` style assignment in `sh`."
+rationale: Rewrite it as a normal assignment or string append.
+source:
+  shell_checks_rule: rules/SH-158.yaml
+  shell_checks_example: examples/158.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/158.sh
+    code: |
+      #!/bin/sh
+      x=1
+      x+=64

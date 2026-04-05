@@ -1,0 +1,20 @@
+legacy_code: SH-315
+legacy_name: unicode-single-quote-in-single-quotes
+new_category: Correctness
+new_code: C137
+runtime_kind: ast
+shellcheck_code: SC2385
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A Unicode smart single-quote appears inside a single-quoted string.
+rationale: Replace the Unicode quotation mark with an ASCII apostrophe.
+source:
+  shell_checks_rule: rules/SH-315.yaml
+  shell_checks_example: examples/315.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/315.sh
+    code: "#!/bin/bash\necho 'hello \u2018world'\n"

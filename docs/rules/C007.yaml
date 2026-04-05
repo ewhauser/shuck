@@ -1,0 +1,22 @@
+legacy_code: SH-041
+legacy_name: find-output-to-xargs
+new_category: Correctness
+new_code: C007
+runtime_kind: ast
+shellcheck_code: SC2038
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Sending raw `find` output into `xargs` assumes file names stay simple and whitespace-free."
+rationale: Use a null-delimited handoff or another safer iteration pattern when file paths may contain spaces or newlines.
+source:
+  shell_checks_rule: rules/SH-041.yaml
+  shell_checks_example: examples/041.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/041.sh
+    code: |
+      #!/bin/sh
+      find . -name '*.txt' | xargs rm

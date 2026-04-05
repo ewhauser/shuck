@@ -1,0 +1,20 @@
+legacy_code: SH-019
+legacy_name: coproc
+new_category: Portability
+new_code: X014
+runtime_kind: ast
+shellcheck_code: SC3007
+shells:
+  - sh
+  - dash
+description: The script uses a co-process, which is a shell extension rather than POSIX `sh`.
+rationale: Use ordinary background jobs and pipes if the script must remain portable.
+source:
+  shell_checks_rule: rules/SH-019.yaml
+  shell_checks_example: examples/019.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/019.sh
+    code: |
+      #!/bin/sh
+      coproc cat

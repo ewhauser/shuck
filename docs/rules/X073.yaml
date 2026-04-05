@@ -1,0 +1,21 @@
+legacy_code: SH-280
+legacy_name: option-test-in-sh
+new_category: Portability
+new_code: X073
+runtime_kind: ast
+shellcheck_code: SC3080
+shells:
+  - sh
+  - dash
+description: "The `-o` option test is used inside `[[ ]]` in POSIX sh."
+rationale: "Check shell options with a case statement or `set -o` output."
+source:
+  shell_checks_rule: rules/SH-280.yaml
+  shell_checks_example: examples/280.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/280.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,2154
+      if [[ ! -o interactive ]]; then echo batch; fi

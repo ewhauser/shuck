@@ -1,0 +1,22 @@
+legacy_code: SH-154
+legacy_name: nested-zsh-substitution
+new_category: Portability
+new_code: X044
+runtime_kind: ast
+shellcheck_code: SC2252
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Nested zsh-style expansion syntax is not portable to sh.
+rationale: Replace the nested expansion with plain shell logic.
+source:
+  shell_checks_rule: rules/SH-154.yaml
+  shell_checks_example: examples/154.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/154.sh
+    code: |
+      #!/bin/sh
+      x=${${(M)path:#/*}:-$PWD/$path}

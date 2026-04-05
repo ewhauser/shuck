@@ -1,0 +1,23 @@
+legacy_code: SH-203
+legacy_name: unquoted-tr-range
+new_category: Style
+new_code: S049
+runtime_kind: ast
+shellcheck_code: SC2298
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `tr` character class is passed without quoting."
+rationale: "Quote the `tr` operands to prevent shell interpretation."
+source:
+  shell_checks_rule: rules/SH-203.yaml
+  shell_checks_example: examples/203.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/203.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034
+      zero=$(echo test | tr '[0-9a-f]' '0')

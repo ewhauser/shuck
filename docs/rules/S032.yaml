@@ -1,0 +1,22 @@
+legacy_code: SH-128
+legacy_name: conditional-assignment-shortcut
+new_category: Style
+new_code: S032
+runtime_kind: ast
+shellcheck_code: SC2114
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Uses a boolean-style assignment shortcut after a command check
+rationale: "Use an explicit `if` block instead of hiding the assignment behind `||`."
+source:
+  shell_checks_rule: rules/SH-128.yaml
+  shell_checks_example: examples/128.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/128.sh
+    code: |
+      #!/bin/sh
+      false || remove=set

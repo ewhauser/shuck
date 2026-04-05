@@ -1,0 +1,25 @@
+legacy_code: SH-333
+legacy_name: misquoted-heredoc-close
+new_category: Correctness
+new_code: C145
+runtime_kind: ast
+shellcheck_code: SC2395
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The heredoc closing marker is only a near match.
+rationale: Use the exact unquoted marker text on the closing line.
+source:
+  shell_checks_rule: rules/SH-333.yaml
+  shell_checks_example: examples/333.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/333.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=1044,1072,1073
+      cat <<'BLOCK'
+      x
+      'BLOCK'

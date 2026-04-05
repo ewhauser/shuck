@@ -1,0 +1,22 @@
+legacy_code: SH-123
+legacy_name: c-prototype-fragment
+new_category: Correctness
+new_code: C042
+runtime_kind: ast
+shellcheck_code: SC1128
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A C/C++-style declaration is being read as shell code.
+rationale: Keep non-shell source out of shell scripts or quote it as data.
+source:
+  shell_checks_rule: rules/SH-123.yaml
+  shell_checks_example: examples/123.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/123.sh
+    code: |
+      #!/bin/sh
+      X &NextItem ();

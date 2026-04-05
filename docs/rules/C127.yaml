@@ -1,0 +1,25 @@
+legacy_code: SH-298
+legacy_name: unused-heredoc
+new_category: Correctness
+new_code: C127
+runtime_kind: ast
+shellcheck_code: SC2370
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A here-document is opened without a consuming command.
+rationale: "Prefix the here-doc with a command like `cat` or `:` if the text is intentional."
+source:
+  shell_checks_rule: rules/SH-298.yaml
+  shell_checks_example: examples/298.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/298.sh
+    code: |
+      #!/bin/sh
+      <<\DOC_END
+      This is documentation text.
+      It will be ignored by the shell.
+      DOC_END

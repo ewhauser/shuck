@@ -1,0 +1,22 @@
+legacy_code: SH-039
+legacy_name: unassigned-variable-reference
+new_category: Correctness
+new_code: C006
+runtime_kind: ast
+shellcheck_code: SC2154
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The script reads a variable that is never initialized in the file.
+rationale: Initialize the value first or guard the read so typos and missing setup do not pass silently.
+source:
+  shell_checks_rule: rules/SH-039.yaml
+  shell_checks_example: examples/039.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/039.sh
+    code: |
+      #!/bin/sh
+      echo "$x"

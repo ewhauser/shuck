@@ -1,0 +1,22 @@
+legacy_code: SH-023
+legacy_name: indirect-expansion
+new_category: Portability
+new_code: X018
+runtime_kind: ast
+shellcheck_code: SC3053
+shells:
+  - sh
+  - dash
+description: The script uses indirect parameter expansion, which is a bash extension.
+rationale: Reshape the data flow so the script can name the target variable directly.
+source:
+  shell_checks_rule: rules/SH-023.yaml
+  shell_checks_example: examples/023.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/023.sh
+    code: |
+      #!/bin/sh
+      a=b
+      var=a
+      printf '%s\n' "$a" "${!var}"

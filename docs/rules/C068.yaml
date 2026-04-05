@@ -1,0 +1,23 @@
+legacy_code: SH-179
+legacy_name: bare-closing-brace
+new_category: Correctness
+new_code: C068
+runtime_kind: ast
+shellcheck_code: SC2274
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A closing brace is not preceded by a semicolon or newline.
+rationale: "Put a semicolon or newline before `}` to terminate the command."
+source:
+  shell_checks_rule: rules/SH-179.yaml
+  shell_checks_example: examples/179.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/179.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=1009,1072,1073,1083
+      { echo hello }

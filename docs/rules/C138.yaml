@@ -1,0 +1,22 @@
+legacy_code: SH-318
+legacy_name: heredoc-missing-end
+new_category: Correctness
+new_code: C138
+runtime_kind: ast
+shellcheck_code: SC2386
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A heredoc starts but never gets a closing marker.
+rationale: Add the matching end line before the file ends.
+source:
+  shell_checks_rule: rules/SH-318.yaml
+  shell_checks_example: examples/318.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/318.sh
+    code: |
+      #!/bin/sh
+      cat <<MARK

@@ -1,0 +1,23 @@
+legacy_code: SH-042
+legacy_name: trap-string-expansion
+new_category: Correctness
+new_code: C008
+runtime_kind: ast
+shellcheck_code: SC2064
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Expanding variables inside a trap body resolves them when the trap is set instead of when it runs.
+rationale: Keep trap commands quoted so the values are evaluated at signal time rather than at definition time.
+source:
+  shell_checks_rule: rules/SH-042.yaml
+  shell_checks_example: examples/042.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/042.sh
+    code: |
+      #!/bin/sh
+      x=1
+      trap "echo $x" EXIT

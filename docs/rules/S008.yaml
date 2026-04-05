@@ -1,0 +1,23 @@
+legacy_code: SH-038
+legacy_name: unquoted-array-expansion
+new_category: Style
+new_code: S008
+runtime_kind: ast
+shellcheck_code: SC2068
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An array is expanded without quotes, so its elements can split or expand as patterns.
+rationale: Quote array expansions unless you deliberately want word splitting or pathname matching.
+source:
+  shell_checks_rule: rules/SH-038.yaml
+  shell_checks_example: examples/038.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/038.sh
+    code: |
+      #!/bin/bash
+      arr=(a b)
+      printf '%s\n' ${arr[@]}

@@ -1,0 +1,23 @@
+legacy_code: SH-169
+legacy_name: nested-parameter-expansion
+new_category: Correctness
+new_code: C062
+runtime_kind: ast
+shellcheck_code: SC2264
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A parameter expansion is nested inside another expansion.
+rationale: Use an intermediate variable instead of nesting expansions.
+source:
+  shell_checks_rule: rules/SH-169.yaml
+  shell_checks_example: examples/169.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/169.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034,2082,3057
+      x="${${FALLBACK:-default}:-value}"

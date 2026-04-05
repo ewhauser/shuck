@@ -1,0 +1,23 @@
+legacy_code: SH-187
+legacy_name: positional-param-as-operator
+new_category: Correctness
+new_code: C070
+runtime_kind: ast
+shellcheck_code: SC2282
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A positional parameter is used as an arithmetic operator.
+rationale: Pass the operator as a distinct argument or use a case dispatch.
+source:
+  shell_checks_rule: rules/SH-187.yaml
+  shell_checks_example: examples/187.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/187.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2005,2086
+      echo "$(( x $1 y ))"

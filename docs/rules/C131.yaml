@@ -1,0 +1,27 @@
+legacy_code: SH-308
+legacy_name: variable-as-command-name
+new_category: Correctness
+new_code: C131
+runtime_kind: ast
+shellcheck_code: SC2378
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An unquoted variable is used as a command name in a function.
+rationale: Quote the variable or validate its content before execution.
+source:
+  shell_checks_rule: rules/SH-308.yaml
+  shell_checks_example: examples/308.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/308.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,3024,2086,2034,2089
+      myfunc() {
+      	CFLAGS+=" -DDIR=\"$PREFIX/share/\""
+      	$CC $CFLAGS -c test.c -o test.o
+      }
+      myfunc

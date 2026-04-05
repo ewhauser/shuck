@@ -1,0 +1,21 @@
+legacy_code: SH-140
+legacy_name: sourced-with-args
+new_category: Portability
+new_code: X042
+runtime_kind: ast
+shellcheck_code: SC2240
+shells:
+  - sh
+  - dash
+description: A sourced file is invoked with extra words.
+rationale: Keep the source path simple and quote dynamic pieces.
+source:
+  shell_checks_rule: rules/SH-140.yaml
+  shell_checks_example: examples/140.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/140.sh
+    code: |
+      #!/bin/sh
+      dir=.
+      . $dir/setup.sh foo

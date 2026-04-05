@@ -1,0 +1,24 @@
+legacy_code: SH-124
+legacy_name: zsh-brace-if
+new_category: Portability
+new_code: X038
+runtime_kind: ast
+shellcheck_code: SC1129
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Zsh-style conditional bracing is not portable shell syntax.
+rationale: "Use standard `if ...; then ...; fi` structure instead."
+source:
+  shell_checks_rule: rules/SH-124.yaml
+  shell_checks_example: examples/124.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/124.sh
+    code: |
+      #!/bin/sh
+      if [[ -n "$x" ]] {
+        :
+      }

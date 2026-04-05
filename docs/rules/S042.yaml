@@ -1,0 +1,24 @@
+legacy_code: SH-185
+legacy_name: ifs-equals-ambiguity
+new_category: Style
+new_code: S042
+runtime_kind: ast
+shellcheck_code: SC2280
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Setting IFS to `=` with `IFS==` looks like a comparison."
+rationale: "Quote the delimiter or use `IFS='='` to avoid ambiguity."
+source:
+  shell_checks_rule: rules/SH-185.yaml
+  shell_checks_example: examples/185.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/185.sh
+    code: |
+      #!/bin/bash
+      while IFS== read -r key val; do
+        echo "$key=$val"
+      done < /dev/null

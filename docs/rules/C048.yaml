@@ -1,0 +1,26 @@
+legacy_code: SH-142
+legacy_name: case-pattern-var
+new_category: Correctness
+new_code: C048
+runtime_kind: ast
+shellcheck_code: SC2242
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A case pattern is built from a variable.
+rationale: Use a direct test or a fixed pattern instead.
+source:
+  shell_checks_rule: rules/SH-142.yaml
+  shell_checks_example: examples/142.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/142.sh
+    code: |
+      #!/bin/sh
+      x=foo
+      pat=foo
+      case $x in
+        $pat) : ;;
+      esac

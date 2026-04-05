@@ -1,0 +1,20 @@
+legacy_code: SH-265
+legacy_name: greater-than-in-double-bracket
+new_category: Portability
+new_code: X058
+runtime_kind: ast
+shellcheck_code: SC3065
+shells:
+  - sh
+description: "The `>` operator is used inside `[[ ]]` in a POSIX sh script."
+rationale: "Use `-gt` for numeric comparison."
+source:
+  shell_checks_rule: rules/SH-265.yaml
+  shell_checks_example: examples/265.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/265.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,2154,2071
+      if [[ $# > 1 ]]; then echo many; fi

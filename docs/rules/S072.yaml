@@ -1,0 +1,23 @@
+legacy_code: SH-329
+legacy_name: linebreak-before-and
+new_category: Style
+new_code: S072
+runtime_kind: ast
+shellcheck_code: SC2392
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A control operator starts a new line instead of ending the previous one.
+rationale: Put `&&` at the end of the previous line or keep the command on one line.
+source:
+  shell_checks_rule: rules/SH-329.yaml
+  shell_checks_example: examples/329.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/329.sh
+    code: |
+      #!/bin/bash
+      true
+      && echo x

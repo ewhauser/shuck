@@ -1,0 +1,21 @@
+legacy_code: SH-269
+legacy_name: c-style-for-arithmetic-in-sh
+new_category: Portability
+new_code: X062
+runtime_kind: ast
+shellcheck_code: SC3069
+shells:
+  - sh
+  - dash
+description: A C-style for loop with arithmetic uses bashism syntax in POSIX sh.
+rationale: Use a while loop for portable iteration.
+source:
+  shell_checks_rule: rules/SH-269.yaml
+  shell_checks_example: examples/269.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/269.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3005,3010
+      for ((i = 0; i < 3; i++)); do echo "$i"; done

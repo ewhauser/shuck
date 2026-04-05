@@ -1,0 +1,19 @@
+legacy_code: SH-008
+legacy_name: local-variable-in-sh
+new_category: Portability
+new_code: X003
+runtime_kind: ast
+shellcheck_code: SC3043
+shells:
+  - sh
+description: Using `local` in a function ties the script to shells that implement function-scoped variables.
+rationale: Avoid `local` in `/bin/sh`, or require a shell that provides it.
+source:
+  shell_checks_rule: rules/SH-008.yaml
+  shell_checks_example: examples/008.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/008.sh
+    code: |
+      #!/bin/sh
+      f(){ local x=1; echo "$x"; }

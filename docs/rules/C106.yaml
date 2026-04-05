@@ -1,0 +1,24 @@
+legacy_code: SH-241
+legacy_name: append-to-array-as-string
+new_category: Correctness
+new_code: C106
+runtime_kind: ast
+shellcheck_code: SC2336
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A string is appended to an array variable with `+=` and a space."
+rationale: "Use `+=()` syntax to append an element to an array."
+source:
+  shell_checks_rule: rules/SH-241.yaml
+  shell_checks_example: examples/241.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/241.sh
+    code: |
+      #!/bin/bash
+      exts=("txt")
+      # shellcheck disable=2034
+      exts+=" ${exts^^}"

@@ -1,0 +1,23 @@
+legacy_code: SH-288
+legacy_name: string-compared-with-eq
+new_category: Correctness
+new_code: C121
+runtime_kind: ast
+shellcheck_code: SC2361
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A string value is compared using the numeric `-eq` operator."
+rationale: "Use `==` or `=` for string comparisons in test expressions."
+source:
+  shell_checks_rule: rules/SH-288.yaml
+  shell_checks_example: examples/288.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/288.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      if [[ $VER -eq "latest" ]]; then echo latest; fi

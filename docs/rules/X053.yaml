@@ -1,0 +1,20 @@
+legacy_code: SH-260
+legacy_name: zsh-assignment-to-zero
+new_category: Portability
+new_code: X053
+runtime_kind: ast
+shellcheck_code: SC2355
+shells:
+  - bash
+description: "The variable `0` is assigned a value, which is a zsh idiom."
+rationale: "Use a regular variable name instead of `0`."
+source:
+  shell_checks_rule: rules/SH-260.yaml
+  shell_checks_example: examples/260.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/260.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034,2082,2299
+      0="${${ZERO:-default}:-value}"

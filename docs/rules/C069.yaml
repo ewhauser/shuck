@@ -1,0 +1,24 @@
+legacy_code: SH-186
+legacy_name: backslash-before-closing-backtick
+new_category: Correctness
+new_code: C069
+runtime_kind: ast
+shellcheck_code: SC2281
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A backslash-space appears right before a closing backtick.
+rationale: "Use `$( ... )` instead of backticks for cleaner quoting."
+source:
+  shell_checks_rule: rules/SH-186.yaml
+  shell_checks_example: examples/186.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/186.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2006
+      ARCH=`uname -a | cut -f12 -d\ `
+      echo "$ARCH"

@@ -1,0 +1,20 @@
+legacy_code: SH-244
+legacy_name: mapfile-process-substitution
+new_category: Correctness
+new_code: C109
+runtime_kind: ast
+shellcheck_code: SC2339
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `mapfile` command reads from a process substitution."
+rationale: Use a pipe or temporary file if the shell version does not support this.
+source:
+  shell_checks_rule: rules/SH-244.yaml
+  shell_checks_example: examples/244.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/244.sh
+    code: "#!/bin/bash\n# shellcheck disable=2034\nmapfile -t files < <(find -name \"*.pyc\" -printf '%f\n')\n"

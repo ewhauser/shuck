@@ -1,0 +1,27 @@
+legacy_code: SH-299
+legacy_name: zsh-array-subscript-in-case
+new_category: Portability
+new_code: X078
+runtime_kind: ast
+shellcheck_code: SC2371
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A zsh-style array subscript is used in a case subject.
+rationale: Use a variable to hold the value before the case statement.
+source:
+  shell_checks_rule: rules/SH-299.yaml
+  shell_checks_example: examples/299.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/299.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,1087
+      case "$words[1]" in
+          install)
+            echo installing
+          ;;
+      esac

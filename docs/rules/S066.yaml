@@ -1,0 +1,27 @@
+legacy_code: SH-289
+legacy_name: local-declare-combined
+new_category: Style
+new_code: S066
+runtime_kind: ast
+shellcheck_code: SC2362
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Both `local` and `declare` are used together in one statement."
+rationale: "Use either `local` or `declare`, not both."
+source:
+  shell_checks_rule: rules/SH-289.yaml
+  shell_checks_example: examples/289.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/289.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3043,2034
+      myfunc() {
+        local declare hard_list
+        echo "$hard_list"
+      }
+      myfunc

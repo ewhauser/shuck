@@ -1,0 +1,23 @@
+legacy_code: SH-224
+legacy_name: assignment-looks-like-comparison
+new_category: Correctness
+new_code: C095
+runtime_kind: ast
+shellcheck_code: SC2319
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An assignment value contains a dash that may indicate a typo.
+rationale: Check whether the value was intended as a flag or comparison.
+source:
+  shell_checks_rule: rules/SH-224.yaml
+  shell_checks_example: examples/224.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/224.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034
+      qt=qt-unicode-3.2

@@ -1,0 +1,24 @@
+legacy_code: SH-074
+legacy_name: constant-case-subject
+new_category: Correctness
+new_code: C021
+runtime_kind: ast
+shellcheck_code: SC2194
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A case statement on a fixed literal is redundant because the subject never varies.
+rationale: Switch on a variable or collapse the branch if the outcome is predetermined.
+source:
+  shell_checks_rule: rules/SH-074.yaml
+  shell_checks_example: examples/074.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/074.sh
+    code: |
+      #!/bin/sh
+      case x in
+        x) : ;;
+      esac

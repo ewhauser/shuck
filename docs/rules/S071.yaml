@@ -1,0 +1,27 @@
+legacy_code: SH-309
+legacy_name: env-prefix-quoting
+new_category: Style
+new_code: S071
+runtime_kind: ast
+shellcheck_code: SC2379
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An environment variable prefix to a command has unnecessary quoting.
+rationale: Remove quotes around the variable in the prefix assignment.
+source:
+  shell_checks_rule: rules/SH-309.yaml
+  shell_checks_example: examples/309.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/309.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154,2086,2098
+      CFLAGS="${SLKCFLAGS}" \
+      CXXFLAGS="${SLKCFLAGS}" \
+      ./configure \
+        --target=$ARCH-slackware-linux \
+        --with-optmizer=${CFLAGS}

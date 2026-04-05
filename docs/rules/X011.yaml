@@ -1,0 +1,20 @@
+legacy_code: SH-016
+legacy_name: here-string
+new_category: Portability
+new_code: X011
+runtime_kind: ast
+shellcheck_code: SC3054
+shells:
+  - sh
+  - dash
+description: The script feeds data with a here-string, which is a bash-style redirection.
+rationale: Use a pipe or temporary file when the same input needs to work in portable shell code.
+source:
+  shell_checks_rule: rules/SH-016.yaml
+  shell_checks_example: examples/016.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/016.sh
+    code: |
+      #!/bin/sh
+      cat <<< hi

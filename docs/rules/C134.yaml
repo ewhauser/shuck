@@ -1,0 +1,29 @@
+legacy_code: SH-312
+legacy_name: getopts-option-not-in-case
+new_category: Correctness
+new_code: C134
+runtime_kind: ast
+shellcheck_code: SC2382
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A getopts option string contains an option not handled in the case statement.
+rationale: Add a case arm for each option in the getopts string.
+source:
+  shell_checks_rule: rules/SH-312.yaml
+  shell_checks_example: examples/312.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/312.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034,2154,2214,2220
+      while getopts ':a:d:o:h' OPT; do
+      	case "$OPT" in
+      		a) alg=$OPTARG;;
+      		d) domain=$OPTARG;;
+      		h) echo help; exit 0;;
+      	esac
+      done

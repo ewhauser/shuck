@@ -1,0 +1,23 @@
+legacy_code: SH-066
+legacy_name: echo-inside-command-substitution
+new_category: Style
+new_code: S016
+runtime_kind: ast
+shellcheck_code: SC2116
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Capturing echo output through command substitution adds an unnecessary extra step.
+rationale: Use a direct emitter such as printf when building substitution output.
+source:
+  shell_checks_rule: rules/SH-066.yaml
+  shell_checks_example: examples/066.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/066.sh
+    code: |
+      #!/bin/bash
+      x=$(echo a)
+      : "$x"

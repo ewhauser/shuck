@@ -1,0 +1,25 @@
+legacy_code: SH-297
+legacy_name: trap-signal-numbers
+new_category: Style
+new_code: S068
+runtime_kind: ast
+shellcheck_code: SC2369
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Numeric signal identifiers are used in a trap command.
+rationale: Use symbolic signal names for clarity and portability.
+source:
+  shell_checks_rule: rules/SH-297.yaml
+  shell_checks_example: examples/297.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/297.sh
+    code: |
+      #!/bin/sh
+      trap '
+          echo caught signal, cleaning up...
+          exit 1
+        ' 1 2 13 15

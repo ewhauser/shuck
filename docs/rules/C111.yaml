@@ -1,0 +1,23 @@
+legacy_code: SH-249
+legacy_name: at-sign-in-string-compare
+new_category: Correctness
+new_code: C111
+runtime_kind: ast
+shellcheck_code: SC2344
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Quoting `$@` inside a string comparison folds all arguments together."
+rationale: Use a loop or check individual parameters.
+source:
+  shell_checks_rule: rules/SH-249.yaml
+  shell_checks_example: examples/249.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/249.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2145
+      if [ "_$@" = "_--version" ]; then echo v1; fi

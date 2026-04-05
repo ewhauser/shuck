@@ -1,0 +1,22 @@
+legacy_code: SH-005
+legacy_name: unquoted-command-substitution
+new_category: Style
+new_code: S004
+runtime_kind: ast
+shellcheck_code: SC2046
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An unquoted command substitution can break one produced value into several words before the command sees it.
+rationale: Quote substitutions unless word splitting is genuinely what you want.
+source:
+  shell_checks_rule: rules/SH-005.yaml
+  shell_checks_example: examples/005.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/005.sh
+    code: |
+      #!/bin/sh
+      printf '%s\n' $(date)

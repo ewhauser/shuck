@@ -1,0 +1,24 @@
+legacy_code: SH-119
+legacy_name: heredoc-end-space
+new_category: Style
+new_code: S030
+runtime_kind: ast
+shellcheck_code: SC1040
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Trailing whitespace on a here-doc terminator makes the marker sloppy.
+rationale: End the delimiter line cleanly with no extra spaces.
+source:
+  shell_checks_rule: rules/SH-119.yaml
+  shell_checks_example: examples/119.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/119.sh
+    code: |
+      #!/bin/sh
+      cat <<EOF
+      ok
+      EOF 

@@ -1,0 +1,20 @@
+legacy_code: SH-215
+legacy_name: mixed-and-or-in-condition
+new_category: Correctness
+new_code: C088
+runtime_kind: ast
+shellcheck_code: SC2310
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `[[ ]]` test mixes `&&` and `||` without grouping."
+rationale: Add explicit parentheses to clarify operator precedence.
+source:
+  shell_checks_rule: rules/SH-215.yaml
+  shell_checks_example: examples/215.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/215.sh
+    code: "#!/bin/bash\n# shellcheck disable=2154\n[[ -n $file && file=\"$file\n\" || -n $content ]]\n"

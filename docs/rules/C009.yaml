@@ -1,0 +1,24 @@
+legacy_code: SH-043
+legacy_name: quoted-bash-regex
+new_category: Correctness
+new_code: C009
+runtime_kind: ast
+shellcheck_code: SC2076
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Quoting the pattern on the right side of bash's regex match changes how the match is interpreted.
+rationale: Leave the regular expression unquoted when you want bash to treat it as a pattern rather than a literal string.
+source:
+  shell_checks_rule: rules/SH-043.yaml
+  shell_checks_example: examples/043.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/043.sh
+    code: |
+      #!/bin/bash
+      x=a
+      re='a'
+      [[ $x =~ "$re" ]]

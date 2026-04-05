@@ -1,0 +1,21 @@
+legacy_code: SH-028
+legacy_name: brace-fd-redirection
+new_category: Portability
+new_code: X020
+runtime_kind: ast
+shellcheck_code: SC3050
+shells:
+  - sh
+  - dash
+description: The script opens a file descriptor with a brace-based redirection form that portable sh does not support.
+rationale: Use a fixed descriptor or a shell that supports this redirection syntax.
+source:
+  shell_checks_rule: rules/SH-028.yaml
+  shell_checks_example: examples/028.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/028.sh
+    code: |
+      #!/bin/sh
+      exec {fd}>/dev/null
+      printf '%s\n' "$fd"

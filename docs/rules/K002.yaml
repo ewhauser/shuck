@@ -1,0 +1,22 @@
+legacy_code: SH-047
+legacy_name: ssh-local-expansion
+new_category: Security
+new_code: K002
+runtime_kind: ast
+shellcheck_code: SC2029
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An ssh command string can be expanded by the local shell before the remote host ever sees it.
+rationale: Keep remote command text quoted until the remote shell is meant to interpret it.
+source:
+  shell_checks_rule: rules/SH-047.yaml
+  shell_checks_example: examples/047.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/047.sh
+    code: |
+      #!/bin/sh
+      ssh host "echo $HOME"

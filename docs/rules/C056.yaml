@@ -1,0 +1,23 @@
+legacy_code: SH-155
+legacy_name: status-capture-after-branch-test
+new_category: Correctness
+new_code: C056
+runtime_kind: ast
+shellcheck_code: SC2253
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Reads `$?` after a test command has already overwritten it."
+rationale: Save the status before running another command in the branch.
+source:
+  shell_checks_rule: rules/SH-155.yaml
+  shell_checks_example: examples/155.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/155.sh
+    code: |
+      #!/bin/bash
+      false
+      if [[ $? -ne 0 ]]; then saved=$?; fi

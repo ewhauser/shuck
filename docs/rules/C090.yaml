@@ -1,0 +1,23 @@
+legacy_code: SH-217
+legacy_name: glob-in-test-comparison
+new_category: Correctness
+new_code: C090
+runtime_kind: ast
+shellcheck_code: SC2312
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A glob pattern on the right side of `==` inside `[ ]` is not expanded."
+rationale: "Use `[[ ]]` or `case` for pattern matching."
+source:
+  shell_checks_rule: rules/SH-217.yaml
+  shell_checks_example: examples/217.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/217.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      if [ "$ARCH" ==  i?86 ]; then echo x86; fi

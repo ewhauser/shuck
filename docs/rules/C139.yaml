@@ -1,0 +1,22 @@
+legacy_code: SH-319
+legacy_name: spaced-assignment
+new_category: Correctness
+new_code: C139
+runtime_kind: ast
+shellcheck_code: SC2387
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An assignment-like word has stray spaces around `=`.
+rationale: Keep assignment syntax tight with no spaces around `=`.
+source:
+  shell_checks_rule: rules/SH-319.yaml
+  shell_checks_example: examples/319.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/319.sh
+    code: |
+      #!/bin/sh
+      export foo =bar

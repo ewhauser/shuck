@@ -1,0 +1,25 @@
+legacy_code: SH-175
+legacy_name: test-missing-then
+new_category: Correctness
+new_code: C064
+runtime_kind: ast
+shellcheck_code: SC2270
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "An if-test block is written without a `then` keyword."
+rationale: "Add `then` after the condition to form a valid if-block."
+source:
+  shell_checks_rule: rules/SH-175.yaml
+  shell_checks_example: examples/175.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/175.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,1050,1072,1073
+      if [ $x ]
+        echo ok
+      fi

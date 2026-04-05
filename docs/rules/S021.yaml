@@ -1,0 +1,23 @@
+legacy_code: SH-077
+legacy_name: positional-args-in-string
+new_category: Style
+new_code: S021
+runtime_kind: ast
+shellcheck_code: SC2145
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Folding positional parameters into a larger quoted string changes the argument shape.
+rationale: Pass literal text and positional parameters as separate arguments instead.
+source:
+  shell_checks_rule: rules/SH-077.yaml
+  shell_checks_example: examples/077.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/077.sh
+    code: |
+      #!/bin/sh
+      set -- a b
+      echo "items: $@"

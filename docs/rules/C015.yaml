@@ -1,0 +1,22 @@
+legacy_code: SH-060
+legacy_name: sudo-redirection-order
+new_category: Correctness
+new_code: C015
+runtime_kind: ast
+shellcheck_code: SC2024
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A redirection attached to sudo still happens in the current shell before privilege escalation.
+rationale: Move the write operation into the privileged command itself or use a helper such as tee.
+source:
+  shell_checks_rule: rules/SH-060.yaml
+  shell_checks_example: examples/060.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/060.sh
+    code: |
+      #!/bin/sh
+      sudo echo hi > out

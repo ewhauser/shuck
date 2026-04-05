@@ -1,0 +1,23 @@
+legacy_code: SH-206
+legacy_name: glob-in-string-comparison
+new_category: Correctness
+new_code: C081
+runtime_kind: ast
+shellcheck_code: SC2301
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A variable used in a string comparison may be treated as a glob.
+rationale: Quote the variable to prevent pattern matching.
+source:
+  shell_checks_rule: rules/SH-206.yaml
+  shell_checks_example: examples/206.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/206.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      if [[ $mirror == $pkgs ]]; then echo same; fi

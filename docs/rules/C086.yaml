@@ -1,0 +1,23 @@
+legacy_code: SH-213
+legacy_name: greater-than-in-test
+new_category: Correctness
+new_code: C086
+runtime_kind: ast
+shellcheck_code: SC2308
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `>` operator inside `[ ]` creates a file instead of comparing."
+rationale: "Use `-gt` for numeric comparison or `[[ ]]` for string ordering."
+source:
+  shell_checks_rule: rules/SH-213.yaml
+  shell_checks_example: examples/213.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/213.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      if [ "$version" > "10" ]; then echo newer; fi

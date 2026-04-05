@@ -1,0 +1,21 @@
+legacy_code: SH-032
+legacy_name: uppercase-expansion
+new_category: Portability
+new_code: X024
+runtime_kind: ast
+shellcheck_code: SC3059
+shells:
+  - sh
+  - dash
+description: The script converts a parameter to uppercase with a bash-only expansion form.
+rationale: Perform case conversion in another step, or target a shell that supports this expansion.
+source:
+  shell_checks_rule: rules/SH-032.yaml
+  shell_checks_example: examples/032.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/032.sh
+    code: |
+      #!/bin/sh
+      set -- abc
+      printf '%s\n' "${1^^}"

@@ -1,0 +1,23 @@
+legacy_code: SH-105
+legacy_name: unterminated-if
+new_category: Correctness
+new_code: C034
+runtime_kind: ast
+shellcheck_code: SC1046
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "An `if` block is opened without a matching `fi`."
+rationale: "Close the conditional with `fi` or rewrite the control flow so it is complete."
+source:
+  shell_checks_rule: rules/SH-105.yaml
+  shell_checks_example: examples/105.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/105.sh
+    code: |
+      #!/bin/sh
+      if true; then
+        :

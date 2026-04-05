@@ -1,0 +1,20 @@
+legacy_code: SH-163
+legacy_name: bare-read
+new_category: Style
+new_code: S036
+runtime_kind: ast
+shellcheck_code: SC2258
+shells:
+  - sh
+  - dash
+description: "Uses `read` without extra options."
+rationale: Provide the needed options explicitly for the input you expect.
+source:
+  shell_checks_rule: rules/SH-163.yaml
+  shell_checks_example: examples/163.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/163.sh
+    code: |
+      #!/bin/sh
+      read

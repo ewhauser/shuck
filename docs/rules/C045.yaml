@@ -1,0 +1,22 @@
+legacy_code: SH-133
+legacy_name: diff-marker-line
+new_category: Correctness
+new_code: C045
+runtime_kind: ast
+shellcheck_code: SC2141
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Contains a patch-style marker line in shell code
+rationale: Remove patch headers from the script or turn them into comments.
+source:
+  shell_checks_rule: rules/SH-133.yaml
+  shell_checks_example: examples/133.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/133.sh
+    code: |
+      #!/bin/sh
+      --- a/sample.txt

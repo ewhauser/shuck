@@ -1,0 +1,21 @@
+legacy_code: SH-279
+legacy_name: unset-pattern-in-sh
+new_category: Portability
+new_code: X072
+runtime_kind: ast
+shellcheck_code: SC3079
+shells:
+  - sh
+  - dash
+description: "A pattern-based `unset -v` is used in POSIX sh."
+rationale: Unset variables individually for portability.
+source:
+  shell_checks_rule: rules/SH-279.yaml
+  shell_checks_example: examples/279.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/279.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,3053
+      unset -v "${!prefix_@}"

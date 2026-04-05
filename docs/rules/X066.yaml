@@ -1,0 +1,21 @@
+legacy_code: SH-273
+legacy_name: pipe-stderr-in-sh
+new_category: Portability
+new_code: X066
+runtime_kind: ast
+shellcheck_code: SC3073
+shells:
+  - sh
+  - dash
+description: "The `|&` pipe-stderr operator is used in POSIX sh."
+rationale: "Use `2>&1 |` for portable stderr piping."
+source:
+  shell_checks_rule: rules/SH-273.yaml
+  shell_checks_example: examples/273.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/273.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154
+      echo test |& grep -q foo

@@ -1,0 +1,22 @@
+legacy_code: SH-168
+legacy_name: redundant-spaces-in-echo
+new_category: Style
+new_code: S037
+runtime_kind: ast
+shellcheck_code: SC2263
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Extra spaces between echo arguments are collapsed by the shell.
+rationale: Quote the spaced text or use printf for precise formatting.
+source:
+  shell_checks_rule: rules/SH-168.yaml
+  shell_checks_example: examples/168.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/168.sh
+    code: |
+      #!/bin/bash
+      echo -e    "This message has leading spaces before the argument."

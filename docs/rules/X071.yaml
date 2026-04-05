@@ -1,0 +1,21 @@
+legacy_code: SH-278
+legacy_name: array-keys-in-sh
+new_category: Portability
+new_code: X071
+runtime_kind: ast
+shellcheck_code: SC3078
+shells:
+  - sh
+  - dash
+description: "The `${!arr[*]}` array key expansion is used in POSIX sh."
+rationale: Use a loop or associative array in bash instead.
+source:
+  shell_checks_rule: rules/SH-278.yaml
+  shell_checks_example: examples/278.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/278.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,3053
+      for i in ${!ARRAY[*]}; do echo "$i"; done

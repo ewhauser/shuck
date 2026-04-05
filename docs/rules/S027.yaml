@@ -1,0 +1,21 @@
+legacy_code: SH-095
+legacy_name: escaped-underscore
+new_category: Style
+new_code: S027
+runtime_kind: ast
+shellcheck_code: SC1002
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A backslash before `_` is unnecessary in bash and becomes a literal underscore."
+rationale: Drop the escape unless you truly need a literal backslash.
+source:
+  shell_checks_rule: rules/SH-095.yaml
+  shell_checks_example: examples/095.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/095.sh
+    code: |
+      echo foo\_bar

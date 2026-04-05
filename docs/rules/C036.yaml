@@ -1,0 +1,23 @@
+legacy_code: SH-109
+legacy_name: broken-test-end
+new_category: Correctness
+new_code: C036
+runtime_kind: ast
+shellcheck_code: SC1073
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A malformed `[` test leaves ShellCheck unable to finish parsing the expression."
+rationale: Fix the test syntax first, or keep the test on one line so ShellCheck can continue checking the rest of the script.
+source:
+  shell_checks_rule: rules/SH-109.yaml
+  shell_checks_example: examples/109.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/109.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=1009,1073
+      if [ x = y; then :; fi

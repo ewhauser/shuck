@@ -1,0 +1,22 @@
+legacy_code: SH-078
+legacy_name: leading-zero-arithmetic
+new_category: Correctness
+new_code: C023
+runtime_kind: ast
+shellcheck_code: SC2060
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A leading zero can change how the shell interprets a numeric literal in arithmetic.
+rationale: Use an unpadded decimal literal unless you explicitly want octal semantics.
+source:
+  shell_checks_rule: rules/SH-078.yaml
+  shell_checks_example: examples/078.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/078.sh
+    code: |
+      #!/bin/sh
+      : $((08))

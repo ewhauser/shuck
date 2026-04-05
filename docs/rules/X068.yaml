@@ -1,0 +1,20 @@
+legacy_code: SH-275
+legacy_name: errexit-trap-in-sh
+new_category: Portability
+new_code: X068
+runtime_kind: ast
+shellcheck_code: SC3075
+shells:
+  - sh
+description: "The `-E` flag for `set` is used in POSIX sh."
+rationale: "Use trap on specific signals instead of `-E` for portability."
+source:
+  shell_checks_rule: rules/SH-275.yaml
+  shell_checks_example: examples/275.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/275.sh
+    code: |
+      #!/bin/sh
+      set -eE
+      echo hello

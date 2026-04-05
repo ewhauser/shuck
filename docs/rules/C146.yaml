@@ -1,0 +1,24 @@
+legacy_code: SH-334
+legacy_name: until-missing-do
+new_category: Correctness
+new_code: C146
+runtime_kind: ast
+shellcheck_code: SC2396
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An `until` loop skips the `do` keyword.
+rationale: Insert `do` before the loop body.
+source:
+  shell_checks_rule: rules/SH-334.yaml
+  shell_checks_example: examples/334.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/334.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=1072,1073
+      until :
+      done

@@ -1,0 +1,23 @@
+legacy_code: SH-172
+legacy_name: literal-backslash-in-single-quotes
+new_category: Style
+new_code: S039
+runtime_kind: ast
+shellcheck_code: SC2267
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A backslash sequence inside single quotes is treated literally.
+rationale: Use double quotes or $'...' if backslash escapes are intended.
+source:
+  shell_checks_rule: rules/SH-172.yaml
+  shell_checks_example: examples/172.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/172.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2026
+      grep ^start'\s'end file.txt

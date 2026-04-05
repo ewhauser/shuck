@@ -1,0 +1,22 @@
+legacy_code: SH-050
+legacy_name: export-command-substitution
+new_category: Style
+new_code: S010
+runtime_kind: ast
+shellcheck_code: SC2155
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Capturing command output directly inside `export` hides the assignment step and mixes two concerns."
+rationale: Store the value first, then export it explicitly.
+source:
+  shell_checks_rule: rules/SH-050.yaml
+  shell_checks_example: examples/050.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/050.sh
+    code: |
+      #!/bin/bash
+      export foo=$(printf '%s\n' hi)

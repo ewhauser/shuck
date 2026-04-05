@@ -1,0 +1,23 @@
+legacy_code: SH-285
+legacy_name: redirect-before-pipe
+new_category: Correctness
+new_code: C119
+runtime_kind: ast
+shellcheck_code: SC2358
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A redirect placed before a pipe only affects the left-hand side.
+rationale: Place the redirect after the full pipeline or use a subshell.
+source:
+  shell_checks_rule: rules/SH-285.yaml
+  shell_checks_example: examples/285.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/285.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2086
+      echo "$MAC" >/dev/null | grep -q 'test' || echo not

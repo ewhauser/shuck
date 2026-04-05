@@ -1,0 +1,23 @@
+legacy_code: SH-157
+legacy_name: array-index-arithmetic
+new_category: Style
+new_code: S034
+runtime_kind: ast
+shellcheck_code: SC2254
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Uses arithmetic expansion inside an array subscript.
+rationale: Use a plain arithmetic index expression there.
+source:
+  shell_checks_rule: rules/SH-157.yaml
+  shell_checks_example: examples/157.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/157.sh
+    code: |
+      #!/bin/bash
+      arr=()
+      arr[$((1+1))]=x

@@ -1,0 +1,20 @@
+legacy_code: SH-013
+legacy_name: standalone-arithmetic
+new_category: Portability
+new_code: X008
+runtime_kind: ast
+shellcheck_code: SC3018
+shells:
+  - sh
+  - dash
+description: The script uses the standalone arithmetic command form, which is not defined by POSIX `sh`.
+rationale: Use a portable arithmetic approach or switch to a shell that supports this command form.
+source:
+  shell_checks_rule: rules/SH-013.yaml
+  shell_checks_example: examples/013.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/013.sh
+    code: |
+      #!/bin/sh
+      ((1+1))

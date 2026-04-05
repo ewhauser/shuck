@@ -1,0 +1,23 @@
+legacy_code: SH-208
+legacy_name: unquoted-tr-class
+new_category: Style
+new_code: S051
+runtime_kind: ast
+shellcheck_code: SC2303
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `tr` character class is not quoted and may be expanded as a glob."
+rationale: "Quote the `[:upper:]` and `[:lower:]` arguments."
+source:
+  shell_checks_rule: rules/SH-208.yaml
+  shell_checks_example: examples/208.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/208.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034
+      OS=$(uname | tr '[:upper:]' [:lower:])

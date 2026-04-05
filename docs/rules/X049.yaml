@@ -1,0 +1,23 @@
+legacy_code: SH-183
+legacy_name: zsh-prompt-bracket
+new_category: Portability
+new_code: X049
+runtime_kind: ast
+shellcheck_code: SC2278
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A zsh prompt escape is used inside a POSIX shell script.
+rationale: Use ANSI escape sequences instead of zsh prompt formatting.
+source:
+  shell_checks_rule: rules/SH-183.yaml
+  shell_checks_example: examples/183.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/183.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2034
+      X="%{$fg_bold[blue]%}text"

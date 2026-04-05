@@ -1,0 +1,24 @@
+legacy_code: SH-127
+legacy_name: array-subscript-condition
+new_category: Portability
+new_code: X041
+runtime_kind: ast
+shellcheck_code: SC2103
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Uses array-style subscripting inside a shell condition
+rationale: Rewrite it with portable parameter handling or a real array-capable shell.
+source:
+  shell_checks_rule: rules/SH-127.yaml
+  shell_checks_example: examples/127.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/127.sh
+    code: |
+      #!/bin/sh
+      if [[ $words[2] = */ ]]; then
+        :
+      fi

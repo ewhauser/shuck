@@ -1,0 +1,23 @@
+legacy_code: SH-184
+legacy_name: csh-syntax-in-sh
+new_category: Portability
+new_code: X050
+runtime_kind: ast
+shellcheck_code: SC2279
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A csh-style `set` assignment appears in a POSIX shell script."
+rationale: Use standard variable assignment syntax for sh.
+source:
+  shell_checks_rule: rules/SH-184.yaml
+  shell_checks_example: examples/184.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/184.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2121,1036
+      set path = ( /usr/bin )

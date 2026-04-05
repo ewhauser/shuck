@@ -1,0 +1,21 @@
+legacy_code: SH-053
+legacy_name: bash-file-slurp
+new_category: Portability
+new_code: X026
+runtime_kind: ast
+shellcheck_code: SC3024
+shells:
+  - sh
+  - dash
+description: "The `$(< file)` shortcut reads a file with bash-specific syntax instead of portable shell syntax."
+rationale: "Use a portable read pattern when the script is meant to run under `sh`."
+source:
+  shell_checks_rule: rules/SH-053.yaml
+  shell_checks_example: examples/053.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/053.sh
+    code: |
+      #!/bin/sh
+      x=$(< input.txt)
+      printf '%s\n' "$x"

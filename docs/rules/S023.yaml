@@ -1,0 +1,22 @@
+legacy_code: SH-082
+legacy_name: escaped-underscore
+new_category: Style
+new_code: S023
+runtime_kind: ast
+shellcheck_code: SC1001
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A needless backslash is left in a plain word.
+rationale: Drop the escape unless the character is actually special there.
+source:
+  shell_checks_rule: rules/SH-082.yaml
+  shell_checks_example: examples/082.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/082.sh
+    code: |
+      #!/bin/bash
+      echo foo\_bar

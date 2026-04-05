@@ -1,0 +1,22 @@
+legacy_code: SH-116
+legacy_name: literal-braces
+new_category: Style
+new_code: S029
+runtime_kind: ast
+shellcheck_code: SC1083
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Literal braces appear where bash may treat them as expansion syntax.
+rationale: Quote the text so the braces stay literal.
+source:
+  shell_checks_rule: rules/SH-116.yaml
+  shell_checks_example: examples/116.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/116.sh
+    code: |
+      #!/bin/bash
+      echo HEAD@{1}

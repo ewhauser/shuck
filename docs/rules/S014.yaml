@@ -1,0 +1,22 @@
+legacy_code: SH-062
+legacy_name: unquoted-dollar-star
+new_category: Style
+new_code: S014
+runtime_kind: ast
+shellcheck_code: SC2048
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Expanding $* without quotes collapses positional parameters into a single word and can split them again.
+rationale: Use "$@" when you need to preserve each argument separately.
+source:
+  shell_checks_rule: rules/SH-062.yaml
+  shell_checks_example: examples/062.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/062.sh
+    code: |
+      #!/bin/sh
+      for a in $*; do printf '%s\n' "$a"; done

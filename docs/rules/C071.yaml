@@ -1,0 +1,23 @@
+legacy_code: SH-188
+legacy_name: double-paren-grouping
+new_category: Correctness
+new_code: C071
+runtime_kind: ast
+shellcheck_code: SC2283
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Double parentheses are used to group commands instead of arithmetic.
+rationale: "Use a subshell `( ... )` or brace group `{ ...; }` for grouping."
+source:
+  shell_checks_rule: rules/SH-188.yaml
+  shell_checks_example: examples/188.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/188.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2009
+      ((ps aux | grep foo) || kill "$pid") 2>/dev/null

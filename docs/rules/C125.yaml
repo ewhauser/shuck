@@ -1,0 +1,29 @@
+legacy_code: SH-295
+legacy_name: cd-without-error-check-in-func
+new_category: Correctness
+new_code: C125
+runtime_kind: ast
+shellcheck_code: SC2367
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `cd` command inside a function has no error handling."
+rationale: "Add `|| return` after `cd` to propagate failures."
+source:
+  shell_checks_rule: rules/SH-295.yaml
+  shell_checks_example: examples/295.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/295.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2164
+      build() {
+          cd mehtadata
+          make
+          cd ..
+          cmake .
+      }
+      build

@@ -1,0 +1,19 @@
+legacy_code: SH-054
+legacy_name: echo-flags
+new_category: Portability
+new_code: X027
+runtime_kind: ast
+shellcheck_code: SC3037
+shells:
+  - sh
+description: Echo flags make output formatting depend on the shell's own implementation choices.
+rationale: "Use `printf` when the script needs predictable formatting."
+source:
+  shell_checks_rule: rules/SH-054.yaml
+  shell_checks_example: examples/054.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/054.sh
+    code: |
+      #!/bin/sh
+      echo -n hi

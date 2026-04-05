@@ -1,0 +1,22 @@
+legacy_code: SH-064
+legacy_name: grep-count-pipeline
+new_category: Performance
+new_code: P002
+runtime_kind: ast
+shellcheck_code: SC2126
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Counting matches by piping grep into wc -l adds an unnecessary command stage.
+rationale: Use grep -c when you only need the number of matching lines.
+source:
+  shell_checks_rule: rules/SH-064.yaml
+  shell_checks_example: examples/064.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/064.sh
+    code: |
+      #!/bin/sh
+      grep foo file | wc -l

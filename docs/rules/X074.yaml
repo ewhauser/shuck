@@ -1,0 +1,20 @@
+legacy_code: SH-281
+legacy_name: sticky-bit-test-in-sh
+new_category: Portability
+new_code: X074
+runtime_kind: ast
+shellcheck_code: SC3081
+shells:
+  - sh
+description: "The `-k` sticky-bit test is used in POSIX sh."
+rationale: "Use `stat` or `ls -l` to check the sticky bit portably."
+source:
+  shell_checks_rule: rules/SH-281.yaml
+  shell_checks_example: examples/281.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/281.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154
+      if [ -k "$file" ]; then echo sticky; fi

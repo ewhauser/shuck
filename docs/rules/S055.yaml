@@ -1,0 +1,23 @@
+legacy_code: SH-231
+legacy_name: glob-assigned-to-variable
+new_category: Style
+new_code: S055
+runtime_kind: ast
+shellcheck_code: SC2326
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A glob pattern is assigned to a variable without quoting.
+rationale: Quote the assignment or expand the glob explicitly.
+source:
+  shell_checks_rule: rules/SH-231.yaml
+  shell_checks_example: examples/231.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/231.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034
+      LOCS=*.oxt

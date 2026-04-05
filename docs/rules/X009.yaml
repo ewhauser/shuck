@@ -1,0 +1,20 @@
+legacy_code: SH-014
+legacy_name: select-loop
+new_category: Portability
+new_code: X009
+runtime_kind: ast
+shellcheck_code: SC3033
+shells:
+  - sh
+  - dash
+description: The script relies on `select`, which is a shell-specific menu loop rather than portable `sh` syntax.
+rationale: Build the menu flow with basic shell loops if the script must run in `sh`.
+source:
+  shell_checks_rule: rules/SH-014.yaml
+  shell_checks_example: examples/014.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/014.sh
+    code: |
+      #!/bin/sh
+      select x in a b; do echo "$x"; break; done

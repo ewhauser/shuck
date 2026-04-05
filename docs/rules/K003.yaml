@@ -1,0 +1,23 @@
+legacy_code: SH-151
+legacy_name: eval-on-array
+new_category: Security
+new_code: K003
+runtime_kind: ast
+shellcheck_code: SC2249
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "`eval` is used to execute composed command text."
+rationale: "Avoid `eval`; call the command directly or pass arguments in an array."
+source:
+  shell_checks_rule: rules/SH-151.yaml
+  shell_checks_example: examples/151.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/151.sh
+    code: |
+      #!/bin/bash
+      args=(echo hi)
+      eval "${args[@]}"

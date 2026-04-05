@@ -1,0 +1,23 @@
+legacy_code: SH-306
+legacy_name: double-quote-nesting
+new_category: Style
+new_code: S070
+runtime_kind: ast
+shellcheck_code: SC2376
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A double-quoted variable sits between unquoted text inside a larger double-quoted string.
+rationale: Escape inner quotes or restructure the string to avoid split quoting.
+source:
+  shell_checks_rule: rules/SH-306.yaml
+  shell_checks_example: examples/306.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/306.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154,2086
+      echo "$PIDFILE exists, skipping "$INTERVAL" run" >> "$LOGFILE"

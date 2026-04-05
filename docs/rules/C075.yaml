@@ -1,0 +1,23 @@
+legacy_code: SH-193
+legacy_name: shebang-not-on-first-line
+new_category: Correctness
+new_code: C075
+runtime_kind: ast
+shellcheck_code: SC2288
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The shebang appears on the second line instead of the first.
+rationale: Move the shebang to the very first line of the file.
+source:
+  shell_checks_rule: rules/SH-193.yaml
+  shell_checks_example: examples/193.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/193.sh
+    code: |
+
+      #!/bin/sh
+      echo hello

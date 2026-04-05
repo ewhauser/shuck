@@ -1,0 +1,23 @@
+legacy_code: SH-055
+legacy_name: expr-arithmetic
+new_category: Performance
+new_code: P001
+runtime_kind: ast
+shellcheck_code: SC2003
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Using expr to combine numbers spawns a separate process for work the shell can already do itself.
+rationale: Use shell arithmetic expansion when you only need a numeric result.
+source:
+  shell_checks_rule: rules/SH-055.yaml
+  shell_checks_example: examples/055.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/055.sh
+    code: |
+      #!/bin/sh
+      x=$(expr 1 + 2)
+      printf '%s\n' "$x"

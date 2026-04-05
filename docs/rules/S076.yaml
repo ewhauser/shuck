@@ -1,0 +1,23 @@
+legacy_code: SH-350
+legacy_name: mixed-quote-word
+new_category: Style
+new_code: S076
+runtime_kind: ast
+shellcheck_code: SC2140
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: One argument is assembled from alternating quoted and bare fragments.
+rationale: Use a single explicit word form so the intended text is obvious.
+source:
+  shell_checks_rule: rules/SH-350.yaml
+  shell_checks_example: examples/350.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/350.sh
+    code: |
+      #!/bin/bash
+      printf '%s
+      ' "left "middle" right"

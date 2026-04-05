@@ -1,0 +1,25 @@
+legacy_code: SH-114
+legacy_name: suspect-closing-quote
+new_category: Style
+new_code: S028
+runtime_kind: ast
+shellcheck_code: SC1079
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A quote is syntactically closed, but the following character makes ShellCheck flag it as suspicious.
+rationale: Restructure the string generation so the closing quote is unambiguous, or move the embedded script text to a here-doc.
+source:
+  shell_checks_rule: rules/SH-114.yaml
+  shell_checks_example: examples/114.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/114.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=1078,2068,2145,2027
+      echo "#!/bin/bash
+      if [[ "$@" =~ x ]]; then :; fi
+      "

@@ -1,0 +1,21 @@
+legacy_code: SH-018
+legacy_name: array-assignment
+new_category: Portability
+new_code: X013
+runtime_kind: ast
+shellcheck_code: SC3030
+shells:
+  - sh
+  - dash
+description: The script assigns a shell array, which is not part of standard `sh`.
+rationale: Use separate variables or positional parameters instead of array assignment in portable shell.
+source:
+  shell_checks_rule: rules/SH-018.yaml
+  shell_checks_example: examples/018.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/018.sh
+    code: |
+      #!/bin/sh
+      a=(1 2)
+      export a

@@ -1,0 +1,22 @@
+legacy_code: SH-340
+legacy_name: comma-array-elements
+new_category: Correctness
+new_code: C151
+runtime_kind: ast
+shellcheck_code: SC2054
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A Bash array literal uses commas, so multiple intended elements become one malformed item.
+rationale: Write Bash array elements as whitespace-separated words inside `(...)`.
+source:
+  shell_checks_rule: rules/SH-340.yaml
+  shell_checks_example: examples/340.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/340.sh
+    code: |
+      #!/bin/bash
+      parts=(alpha,beta)

@@ -1,0 +1,22 @@
+legacy_code: SH-137
+legacy_name: single-test-subshell
+new_category: Performance
+new_code: P003
+runtime_kind: ast
+shellcheck_code: SC2233
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A lone test runs inside a subshell.
+rationale: Drop the parentheses and run the command directly.
+source:
+  shell_checks_rule: rules/SH-137.yaml
+  shell_checks_example: examples/137.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/137.sh
+    code: |
+      #!/bin/sh
+      if (test -f /etc/passwd) >/dev/null 2>&1; then :; fi

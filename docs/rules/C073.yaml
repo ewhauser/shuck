@@ -1,0 +1,20 @@
+legacy_code: SH-191
+legacy_name: indented-shebang
+new_category: Correctness
+new_code: C073
+runtime_kind: ast
+shellcheck_code: SC2286
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The shebang line is indented with leading whitespace.
+rationale: Move the shebang to column 1 so the kernel recognises it.
+source:
+  shell_checks_rule: rules/SH-191.yaml
+  shell_checks_example: examples/191.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/191.sh
+    code: " #!/bin/sh\necho hello\n"

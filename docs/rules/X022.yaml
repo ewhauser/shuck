@@ -1,0 +1,20 @@
+legacy_code: SH-030
+legacy_name: wait-option
+new_category: Portability
+new_code: X022
+runtime_kind: ast
+shellcheck_code: SC3048
+shells:
+  - sh
+  - dash
+description: The script uses a wait option that portable sh does not provide.
+rationale: Avoid that wait flag in portable scripts, or require bash for the workflow.
+source:
+  shell_checks_rule: rules/SH-030.yaml
+  shell_checks_example: examples/030.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/030.sh
+    code: |
+      #!/bin/sh
+      wait -n

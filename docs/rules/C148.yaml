@@ -1,0 +1,23 @@
+legacy_code: SH-337
+legacy_name: broken-assoc-key
+new_category: Correctness
+new_code: C148
+runtime_kind: ast
+shellcheck_code: SC2399
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An associative-array key is missing its closing bracket.
+rationale: Finish the key before assigning its value.
+source:
+  shell_checks_rule: rules/SH-337.yaml
+  shell_checks_example: examples/337.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/337.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=1072,1073
+      declare -A table=([left]=1 [right=2)

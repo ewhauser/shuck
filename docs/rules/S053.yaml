@@ -1,0 +1,22 @@
+legacy_code: SH-223
+legacy_name: duplicate-shebang-flag
+new_category: Style
+new_code: S053
+runtime_kind: ast
+shellcheck_code: SC2318
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A flag is repeated in the shebang line.
+rationale: Remove the duplicate flag from the shebang.
+source:
+  shell_checks_rule: rules/SH-223.yaml
+  shell_checks_example: examples/223.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/223.sh
+    code: |
+      #!/bin/sh -u -u
+      echo hello

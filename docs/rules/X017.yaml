@@ -1,0 +1,20 @@
+legacy_code: SH-022
+legacy_name: trap-err
+new_category: Portability
+new_code: X017
+runtime_kind: ast
+shellcheck_code: SC3047
+shells:
+  - sh
+  - dash
+description: The script depends on trapping `ERR`, which is shell-specific rather than POSIX behavior.
+rationale: Check command statuses explicitly instead of relying on `ERR` traps in portable code.
+source:
+  shell_checks_rule: rules/SH-022.yaml
+  shell_checks_example: examples/022.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/022.sh
+    code: |
+      #!/bin/sh
+      trap 'echo hi' ERR

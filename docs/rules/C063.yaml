@@ -1,0 +1,24 @@
+legacy_code: SH-171
+legacy_name: overwritten-function
+new_category: Correctness
+new_code: C063
+runtime_kind: ast
+shellcheck_code: SC2266
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A function definition is overwritten before it can be called.
+rationale: Remove the first definition or give the functions distinct names.
+source:
+  shell_checks_rule: rules/SH-171.yaml
+  shell_checks_example: examples/171.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/171.sh
+    code: |
+      #!/bin/sh
+      myfunc() { return 1; }
+      myfunc() { return 0; }
+      myfunc

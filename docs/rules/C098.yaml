@@ -1,0 +1,22 @@
+legacy_code: SH-229
+legacy_name: set-flags-without-dashes
+new_category: Correctness
+new_code: C098
+runtime_kind: ast
+shellcheck_code: SC2324
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Flags are passed to `set` without a leading dash."
+rationale: "Add a dash before the flags: `set -euo pipefail`."
+source:
+  shell_checks_rule: rules/SH-229.yaml
+  shell_checks_example: examples/229.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/229.sh
+    code: |
+      #!/bin/bash
+      set euox pipefail

@@ -1,0 +1,22 @@
+legacy_code: SH-046
+legacy_name: line-oriented-input
+new_category: Correctness
+new_code: C011
+runtime_kind: ast
+shellcheck_code: SC2013
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A loop over command output can turn records into whitespace-delimited words instead of preserving each original line.
+rationale: Read data with a line-aware loop or redirect so the shell does not reshape it into separate words.
+source:
+  shell_checks_rule: rules/SH-046.yaml
+  shell_checks_example: examples/046.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/046.sh
+    code: |
+      #!/bin/sh
+      for x in $(cat input.txt); do printf '%s\n' "$x"; done

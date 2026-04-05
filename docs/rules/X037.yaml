@@ -1,0 +1,24 @@
+legacy_code: SH-111
+legacy_name: extglob-case
+new_category: Portability
+new_code: X037
+runtime_kind: ast
+shellcheck_code: SC1075
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A grouped case pattern uses non-POSIX shell syntax.
+rationale: Spell out the alternatives with plain case patterns or use bash.
+source:
+  shell_checks_rule: rules/SH-111.yaml
+  shell_checks_example: examples/111.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/111.sh
+    code: |
+      #!/bin/sh
+      case x in
+        (a|b)*) : ;;
+      esac

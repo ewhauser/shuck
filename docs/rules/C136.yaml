@@ -1,0 +1,27 @@
+legacy_code: SH-314
+legacy_name: local-cross-reference
+new_category: Correctness
+new_code: C136
+runtime_kind: ast
+shellcheck_code: SC2384
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A `local` statement assigns from a variable defined earlier on the same line.
+rationale: Split the declarations onto separate lines so each has the correct value.
+source:
+  shell_checks_rule: rules/SH-314.yaml
+  shell_checks_example: examples/314.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/314.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3043,2034,2155
+      myfunc() {
+      	local iface="${1}" ifvar="$(echo "${iface}" | tr - _)"
+      	echo "$iface $ifvar"
+      }
+      myfunc eth0

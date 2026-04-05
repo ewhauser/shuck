@@ -1,0 +1,22 @@
+legacy_code: SH-036
+legacy_name: single-quoted-literal
+new_category: Correctness
+new_code: C005
+runtime_kind: ast
+shellcheck_code: SC2016
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A dollar-sign sequence is wrapped in single quotes, so it stays literal text instead of expanding.
+rationale: Use double quotes when you intend the shell to expand a variable-like value.
+source:
+  shell_checks_rule: rules/SH-036.yaml
+  shell_checks_example: examples/036.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/036.sh
+    code: |
+      #!/bin/sh
+      echo '$HOME'

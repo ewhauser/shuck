@@ -1,0 +1,21 @@
+legacy_code: SH-096
+legacy_name: bare-done
+new_category: Correctness
+new_code: C029
+runtime_kind: ast
+shellcheck_code: SC1011
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "`done` is read as a command name when it is not separated from the previous word."
+rationale: "Put a semicolon or newline before `done`, or quote it if it is meant literally."
+source:
+  shell_checks_rule: rules/SH-096.yaml
+  shell_checks_example: examples/096.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/096.sh
+    code: |
+      echo done

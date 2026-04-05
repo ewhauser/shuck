@@ -1,0 +1,20 @@
+legacy_code: SH-081
+legacy_name: printf-q-format-in-sh
+new_category: Portability
+new_code: X032
+runtime_kind: ast
+shellcheck_code: SC3025
+shells:
+  - sh
+  - dash
+description: "A POSIX shell script is using bash's `%q` `printf` conversion."
+rationale: "Keep `printf` format strings within POSIX features when targeting `sh`, or run the script under bash if you need `%q`."
+source:
+  shell_checks_rule: rules/SH-081.yaml
+  shell_checks_example: examples/081.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/081.sh
+    code: |
+      #!/bin/sh
+      printf '%q\n' foo

@@ -1,0 +1,23 @@
+legacy_code: SH-044
+legacy_name: rm-glob-on-variable-path
+new_category: Security
+new_code: K001
+runtime_kind: ast
+shellcheck_code: SC2115
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Combining a variable directory and a glob inside `rm -rf` makes it easy to delete more than intended."
+rationale: Validate the target path or use a narrower deletion pattern before removing matching files.
+source:
+  shell_checks_rule: rules/SH-044.yaml
+  shell_checks_example: examples/044.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/044.sh
+    code: |
+      #!/bin/sh
+      dir=/tmp
+      rm -rf "$dir"/*

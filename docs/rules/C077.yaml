@@ -1,0 +1,26 @@
+legacy_code: SH-195
+legacy_name: subshell-in-arithmetic
+new_category: Correctness
+new_code: C077
+runtime_kind: ast
+shellcheck_code: SC2290
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A command substitution is nested inside an arithmetic expansion.
+rationale: Assign the command output to a variable first, then use it in the arithmetic.
+source:
+  shell_checks_rule: rules/SH-195.yaml
+  shell_checks_example: examples/195.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/195.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2004
+      start=40
+      tool=hello
+      spaces=$(($start - $( echo "$tool" | wc -c)))
+      echo "$spaces"

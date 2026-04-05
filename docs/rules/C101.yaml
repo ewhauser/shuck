@@ -1,0 +1,25 @@
+legacy_code: SH-234
+legacy_name: ifs-set-to-literal-backslash-n
+new_category: Correctness
+new_code: C101
+runtime_kind: ast
+shellcheck_code: SC2329
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: IFS is set to the literal string \n instead of a newline.
+rationale: Use IFS=$'\n' in bash or a literal newline in POSIX sh.
+source:
+  shell_checks_rule: rules/SH-234.yaml
+  shell_checks_example: examples/234.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/234.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154
+      while IFS='\n' read -r comp; do
+        echo "$comp"
+      done < /dev/null

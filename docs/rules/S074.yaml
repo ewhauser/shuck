@@ -1,0 +1,20 @@
+legacy_code: SH-335
+legacy_name: ampersand-semicolon
+new_category: Style
+new_code: S074
+runtime_kind: ast
+shellcheck_code: SC2397
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A backgrounded command is followed immediately by `;`.
+rationale: End the command with `&` by itself.
+source:
+  shell_checks_rule: rules/SH-335.yaml
+  shell_checks_example: examples/335.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/335.sh
+    code: "#!/bin/bash\n# shellcheck disable=1072,1073\nprintf '%s\n' x &;\n"

@@ -1,0 +1,23 @@
+legacy_code: SH-283
+legacy_name: find-execdir-with-shell
+new_category: Security
+new_code: K004
+runtime_kind: ast
+shellcheck_code: SC2356
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `find -execdir` passes `{}` to a shell command that may mishandle filenames."
+rationale: "Use safe quoting or `-print0` with `xargs -0` instead."
+source:
+  shell_checks_rule: rules/SH-283.yaml
+  shell_checks_example: examples/283.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/283.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2086,2154
+      find $dir -type f -name "rename*" -execdir sh -c 'mv {} $(echo {} | sed "s|rename|perl-rename|")' \;

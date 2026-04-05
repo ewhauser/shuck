@@ -1,0 +1,21 @@
+legacy_code: SH-052
+legacy_name: local-top-level
+new_category: Correctness
+new_code: C014
+runtime_kind: ast
+shellcheck_code: SC2168
+shells:
+  - bash
+  - dash
+description: "In bash, `local` is only valid inside a function body and is not meaningful at script scope."
+rationale: Move the declaration into a function or use a regular assignment when working at top level.
+source:
+  shell_checks_rule: rules/SH-052.yaml
+  shell_checks_example: examples/052.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/052.sh
+    code: |
+      #!/bin/bash
+      local foo=bar
+      printf '%s\n' "$foo"

@@ -1,0 +1,20 @@
+legacy_code: SH-007
+legacy_name: test-equality-operator
+new_category: Portability
+new_code: X002
+runtime_kind: ast
+shellcheck_code: SC3014
+shells:
+  - sh
+  - dash
+description: The `==` comparison operator inside `[` is not portable in POSIX shells.
+rationale: Use `=` when writing tests for `/bin/sh`.
+source:
+  shell_checks_rule: rules/SH-007.yaml
+  shell_checks_example: examples/007.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/007.sh
+    code: |
+      #!/bin/sh
+      [ "$1" == foo ]

@@ -1,0 +1,22 @@
+legacy_code: SH-107
+legacy_name: function-params-in-sh
+new_category: Portability
+new_code: X035
+runtime_kind: ast
+shellcheck_code: SC1065
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A POSIX `sh` function is written with parameter syntax that ShellCheck rejects."
+rationale: "Use the portable `name() { ...; }` form and read arguments through `$1`, `$2`, and so on."
+source:
+  shell_checks_rule: rules/SH-107.yaml
+  shell_checks_example: examples/107.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/107.sh
+    code: |
+      #!/bin/sh
+      f(x) { :; }

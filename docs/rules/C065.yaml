@@ -1,0 +1,27 @@
+legacy_code: SH-176
+legacy_name: else-without-then
+new_category: Correctness
+new_code: C065
+runtime_kind: ast
+shellcheck_code: SC2271
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "An `else` clause appears without a preceding `then`."
+rationale: "Add `then` after the condition so that `else` is valid."
+source:
+  shell_checks_rule: rules/SH-176.yaml
+  shell_checks_example: examples/176.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/176.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=1049,1072,1073,2154
+      if [ $x ]
+        echo a
+      else
+        echo b
+      fi

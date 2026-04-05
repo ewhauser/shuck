@@ -1,0 +1,21 @@
+legacy_code: SH-267
+legacy_name: v-test-in-sh
+new_category: Portability
+new_code: X060
+runtime_kind: ast
+shellcheck_code: SC3067
+shells:
+  - sh
+  - dash
+description: "The `-v` variable-is-set test is used in POSIX sh."
+rationale: "Use `[ -n \"${var+set}\" ]` for portability."
+source:
+  shell_checks_rule: rules/SH-267.yaml
+  shell_checks_example: examples/267.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/267.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,2154
+      [[ -v myvar ]] || echo unset

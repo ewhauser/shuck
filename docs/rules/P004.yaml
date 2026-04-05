@@ -1,0 +1,24 @@
+legacy_code: SH-164
+legacy_name: subshell-test-group
+new_category: Performance
+new_code: P004
+runtime_kind: ast
+shellcheck_code: SC2259
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A grouped test uses a subshell instead of braces.
+rationale: Replace the subshell parentheses with a brace group to avoid a needless fork.
+source:
+  shell_checks_rule: rules/SH-164.yaml
+  shell_checks_example: examples/164.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/164.sh
+    code: |
+      #!/bin/bash
+      a=1
+      b=jpg
+      if [ -z "$a" ] && ( [ "$b" = jpeg ] || [ "$b" = jpg ] ); then echo ok; fi

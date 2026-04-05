@@ -1,0 +1,22 @@
+legacy_code: SH-190
+legacy_name: missing-shebang-line
+new_category: Style
+new_code: S043
+runtime_kind: ast
+shellcheck_code: SC2285
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The script has no shebang and starts with a comment.
+rationale: "Add a `#!/bin/bash` or `#!/bin/sh` shebang as the first line."
+source:
+  shell_checks_rule: rules/SH-190.yaml
+  shell_checks_example: examples/190.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/190.sh
+    code: |
+      # /etc/config/myapp.conf
+      echo hello

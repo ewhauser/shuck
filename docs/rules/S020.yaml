@@ -1,0 +1,25 @@
+legacy_code: SH-076
+legacy_name: single-iteration-loop
+new_category: Style
+new_code: S020
+runtime_kind: ast
+shellcheck_code: SC2165
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A loop that exits immediately is more complicated than the code it wraps.
+rationale: Replace it with the direct command sequence or a simpler conditional structure.
+source:
+  shell_checks_rule: rules/SH-076.yaml
+  shell_checks_example: examples/076.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/076.sh
+    code: |
+      #!/bin/sh
+      for i in a; do
+        echo "$i"
+        break
+      done

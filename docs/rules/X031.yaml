@@ -1,0 +1,20 @@
+legacy_code: SH-080
+legacy_name: source-builtin-in-sh
+new_category: Portability
+new_code: X031
+runtime_kind: ast
+shellcheck_code: SC3046
+shells:
+  - sh
+  - dash
+description: "A POSIX shell script is relying on `source`, which is not part of the portable shell vocabulary."
+rationale: "Use the portable dot command when you need to include another file, or switch to bash intentionally if you want `source`."
+source:
+  shell_checks_rule: rules/SH-080.yaml
+  shell_checks_example: examples/080.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/080.sh
+    code: |
+      #!/bin/sh
+      command source /dev/null

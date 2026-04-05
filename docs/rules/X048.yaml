@@ -1,0 +1,25 @@
+legacy_code: SH-182
+legacy_name: extglob-in-case-pattern
+new_category: Portability
+new_code: X048
+runtime_kind: ast
+shellcheck_code: SC2277
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A case pattern uses extended-glob parenthesized alternation.
+rationale: Use separate case arms or a portable glob pattern.
+source:
+  shell_checks_rule: rules/SH-182.yaml
+  shell_checks_example: examples/182.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/182.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,1009,1072,1073,1036
+      case "$x" in
+        foo_(a|b)_*) echo match ;;
+      esac

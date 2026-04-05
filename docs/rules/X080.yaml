@@ -1,0 +1,25 @@
+legacy_code: SH-304
+legacy_name: source-inside-function-in-sh
+new_category: Portability
+new_code: X080
+runtime_kind: ast
+shellcheck_code: SC3084
+shells:
+  - sh
+  - dash
+description: "The bash-only `source` command is used inside a function in POSIX sh."
+rationale: "Use the portable `.` (dot) command instead of `source`."
+source:
+  shell_checks_rule: rules/SH-304.yaml
+  shell_checks_example: examples/304.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/304.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=1090,1091,3046
+      myfunc() {
+      	# shellcheck source=/dev/null
+      	source "$1"
+      }
+      myfunc ./config.sh

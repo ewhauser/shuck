@@ -1,0 +1,24 @@
+legacy_code: SH-339
+legacy_name: subshell-local-assignment
+new_category: Correctness
+new_code: C150
+runtime_kind: ast
+shellcheck_code: SC2031
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A variable is reassigned inside a subshell, so the update does not affect the parent shell.
+rationale: Move the assignment to the current shell or return the value explicitly.
+source:
+  shell_checks_rule: rules/SH-339.yaml
+  shell_checks_example: examples/339.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/339.sh
+    code: |
+      #!/bin/sh
+      count=0
+      (count=1)
+      echo "$count"

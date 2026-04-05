@@ -1,0 +1,24 @@
+legacy_code: SH-102
+legacy_name: jammed-test-bracket
+new_category: Correctness
+new_code: C032
+runtime_kind: ast
+shellcheck_code: SC1035
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The `[` test starts without the expected spacing."
+rationale: Add the missing spaces around the test brackets.
+source:
+  shell_checks_rule: rules/SH-102.yaml
+  shell_checks_example: examples/102.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/102.sh
+    code: |
+      #!/bin/sh
+      if [! -r /etc/passwd ]; then
+        :
+      fi

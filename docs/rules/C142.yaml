@@ -1,0 +1,23 @@
+legacy_code: SH-322
+legacy_name: missing-done-in-for-loop
+new_category: Correctness
+new_code: C142
+runtime_kind: ast
+shellcheck_code: SC2390
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An unfinished `for` loop triggers ShellCheck 1062 when it reaches EOF without a matching `done`.
+rationale: Include the loop body but omit only the closing `done` so ShellCheck reports just the missing terminator.
+source:
+  shell_checks_rule: rules/SH-322.yaml
+  shell_checks_example: examples/322.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/322.sh
+    code: |
+      #!/bin/sh
+      for x in a; do
+        echo "$x"

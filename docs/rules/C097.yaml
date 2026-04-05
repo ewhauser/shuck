@@ -1,0 +1,24 @@
+legacy_code: SH-228
+legacy_name: function-called-without-args
+new_category: Correctness
+new_code: C097
+runtime_kind: ast
+shellcheck_code: SC2323
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A function that references `$1` is called without arguments."
+rationale: Pass the expected arguments or guard against missing parameters.
+source:
+  shell_checks_rule: rules/SH-228.yaml
+  shell_checks_example: examples/228.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/228.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2119
+      greet() { echo "hello $1"; }
+      greet

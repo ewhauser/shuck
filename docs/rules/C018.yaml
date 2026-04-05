@@ -1,0 +1,22 @@
+legacy_code: SH-070
+legacy_name: loop-control-outside-loop
+new_category: Correctness
+new_code: C018
+runtime_kind: ast
+shellcheck_code: SC2104
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A loop-control command at top level has nowhere to break from and just stops script execution.
+rationale: Keep loop-control commands inside the loop they are meant to manage.
+source:
+  shell_checks_rule: rules/SH-070.yaml
+  shell_checks_example: examples/070.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/070.sh
+    code: |
+      #!/bin/sh
+      break

@@ -1,0 +1,23 @@
+legacy_code: SH-045
+legacy_name: chained-test-branches
+new_category: Correctness
+new_code: C010
+runtime_kind: ast
+shellcheck_code: SC2015
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Chaining conditions with `&&` and `||` can make the fallback depend on the middle command's exit status."
+rationale: "Use an explicit `if` when you need clear branch selection instead of a command chain."
+source:
+  shell_checks_rule: rules/SH-045.yaml
+  shell_checks_example: examples/045.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/045.sh
+    code: |
+      #!/bin/sh
+      x=foo
+      [ "$x" = foo ] && [ "$x" = bar ] || [ "$x" = baz ]

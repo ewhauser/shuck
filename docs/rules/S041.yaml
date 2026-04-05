@@ -1,0 +1,23 @@
+legacy_code: SH-181
+legacy_name: function-body-without-braces
+new_category: Style
+new_code: S041
+runtime_kind: ast
+shellcheck_code: SC2276
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A function body is a bare compound command instead of a brace group.
+rationale: "Wrap the function body in `{ ... }` for portability."
+source:
+  shell_checks_rule: rules/SH-181.yaml
+  shell_checks_example: examples/181.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/181.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034,2154,1072,1073
+      myfunc() [[ -n "$x" ]]

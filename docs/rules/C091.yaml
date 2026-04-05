@@ -1,0 +1,23 @@
+legacy_code: SH-219
+legacy_name: tilde-in-string-comparison
+new_category: Correctness
+new_code: C091
+runtime_kind: ast
+shellcheck_code: SC2314
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A literal tilde inside quotes is compared instead of the expanded home path.
+rationale: "Expand the tilde outside quotes or use `$HOME`."
+source:
+  shell_checks_rule: rules/SH-219.yaml
+  shell_checks_example: examples/219.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/219.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154
+      [ "$profile" = "~/.bashrc" ] && echo match

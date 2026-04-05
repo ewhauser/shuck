@@ -1,0 +1,22 @@
+legacy_code: SH-161
+legacy_name: arithmetic-score-line
+new_category: Style
+new_code: S035
+runtime_kind: ast
+shellcheck_code: SC2257
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Uses a long arithmetic expansion in an assignment.
+rationale: Break complex math into smaller steps if it gets hard to read.
+source:
+  shell_checks_rule: rules/SH-161.yaml
+  shell_checks_example: examples/161.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/161.sh
+    code: |
+      #!/bin/bash
+      score=$(( (1 * 10 + 2 * 5 + 3 * 2) ))

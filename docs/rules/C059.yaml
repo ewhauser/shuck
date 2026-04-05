@@ -1,0 +1,22 @@
+legacy_code: SH-165
+legacy_name: redirect-to-command-name
+new_category: Correctness
+new_code: C059
+runtime_kind: ast
+shellcheck_code: SC2260
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Redirects output to a filename that shadows a known command.
+rationale: Use a distinct filename or a path prefix to avoid overwriting a command.
+source:
+  shell_checks_rule: rules/SH-165.yaml
+  shell_checks_example: examples/165.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/165.sh
+    code: |
+      #!/bin/bash
+      cat input.txt > c99

@@ -1,0 +1,22 @@
+legacy_code: SH-040
+legacy_name: echoed-command-substitution
+new_category: Style
+new_code: S009
+runtime_kind: ast
+shellcheck_code: SC2005
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "An `echo` around a command substitution adds an unnecessary wrapper around output that is already available."
+rationale: "Print the command's result directly instead of wrapping it in another `echo` call."
+source:
+  shell_checks_rule: rules/SH-040.yaml
+  shell_checks_example: examples/040.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/040.sh
+    code: |
+      #!/bin/sh
+      echo "$(date)"

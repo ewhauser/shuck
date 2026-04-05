@@ -1,0 +1,23 @@
+legacy_code: SH-205
+legacy_name: unquoted-word-between-quotes
+new_category: Style
+new_code: S050
+runtime_kind: ast
+shellcheck_code: SC2300
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An unquoted word sits between two single-quoted segments.
+rationale: Merge the segments into one quoted string.
+source:
+  shell_checks_rule: rules/SH-205.yaml
+  shell_checks_example: examples/205.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/205.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2086,2154,2016
+      sed -i 's/${title}/'Default'/g' $file

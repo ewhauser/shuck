@@ -1,0 +1,20 @@
+legacy_code: SH-270
+legacy_name: ampersand-redirect-in-sh
+new_category: Portability
+new_code: X063
+runtime_kind: ast
+shellcheck_code: SC3070
+shells:
+  - sh
+  - dash
+description: "The `>&` combined redirect is used in POSIX sh."
+rationale: "Use `>/dev/null 2>&1` for portable output suppression."
+source:
+  shell_checks_rule: rules/SH-270.yaml
+  shell_checks_example: examples/270.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/270.sh
+    code: |
+      #!/bin/sh
+      echo test >& /dev/null

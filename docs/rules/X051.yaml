@@ -1,0 +1,23 @@
+legacy_code: SH-218
+legacy_name: zsh-nested-expansion
+new_category: Portability
+new_code: X051
+runtime_kind: ast
+shellcheck_code: SC2313
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A zsh-style nested parameter expansion is used in a POSIX script.
+rationale: Use intermediate variables instead of nested expansions.
+source:
+  shell_checks_rule: rules/SH-218.yaml
+  shell_checks_example: examples/218.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/218.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034,2154,3057,3030,2296,2116
+      versions=(${${(f)"$(echo test)"}})

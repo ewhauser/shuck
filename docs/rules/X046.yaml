@@ -1,0 +1,23 @@
+legacy_code: SH-174
+legacy_name: extglob-in-test
+new_category: Portability
+new_code: X046
+runtime_kind: ast
+shellcheck_code: SC2269
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An extended glob pattern appears inside a test bracket.
+rationale: Quote or restructure the pattern to avoid parsing ambiguity.
+source:
+  shell_checks_rule: rules/SH-174.yaml
+  shell_checks_example: examples/174.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/174.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=1009,1072,1073,1027
+      if [[ "$x" == (foo|bar)* ]]; then echo ok; fi

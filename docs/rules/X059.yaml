@@ -1,0 +1,21 @@
+legacy_code: SH-266
+legacy_name: regex-match-in-sh
+new_category: Portability
+new_code: X059
+runtime_kind: ast
+shellcheck_code: SC3066
+shells:
+  - sh
+  - dash
+description: "The `=~` regex match operator is used in POSIX sh."
+rationale: "Use `grep` or `case` for pattern matching in POSIX sh."
+source:
+  shell_checks_rule: rules/SH-266.yaml
+  shell_checks_example: examples/266.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/266.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,2154
+      if [[ $1 =~ "-" ]]; then echo dash; fi

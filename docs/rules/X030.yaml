@@ -1,0 +1,21 @@
+legacy_code: SH-061
+legacy_name: echo-backslash-escapes
+new_category: Portability
+new_code: X030
+runtime_kind: ast
+shellcheck_code: SC2028
+shells:
+  - sh
+  - bash
+  - ksh
+description: Backslash sequences in echo depend on shell behavior and may not print as intended.
+rationale: Use printf when the text needs predictable escape handling.
+source:
+  shell_checks_rule: rules/SH-061.yaml
+  shell_checks_example: examples/061.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/061.sh
+    code: |
+      #!/bin/sh
+      echo '\n'

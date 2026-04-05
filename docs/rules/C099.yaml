@@ -1,0 +1,23 @@
+legacy_code: SH-230
+legacy_name: quoted-array-slice
+new_category: Correctness
+new_code: C099
+runtime_kind: ast
+shellcheck_code: SC2325
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An array slice is quoted, preventing word splitting of the elements.
+rationale: "Use `${@:N}` without surrounding double quotes if splitting is needed."
+source:
+  shell_checks_rule: rules/SH-230.yaml
+  shell_checks_example: examples/230.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/230.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034,2154
+      PARAMS="${@:5}"

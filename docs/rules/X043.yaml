@@ -1,0 +1,22 @@
+legacy_code: SH-153
+legacy_name: zsh-flag-expansion
+new_category: Portability
+new_code: X043
+runtime_kind: ast
+shellcheck_code: SC2251
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: This uses a zsh-only parameter expansion form.
+rationale: Switch to a shell that supports the syntax or rewrite it portably.
+source:
+  shell_checks_rule: rules/SH-153.yaml
+  shell_checks_example: examples/153.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/153.sh
+    code: |
+      #!/bin/sh
+      x=${(f)foo}

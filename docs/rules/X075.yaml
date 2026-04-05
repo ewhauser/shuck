@@ -1,0 +1,20 @@
+legacy_code: SH-282
+legacy_name: ownership-test-in-sh
+new_category: Portability
+new_code: X075
+runtime_kind: ast
+shellcheck_code: SC3082
+shells:
+  - sh
+description: "The `-O` ownership test is used in a POSIX sh script."
+rationale: "Use `stat` or a similar portable check for file ownership."
+source:
+  shell_checks_rule: rules/SH-282.yaml
+  shell_checks_example: examples/282.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/282.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2166
+      if [ ! -O "$file" -a -w "$file" ]; then echo writable; fi

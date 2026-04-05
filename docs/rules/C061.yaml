@@ -1,0 +1,23 @@
+legacy_code: SH-167
+legacy_name: template-brace-in-command
+new_category: Correctness
+new_code: C061
+runtime_kind: ast
+shellcheck_code: SC2262
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A template placeholder with double braces appears in command position.
+rationale: Replace the template variable before running the script.
+source:
+  shell_checks_rule: rules/SH-167.yaml
+  shell_checks_example: examples/167.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/167.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      "$root/pkg/{{name}}/bin/{{cmd}}" "$@"

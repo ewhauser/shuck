@@ -1,0 +1,22 @@
+legacy_code: SH-159
+legacy_name: subst-with-redirect
+new_category: Correctness
+new_code: C057
+runtime_kind: ast
+shellcheck_code: SC2255
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Runs a command substitution whose output is redirected away.
+rationale: Run the command directly if you only want the side effect.
+source:
+  shell_checks_rule: rules/SH-159.yaml
+  shell_checks_example: examples/159.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/159.sh
+    code: |
+      #!/bin/sh
+      out=$(printf hi >out.txt)

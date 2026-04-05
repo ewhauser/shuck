@@ -1,0 +1,23 @@
+legacy_code: SH-332
+legacy_name: heredoc-closer-not-alone
+new_category: Correctness
+new_code: C144
+runtime_kind: ast
+shellcheck_code: SC2394
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The here-document closer appears on the same line as content instead of by itself.
+rationale: Put the here-doc terminator on a line by itself.
+source:
+  shell_checks_rule: rules/SH-332.yaml
+  shell_checks_example: examples/332.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/332.sh
+    code: |
+      #!/bin/bash
+      cat <<EOF
+      x EOF

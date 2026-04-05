@@ -1,0 +1,23 @@
+legacy_code: SH-178
+legacy_name: empty-function-body
+new_category: Correctness
+new_code: C067
+runtime_kind: ast
+shellcheck_code: SC2273
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A function body contains no commands.
+rationale: "Add a colon or `true` as a placeholder command."
+source:
+  shell_checks_rule: rules/SH-178.yaml
+  shell_checks_example: examples/178.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/178.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=1009,1072,1073
+      myfunc() { }

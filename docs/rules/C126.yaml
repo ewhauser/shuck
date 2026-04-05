@@ -1,0 +1,25 @@
+legacy_code: SH-296
+legacy_name: continue-outside-loop-in-func
+new_category: Correctness
+new_code: C126
+runtime_kind: ast
+shellcheck_code: SC2368
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `continue` statement appears inside a function but outside a loop."
+rationale: "Use `return` instead of `continue` to exit the function early."
+source:
+  shell_checks_rule: rules/SH-296.yaml
+  shell_checks_example: examples/296.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/296.sh
+    code: |
+      #!/bin/sh
+      myfunc() {
+      	continue
+      }
+      myfunc

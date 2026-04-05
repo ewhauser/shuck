@@ -1,0 +1,22 @@
+legacy_code: SH-274
+legacy_name: hyphenated-function-name
+new_category: Portability
+new_code: X067
+runtime_kind: ast
+shellcheck_code: SC3074
+shells:
+  - sh
+  - dash
+description: A function name contains a hyphen, which is not portable.
+rationale: Use underscores instead of hyphens in function names.
+source:
+  shell_checks_rule: rules/SH-274.yaml
+  shell_checks_example: examples/274.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/274.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2113,2112
+      function my-func() { echo hello; }
+      my-func

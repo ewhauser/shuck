@@ -1,0 +1,22 @@
+legacy_code: SH-048
+legacy_name: glob-as-argument
+new_category: Correctness
+new_code: C012
+runtime_kind: ast
+shellcheck_code: SC2035
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An unguarded wildcard can turn into command arguments that begin with a dash after pathname expansion.
+rationale: Put a safe separator or a more explicit file-selection step in front of wildcard-expanded path lists.
+source:
+  shell_checks_rule: rules/SH-048.yaml
+  shell_checks_example: examples/048.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/048.sh
+    code: |
+      #!/bin/sh
+      rm *

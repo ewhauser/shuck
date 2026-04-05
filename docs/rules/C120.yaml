@@ -1,0 +1,23 @@
+legacy_code: SH-287
+legacy_name: expr-substr-in-test
+new_category: Correctness
+new_code: C120
+runtime_kind: ast
+shellcheck_code: SC2360
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The `expr substr` command is used inside a test expression."
+rationale: Use shell parameter expansion for substring extraction.
+source:
+  shell_checks_rule: rules/SH-287.yaml
+  shell_checks_example: examples/287.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/287.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2046
+      if test "$(expr substr $(uname -s) 1 5)" = "Linux"; then echo linux; fi

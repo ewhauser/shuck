@@ -1,0 +1,23 @@
+legacy_code: SH-245
+legacy_name: deprecated-tempfile-command
+new_category: Style
+new_code: S059
+runtime_kind: ast
+shellcheck_code: SC2340
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The deprecated `tempfile` command is used to create a temporary file."
+rationale: "Use `mktemp` instead of `tempfile`."
+source:
+  shell_checks_rule: rules/SH-245.yaml
+  shell_checks_example: examples/245.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/245.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034,2154
+      AUTHFILE=$(tempfile -n "$TMPDIR/Xauthority")

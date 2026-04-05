@@ -1,0 +1,20 @@
+legacy_code: SH-291
+legacy_name: nested-default-expansion
+new_category: Portability
+new_code: X077
+runtime_kind: ast
+shellcheck_code: SC3083
+shells:
+  - sh
+  - dash
+description: A nested default-value expansion is used in POSIX sh.
+rationale: Use intermediate variables instead of nesting expansions.
+source:
+  shell_checks_rule: rules/SH-291.yaml
+  shell_checks_example: examples/291.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/291.sh
+    code: |
+      #!/bin/sh
+      [ "${EUID:-0}" = 0 ]

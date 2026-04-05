@@ -1,0 +1,24 @@
+legacy_code: SH-242
+legacy_name: dollar-question-after-command
+new_category: Correctness
+new_code: C107
+runtime_kind: ast
+shellcheck_code: SC2337
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The exit status `$?` is checked after an intervening command overwrites it."
+rationale: "Save `$?` immediately or test the command directly."
+source:
+  shell_checks_rule: rules/SH-242.yaml
+  shell_checks_example: examples/242.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/242.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154
+      cmd "$arg"
+      if [ $? -ne 0 ]; then echo fail; fi

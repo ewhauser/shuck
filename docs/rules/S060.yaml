@@ -1,0 +1,23 @@
+legacy_code: SH-247
+legacy_name: egrep-deprecated
+new_category: Style
+new_code: S060
+runtime_kind: ast
+shellcheck_code: SC2342
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The `egrep` command is used instead of `grep -E`."
+rationale: "Replace `egrep` with `grep -E` as egrep is deprecated."
+source:
+  shell_checks_rule: rules/SH-247.yaml
+  shell_checks_example: examples/247.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/247.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2086,2154,2038
+      find $PKG | xargs file | egrep "ELF.*executable" | cut -f 1 -d :

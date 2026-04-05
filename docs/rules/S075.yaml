@@ -1,0 +1,23 @@
+legacy_code: SH-349
+legacy_name: combine-appends
+new_category: Style
+new_code: S075
+runtime_kind: ast
+shellcheck_code: SC2129
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Multiple commands append to the same file with separate redirections.
+rationale: Group the commands and apply one trailing >> redirection for clearer, more efficient output handling.
+source:
+  shell_checks_rule: rules/SH-349.yaml
+  shell_checks_example: examples/349.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/349.sh
+    code: |
+      #!/bin/bash
+      echo first >> out.log
+      echo second >> out.log; echo third >> out.log

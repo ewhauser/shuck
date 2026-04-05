@@ -1,0 +1,22 @@
+legacy_code: SH-192
+legacy_name: space-after-hash-bang
+new_category: Correctness
+new_code: C074
+runtime_kind: ast
+shellcheck_code: SC2287
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The shebang has a space between `#` and `!`."
+rationale: "Write `#!` without a space so the kernel treats it as a shebang."
+source:
+  shell_checks_rule: rules/SH-192.yaml
+  shell_checks_example: examples/192.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/192.sh
+    code: |
+      # !/bin/sh
+      echo hello

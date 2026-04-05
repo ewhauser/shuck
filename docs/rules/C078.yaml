@@ -1,0 +1,23 @@
+legacy_code: SH-200
+legacy_name: unquoted-globs-in-find
+new_category: Correctness
+new_code: C078
+runtime_kind: ast
+shellcheck_code: SC2295
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "An unquoted variable and glob appear in a `find -exec` command."
+rationale: "Quote variables and escape globs passed to `find`."
+source:
+  shell_checks_rule: rules/SH-200.yaml
+  shell_checks_example: examples/200.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/200.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2086,2046,2154
+      find $dir -exec zip -j $OUT/$(basename $dir).zip {} +

@@ -1,0 +1,34 @@
+legacy_code: SH-300
+legacy_name: single-letter-case-label
+new_category: Style
+new_code: S069
+runtime_kind: ast
+shellcheck_code: SC2372
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A bare single letter is used as a case label in a getopts handler.
+rationale: Verify the case labels match the getopts option string.
+source:
+  shell_checks_rule: rules/SH-300.yaml
+  shell_checks_example: examples/300.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/300.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2213
+      while getopts "hb:c:" opt; do
+          case "$opt" in
+          h)
+              echo help
+              exit 0
+              ;;
+          b)
+              bg="$OPTARG"
+              ;;
+          esac
+      done
+      echo "${bg:-}"

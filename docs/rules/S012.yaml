@@ -1,0 +1,22 @@
+legacy_code: SH-056
+legacy_name: ps-grep-pipeline
+new_category: Style
+new_code: S012
+runtime_kind: ast
+shellcheck_code: SC2009
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Piping ps into grep searches the formatted process list instead of asking for the process you want.
+rationale: Use a process-aware selector such as pgrep instead of parsing ps output.
+source:
+  shell_checks_rule: rules/SH-056.yaml
+  shell_checks_example: examples/056.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/056.sh
+    code: |
+      #!/bin/sh
+      ps aux | grep foo

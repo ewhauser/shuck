@@ -1,0 +1,22 @@
+legacy_code: SH-035
+legacy_name: legacy-arithmetic-expansion
+new_category: Style
+new_code: S006
+runtime_kind: ast
+shellcheck_code: SC2007
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The script uses the old bracketed arithmetic form instead of the modern arithmetic expansion syntax.
+rationale: "Prefer `$((...))` for arithmetic so the expression reads like arithmetic rather than shell syntax."
+source:
+  shell_checks_rule: rules/SH-035.yaml
+  shell_checks_example: examples/035.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/035.sh
+    code: |
+      #!/bin/bash
+      echo $[1+2]

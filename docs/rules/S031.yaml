@@ -1,0 +1,22 @@
+legacy_code: SH-120
+legacy_name: trailing-directive
+new_category: Style
+new_code: S031
+runtime_kind: ast
+shellcheck_code: SC1113
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A shellcheck directive placed after code is ignored.
+rationale: Put directives on their own comment line before the command.
+source:
+  shell_checks_rule: rules/SH-120.yaml
+  shell_checks_example: examples/120.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/120.sh
+    code: |
+      #!/bin/sh
+      : # shellcheck disable=2034

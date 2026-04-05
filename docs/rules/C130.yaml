@@ -1,0 +1,27 @@
+legacy_code: SH-307
+legacy_name: append-with-escaped-quotes
+new_category: Correctness
+new_code: C130
+runtime_kind: ast
+shellcheck_code: SC2377
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `+=` string append contains escaped quotes that may not behave as intended."
+rationale: Build the string with a separate assignment or use single quotes.
+source:
+  shell_checks_rule: rules/SH-307.yaml
+  shell_checks_example: examples/307.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/307.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,3024,2086,2034,2090
+      myfunc() {
+      	CFLAGS+=" -DDIR=\"$PREFIX/share/\""
+      	$CC $CFLAGS -c test.c -o test.o
+      }
+      myfunc

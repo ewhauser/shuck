@@ -1,0 +1,21 @@
+legacy_code: SH-277
+legacy_name: base-prefix-in-arithmetic
+new_category: Portability
+new_code: X070
+runtime_kind: ast
+shellcheck_code: SC3077
+shells:
+  - sh
+  - dash
+description: "A base prefix like `10#` is used in arithmetic in POSIX sh."
+rationale: Strip leading zeros manually for portability.
+source:
+  shell_checks_rule: rules/SH-277.yaml
+  shell_checks_example: examples/277.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/277.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034
+      LOOP=$((10#123))

@@ -1,0 +1,22 @@
+legacy_code: SH-160
+legacy_name: subst-with-redirect-err
+new_category: Correctness
+new_code: C058
+runtime_kind: ast
+shellcheck_code: SC2256
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Runs a command substitution with redirected output in the subshell.
+rationale: Keep the redirect outside the substitution if possible.
+source:
+  shell_checks_rule: rules/SH-160.yaml
+  shell_checks_example: examples/160.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/160.sh
+    code: |
+      #!/bin/sh
+      out=$(printf hi >/dev/null 2>&1)

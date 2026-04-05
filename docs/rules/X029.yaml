@@ -1,0 +1,22 @@
+legacy_code: SH-059
+legacy_name: tr-upper-range
+new_category: Portability
+new_code: X029
+runtime_kind: ast
+shellcheck_code: SC2019
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An upper-case range in tr can depend on locale and may not cover the characters you expect.
+rationale: Use explicit character classes or a fixed character list when mapping characters.
+source:
+  shell_checks_rule: rules/SH-059.yaml
+  shell_checks_example: examples/059.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/059.sh
+    code: |
+      #!/bin/sh
+      tr abc A-Z < foo

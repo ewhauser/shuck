@@ -1,0 +1,23 @@
+legacy_code: SH-292
+legacy_name: function-references-unset-param
+new_category: Correctness
+new_code: C123
+runtime_kind: ast
+shellcheck_code: SC2364
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A function references a positional parameter that is never passed by callers.
+rationale: Pass the expected arguments at every call site.
+source:
+  shell_checks_rule: rules/SH-292.yaml
+  shell_checks_example: examples/292.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/292.sh
+    code: |
+      #!/bin/sh
+      greet() { echo "hello $1"; }
+      greet

@@ -1,0 +1,23 @@
+legacy_code: SH-068
+legacy_name: command-output-array-split
+new_category: Style
+new_code: S018
+runtime_kind: ast
+shellcheck_code: SC2207
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Feeding raw command output straight into an array can break on whitespace and similar separators.
+rationale: Capture the data with a structured reader instead of arraying command output directly.
+source:
+  shell_checks_rule: rules/SH-068.yaml
+  shell_checks_example: examples/068.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/068.sh
+    code: |
+      #!/bin/bash
+      arr=($(printf '%s\n' a b))
+      : "${arr[0]}"

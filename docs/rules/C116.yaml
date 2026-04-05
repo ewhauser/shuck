@@ -1,0 +1,23 @@
+legacy_code: SH-258
+legacy_name: assignment-to-numeric-variable
+new_category: Correctness
+new_code: C116
+runtime_kind: ast
+shellcheck_code: SC2353
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A numeric string is used as a variable name in an assignment.
+rationale: Use a valid variable name that starts with a letter or underscore.
+source:
+  shell_checks_rule: rules/SH-258.yaml
+  shell_checks_example: examples/258.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/258.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2288
+      test "$2" || 2="."

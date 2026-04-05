@@ -1,0 +1,23 @@
+legacy_code: SH-198
+legacy_name: ls-piped-to-xargs
+new_category: Style
+new_code: S046
+runtime_kind: ast
+shellcheck_code: SC2293
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The output of `ls` is piped into another command."
+rationale: "Use a glob or `find` instead of parsing `ls` output."
+source:
+  shell_checks_rule: rules/SH-198.yaml
+  shell_checks_example: examples/198.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/198.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2035
+      ls *.txt | xargs -n1 wc

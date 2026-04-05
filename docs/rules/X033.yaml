@@ -1,0 +1,25 @@
+legacy_code: SH-093
+legacy_name: if-elif-bash-test
+new_category: Portability
+new_code: X033
+runtime_kind: ast
+shellcheck_code: SC3011
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A POSIX sh script uses a bash-style `[[ ... ]]` test in an `elif` clause."
+rationale: "Use a portable `[` test or switch the script to bash."
+source:
+  shell_checks_rule: rules/SH-093.yaml
+  shell_checks_example: examples/093.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/093.sh
+    code: |
+      if true; then
+        :
+      elif [[ "${OSTYPE}" == (cygwin|msys)* ]]; then
+        :
+      fi

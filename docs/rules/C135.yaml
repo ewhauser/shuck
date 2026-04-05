@@ -1,0 +1,30 @@
+legacy_code: SH-313
+legacy_name: case-arm-not-in-getopts
+new_category: Correctness
+new_code: C135
+runtime_kind: ast
+shellcheck_code: SC2383
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A case arm handles an option not listed in the getopts string.
+rationale: Add the missing option to the getopts string or remove the case arm.
+source:
+  shell_checks_rule: rules/SH-313.yaml
+  shell_checks_example: examples/313.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/313.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034,2154,2220,2213
+      while getopts ':a:d:h' OPT; do
+      	case "$OPT" in
+      		a) alg=$OPTARG;;
+      		d) domain=$OPTARG;;
+      		k) keyfile=$OPTARG;;
+      		h) echo help; exit 0;;
+      	esac
+      done

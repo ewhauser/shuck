@@ -1,0 +1,24 @@
+legacy_code: SH-051
+legacy_name: compound-test-operator
+new_category: Style
+new_code: S011
+runtime_kind: ast
+shellcheck_code: SC2166
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Using `-a` or `-o` inside a single `[` expression compresses boolean logic into a form that is easy to misread."
+rationale: Split the condition into explicit branches so the intended logic stays obvious.
+source:
+  shell_checks_rule: rules/SH-051.yaml
+  shell_checks_example: examples/051.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/051.sh
+    code: |
+      #!/bin/sh
+      a=1
+      b=2
+      [ "$a" = 1 -a "$b" = 2 ]

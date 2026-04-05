@@ -1,0 +1,23 @@
+legacy_code: SH-251
+legacy_name: default-value-in-colon-assign
+new_category: Style
+new_code: S062
+runtime_kind: ast
+shellcheck_code: SC2346
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A colon-assign expansion provides a default without quoting.
+rationale: Quote the default value to prevent word splitting.
+source:
+  shell_checks_rule: rules/SH-251.yaml
+  shell_checks_example: examples/251.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/251.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034,2154
+      : ${HISTORY_FLAGS=''}

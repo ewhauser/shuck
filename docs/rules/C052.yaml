@@ -1,0 +1,19 @@
+legacy_code: SH-146
+legacy_name: assign-special-zero
+new_category: Correctness
+new_code: C052
+runtime_kind: ast
+shellcheck_code: SC2246
+shells:
+  - sh
+description: Assigning to the script-name parameter is rejected.
+rationale: Use a normal variable instead of the positional-zero parameter.
+source:
+  shell_checks_rule: rules/SH-146.yaml
+  shell_checks_example: examples/146.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/146.sh
+    code: |
+      #!/bin/sh
+      0=demo

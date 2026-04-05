@@ -1,0 +1,22 @@
+legacy_code: SH-225
+legacy_name: unquoted-pipe-in-echo
+new_category: Correctness
+new_code: C096
+runtime_kind: ast
+shellcheck_code: SC2320
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Pipe and brace characters in an echo argument may be interpreted by the shell.
+rationale: Quote the argument to prevent special character interpretation.
+source:
+  shell_checks_rule: rules/SH-225.yaml
+  shell_checks_example: examples/225.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/225.sh
+    code: |
+      #!/bin/sh
+      echo usage: cmd [start\|stop\|restart]

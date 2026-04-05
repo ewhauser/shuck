@@ -1,0 +1,24 @@
+legacy_code: SH-194
+legacy_name: commented-continuation-line
+new_category: Correctness
+new_code: C076
+runtime_kind: ast
+shellcheck_code: SC2289
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A line continuation is followed by a commented-out argument.
+rationale: Remove the continuation backslash or uncomment the line.
+source:
+  shell_checks_rule: rules/SH-194.yaml
+  shell_checks_example: examples/194.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/194.sh
+    code: |
+      #!/bin/bash
+      echo hello \
+        #world \
+        foo

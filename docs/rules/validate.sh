@@ -25,9 +25,78 @@ resolve_shell_checks_path() {
   printf '%s/%s' "${shell_checks_root}" "${path}"
 }
 
+normalized_list() {
+  local file=$1
+  local expr=$2
+
+  yq -r "${expr}[]" "${file}" | LC_ALL=C sort
+}
+
+check_unique_field() {
+  local field=$1
+  local label=$2
+  shift 2
+
+  local tmp
+  local file
+  local basename
+  local value
+  local failed=0
+
+  tmp=$(mktemp)
+  trap 'rm -f "${tmp}"' RETURN
+
+  for file in "$@"; do
+    basename=$(basename "${file}")
+    value=$(yq -r "${field}" "${file}")
+
+    if [[ -z "${value}" || "${value}" == "null" ]]; then
+      printf 'ERROR %s: %s is missing, so uniqueness could not be checked\n' "${basename}" "${label}" >&2
+      failed=1
+      continue
+    fi
+
+    printf '%s\t%s\n' "${value}" "${basename}" >> "${tmp}"
+  done
+
+  while IFS=$'\t' read -r value basenames; do
+    [[ -n "${value}" ]] || continue
+    printf 'ERROR duplicate %s %s in %s\n' "${label}" "${value}" "${basenames}" >&2
+    failed=1
+  done < <(
+    sort -k1,1 "${tmp}" |
+      awk -F '\t' '
+        {
+          if ($1 == current) {
+            files = files ", " $2
+          } else {
+            if (count > 1) {
+              print current "\t" files
+            }
+            current = $1
+            files = $2
+            count = 1
+            next
+          }
+          count++
+        }
+        END {
+          if (count > 1) {
+            print current "\t" files
+          }
+        }
+      '
+  )
+
+  rm -f "${tmp}"
+  trap - RETURN
+
+  return "${failed}"
+}
+
 validate_file() {
   local file=$1
-  local basename stem legacy_code rule_path example_path failed=0
+  local basename stem legacy_code rule_path example_path doc_shells source_shells failed=0
 
   basename=$(basename "${file}")
   stem=${basename%.yaml}
@@ -97,6 +166,23 @@ validate_file() {
       failed=1
     fi
 
+    if ! doc_shells=$(normalized_list "${file}" '.shells'); then
+      printf 'ERROR %s: could not read shells from docs rule\n' "${basename}" >&2
+      failed=1
+    fi
+
+    if ! source_shells=$(normalized_list "${rule_path}" '.shells'); then
+      printf 'ERROR %s: could not read shells from imported shell-checks rule %s\n' "${basename}" "${rule_path}" >&2
+      failed=1
+    fi
+
+    if [[ "${failed}" -eq 0 && "${doc_shells}" != "${source_shells}" ]]; then
+      printf 'ERROR %s: shells do not match imported shell-checks rule %s\n' "${basename}" "${rule_path}" >&2
+      printf '  docs: %s\n' "$(printf '%s' "${doc_shells}" | paste -sd, -)" >&2
+      printf '  src:  %s\n' "$(printf '%s' "${source_shells}" | paste -sd, -)" >&2
+      failed=1
+    fi
+
     while IFS= read -r example_source; do
       [[ -n "${example_source}" ]] || continue
       example_path=$(resolve_shell_checks_path "${example_source}")
@@ -116,6 +202,7 @@ validate_file() {
 
 main() {
   local files=()
+  local all_rule_files=("${script_dir}"/*.yaml)
   local file failed=0
 
   if [[ $# -gt 0 ]]; then
@@ -134,6 +221,18 @@ main() {
       failed=1
     fi
   done
+
+  if ! check_unique_field '.legacy_code' 'legacy_code' "${all_rule_files[@]}"; then
+    failed=1
+  fi
+
+  if ! check_unique_field '.new_code' 'new_code' "${all_rule_files[@]}"; then
+    failed=1
+  fi
+
+  if ! check_unique_field '.shellcheck_code' 'shellcheck_code' "${all_rule_files[@]}"; then
+    failed=1
+  fi
 
   exit "${failed}"
 }

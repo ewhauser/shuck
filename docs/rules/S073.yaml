@@ -1,0 +1,25 @@
+legacy_code: SH-330
+legacy_name: spaced-tabstrip-close
+new_category: Style
+new_code: S073
+runtime_kind: ast
+shellcheck_code: SC2393
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A `<<-` heredoc uses spaces before its closing marker.
+rationale: Use tabs for the indented marker, or use plain `<<`.
+source:
+  shell_checks_rule: rules/SH-330.yaml
+  shell_checks_example: examples/330.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/330.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=1044,1072,1073
+      cat <<-END
+      x
+        END

@@ -1,0 +1,21 @@
+legacy_code: SH-271
+legacy_name: plus-equals-in-sh
+new_category: Portability
+new_code: X064
+runtime_kind: ast
+shellcheck_code: SC3071
+shells:
+  - sh
+  - dash
+description: "The `+=` append operator is used in POSIX sh."
+rationale: "Use `VAR=\"${VAR}value\"` for portable string append."
+source:
+  shell_checks_rule: rules/SH-271.yaml
+  shell_checks_example: examples/271.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/271.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154
+      x+="hello"

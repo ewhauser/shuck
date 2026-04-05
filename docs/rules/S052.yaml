@@ -1,0 +1,23 @@
+legacy_code: SH-212
+legacy_name: unquoted-variable-in-test
+new_category: Style
+new_code: S052
+runtime_kind: ast
+shellcheck_code: SC2307
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A variable expansion is not quoted inside a `[ -n ... ]` test."
+rationale: Quote the variable to avoid syntax errors when it is empty.
+source:
+  shell_checks_rule: rules/SH-212.yaml
+  shell_checks_example: examples/212.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/212.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2086
+      if [ -n ${NVM_COLORS} ]; then echo set; fi

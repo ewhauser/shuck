@@ -1,0 +1,22 @@
+legacy_code: SH-125
+legacy_name: zsh-always-block
+new_category: Portability
+new_code: X039
+runtime_kind: ast
+shellcheck_code: SC1130
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "Zsh `always` blocks are not valid shell syntax."
+rationale: Rewrite the flow using normal shell constructs.
+source:
+  shell_checks_rule: rules/SH-125.yaml
+  shell_checks_example: examples/125.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/125.sh
+    code: |
+      #!/bin/sh
+      { :; } always { :; }

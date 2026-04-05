@@ -1,0 +1,20 @@
+legacy_code: SH-017
+legacy_name: ampersand-redirection
+new_category: Portability
+new_code: X012
+runtime_kind: ast
+shellcheck_code: SC3052
+shells:
+  - sh
+  - dash
+description: The script uses combined stdout-and-stderr redirection syntax that portable `sh` does not provide.
+rationale: Redirect stdout and stderr separately when you need the code to stay portable.
+source:
+  shell_checks_rule: rules/SH-017.yaml
+  shell_checks_example: examples/017.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/017.sh
+    code: |
+      #!/bin/sh
+      : &>out

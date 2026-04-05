@@ -1,0 +1,23 @@
+legacy_code: SH-037
+legacy_name: printf-format-variable
+new_category: Style
+new_code: S007
+runtime_kind: ast
+shellcheck_code: SC2059
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The format string for `printf` is supplied through a variable, which makes the call harder to audit."
+rationale: Keep the format string literal and pass data in later arguments.
+source:
+  shell_checks_rule: rules/SH-037.yaml
+  shell_checks_example: examples/037.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/037.sh
+    code: |
+      #!/bin/sh
+      x='%s'
+      printf "$x"

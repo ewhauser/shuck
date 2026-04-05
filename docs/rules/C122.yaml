@@ -1,0 +1,23 @@
+legacy_code: SH-290
+legacy_name: a-flag-in-double-bracket
+new_category: Correctness
+new_code: C122
+runtime_kind: ast
+shellcheck_code: SC2363
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The `-a` flag inside `[[ ]]` is ambiguous in POSIX sh."
+rationale: "Use `-e` for file existence or `&&` for boolean conjunction."
+source:
+  shell_checks_rule: rules/SH-290.yaml
+  shell_checks_example: examples/290.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/290.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,2154,3017
+      if [[ -a "$path" ]]; then echo exists; fi

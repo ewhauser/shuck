@@ -1,0 +1,23 @@
+legacy_code: SH-177
+legacy_name: missing-semicolon-before-brace
+new_category: Correctness
+new_code: C066
+runtime_kind: ast
+shellcheck_code: SC2272
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A closing brace follows a command without a semicolon or newline.
+rationale: "Add a semicolon before `}` so the shell sees the end of the group."
+source:
+  shell_checks_rule: rules/SH-177.yaml
+  shell_checks_example: examples/177.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/177.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=1009,1072,1073,1056,1083
+      myfunc() {echo hello}

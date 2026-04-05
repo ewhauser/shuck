@@ -1,0 +1,20 @@
+legacy_code: SH-276
+legacy_name: signal-name-in-trap
+new_category: Portability
+new_code: X069
+runtime_kind: ast
+shellcheck_code: SC3076
+shells:
+  - sh
+  - dash
+description: "A symbolic signal name like `SIGHUP` is used with `trap` in POSIX sh."
+rationale: "Use the numeric signal or omit the `SIG` prefix for portability."
+source:
+  shell_checks_rule: rules/SH-276.yaml
+  shell_checks_example: examples/276.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/276.sh
+    code: |
+      #!/bin/sh
+      trap "" SIGHUP

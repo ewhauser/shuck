@@ -1,0 +1,23 @@
+legacy_code: SH-321
+legacy_name: loop-without-end
+new_category: Correctness
+new_code: C141
+runtime_kind: ast
+shellcheck_code: SC2389
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A loop body is opened but never closed.
+rationale: Finish the `do` block with `done`.
+source:
+  shell_checks_rule: rules/SH-321.yaml
+  shell_checks_example: examples/321.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/321.sh
+    code: |
+      #!/bin/sh
+      while false; do
+        :

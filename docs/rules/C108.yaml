@@ -1,0 +1,25 @@
+legacy_code: SH-243
+legacy_name: unset-associative-array-element
+new_category: Correctness
+new_code: C108
+runtime_kind: ast
+shellcheck_code: SC2338
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An associative array element is unset with a quoted key.
+rationale: "Use `unset 'arr[key]'` with single quotes to avoid expansion."
+source:
+  shell_checks_rule: rules/SH-243.yaml
+  shell_checks_example: examples/243.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/243.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034
+      declare -A parts
+      parts[1]=foo
+      unset parts["1"]

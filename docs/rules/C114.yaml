@@ -1,0 +1,23 @@
+legacy_code: SH-254
+legacy_name: glob-with-expansion-in-loop
+new_category: Correctness
+new_code: C114
+runtime_kind: ast
+shellcheck_code: SC2349
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A glob pattern with an embedded variable is used in a for loop.
+rationale: "Quote the variable portion or use `find` for reliable matching."
+source:
+  shell_checks_rule: rules/SH-254.yaml
+  shell_checks_example: examples/254.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/254.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154,2086
+      for i in $CWD/file.*pattern*; do echo "$i"; done

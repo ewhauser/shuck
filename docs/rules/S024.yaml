@@ -1,0 +1,22 @@
+legacy_code: SH-087
+legacy_name: single-quote-backslash
+new_category: Style
+new_code: S024
+runtime_kind: ast
+shellcheck_code: SC1003
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Includes a literal backslash inside a quoted shell string.
+rationale: Use a quoting form that preserves the intended literal text.
+source:
+  shell_checks_rule: rules/SH-087.yaml
+  shell_checks_example: examples/087.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/087.sh
+    code: |
+      #!/bin/bash
+      sed -i '$a\' "$1"

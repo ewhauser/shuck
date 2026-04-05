@@ -1,0 +1,22 @@
+legacy_code: SH-108
+legacy_name: zsh-redir-pipe
+new_category: Portability
+new_code: X036
+runtime_kind: ast
+shellcheck_code: SC1070
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A zsh-only redirection operator appears in a POSIX shell script.
+rationale: Use portable redirections instead of the zsh operator.
+source:
+  shell_checks_rule: rules/SH-108.yaml
+  shell_checks_example: examples/108.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/108.sh
+    code: |
+      #!/bin/sh
+      : &|

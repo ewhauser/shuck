@@ -1,0 +1,22 @@
+legacy_code: SH-196
+legacy_name: unquoted-variable-in-sed
+new_category: Style
+new_code: S044
+runtime_kind: ast
+shellcheck_code: SC2291
+shells:
+  - bash
+  - ksh
+description: A variable is used unquoted in a sed substitution argument.
+rationale: Quote the variable to prevent word splitting.
+source:
+  shell_checks_rule: rules/SH-196.yaml
+  shell_checks_example: examples/196.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/196.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2086
+      RUNTIME=$(echo $CLASSPATH | sed 's|foo|bar|g')
+      echo "$RUNTIME"

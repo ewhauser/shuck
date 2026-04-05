@@ -1,0 +1,23 @@
+legacy_code: SH-204
+legacy_name: glob-in-grep-pattern
+new_category: Correctness
+new_code: C080
+runtime_kind: ast
+shellcheck_code: SC2299
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A glob character inside a grep pattern may be expanded by the shell.
+rationale: Quote the pattern to prevent glob expansion.
+source:
+  shell_checks_rule: rules/SH-204.yaml
+  shell_checks_example: examples/204.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/204.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      echo "$text" | grep -v "start*" > out.txt

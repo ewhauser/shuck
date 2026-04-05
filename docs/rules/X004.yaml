@@ -1,0 +1,20 @@
+legacy_code: SH-009
+legacy_name: function-keyword
+new_category: Portability
+new_code: X004
+runtime_kind: ast
+shellcheck_code: SC2112
+shells:
+  - sh
+  - dash
+description: The script uses the `function` keyword, which is not part of portable `sh` syntax.
+rationale: Define shell functions with the plain `name() { ...; }` form when portability matters.
+source:
+  shell_checks_rule: rules/SH-009.yaml
+  shell_checks_example: examples/009.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/009.sh
+    code: |
+      #!/bin/sh
+      function f { :; }

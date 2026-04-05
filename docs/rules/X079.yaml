@@ -1,0 +1,25 @@
+legacy_code: SH-303
+legacy_name: zsh-parameter-index-flag
+new_category: Portability
+new_code: X079
+runtime_kind: ast
+shellcheck_code: SC2375
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A zsh-style parameter index flag is used in POSIX sh.
+rationale: Extract the value with cut or awk instead of zsh subscripting.
+source:
+  shell_checks_rule: rules/SH-303.yaml
+  shell_checks_example: examples/303.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/303.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034,2082,2299,2154,3057
+      if is-at-least 3.1 ${"$(rsync --version 2>&1)"[(w)3]}; then
+        echo new
+      fi

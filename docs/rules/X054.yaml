@@ -1,0 +1,21 @@
+legacy_code: SH-261
+legacy_name: extglob-in-sh
+new_category: Portability
+new_code: X054
+runtime_kind: ast
+shellcheck_code: SC3061
+shells:
+  - sh
+  - dash
+description: "An extended glob pattern `@()` is used in a POSIX shell context."
+rationale: "Use a `case` statement or POSIX glob patterns instead."
+source:
+  shell_checks_rule: rules/SH-261.yaml
+  shell_checks_example: examples/261.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/261.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,2154,3028,3014
+      [[ $OSTYPE == *@(linux|freebsd)* ]] || exit 1

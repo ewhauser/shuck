@@ -1,0 +1,22 @@
+legacy_code: SH-227
+legacy_name: su-without-flag
+new_category: Style
+new_code: S054
+runtime_kind: ast
+shellcheck_code: SC2322
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The `su` command is used without `-l` or `-c`."
+rationale: "Use `su -l user` or `su -c 'command' user` to start a proper login shell."
+source:
+  shell_checks_rule: rules/SH-227.yaml
+  shell_checks_example: examples/227.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/227.sh
+    code: |
+      #!/bin/bash
+      su librenms

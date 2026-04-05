@@ -1,0 +1,20 @@
+legacy_code: SH-021
+legacy_name: declare-command
+new_category: Portability
+new_code: X016
+runtime_kind: ast
+shellcheck_code: SC3044
+shells:
+  - sh
+  - dash
+description: The script uses `declare`, which is not available in portable `sh`.
+rationale: Use plain assignments or shell features that your target shell actually supports.
+source:
+  shell_checks_rule: rules/SH-021.yaml
+  shell_checks_example: examples/021.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/021.sh
+    code: |
+      #!/bin/sh
+      declare

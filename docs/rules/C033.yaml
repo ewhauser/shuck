@@ -1,0 +1,24 @@
+legacy_code: SH-104
+legacy_name: indented-here-doc-end
+new_category: Correctness
+new_code: C033
+runtime_kind: ast
+shellcheck_code: SC1039
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The here-doc terminator is indented instead of starting at column 1.
+rationale: Align the terminator flush-left so the shell can recognize the end marker.
+source:
+  shell_checks_rule: rules/SH-104.yaml
+  shell_checks_example: examples/104.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/104.sh
+    code: |
+      #!/bin/sh
+      cat <<EOF
+      hi
+       EOF

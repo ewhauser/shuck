@@ -1,0 +1,24 @@
+legacy_code: SH-152
+legacy_name: pattern-with-variable
+new_category: Correctness
+new_code: C055
+runtime_kind: ast
+shellcheck_code: SC2250
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A variable is being expanded inside a pattern expression.
+rationale: Make the pattern explicit and keep untrusted text out of pattern matching.
+source:
+  shell_checks_rule: rules/SH-152.yaml
+  shell_checks_example: examples/152.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/152.sh
+    code: |
+      #!/bin/bash
+      name=abc
+      suffix=b
+      trimmed=${name%$suffix}

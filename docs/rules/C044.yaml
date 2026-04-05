@@ -1,0 +1,22 @@
+legacy_code: SH-130
+legacy_name: bare-glob-path
+new_category: Correctness
+new_code: C044
+runtime_kind: ast
+shellcheck_code: SC2144
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Leaves a wildcard path unquoted in command position
+rationale: Quote the path or expand it explicitly before using it.
+source:
+  shell_checks_rule: rules/SH-130.yaml
+  shell_checks_example: examples/130.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/130.sh
+    code: |
+      #!/bin/sh
+      /opt/tool-*.AppImage --help

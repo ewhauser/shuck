@@ -1,0 +1,23 @@
+legacy_code: SH-232
+legacy_name: quoted-bash-source
+new_category: Correctness
+new_code: C100
+runtime_kind: ast
+shellcheck_code: SC2327
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "`$BASH_SOURCE` is quoted without array syntax."
+rationale: "Use `${BASH_SOURCE[0]}` for the current script path."
+source:
+  shell_checks_rule: rules/SH-232.yaml
+  shell_checks_example: examples/232.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/232.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2034
+      dir="$(dirname "$BASH_SOURCE")"

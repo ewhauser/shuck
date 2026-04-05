@@ -1,0 +1,23 @@
+legacy_code: SH-025
+legacy_name: dynamic-source-path
+new_category: Correctness
+new_code: C002
+runtime_kind: ast
+shellcheck_code: SC1090
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A sourced file path built at runtime is harder to analyze and easier to drift from the real dependency graph.
+rationale: Keep loaded file names literal when possible, or make sure every possible source target is included in analysis.
+source:
+  shell_checks_rule: rules/SH-025.yaml
+  shell_checks_example: examples/025.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/025.sh
+    code: |
+      #!/bin/sh
+      f=./lib.sh
+      . "$f"

@@ -1,0 +1,22 @@
+legacy_code: SH-092
+legacy_name: needless-backslash-underscore
+new_category: Style
+new_code: S026
+runtime_kind: ast
+shellcheck_code: SC1012
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A backslash is used before a normal character in a plain word.
+rationale: Write the word directly without the escape.
+source:
+  shell_checks_rule: rules/SH-092.yaml
+  shell_checks_example: examples/092.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/092.sh
+    code: |
+      #!/bin/bash
+      echo foo\_bar

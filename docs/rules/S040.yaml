@@ -1,0 +1,22 @@
+legacy_code: SH-173
+legacy_name: backslash-before-command
+new_category: Style
+new_code: S040
+runtime_kind: ast
+shellcheck_code: SC2268
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A backslash precedes a command name to bypass aliases.
+rationale: Use 'command' instead of a leading backslash for clarity.
+source:
+  shell_checks_rule: rules/SH-173.yaml
+  shell_checks_example: examples/173.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/173.sh
+    code: |
+      #!/bin/bash
+      \command \rm tmp.txt || echo fail

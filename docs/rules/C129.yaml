@@ -1,0 +1,31 @@
+legacy_code: SH-302
+legacy_name: case-default-before-glob
+new_category: Correctness
+new_code: C129
+runtime_kind: ast
+shellcheck_code: SC2374
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A default case label appears before a glob that also matches it.
+rationale: Put the default or catch-all pattern last.
+source:
+  shell_checks_rule: rules/SH-302.yaml
+  shell_checks_example: examples/302.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/302.sh
+    code: |
+      #!/bin/bash
+      backend="x11-sdl"
+      case "$backend" in
+          x11*)
+              params="-fullscreen"
+              ;;
+          default|x11*)
+              params="-windowed"
+              ;;
+      esac
+      echo "$params"

@@ -1,0 +1,21 @@
+legacy_code: SH-264
+legacy_name: legacy-arithmetic-in-sh
+new_category: Portability
+new_code: X057
+runtime_kind: ast
+shellcheck_code: SC3064
+shells:
+  - sh
+  - dash
+description: "The legacy `$[...]` arithmetic syntax is used in POSIX sh."
+rationale: "Use `$((...))` for arithmetic expansion."
+source:
+  shell_checks_rule: rules/SH-264.yaml
+  shell_checks_example: examples/264.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/264.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2007,2004,2034
+      i=$[$i+1]

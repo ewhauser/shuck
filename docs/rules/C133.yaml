@@ -1,0 +1,26 @@
+legacy_code: SH-311
+legacy_name: array-to-string-conversion
+new_category: Correctness
+new_code: C133
+runtime_kind: ast
+shellcheck_code: SC2381
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: An array variable is converted to a flat string then used as a string.
+rationale: Keep the array intact or explicitly join it with a delimiter.
+source:
+  shell_checks_rule: rules/SH-311.yaml
+  shell_checks_example: examples/311.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/311.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2179,2128
+      exts=("txt" "pdf" "doc")
+      exts="${exts[*]}"
+      exts+=" ${exts^^}"
+      echo "$exts"

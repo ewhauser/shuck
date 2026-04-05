@@ -1,0 +1,23 @@
+legacy_code: SH-272
+legacy_name: caret-negation-in-bracket
+new_category: Portability
+new_code: X065
+runtime_kind: ast
+shellcheck_code: SC3072
+shells:
+  - sh
+  - dash
+description: "A `[^...]` negated bracket expression is used in POSIX sh."
+rationale: "Use `[!...]` for portable negation in bracket expressions."
+source:
+  shell_checks_rule: rules/SH-272.yaml
+  shell_checks_example: examples/272.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/272.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154
+      case "$x" in
+        [^.]*/*) echo match ;;
+      esac

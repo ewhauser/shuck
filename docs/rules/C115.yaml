@@ -1,0 +1,23 @@
+legacy_code: SH-257
+legacy_name: default-else-in-short-circuit
+new_category: Correctness
+new_code: C115
+runtime_kind: ast
+shellcheck_code: SC2352
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A `&&`/`||` chain is used as a ternary but the `||` catches all failures."
+rationale: "Use an explicit `if`/`else` to avoid unintended fallthrough."
+source:
+  shell_checks_rule: rules/SH-257.yaml
+  shell_checks_example: examples/257.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/257.sh
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2154
+      [ -z "$str" ] && domain=$domain || domain=$str

@@ -1,0 +1,23 @@
+legacy_code: SH-235
+legacy_name: function-in-alias
+new_category: Style
+new_code: S057
+runtime_kind: ast
+shellcheck_code: SC2330
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A function definition is embedded inside an alias string.
+rationale: Define the function separately and alias only the call.
+source:
+  shell_checks_rule: rules/SH-235.yaml
+  shell_checks_example: examples/235.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/235.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2034
+      alias gtl='gtl(){ git tag --sort=-v:refname -n -l "${1}*" }; noglob gtl'

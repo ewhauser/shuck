@@ -1,0 +1,23 @@
+legacy_code: SH-351
+legacy_name: possible-variable-misspelling
+new_category: Correctness
+new_code: C156
+runtime_kind: ast
+shellcheck_code: SC2153
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A referenced variable looks like a misspelling of one that was assigned.
+rationale: Use the intended variable name consistently so expansions do not silently read an unset variable.
+source:
+  shell_checks_rule: rules/SH-351.yaml
+  shell_checks_example: examples/351.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/351.sh
+    code: |
+      #!/bin/sh
+      package_name=demo
+      echo "$PACKAGE_NAME"

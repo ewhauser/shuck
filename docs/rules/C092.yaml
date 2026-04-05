@@ -1,0 +1,22 @@
+legacy_code: SH-220
+legacy_name: if-dollar-command
+new_category: Correctness
+new_code: C092
+runtime_kind: ast
+shellcheck_code: SC2315
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The output of a command substitution is used as a condition.
+rationale: "Remove the `$( )` wrapper and test the command exit status directly."
+source:
+  shell_checks_rule: rules/SH-220.yaml
+  shell_checks_example: examples/220.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/220.sh
+    code: |
+      #!/bin/bash
+      if $(python3 -c 'import sys' 2>/dev/null); then echo ok; fi

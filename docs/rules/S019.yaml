@@ -1,0 +1,22 @@
+legacy_code: SH-071
+legacy_name: grep-output-in-test
+new_category: Style
+new_code: S019
+runtime_kind: ast
+shellcheck_code: SC2143
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Using grep's printed text as a boolean check ties control flow to formatting instead of success or failure.
+rationale: Use the command's exit status directly or test the match in a simpler way.
+source:
+  shell_checks_rule: rules/SH-071.yaml
+  shell_checks_example: examples/071.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/071.sh
+    code: |
+      #!/bin/sh
+      [ -n "$(grep foo input.txt)" ]

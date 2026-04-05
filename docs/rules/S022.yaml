@@ -1,0 +1,20 @@
+legacy_code: SH-079
+legacy_name: avoid-let-builtin
+new_category: Style
+new_code: S022
+runtime_kind: ast
+shellcheck_code: SC2219
+shells:
+  - bash
+  - ksh
+description: "The bash `let` builtin is an unnecessarily indirect way to perform arithmetic."
+rationale: Use arithmetic expansion or another direct arithmetic form instead.
+source:
+  shell_checks_rule: rules/SH-079.yaml
+  shell_checks_example: examples/079.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/079.sh
+    code: |
+      #!/usr/bin/env bash
+      let 10

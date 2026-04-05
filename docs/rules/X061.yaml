@@ -1,0 +1,21 @@
+legacy_code: SH-268
+legacy_name: a-test-in-sh
+new_category: Portability
+new_code: X061
+runtime_kind: ast
+shellcheck_code: SC3068
+shells:
+  - sh
+  - dash
+description: "The `-a` file-existence test is used inside `[[ ]]` in POSIX sh."
+rationale: "Use `-e` instead of `-a` for file existence testing."
+source:
+  shell_checks_rule: rules/SH-268.yaml
+  shell_checks_example: examples/268.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/268.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=3010,2154,2331
+      if [[ -a "$file" ]]; then echo exists; fi

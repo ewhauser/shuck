@@ -1,0 +1,22 @@
+legacy_code: SH-057
+legacy_name: ls-grep-pipeline
+new_category: Style
+new_code: S013
+runtime_kind: ast
+shellcheck_code: SC2010
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Piping ls into grep treats a directory listing like a data format, which is brittle.
+rationale: Use shell patterns or filename-aware tools instead of parsing ls output.
+source:
+  shell_checks_rule: rules/SH-057.yaml
+  shell_checks_example: examples/057.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/057.sh
+    code: |
+      #!/bin/sh
+      ls | grep foo

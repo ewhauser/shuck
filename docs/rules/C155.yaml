@@ -1,0 +1,25 @@
+legacy_code: SH-347
+legacy_name: subshell-side-effect
+new_category: Correctness
+new_code: C155
+runtime_kind: ast
+shellcheck_code: SC2030
+shells:
+  - sh
+  - bash
+  - dash
+description: A value is updated inside a pipeline child shell and then read afterward.
+rationale: Keep the update in the main shell or pass the result out explicitly.
+source:
+  shell_checks_rule: rules/SH-347.yaml
+  shell_checks_example: examples/347.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/347.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2030
+      n=0
+      printf '%s
+      ' x | while read -r _; do n=1; done
+      echo "$n"

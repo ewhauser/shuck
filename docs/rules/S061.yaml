@@ -1,0 +1,23 @@
+legacy_code: SH-248
+legacy_name: fgrep-deprecated
+new_category: Style
+new_code: S061
+runtime_kind: ast
+shellcheck_code: SC2343
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "The `fgrep` command is used instead of `grep -F`."
+rationale: "Replace `fgrep` with `grep -F` as fgrep is deprecated."
+source:
+  shell_checks_rule: rules/SH-248.yaml
+  shell_checks_example: examples/248.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/248.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2086
+      /sbin/ip link show dev ${iface} 2>&1 | fgrep -q -e"state DOWN" && exit 1

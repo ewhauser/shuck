@@ -1,0 +1,23 @@
+legacy_code: SH-286
+legacy_name: zsh-parameter-flag
+new_category: Portability
+new_code: X076
+runtime_kind: ast
+shellcheck_code: SC2359
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A zsh-style parameter flag is used in POSIX sh.
+rationale: Use standard parameter expansion or sed for text substitution.
+source:
+  shell_checks_rule: rules/SH-286.yaml
+  shell_checks_example: examples/286.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/286.sh
+    code: |
+      #!/bin/sh
+      # shellcheck disable=2154,2034,2082,3057,2299
+      x="${$(svn info):gs/%/%%}"

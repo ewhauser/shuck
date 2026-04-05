@@ -1,0 +1,24 @@
+legacy_code: SH-067
+legacy_name: unquoted-array-split
+new_category: Style
+new_code: S017
+runtime_kind: ast
+shellcheck_code: SC2206
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Building an array from an unquoted value can split one logical item into several elements.
+rationale: Quote the expansion or use a deliberate splitting step when you need multiple items.
+source:
+  shell_checks_rule: rules/SH-067.yaml
+  shell_checks_example: examples/067.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/067.sh
+    code: |
+      #!/bin/bash
+      x='a b'
+      arr=($x)
+      : "${arr[0]}"

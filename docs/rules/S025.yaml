@@ -1,0 +1,22 @@
+legacy_code: SH-088
+legacy_name: literal-backslash
+new_category: Style
+new_code: S025
+runtime_kind: ast
+shellcheck_code: SC1004
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A backslash before a normal letter gets treated as plain text.
+rationale: Only escape characters that need it, or quote the word instead.
+source:
+  shell_checks_rule: rules/SH-088.yaml
+  shell_checks_example: examples/088.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/088.sh
+    code: |
+      #!/bin/bash
+      echo \q

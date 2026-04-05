@@ -1,0 +1,21 @@
+legacy_code: SH-031
+legacy_name: substring-expansion
+new_category: Portability
+new_code: X023
+runtime_kind: ast
+shellcheck_code: SC3057
+shells:
+  - sh
+  - dash
+description: The script slices a parameter with a bash-only substring form.
+rationale: Use a POSIX-safe transformation or require bash for substring slicing.
+source:
+  shell_checks_rule: rules/SH-031.yaml
+  shell_checks_example: examples/031.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/031.sh
+    code: |
+      #!/bin/sh
+      set -- abc
+      printf '%s\n' "${1:1}"

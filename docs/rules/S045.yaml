@@ -1,0 +1,24 @@
+legacy_code: SH-197
+legacy_name: dollar-in-arithmetic
+new_category: Style
+new_code: S045
+runtime_kind: ast
+shellcheck_code: SC2292
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "A dollar sign is used before a variable name inside `$(( ))`."
+rationale: "Omit the `$` prefix; variables expand implicitly in arithmetic."
+source:
+  shell_checks_rule: rules/SH-197.yaml
+  shell_checks_example: examples/197.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/197.sh
+    code: |
+      #!/bin/sh
+      n=1
+      # shellcheck disable=2034
+      m=$(($n + 1))

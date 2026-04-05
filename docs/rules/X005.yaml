@@ -1,0 +1,22 @@
+legacy_code: SH-010
+legacy_name: bash-case-fallthrough
+new_category: Portability
+new_code: X005
+runtime_kind: ast
+shellcheck_code: SC3058
+shells:
+  - sh
+  - dash
+  - ksh
+description: The `case` statement uses a bash-only fallthrough marker that portable `sh` does not understand.
+rationale: Keep `case` branches to POSIX syntax unless the script is explicitly targeting bash.
+source:
+  shell_checks_rule: rules/SH-010.yaml
+  shell_checks_example: examples/010.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/010.sh
+    code: |
+      #!/bin/sh
+      x=a
+      case $x in a) : ;;& b) :;; esac

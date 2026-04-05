@@ -1,0 +1,19 @@
+legacy_code: SH-029
+legacy_name: pipefail-option
+new_category: Portability
+new_code: X021
+runtime_kind: ast
+shellcheck_code: SC3040
+shells:
+  - sh
+description: The script enables pipeline failure handling with a shell option that portable sh does not define.
+rationale: Check command statuses explicitly in sh, or switch to a shell that supports this option.
+source:
+  shell_checks_rule: rules/SH-029.yaml
+  shell_checks_example: examples/029.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/029.sh
+    code: |
+      #!/bin/sh
+      set -o pipefail

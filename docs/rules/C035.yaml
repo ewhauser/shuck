@@ -1,0 +1,23 @@
+legacy_code: SH-106
+legacy_name: missing-fi
+new_category: Correctness
+new_code: C035
+runtime_kind: ast
+shellcheck_code: SC1047
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: "An `if` block is left without its closing `fi`, which ShellCheck reports as an unmatched conditional."
+rationale: "Stop the script after the `then` body so the only issue is the missing terminator."
+source:
+  shell_checks_rule: rules/SH-106.yaml
+  shell_checks_example: examples/106.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/106.sh
+    code: |
+      #!/bin/sh
+      if true; then
+        :
