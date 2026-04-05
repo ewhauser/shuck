@@ -107,14 +107,6 @@
     "expectation": "skip",
     "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
   },
-  "oils/for-expr.test.sh::Accepts { } syntax too": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/func-parsing.test.sh::subshell function": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/glob.test.sh::Glob of unescaped [[] and []]": {
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
@@ -187,10 +179,6 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
-  "oils/print-source-code.test.sh::non-{ } function bodies can be serialized (rare)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/redirect-command.test.sh::Prefix redirect for loop -- not allowed": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
@@ -206,10 +194,6 @@
   "oils/regex.test.sh::Unquoted { is a regex parse error": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
-  },
-  "oils/sh-func.test.sh::Subshell function": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
   "oils/strict-options.test.sh::Control flow must be static in YSH (strict_control_flow)": {
     "expectation": "skip",

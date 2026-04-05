@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 9 actionable `skip` entries remain in scope.
-- 34 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 5 actionable `skip` entries remain in scope.
+- 38 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 - 1 formerly skipped case now intentionally fails parsing and has been reclassified as `parse_err`.
 
 ## Expectation Cleanup (Already Parses)
@@ -69,12 +69,12 @@ Shared work: parser needs to distinguish arithmetic `(( ... ))` from grouped-com
 
 - [x] `oils/command-sub.test.sh::case in subshell` - the `$(` scanner now keeps top-level case-item `)` tokens inside an open `case ... in ... esac`, so command substitutions are not terminated early.
 - [x] `oils/divergence.test.sh::builtin cat crashes a subshell (#2530)` - `(( ... )` now falls back to nested subshell parsing when the token stream looks command-like, so pipelines and redirects inside the parens no longer get forced through arithmetic parsing.
-- [ ] `oils/for-expr.test.sh::Accepts { } syntax too` - allow `{ ... }` as the body form after an arithmetic `for ((...))` header if we want this Bash-compatible extension.
-- [ ] `oils/func-parsing.test.sh::subshell function` - allow `name() ( ... )` as a function body.
+- [x] `oils/for-expr.test.sh::Accepts { } syntax too` - arithmetic `for ((...))` headers now accept a brace-group body in addition to `do ... done`.
+- [x] `oils/func-parsing.test.sh::subshell function` - function definitions now accept `name() ( ... )` subshell bodies.
 - [x] `oils/paren-ambiguity.test.sh::(( closed with ) ) after multiple lines is command - #2337` - spaced `) )` closures now take the nested-subshell path instead of being misparsed as arithmetic commands.
 - [x] `oils/paren-ambiguity.test.sh::((test example - liblo package - #2337` - the same `((` command-style heuristic now recognizes the `test ...` form as shell commands rather than arithmetic.
-- [ ] `oils/print-source-code.test.sh::non-{ } function bodies can be serialized (rare)` - parser must first accept non-brace function bodies such as subshell bodies.
-- [ ] `oils/sh-func.test.sh::Subshell function` - same `name() ( ... )` function-body support.
+- [x] `oils/print-source-code.test.sh::non-{ } function bodies can be serialized (rare)` - the parser now accepts non-brace function bodies such as subshell bodies.
+- [x] `oils/sh-func.test.sh::Subshell function` - the same subshell function-body support now parses the shell-function fixture too.
 
 ## Conditional and Glob Token Context
 

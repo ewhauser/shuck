@@ -2260,24 +2260,30 @@ impl<'a> Parser<'a> {
         }
         self.skip_newlines()?;
 
-        // Expect 'do'
-        self.expect_keyword("do")?;
-        self.skip_newlines()?;
+        let (body, end_span) = if matches!(self.current_token, Some(Token::LeftBrace)) {
+            let body = self.parse_brace_group()?;
+            (vec![Command::Compound(body, Vec::new())], self.current_span)
+        } else {
+            // Expect 'do'
+            self.expect_keyword("do")?;
+            self.skip_newlines()?;
 
-        // Parse body
-        let body = self.parse_compound_list("done")?;
+            // Parse body
+            let body = self.parse_compound_list("done")?;
 
-        // Bash requires at least one command in loop body
-        if body.is_empty() {
-            return Err(self.error("syntax error: empty for loop body"));
-        }
+            // Bash requires at least one command in loop body
+            if body.is_empty() {
+                return Err(self.error("syntax error: empty for loop body"));
+            }
 
-        // Expect 'done'
-        if !self.is_keyword("done") {
-            return Err(self.error("expected 'done'"));
-        }
-        let done_span = self.current_span;
-        self.advance();
+            // Expect 'done'
+            if !self.is_keyword("done") {
+                return Err(self.error("expected 'done'"));
+            }
+            let done_span = self.current_span;
+            self.advance();
+            (body, done_span)
+        };
 
         Ok(CompoundCommand::ArithmeticFor(ArithmeticForCommand {
             left_paren_span,
@@ -2288,7 +2294,7 @@ impl<'a> Parser<'a> {
             step_span,
             right_paren_span,
             body,
-            span: start_span.merge(done_span),
+            span: start_span.merge(end_span),
         }))
     }
 
@@ -3109,6 +3115,20 @@ impl<'a> Parser<'a> {
         }))
     }
 
+    fn parse_function_body_command(&mut self) -> Result<Command> {
+        let compound = match self.current_token {
+            Some(Token::LeftBrace) => self.parse_brace_group()?,
+            Some(Token::LeftParen) => self.parse_subshell()?,
+            _ => {
+                return Err(Error::parse(
+                    "expected '{' or '(' for function body".to_string(),
+                ));
+            }
+        };
+        let redirects = self.parse_trailing_redirects();
+        Ok(Command::Compound(compound, redirects))
+    }
+
     /// Parse function definition with 'function' keyword: function name { body }
     fn parse_function_keyword(&mut self) -> Result<Command> {
         let start_span = self.current_span;
@@ -3135,19 +3155,12 @@ impl<'a> Parser<'a> {
             self.skip_newlines()?;
         }
 
-        // Expect { for body
-        if !matches!(self.current_token, Some(Token::LeftBrace)) {
-            return Err(Error::parse("expected '{' for function body".to_string()));
-        }
-
-        // Parse body as brace group
-        let body = self.parse_brace_group()?;
-        let redirects = self.parse_trailing_redirects();
+        let body = self.parse_function_body_command()?;
 
         Ok(Command::Function(FunctionDef {
             name,
             name_span,
-            body: Box::new(Command::Compound(body, redirects)),
+            body: Box::new(body),
             span: start_span.merge(self.current_span),
         }))
     }
@@ -3174,19 +3187,12 @@ impl<'a> Parser<'a> {
         self.advance(); // consume ')'
         self.skip_newlines()?;
 
-        // Expect { for body
-        if !matches!(self.current_token, Some(Token::LeftBrace)) {
-            return Err(self.error("expected '{' for function body"));
-        }
-
-        // Parse body as brace group
-        let body = self.parse_brace_group()?;
-        let redirects = self.parse_trailing_redirects();
+        let body = self.parse_function_body_command()?;
 
         Ok(Command::Function(FunctionDef {
             name,
             name_span,
-            body: Box::new(Command::Compound(body, redirects)),
+            body: Box::new(body),
             span: start_span.merge(self.current_span),
         }))
     }
@@ -5550,6 +5556,38 @@ mod tests {
     }
 
     #[test]
+    fn test_posix_function_allows_subshell_body() {
+        let input = "inc_subshell() ( j=$((j+5)); )\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Function(function) = &script.commands[0] else {
+            panic!("expected function definition");
+        };
+        let Command::Compound(CompoundCommand::Subshell(body), redirects) = function.body.as_ref()
+        else {
+            panic!("expected subshell function body");
+        };
+        assert!(redirects.is_empty());
+        assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn test_function_keyword_allows_subshell_body() {
+        let input = "function inc_subshell() ( j=$((j+5)); )\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Function(function) = &script.commands[0] else {
+            panic!("expected function definition");
+        };
+        let Command::Compound(CompoundCommand::Subshell(body), redirects) = function.body.as_ref()
+        else {
+            panic!("expected subshell function body");
+        };
+        assert!(redirects.is_empty());
+        assert_eq!(body.len(), 1);
+    }
+
+    #[test]
     fn test_dynamic_heredoc_delimiter_is_rejected() {
         let parser = Parser::new("cat <<\"$@\"\nbody\n$@\n");
         assert!(parser.parse().is_err(), "dynamic heredoc delimiter should fail");
@@ -6095,6 +6133,27 @@ mod tests {
 
         assert!(redirects.is_empty());
         assert_eq!(command.condition_span.unwrap().slice(input), " n<(3- (1))");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_accepts_brace_group_body() {
+        let input = "for ((a=1; a <= 3; a++)) {\n  echo $a\n}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.body.len(), 1);
+
+        let Command::Compound(CompoundCommand::BraceGroup(body), body_redirects) = &command.body[0]
+        else {
+            panic!("expected brace-group loop body");
+        };
+        assert!(body_redirects.is_empty());
+        assert_eq!(body.len(), 1);
     }
 
     #[test]
