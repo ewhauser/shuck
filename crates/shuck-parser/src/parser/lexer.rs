@@ -506,6 +506,19 @@ impl<'a> Cursor<'a> {
         self.rest.chars().next()
     }
 
+    fn second(&self) -> Option<char> {
+        let mut chars = self.rest.chars();
+        chars.next()?;
+        chars.next()
+    }
+
+    fn third(&self) -> Option<char> {
+        let mut chars = self.rest.chars();
+        chars.next()?;
+        chars.next()?;
+        chars.next()
+    }
+
     fn bump(&mut self) -> Option<char> {
         let ch = self.first()?;
         self.rest = &self.rest[ch.len_utf8()..];
@@ -729,22 +742,69 @@ impl<'a> Lexer<'a> {
             .chain(self.cursor.rest().chars())
     }
 
-    fn peek_nth_char(&self, n: usize) -> Option<char> {
-        self.lookahead_chars().nth(n)
+    fn second_char(&self) -> Option<char> {
+        match self.reinject_buf.len() {
+            0 => self.cursor.second(),
+            1 => self.cursor.first(),
+            _ => self.reinject_buf.get(1).copied(),
+        }
     }
 
-    fn advance_position_without_newline(&mut self, text: &str) {
-        debug_assert!(!text.contains('\n'));
-
-        self.offset += text.len();
+    fn third_char(&self) -> Option<char> {
+        match self.reinject_buf.len() {
+            0 => self.cursor.third(),
+            1 => self.cursor.second(),
+            2 => self.cursor.first(),
+            _ => self.reinject_buf.get(2).copied(),
+        }
     }
 
-    fn consume_source_bytes_without_newline(&mut self, byte_len: usize) {
+    fn consume_source_bytes(&mut self, byte_len: usize) {
         debug_assert!(self.reinject_buf.is_empty());
         self.sync_offset_to_cursor();
-        let text = &self.cursor.rest()[..byte_len];
-        self.advance_position_without_newline(text);
+        self.offset += byte_len;
         self.cursor.skip_bytes(byte_len);
+    }
+
+    fn advance_scanned_source_bytes(&mut self, byte_len: usize) {
+        debug_assert!(self.reinject_buf.is_empty());
+        self.offset += byte_len;
+    }
+
+    fn consume_ascii_chars(&mut self, count: usize) {
+        if self.reinject_buf.is_empty() {
+            self.consume_source_bytes(count);
+            return;
+        }
+
+        for _ in 0..count {
+            self.advance();
+        }
+    }
+
+    fn source_horizontal_whitespace_len(&self) -> usize {
+        self.cursor
+            .rest()
+            .as_bytes()
+            .iter()
+            .take_while(|byte| matches!(**byte, b' ' | b'\t'))
+            .count()
+    }
+
+    fn source_ascii_plain_word_len(&self) -> usize {
+        self.cursor
+            .rest()
+            .as_bytes()
+            .iter()
+            .take_while(|byte| Self::is_ascii_plain_word_byte(**byte))
+            .count()
+    }
+
+    fn find_double_quote_special(source: &str) -> Option<usize> {
+        source
+            .as_bytes()
+            .iter()
+            .position(|byte| matches!(*byte, b'"' | b'\\' | b'$' | b'`'))
     }
 
     fn ensure_capture_from_source(
@@ -883,114 +943,114 @@ impl<'a> Lexer<'a> {
 
         match ch {
             '\n' => {
-                self.advance();
+                self.consume_ascii_chars(1);
                 Some(LexedToken::punctuation(TokenKind::Newline))
             }
             ';' => {
-                self.advance();
-                if self.peek_char() == Some(';') {
-                    self.advance();
-                    if self.peek_char() == Some('&') {
-                        self.advance();
+                if self.second_char() == Some(';') {
+                    if self.third_char() == Some('&') {
+                        self.consume_ascii_chars(3);
                         Some(LexedToken::punctuation(TokenKind::DoubleSemiAmp)) // ;;&
                     } else {
+                        self.consume_ascii_chars(2);
                         Some(LexedToken::punctuation(TokenKind::DoubleSemicolon)) // ;;
                     }
-                } else if self.peek_char() == Some('&') {
-                    self.advance();
+                } else if self.second_char() == Some('&') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::SemiAmp)) // ;&
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::Semicolon))
                 }
             }
             '|' => {
-                self.advance();
-                if self.peek_char() == Some('|') {
-                    self.advance();
+                if self.second_char() == Some('|') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::Or))
-                } else if self.peek_char() == Some('&') {
-                    self.advance();
+                } else if self.second_char() == Some('&') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::PipeBoth))
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::Pipe))
                 }
             }
             '&' => {
-                self.advance();
-                if self.peek_char() == Some('&') {
-                    self.advance();
+                if self.second_char() == Some('&') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::And))
-                } else if self.peek_char() == Some('>') {
-                    self.advance();
-                    if self.peek_char() == Some('>') {
-                        self.advance();
+                } else if self.second_char() == Some('>') {
+                    if self.third_char() == Some('>') {
+                        self.consume_ascii_chars(3);
                         Some(LexedToken::punctuation(TokenKind::RedirectBothAppend))
                     } else {
+                        self.consume_ascii_chars(2);
                         Some(LexedToken::punctuation(TokenKind::RedirectBoth))
                     }
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::Background))
                 }
             }
             '>' => {
-                self.advance();
-                if self.peek_char() == Some('>') {
-                    self.advance();
+                if self.second_char() == Some('>') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::RedirectAppend))
-                } else if self.peek_char() == Some('|') {
-                    self.advance();
+                } else if self.second_char() == Some('|') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::Clobber))
-                } else if self.peek_char() == Some('(') {
-                    self.advance();
+                } else if self.second_char() == Some('(') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::ProcessSubOut))
-                } else if self.peek_char() == Some('&') {
-                    self.advance();
+                } else if self.second_char() == Some('&') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::DupOutput))
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::RedirectOut))
                 }
             }
             '<' => {
-                self.advance();
-                if self.peek_char() == Some('<') {
-                    self.advance();
-                    if self.peek_char() == Some('<') {
-                        self.advance();
+                if self.second_char() == Some('<') {
+                    if self.third_char() == Some('<') {
+                        self.consume_ascii_chars(3);
                         Some(LexedToken::punctuation(TokenKind::HereString))
-                    } else if self.peek_char() == Some('-') {
-                        self.advance();
+                    } else if self.third_char() == Some('-') {
+                        self.consume_ascii_chars(3);
                         Some(LexedToken::punctuation(TokenKind::HereDocStrip))
                     } else {
+                        self.consume_ascii_chars(2);
                         Some(LexedToken::punctuation(TokenKind::HereDoc))
                     }
-                } else if self.peek_char() == Some('>') {
-                    self.advance();
+                } else if self.second_char() == Some('>') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::RedirectReadWrite))
-                } else if self.peek_char() == Some('(') {
-                    self.advance();
+                } else if self.second_char() == Some('(') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::ProcessSubIn))
-                } else if self.peek_char() == Some('&') {
-                    self.advance();
+                } else if self.second_char() == Some('&') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::DupInput))
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::RedirectIn))
                 }
             }
             '(' => {
-                self.advance();
-                if self.peek_char() == Some('(') {
-                    self.advance();
+                if self.second_char() == Some('(') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::DoubleLeftParen))
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::LeftParen))
                 }
             }
             ')' => {
-                self.advance();
-                if self.peek_char() == Some(')') {
-                    self.advance();
+                if self.second_char() == Some(')') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::DoubleRightParen))
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::RightParen))
                 }
             }
@@ -1014,14 +1074,14 @@ impl<'a> Lexer<'a> {
             }
             '[' => {
                 let start = self.current_position();
-                self.advance();
+                self.consume_ascii_chars(1);
                 if self.peek_char() == Some('[')
                     && matches!(
-                        self.peek_nth_char(1),
+                        self.second_char(),
                         Some(' ') | Some('\t') | Some('\n') | None
                     )
                 {
-                    self.advance();
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::DoubleLeftBracket))
                 } else {
                     // `[` can start the test command when followed by whitespace, or it can be
@@ -1039,11 +1099,11 @@ impl<'a> Lexer<'a> {
                 }
             }
             ']' => {
-                self.advance();
-                if self.peek_char() == Some(']') {
-                    self.advance();
+                if self.second_char() == Some(']') {
+                    self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::DoubleRightBracket))
                 } else {
+                    self.consume_ascii_chars(1);
                     Some(LexedToken::borrowed_word(TokenKind::Word, "]", None))
                 }
             }
@@ -1066,16 +1126,25 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace(&mut self) {
         while let Some(ch) = self.peek_char() {
+            if self.reinject_buf.is_empty() {
+                let whitespace_len = self.source_horizontal_whitespace_len();
+                if whitespace_len > 0 {
+                    self.consume_source_bytes(whitespace_len);
+                    continue;
+                }
+
+                if self.cursor.rest().starts_with("\\\n") {
+                    self.consume_source_bytes(2);
+                    continue;
+                }
+            }
+
             if ch == ' ' || ch == '\t' {
-                self.advance();
+                self.consume_ascii_chars(1);
             } else if ch == '\\' {
                 // Check for backslash-newline (line continuation) between tokens
-                if self.reinject_buf.is_empty() && self.cursor.rest().starts_with("\\\n") {
-                    self.consume_source_bytes_without_newline(1);
-                    self.advance(); // consume newline
-                } else if self.peek_nth_char(1) == Some('\n') {
-                    self.advance(); // consume backslash
-                    self.advance(); // consume newline
+                if self.second_char() == Some('\n') {
+                    self.consume_ascii_chars(2);
                 } else {
                     break;
                 }
@@ -1091,7 +1160,7 @@ impl<'a> Lexer<'a> {
                 .cursor
                 .find_byte(b'\n')
                 .unwrap_or(self.cursor.rest().len());
-            self.consume_source_bytes_without_newline(end);
+            self.consume_source_bytes(end);
             return;
         }
 
@@ -1109,7 +1178,7 @@ impl<'a> Lexer<'a> {
         if self.reinject_buf.is_empty() {
             let rest = self.cursor.rest();
             let end = self.cursor.find_byte(b'\n').unwrap_or(rest.len());
-            self.consume_source_bytes_without_newline(end);
+            self.consume_source_bytes(end);
             return;
         }
 
@@ -1129,19 +1198,15 @@ impl<'a> Lexer<'a> {
         if let Some(first_digit) = self.peek_char().filter(|ch| ch.is_ascii_digit()) {
             let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
 
-            match (self.peek_nth_char(1), self.peek_nth_char(2)) {
+            match (self.second_char(), self.third_char()) {
                 (Some('>'), Some('>')) => {
-                    self.advance(); // consume digit
-                    self.advance(); // consume >
-                    self.advance(); // consume >
+                    self.consume_ascii_chars(3);
                     return Some(LexedToken::fd(TokenKind::RedirectFdAppend, fd));
                 }
                 (Some('>'), Some('&')) => {
-                    self.advance(); // consume digit
-                    self.advance(); // consume >
-                    self.advance(); // consume &
+                    self.consume_ascii_chars(3);
 
-                    let mut target_str = String::new();
+                    let mut target_str = String::with_capacity(4);
                     while let Some(c) = self.peek_char() {
                         if c.is_ascii_digit() {
                             target_str.push(c);
@@ -1159,16 +1224,13 @@ impl<'a> Lexer<'a> {
                     return Some(LexedToken::fd_pair(TokenKind::DupFd, fd, target_fd));
                 }
                 (Some('>'), _) => {
-                    self.advance(); // consume digit
-                    self.advance(); // consume >
+                    self.consume_ascii_chars(2);
                     return Some(LexedToken::fd(TokenKind::RedirectFd, fd));
                 }
                 (Some('<'), Some('&')) => {
-                    self.advance(); // consume digit
-                    self.advance(); // consume <
-                    self.advance(); // consume &
+                    self.consume_ascii_chars(3);
 
-                    let mut target_str = String::new();
+                    let mut target_str = String::with_capacity(4);
                     while let Some(c) = self.peek_char() {
                         if c.is_ascii_digit() || c == '-' {
                             target_str.push(c);
@@ -1188,15 +1250,12 @@ impl<'a> Lexer<'a> {
                     return Some(LexedToken::fd_pair(TokenKind::DupFdIn, fd, target_fd));
                 }
                 (Some('<'), Some('>')) => {
-                    self.advance(); // consume digit
-                    self.advance(); // consume <
-                    self.advance(); // consume >
+                    self.consume_ascii_chars(3);
                     return Some(LexedToken::fd(TokenKind::RedirectFdReadWrite, fd));
                 }
                 (Some('<'), Some('<')) => {}
                 (Some('<'), _) => {
-                    self.advance(); // consume digit
-                    self.advance(); // consume <
+                    self.consume_ascii_chars(2);
                     return Some(LexedToken::fd(TokenKind::RedirectFdIn, fd));
                 }
                 _ => {}
@@ -1230,10 +1289,23 @@ impl<'a> Lexer<'a> {
         let start = self.current_position();
 
         if self.reinject_buf.is_empty() {
-            let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+            let ascii_len = self.source_ascii_plain_word_len();
+            let chunk = if ascii_len > 0
+                && self
+                    .cursor
+                    .rest()
+                    .as_bytes()
+                    .get(ascii_len)
+                    .is_none_or(|byte| byte.is_ascii())
+            {
+                self.consume_source_bytes(ascii_len);
+                &self.input[start.offset..self.offset]
+            } else {
+                let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+                self.advance_scanned_source_bytes(chunk.len());
+                chunk
+            };
             if !chunk.is_empty() {
-                self.advance_position_without_newline(chunk);
-
                 let continues = matches!(
                     self.peek_char(),
                     Some(next)
@@ -1296,7 +1368,7 @@ impl<'a> Lexer<'a> {
         &mut self,
         start: Position,
     ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
-        let mut word = (!self.reinject_buf.is_empty()).then(String::new);
+        let mut word = (!self.reinject_buf.is_empty()).then(|| String::with_capacity(16));
         while let Some(ch) = self.peek_char() {
             if ch == '"' || ch == '\'' {
                 break;
@@ -1626,9 +1698,23 @@ impl<'a> Lexer<'a> {
                 }
             } else if Self::is_plain_word_char(ch) {
                 if self.reinject_buf.is_empty() {
-                    let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+                    let ascii_len = self.source_ascii_plain_word_len();
+                    let chunk = if ascii_len > 0
+                        && self
+                            .cursor
+                            .rest()
+                            .as_bytes()
+                            .get(ascii_len)
+                            .is_none_or(|byte| byte.is_ascii())
+                    {
+                        self.consume_source_bytes(ascii_len);
+                        &self.input[self.offset - ascii_len..self.offset]
+                    } else {
+                        let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+                        self.advance_scanned_source_bytes(chunk.len());
+                        chunk
+                    };
                     Self::push_capture_str(&mut word, chunk);
-                    self.advance_position_without_newline(chunk);
                 } else {
                     Self::push_capture_char(&mut word, ch);
                     self.advance();
@@ -1666,17 +1752,32 @@ impl<'a> Lexer<'a> {
     fn read_single_quoted_segment(&mut self) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
         debug_assert_eq!(self.peek_char(), Some('\''));
 
-        self.advance(); // consume opening '
+        self.consume_ascii_chars(1); // consume opening '
         let content_start = self.current_position();
         let can_borrow = self.reinject_buf.is_empty();
         let mut content_end = content_start;
-        let mut content = String::new();
+        let mut content = String::with_capacity(16);
         let mut closed = false;
 
+        if can_borrow {
+            let rest = self.cursor.rest();
+            if let Some(quote_index) = memchr(b'\'', rest.as_bytes()) {
+                self.consume_source_bytes(quote_index);
+                content_end = self.current_position();
+                self.consume_ascii_chars(1); // consume closing '
+                closed = true;
+            } else {
+                self.consume_source_bytes(rest.len());
+            }
+        }
+
         while let Some(ch) = self.peek_char() {
+            if closed {
+                break;
+            }
             if ch == '\'' {
                 content_end = self.current_position();
-                self.advance(); // consume closing '
+                self.consume_ascii_chars(1); // consume closing '
                 closed = true;
                 break;
             }
@@ -1708,12 +1809,26 @@ impl<'a> Lexer<'a> {
         let start = self.current_position();
 
         if self.reinject_buf.is_empty() {
-            let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+            let ascii_len = self.source_ascii_plain_word_len();
+            let chunk = if ascii_len > 0
+                && self
+                    .cursor
+                    .rest()
+                    .as_bytes()
+                    .get(ascii_len)
+                    .is_none_or(|byte| byte.is_ascii())
+            {
+                self.consume_source_bytes(ascii_len);
+                &self.input[start.offset..self.offset]
+            } else {
+                let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+                self.advance_scanned_source_bytes(chunk.len());
+                chunk
+            };
             if chunk.is_empty() {
                 return None;
             }
 
-            self.advance_position_without_newline(chunk);
             let end = self.current_position();
             return Some(LexedWordSegment::borrowed(
                 LexedWordSegmentKind::Plain,
@@ -1727,7 +1842,7 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        let mut text = String::new();
+        let mut text = String::with_capacity(16);
         while let Some(ch) = self.peek_char() {
             if !Self::is_plain_word_char(ch) {
                 break;
@@ -1753,9 +1868,8 @@ impl<'a> Lexer<'a> {
                 Some('"') => {
                     word.push_segment(self.read_double_quoted_segment()?);
                 }
-                Some('$') if self.peek_nth_char(1) == Some('\'') => {
-                    self.advance(); // consume $
-                    self.advance(); // consume opening '
+                Some('$') if self.second_char() == Some('\'') => {
+                    self.consume_ascii_chars(2);
                     word.push_owned_segment(
                         LexedWordSegmentKind::Literal,
                         self.read_dollar_single_quoted_content(),
@@ -1783,7 +1897,7 @@ impl<'a> Lexer<'a> {
     /// Read ANSI-C quoted content ($'...').
     /// Opening $' already consumed. Returns the resolved string.
     fn read_dollar_single_quoted_content(&mut self) -> String {
-        let mut out = String::new();
+        let mut out = String::with_capacity(16);
         while let Some(ch) = self.peek_char() {
             if ch == '\'' {
                 self.advance();
@@ -1922,20 +2036,35 @@ impl<'a> Lexer<'a> {
     fn read_double_quoted_segment(&mut self) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
         debug_assert_eq!(self.peek_char(), Some('"'));
 
-        self.advance(); // consume opening "
+        self.consume_ascii_chars(1); // consume opening "
         let content_start = self.current_position();
         let mut content_end = content_start;
         let mut simple = self.reinject_buf.is_empty();
         let mut borrowable = self.reinject_buf.is_empty();
-        let mut content = (!self.reinject_buf.is_empty()).then(String::new);
+        let mut content = (!self.reinject_buf.is_empty()).then(|| String::with_capacity(16));
         let mut closed = false;
 
         while let Some(ch) = self.peek_char() {
             if simple {
+                if self.reinject_buf.is_empty() {
+                    let rest = self.cursor.rest();
+                    match Self::find_double_quote_special(rest) {
+                        Some(index) if index > 0 => {
+                            self.consume_source_bytes(index);
+                            continue;
+                        }
+                        None => {
+                            self.consume_source_bytes(rest.len());
+                            return Err(LexerErrorKind::DoubleQuote);
+                        }
+                        _ => {}
+                    }
+                }
+
                 match ch {
                     '"' => {
                         content_end = self.current_position();
-                        self.advance(); // consume closing "
+                        self.consume_ascii_chars(1); // consume closing "
                         closed = true;
                         break;
                     }
@@ -1965,7 +2094,7 @@ impl<'a> Lexer<'a> {
                     if borrowable {
                         content_end = self.current_position();
                     }
-                    self.advance(); // consume closing "
+                    self.consume_ascii_chars(1); // consume closing "
                     closed = true;
                     break;
                 }
@@ -2137,7 +2266,7 @@ impl<'a> Lexer<'a> {
         let mut depth = 1;
         let mut pending_case_headers = 0usize;
         let mut case_clause_depth = 0usize;
-        let mut current_word = String::new();
+        let mut current_word = String::with_capacity(16);
         while let Some(c) = self.peek_char() {
             match c {
                 '(' => {
@@ -2483,7 +2612,7 @@ impl<'a> Lexer<'a> {
 
     /// Read a {literal} pattern without comma/dot-dot as a word
     fn read_brace_literal_word(&mut self) -> Option<LexedToken<'a>> {
-        let mut word = String::new();
+        let mut word = String::with_capacity(16);
 
         // Read the opening {
         if let Some('{') = self.peek_char() {
@@ -2516,7 +2645,7 @@ impl<'a> Lexer<'a> {
                 if self.reinject_buf.is_empty() {
                     let chunk = self.cursor.eat_while(Self::is_word_char);
                     word.push_str(chunk);
-                    self.advance_position_without_newline(chunk);
+                    self.advance_scanned_source_bytes(chunk.len());
                 } else {
                     word.push(ch);
                     self.advance();
@@ -2531,7 +2660,7 @@ impl<'a> Lexer<'a> {
 
     /// Read a brace expansion pattern as a word
     fn read_brace_expansion_word(&mut self) -> Option<LexedToken<'a>> {
-        let mut word = String::new();
+        let mut word = String::with_capacity(16);
 
         // Read the opening {
         if let Some('{') = self.peek_char() {
@@ -2619,14 +2748,37 @@ impl<'a> Lexer<'a> {
         )
     }
 
+    const fn is_ascii_word_byte(byte: u8) -> bool {
+        !matches!(
+            byte,
+            b' ' | b'\t'
+                | b'\n'
+                | b';'
+                | b'|'
+                | b'&'
+                | b'>'
+                | b'<'
+                | b'('
+                | b')'
+                | b'{'
+                | b'}'
+                | b'\''
+                | b'"'
+        )
+    }
+
+    const fn is_ascii_plain_word_byte(byte: u8) -> bool {
+        Self::is_ascii_word_byte(byte) && !matches!(byte, b'$' | b'{' | b'`' | b'\\')
+    }
+
     fn is_plain_word_char(ch: char) -> bool {
         Self::is_word_char(ch) && !matches!(ch, '$' | '{' | '`' | '\\')
     }
 
     /// Read here document content until the delimiter line is found
     pub fn read_heredoc(&mut self, delimiter: &str) -> HeredocRead {
-        let mut content = String::new();
-        let mut current_line = String::new();
+        let mut content = String::with_capacity(64);
+        let mut current_line = String::with_capacity(64);
 
         // Save rest of current line (after the delimiter token on the command line).
         // For `cat <<EOF | sort`, this captures ` | sort` so the parser can
@@ -2634,7 +2786,7 @@ impl<'a> Lexer<'a> {
         //
         // Quoted strings may span multiple lines (e.g., `cat <<EOF; echo "two\nthree"`),
         // so we track quoting state and continue across newlines until quotes close.
-        let mut rest_of_line = String::new();
+        let mut rest_of_line = String::with_capacity(32);
         let rest_of_line_start = self.current_position();
         let mut in_double_quote = false;
         let mut in_single_quote = false;
@@ -2682,18 +2834,18 @@ impl<'a> Lexer<'a> {
 
                 if line.trim() == delimiter {
                     content_end = current_line_start;
-                    self.consume_source_bytes_without_newline(line_len);
+                    self.consume_source_bytes(line_len);
                     if has_newline {
-                        self.advance();
+                        self.consume_ascii_chars(1);
                     }
                     break;
                 }
 
                 content.push_str(line);
-                self.consume_source_bytes_without_newline(line_len);
+                self.consume_source_bytes(line_len);
 
                 if has_newline {
-                    self.advance();
+                    self.consume_ascii_chars(1);
                     content.push('\n');
                     current_line_start = self.current_position();
                     continue;

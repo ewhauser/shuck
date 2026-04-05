@@ -230,17 +230,25 @@ Exit criteria:
 
 ### Stage 7: Tighten Lexer Hot Paths
 
-- [ ] Replace iterator-based `peek_nth_char` with specialized `first`, `second`, and `third` helpers.
-- [ ] Add ASCII fast paths for the most common shell token categories.
-- [ ] Use `memchr` or byte scanning for comments, plain words, and quote scanning where safe.
-- [ ] Reduce branchy generic helpers on operator and redirect paths.
-- [ ] Preallocate token, comment, and small temporary vectors where a lower bound is obvious.
-- [ ] Audit `VecDeque<char>` and other queue structures on hot paths for cache-unfriendly behavior.
-- [ ] Re-profile before moving on.
+- [x] Replace iterator-based `peek_nth_char` with specialized `first`, `second`, and `third` helpers.
+- [x] Add ASCII fast paths for the most common shell token categories.
+- [x] Use `memchr` or byte scanning for comments, plain words, and quote scanning where safe.
+- [x] Reduce branchy generic helpers on operator and redirect paths.
+- [x] Preallocate token, comment, and small temporary vectors where a lower bound is obvious.
+- [x] Audit `VecDeque<char>` and other queue structures on hot paths for cache-unfriendly behavior.
+- [x] Re-profile before moving on.
 
 Exit criteria:
 
 - `Lexer::next_token_inner`, `Lexer::advance`, and lookahead helpers show clear self-time reductions.
+
+#### Stage 7 Notes
+
+- 2026-04-05: the lexer now uses dedicated `second_char` / `third_char` lookahead helpers for the hot operator and redirect paths, so the common source-backed path no longer pays the old iterator-and-`nth` cost for one- and two-token lookahead.
+- 2026-04-05: ASCII-heavy tokenization now fast-paths horizontal whitespace, punctuation operators, fd redirects, plain-word prefixes, and simple quoted runs with byte scanning, while still falling back to the existing char-aware logic whenever unicode or reinjected heredoc tails are involved.
+- 2026-04-05: `memchr`-style scans now cover the comment path plus simple single-quoted and double-quoted runs, and a short preallocation pass sized the obvious small temporary strings used by redirects, quoted content, command-substitution keyword tracking, and heredoc bookkeeping.
+- 2026-04-05: the `VecDeque<char>` reinjection buffer remains in place, but after this pass it stays on the cold heredoc replay path while the normal source-backed lexer path dispatches directly on cursor bytes and specialized lookahead helpers.
+- 2026-04-05: focused reruns measured `lexer/nvm` at `1.0478 ms` (`[1.0412 ms 1.0478 ms 1.0631 ms]`) and `parser/nvm` at `3.4190 ms` (`[3.3842 ms 3.4190 ms 3.4923 ms]`) via `cargo bench -p shuck-benchmark --bench lexer -- nvm --noplot` and `cargo bench -p shuck-benchmark --bench parser -- nvm --noplot`.
 
 ### Stage 8: Tighten Parser Hot Paths
 
