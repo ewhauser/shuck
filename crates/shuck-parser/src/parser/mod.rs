@@ -243,6 +243,58 @@ impl<'a> Parser<'a> {
         (start.offset < end.offset).then(|| Span::from_positions(start, end))
     }
 
+    fn split_nested_arithmetic_close(&mut self, context: &'static str) -> Result<Span> {
+        let right_paren_start = self.current_span.start.advanced_by(")");
+        self.advance();
+
+        match self.current_token {
+            Some(Token::RightParen) => {
+                let right_paren_span =
+                    Span::from_positions(right_paren_start, self.current_span.end);
+                self.advance();
+                Ok(right_paren_span)
+            }
+            _ => Err(Error::parse(format!(
+                "expected ')' after '))' in {context}"
+            ))),
+        }
+    }
+
+    fn split_double_semicolon(span: Span) -> (Span, Span) {
+        let middle = span.start.advanced_by(";");
+        (
+            Span::from_positions(span.start, middle),
+            Span::from_positions(middle, span.end),
+        )
+    }
+
+    fn record_arithmetic_for_separator(
+        semicolon_span: Span,
+        segment_start: &mut Position,
+        init_span: &mut Option<Span>,
+        first_semicolon_span: &mut Option<Span>,
+        condition_span: &mut Option<Span>,
+        second_semicolon_span: &mut Option<Span>,
+    ) -> Result<()> {
+        if first_semicolon_span.is_none() {
+            *init_span = Self::optional_span(*segment_start, semicolon_span.start);
+            *first_semicolon_span = Some(semicolon_span);
+            *segment_start = semicolon_span.end;
+            return Ok(());
+        }
+
+        if second_semicolon_span.is_none() {
+            *condition_span = Self::optional_span(*segment_start, semicolon_span.start);
+            *second_semicolon_span = Some(semicolon_span);
+            *segment_start = semicolon_span.end;
+            return Ok(());
+        }
+
+        Err(Error::parse(
+            "unexpected ';' in arithmetic for header".to_string(),
+        ))
+    }
+
     fn rebase_commands(commands: &mut [Command], base: Position) {
         for command in commands {
             Self::rebase_command(command, base);
@@ -1702,7 +1754,10 @@ impl<'a> Parser<'a> {
                         self.advance();
                         break right_paren_span;
                     }
-                    paren_depth -= 1;
+                    if paren_depth == 1 {
+                        break self.split_nested_arithmetic_close("arithmetic for header")?;
+                    }
+                    paren_depth -= 2;
                     self.advance();
                 }
                 Some(Token::RightParen) => {
@@ -1711,21 +1766,35 @@ impl<'a> Parser<'a> {
                     }
                     self.advance();
                 }
+                Some(Token::DoubleSemicolon) if paren_depth == 0 => {
+                    let (first_span, second_span) = Self::split_double_semicolon(self.current_span);
+                    Self::record_arithmetic_for_separator(
+                        first_span,
+                        &mut segment_start,
+                        &mut init_span,
+                        &mut first_semicolon_span,
+                        &mut condition_span,
+                        &mut second_semicolon_span,
+                    )?;
+                    Self::record_arithmetic_for_separator(
+                        second_span,
+                        &mut segment_start,
+                        &mut init_span,
+                        &mut first_semicolon_span,
+                        &mut condition_span,
+                        &mut second_semicolon_span,
+                    )?;
+                    self.advance();
+                }
                 Some(Token::Semicolon) if paren_depth == 0 => {
-                    if first_semicolon_span.is_none() {
-                        init_span = Self::optional_span(segment_start, self.current_span.start);
-                        first_semicolon_span = Some(self.current_span);
-                        segment_start = self.current_span.end;
-                    } else if second_semicolon_span.is_none() {
-                        condition_span =
-                            Self::optional_span(segment_start, self.current_span.start);
-                        second_semicolon_span = Some(self.current_span);
-                        segment_start = self.current_span.end;
-                    } else {
-                        return Err(Error::parse(
-                            "unexpected ';' in arithmetic for header".to_string(),
-                        ));
-                    }
+                    Self::record_arithmetic_for_separator(
+                        self.current_span,
+                        &mut segment_start,
+                        &mut init_span,
+                        &mut first_semicolon_span,
+                        &mut condition_span,
+                        &mut second_semicolon_span,
+                    )?;
                     self.advance();
                 }
                 Some(_) => {
@@ -2545,7 +2614,10 @@ impl<'a> Parser<'a> {
                         self.advance();
                         break right_paren_span;
                     }
-                    depth -= 1;
+                    if depth == 1 {
+                        break self.split_nested_arithmetic_close("arithmetic command")?;
+                    }
+                    depth -= 2;
                     self.advance();
                 }
                 Some(Token::RightParen) => {
@@ -4911,6 +4983,44 @@ mod tests {
     }
 
     #[test]
+    fn test_word_part_spans_track_parenthesized_arithmetic_expansion() {
+        let input = "echo $((a <= (1 || 2)))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let word = &command.args[0];
+
+        assert_eq!(word.part_spans.len(), 1);
+        assert_eq!(word.part_spans[0].slice(input), "$((a <= (1 || 2)))");
+
+        let WordPart::ArithmeticExpansion(expression) = &word.parts[0] else {
+            panic!("expected arithmetic expansion");
+        };
+        assert_eq!(expression.slice(input), "a <= (1 || 2)");
+    }
+
+    #[test]
+    fn test_word_part_spans_track_nested_arithmetic_expansion() {
+        let input = "echo $(((a) + ((b))))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let word = &command.args[0];
+
+        assert_eq!(word.part_spans.len(), 1);
+        assert_eq!(word.part_spans[0].slice(input), "$(((a) + ((b))))");
+
+        let WordPart::ArithmeticExpansion(expression) = &word.parts[0] else {
+            panic!("expected arithmetic expansion");
+        };
+        assert_eq!(expression.slice(input), "(a) + ((b))");
+    }
+
+    #[test]
     fn test_parse_arithmetic_command_preserves_exact_spans() {
         let input = "(( 1 +\n 2 <= 3 ))\n";
         let script = Parser::new(input).parse().unwrap().script;
@@ -4925,6 +5035,60 @@ mod tests {
         assert_eq!(command.left_paren_span.slice(input), "((");
         assert_eq!(command.right_paren_span.slice(input), "))");
         assert_eq!(command.expr_span.unwrap().slice(input), " 1 +\n 2 <= 3 ");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_with_nested_parens_and_double_right_paren() {
+        let input = "(( (previous_pipe_index > 0) && (previous_pipe_index == ($# - 1)) ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+        assert_eq!(
+            command.expr_span.unwrap().slice(input),
+            " (previous_pipe_index > 0) && (previous_pipe_index == ($# - 1)) "
+        );
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_with_command_substitution() {
+        let input = "(($(date -u) > DATE))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+        assert_eq!(command.expr_span.unwrap().slice(input), "$(date -u) > DATE");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_with_nested_parens_before_outer_close() {
+        let input = "(( a <= (1 || 2)))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+        assert_eq!(command.expr_span.unwrap().slice(input), " a <= (1 || 2)");
     }
 
     #[test]
@@ -4945,6 +5109,90 @@ mod tests {
         assert_eq!(command.condition_span.unwrap().slice(input), " i < 10 ");
         assert_eq!(command.second_semicolon_span.slice(input), ";");
         assert_eq!(command.step_span.unwrap().slice(input), " i += 2 ");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_preserves_compact_header_spans() {
+        let input = "for ((i=0;i<10;i++)) do echo \"$i\"; done\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.init_span.unwrap().slice(input), "i=0");
+        assert_eq!(command.first_semicolon_span.slice(input), ";");
+        assert_eq!(command.condition_span.unwrap().slice(input), "i<10");
+        assert_eq!(command.second_semicolon_span.slice(input), ";");
+        assert_eq!(command.step_span.unwrap().slice(input), "i++");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_allows_all_empty_segments() {
+        let input = "for ((;;)); do foo; done\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert!(command.init_span.is_none());
+        assert_eq!(command.first_semicolon_span.slice(input), ";");
+        assert!(command.condition_span.is_none());
+        assert_eq!(command.second_semicolon_span.slice(input), ";");
+        assert!(command.step_span.is_none());
+        assert_eq!(command.right_paren_span.slice(input), "))");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_allows_only_init_segment() {
+        let input = "for ((i = 0;;)); do foo; done\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.init_span.unwrap().slice(input), "i = 0");
+        assert_eq!(command.first_semicolon_span.slice(input), ";");
+        assert!(command.condition_span.is_none());
+        assert_eq!(command.second_semicolon_span.slice(input), ";");
+        assert!(command.step_span.is_none());
+        assert_eq!(command.right_paren_span.slice(input), "))");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_with_nested_parens_before_outer_close() {
+        let input = "for (( i = 0 ; i < 10 ; i += ($# - 1))); do echo \"$i\"; done\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
+            &script.commands[0]
+        else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.init_span.unwrap().slice(input), " i = 0 ");
+        assert_eq!(command.first_semicolon_span.slice(input), ";");
+        assert_eq!(command.condition_span.unwrap().slice(input), " i < 10 ");
+        assert_eq!(command.second_semicolon_span.slice(input), ";");
+        assert_eq!(command.step_span.unwrap().slice(input), " i += ($# - 1)");
         assert_eq!(command.right_paren_span.slice(input), "))");
     }
 
