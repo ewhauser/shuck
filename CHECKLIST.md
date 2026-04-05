@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 5 actionable `skip` entries remain in scope.
-- 38 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 2 actionable `skip` entries remain in scope.
+- 41 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 - 1 formerly skipped case now intentionally fails parsing and has been reclassified as `parse_err`.
 
 ## Expectation Cleanup (Already Parses)
@@ -80,9 +80,9 @@ Shared work: parser needs to distinguish arithmetic `(( ... ))` from grouped-com
 
 Shared work: lexer needs command-position awareness so tokens like `[[` and `{` are only structural where Bash treats them as keywords or operators. Glob and bracket-expression scanning also needs to keep complex glob words together instead of opening quotes or conditional syntax mid-word. Parser can treat leftover structural tokens as literal operands inside `[[ ... =~ ... ]]`. AST change: none.
 
-- [ ] `oils/glob.test.sh::Glob of unescaped [[] and []]` - do not lex `[[` as a conditional opener when it is just glob text.
-- [ ] `oils/regex.test.sh::Quoted { and +` - treat bare `{` as a literal operand inside `[[ ... =~ ... ]]`, not as a brace-group opener.
-- [ ] `oils/toysh.test.sh::char class / extglob` - keep patterns like `[hello"]"`, `[$(echo abc)]`, `[+()]`, and `[+(])` as words instead of producing unterminated-quote errors.
+- [x] `oils/glob.test.sh::Glob of unescaped [[] and []]` - `[[` is now only lexed as a conditional opener when it is separated like a real `[[` keyword, so glob text like `[[z]` stays a word.
+- [x] `oils/regex.test.sh::Quoted { and +` - bare `{` now parses as a literal operand inside `[[ ... =~ ... ]]` instead of being rejected as brace-group syntax.
+- [x] `oils/toysh.test.sh::char class / extglob` - bracket-expression words now stay attached through embedded quotes, command substitutions, and extglob-like suffixes such as `[+()]` and `[+(])`.
 
 ## Parameter Expansion and Brace Operand Scanning
 

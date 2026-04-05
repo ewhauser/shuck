@@ -347,28 +347,23 @@ impl<'a> Lexer<'a> {
             }
             '[' => {
                 self.advance();
-                if self.peek_char() == Some('[') {
+                if self.peek_char() == Some('[')
+                    && matches!(self.peek_nth_char(1), Some(' ') | Some('\t') | Some('\n') | None)
+                {
                     self.advance();
                     Some(Token::DoubleLeftBracket)
                 } else {
-                    // [ could be the test command OR a glob bracket expression
-                    // If followed by non-whitespace, treat as start of bracket expression
-                    // e.g., [abc] is a glob pattern, [ -f file ] is test command
-                    // But ["$*"] or ['text'] are NOT glob — they are literal [ + quoted word
+                    // `[` can start the test command when followed by whitespace, or it can be
+                    // ordinary word text such as a glob bracket expression.
+                    //
+                    // Read the whole token with the normal word scanner so forms like `[[z]`,
+                    // `[hello"]"`, and `[+(])` stay attached to one word instead of producing
+                    // structural tokens mid-word.
                     match self.peek_char() {
                         Some(' ') | Some('\t') | Some('\n') | None => {
-                            // Followed by whitespace or EOF - it's the test command
                             Some(Token::Word("[".to_string()))
                         }
-                        Some('"') | Some('\'') | Some('$') => {
-                            // [ followed by quote/expansion — treat as part of a regular word.
-                            // Push [ back and read the entire word normally.
-                            self.read_word_starting_with("[")
-                        }
-                        _ => {
-                            // Part of a glob bracket expression [abc], read the whole thing
-                            self.read_bracket_word()
-                        }
+                        _ => self.read_word_starting_with("["),
                     }
                 }
             }
@@ -627,6 +622,33 @@ impl<'a> Lexer<'a> {
                                 }
                             }
                         }
+                    }
+                }
+                continue;
+            } else if ch == '(' && word.ends_with(['@', '?', '*', '+', '!']) {
+                // Extglob: @(...), ?(...), *(...), +(...), !(...)
+                // Consume through matching ) including nested parens.
+                word.push(ch);
+                self.advance();
+                let mut depth = 1;
+                while let Some(c) = self.peek_char() {
+                    word.push(c);
+                    self.advance();
+                    match c {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        '\\' => {
+                            if let Some(esc) = self.peek_char() {
+                                word.push(esc);
+                                self.advance();
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 continue;
@@ -1795,39 +1817,6 @@ impl<'a> Lexer<'a> {
         Some(Token::Word(word))
     }
 
-    /// Read a word starting with [ (glob bracket expression like [abc] or [a-z])
-    /// The opening [ has already been consumed
-    fn read_bracket_word(&mut self) -> Option<Token> {
-        let mut word = String::from("[");
-
-        // Read until we find the closing ] (handle nested correctly)
-        while let Some(ch) = self.peek_char() {
-            word.push(ch);
-            self.advance();
-            if ch == ']' {
-                break;
-            }
-        }
-
-        // Continue reading any remaining word characters (e.g., [abc]def)
-        while let Some(ch) = self.peek_char() {
-            if Self::is_word_char(ch) {
-                if self.reinject_buf.is_empty() {
-                    let chunk = self.cursor.eat_while(Self::is_word_char);
-                    word.push_str(chunk);
-                    self.advance_position_without_newline(chunk);
-                } else {
-                    word.push(ch);
-                    self.advance();
-                }
-            } else {
-                break;
-            }
-        }
-
-        Some(Token::Word(word))
-    }
-
     /// Peek ahead (without consuming) to see if `=(` starts an associative
     /// compound assignment like `([key]=val ...)`.  Returns true when the
     /// first non-whitespace char after `(` is `[`.
@@ -2109,6 +2098,19 @@ EOF
         assert_eq!(lexer.next_token(), Some(Token::Semicolon));
         assert_eq!(lexer.next_token(), Some(Token::Word("f".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::Background));
+        assert_eq!(lexer.next_token(), None);
+    }
+
+    #[test]
+    fn test_double_left_bracket_requires_separator() {
+        let mut lexer = Lexer::new("[[ foo ]]\n[[z]\n");
+
+        assert_eq!(lexer.next_token(), Some(Token::DoubleLeftBracket));
+        assert_eq!(lexer.next_token(), Some(Token::Word("foo".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::DoubleRightBracket));
+        assert_eq!(lexer.next_token(), Some(Token::Newline));
+        assert_eq!(lexer.next_token(), Some(Token::Word("[[z]".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::Newline));
         assert_eq!(lexer.next_token(), None);
     }
 

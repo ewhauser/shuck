@@ -210,6 +210,16 @@ impl<'a> Parser<'a> {
         word
     }
 
+    fn current_conditional_literal_word(&self) -> Option<Word> {
+        match self.current_token.as_ref()? {
+            Token::LeftBrace | Token::RightBrace => Some(Word::literal_with_span(
+                self.input[self.current_span.start.offset..self.current_span.end.offset].to_string(),
+                self.current_span,
+            )),
+            _ => None,
+        }
+    }
+
     fn current_name_token(&self) -> Option<(Name, Span)> {
         match &self.current_token {
             Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
@@ -2767,6 +2777,9 @@ impl<'a> Parser<'a> {
 
         let right = match op {
             ConditionalBinaryOp::RegexMatch => {
+                if matches!(self.current_token, Some(Token::LeftBrace)) {
+                    return Err(self.error("expected conditional operand"));
+                }
                 ConditionalExpr::Regex(self.collect_conditional_context_word(stop_at_right_paren)?)
             }
             ConditionalBinaryOp::PatternEqShort
@@ -2788,7 +2801,10 @@ impl<'a> Parser<'a> {
     fn parse_conditional_operand_word(&mut self) -> Result<Word> {
         self.skip_conditional_newlines();
 
-        let Some(word) = self.current_word_to_word() else {
+        let Some(word) = self
+            .current_word_to_word()
+            .or_else(|| self.current_conditional_literal_word())
+        else {
             return Err(self.error("expected conditional operand"));
         };
         self.advance();
@@ -6300,6 +6316,99 @@ coproc worker { true; }
             panic!("expected regex rhs");
         };
         assert_eq!(word.render(input), "^\"-1[[:blank:]]((?[luds])+).*");
+    }
+
+    #[test]
+    fn test_parse_conditional_regex_allows_left_brace_operand() {
+        let input = "[[ { =~ \"{\" ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Binary(binary) = &command.expression else {
+            panic!("expected binary conditional");
+        };
+        assert_eq!(binary.op, ConditionalBinaryOp::RegexMatch);
+
+        let ConditionalExpr::Word(left) = binary.left.as_ref() else {
+            panic!("expected literal left operand");
+        };
+        assert_eq!(left.span.slice(input), "{");
+
+        let ConditionalExpr::Regex(right) = binary.right.as_ref() else {
+            panic!("expected regex rhs");
+        };
+        assert_eq!(right.render(input), "{");
+    }
+
+    #[test]
+    fn test_parse_conditional_regex_rejects_unquoted_right_brace_operand() {
+        let input = "[[ { =~ { ]]\n";
+        assert!(Parser::new(input).parse().is_err());
+    }
+
+    #[test]
+    fn test_parse_glob_word_with_embedded_quote_stays_single_arg() {
+        let input = "echo [hello\"]\"\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].span.slice(input), "[hello\"]\"");
+    }
+
+    #[test]
+    fn test_parse_glob_word_with_command_sub_in_bracket_expression_stays_single_arg() {
+        let input = "echo [$(echo abc)]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].span.slice(input), "[$(echo abc)]");
+    }
+
+    #[test]
+    fn test_parse_glob_word_with_extglob_chars_stays_single_arg() {
+        let input = "echo [+()]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].span.slice(input), "[+()]");
+    }
+
+    #[test]
+    fn test_parse_glob_word_with_trailing_literal_right_paren_stays_single_arg() {
+        let input = "echo [+(])\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].span.slice(input), "[+(])");
+    }
+
+    #[test]
+    fn test_parse_glob_of_unescaped_double_left_bracket_stays_word() {
+        let input = "echo [[z] []z]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 2);
+        assert_eq!(command.args[0].span.slice(input), "[[z]");
+        assert_eq!(command.args[1].span.slice(input), "[]z]");
     }
 
     #[test]
