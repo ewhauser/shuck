@@ -372,7 +372,7 @@ mod tests {
 
         let reference = model.references().last().unwrap();
         let binding = model.resolved_binding(reference.id).unwrap();
-        assert_eq!(binding.span.slice(source), "VAR=outer");
+        assert_eq!(binding.span.slice(source), "VAR");
     }
 
     #[test]
@@ -561,6 +561,66 @@ ${code_command} --version
     }
 
     #[test]
+    fn special_command_targets_store_name_only_spans() {
+        let source = "\
+read -r read_target
+mapfile mapfile_target
+readarray readarray_target
+printf -v printf_target '%s' value
+getopts 'ab' getopts_target
+";
+        let model = model(source);
+
+        let read_target = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "read_target" && matches!(binding.kind, BindingKind::ReadTarget)
+            })
+            .unwrap();
+        assert_eq!(read_target.span.slice(source), "read_target");
+
+        let mapfile_target = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "mapfile_target"
+                    && matches!(binding.kind, BindingKind::MapfileTarget)
+            })
+            .unwrap();
+        assert_eq!(mapfile_target.span.slice(source), "mapfile_target");
+
+        let readarray_target = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "readarray_target"
+                    && matches!(binding.kind, BindingKind::MapfileTarget)
+            })
+            .unwrap();
+        assert_eq!(readarray_target.span.slice(source), "readarray_target");
+
+        let printf_target = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "printf_target" && matches!(binding.kind, BindingKind::PrintfTarget)
+            })
+            .unwrap();
+        assert_eq!(printf_target.span.slice(source), "printf_target");
+
+        let getopts_target = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "getopts_target"
+                    && matches!(binding.kind, BindingKind::GetoptsTarget)
+            })
+            .unwrap();
+        assert_eq!(getopts_target.span.slice(source), "getopts_target");
+    }
+
+    #[test]
     fn detects_dead_code_after_exit() {
         let source = "exit 0\necho dead\n";
         let mut model = model(source);
@@ -584,7 +644,7 @@ ${code_command} --version
             .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "X")
             .unwrap();
         let binding = model.resolved_binding(reference.id).unwrap();
-        assert_eq!(binding.span.slice(source), "X=1");
+        assert_eq!(binding.span.slice(source), "X");
     }
 
     #[test]
@@ -619,7 +679,7 @@ outer
             .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "X")
             .unwrap();
         let binding = model.resolved_binding(reference.id).unwrap();
-        assert_eq!(binding.span.slice(source).trim(), "X=1");
+        assert_eq!(binding.span.slice(source).trim(), "X");
         assert!(matches!(
             model.scope_kind(binding.scope),
             ScopeKind::Function(name) if name == "outer"

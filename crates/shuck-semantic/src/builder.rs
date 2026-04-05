@@ -780,7 +780,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             assignment.name.clone(),
             kind,
             scope,
-            assignment.span,
+            assignment.name_span,
             attributes,
         );
         nested_regions
@@ -978,45 +978,46 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match name.as_str() {
             "read" => {
-                for argument in iter_read_targets(&command.args, self.source) {
+                for (argument, span) in iter_read_targets(&command.args, self.source) {
                     self.add_binding(
                         argument,
                         BindingKind::ReadTarget,
                         self.current_scope(),
-                        command.span,
+                        span,
                         BindingAttributes::empty(),
                     );
                 }
             }
             "mapfile" | "readarray" => {
-                if let Some(argument) = explicit_mapfile_target(&command.args, self.source) {
+                if let Some((argument, span)) = explicit_mapfile_target(&command.args, self.source)
+                {
                     self.add_binding(
                         argument,
                         BindingKind::MapfileTarget,
                         self.current_scope(),
-                        command.span,
+                        span,
                         BindingAttributes::empty(),
                     );
                 }
             }
             "printf" => {
-                if let Some(argument) = printf_v_target(&command.args, self.source) {
+                if let Some((argument, span)) = printf_v_target(&command.args, self.source) {
                     self.add_binding(
                         argument,
                         BindingKind::PrintfTarget,
                         self.current_scope(),
-                        command.span,
+                        span,
                         BindingAttributes::empty(),
                     );
                 }
             }
             "getopts" => {
-                if let Some(argument) = getopts_target(&command.args, self.source) {
+                if let Some((argument, span)) = getopts_target(&command.args, self.source) {
                     self.add_binding(
                         argument,
                         BindingKind::GetoptsTarget,
                         self.current_scope(),
-                        command.span,
+                        span,
                         BindingAttributes::empty(),
                     );
                 }
@@ -1518,37 +1519,37 @@ fn assignment_value_span(assignment: &Assignment) -> Span {
     }
 }
 
-fn iter_read_targets<'a>(args: &'a [Word], source: &'a str) -> impl Iterator<Item = Name> + 'a {
+fn iter_read_targets<'a>(
+    args: &'a [Word],
+    source: &'a str,
+) -> impl Iterator<Item = (Name, Span)> + 'a {
     args.iter()
-        .filter_map(move |word| static_word_text(word, source))
-        .filter(|text| !text.starts_with('-'))
-        .filter(|text| is_name(text))
-        .map(Name::from)
+        .filter_map(move |word| named_target_word(word, source))
+        .filter(|(name, _)| !name.as_str().starts_with('-'))
 }
 
-fn explicit_mapfile_target(args: &[Word], source: &str) -> Option<Name> {
-    args.iter()
-        .filter_map(|word| static_word_text(word, source))
-        .filter(|text| !text.starts_with('-'))
-        .find(|text| is_name(text))
-        .map(Name::from)
-}
-
-fn printf_v_target(args: &[Word], source: &str) -> Option<Name> {
-    args.windows(2).find_map(|window| {
-        (static_word_text(&window[0], source).as_deref() == Some("-v"))
-            .then(|| static_word_text(&window[1], source))
-            .flatten()
-            .filter(|text| is_name(text))
-            .map(Name::from)
+fn explicit_mapfile_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
+    args.iter().find_map(|word| {
+        let target = named_target_word(word, source)?;
+        (!target.0.as_str().starts_with('-')).then_some(target)
     })
 }
 
-fn getopts_target(args: &[Word], source: &str) -> Option<Name> {
-    args.get(1)
-        .and_then(|word| static_word_text(word, source))
-        .filter(|text| is_name(text))
-        .map(Name::from)
+fn printf_v_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
+    args.windows(2).find_map(|window| {
+        (static_word_text(&window[0], source).as_deref() == Some("-v"))
+            .then_some(&window[1])
+            .and_then(|word| named_target_word(word, source))
+    })
+}
+
+fn getopts_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
+    args.get(1).and_then(|word| named_target_word(word, source))
+}
+
+fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
+    let text = static_word_text(word, source)?;
+    is_name(&text).then_some((Name::from(text), word.span))
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {

@@ -214,10 +214,37 @@ echo $bar
 
     #[test]
     fn unused_assignment_flags_unread_variable() {
-        let diagnostics = lint("#!/bin/sh\nfoo=1\n", &LinterSettings::default());
+        let source = "#!/bin/sh\nfoo=1\n";
+        let diagnostics = lint(source, &LinterSettings::default());
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
         assert!(diagnostics[0].message.contains("foo"));
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn unused_assignment_reports_read_target_name_span() {
+        let source = "#!/bin/sh\nread -r foo\n";
+        let diagnostics = lint(source, &LinterSettings::default());
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn unused_assignment_reports_getopts_target_name_span() {
+        let source = "\
+#!/bin/sh
+while getopts \"ab\" opt; do
+  :
+done
+";
+        let diagnostics = lint(source, &LinterSettings::default());
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "opt");
     }
 
     #[test]
