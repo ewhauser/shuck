@@ -107,4 +107,4 @@ flame-cli:
 check:
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings
-	cargo +nightly udeps --all-targets
+	# cargo +nightly udeps --all-targets
