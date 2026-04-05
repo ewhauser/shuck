@@ -582,6 +582,35 @@ impl<'a> Lexer<'a> {
         self.cursor.skip_bytes(byte_len);
     }
 
+    fn ensure_capture_from_source(
+        &self,
+        capture: &mut Option<String>,
+        start: Position,
+        end: Position,
+    ) {
+        if capture.is_none() {
+            *capture = Some(self.input[start.offset..end.offset].to_string());
+        }
+    }
+
+    fn push_capture_char(capture: &mut Option<String>, ch: char) {
+        if let Some(text) = capture.as_mut() {
+            text.push(ch);
+        }
+    }
+
+    fn push_capture_str(capture: &mut Option<String>, text: &str) {
+        if let Some(current) = capture.as_mut() {
+            current.push_str(text);
+        }
+    }
+
+    fn current_word_text<'b>(&'b self, start: Position, capture: &'b Option<String>) -> &'b str {
+        capture
+            .as_deref()
+            .unwrap_or(&self.input[start.offset..self.position.offset])
+    }
+
     fn materialize_legacy_token(&self, token: &LexedToken<'_>) -> Token {
         match token.kind {
             TokenKind::Word => Token::Word(token.word_string().unwrap_or_default()),
@@ -1013,12 +1042,19 @@ impl<'a> Lexer<'a> {
         self.read_word()
     }
 
-    fn read_word_starting_with(&mut self, prefix: &str, start: Position) -> Option<LexedToken<'a>> {
-        let word = match self.read_unquoted_segment(prefix.to_string()) {
-            Ok(word) => word,
+    fn read_word_starting_with(
+        &mut self,
+        _prefix: &str,
+        start: Position,
+    ) -> Option<LexedToken<'a>> {
+        let segment = match self.read_unquoted_segment(start) {
+            Ok(segment) => segment,
             Err(kind) => return Some(LexedToken::error(kind)),
         };
-        let mut lexed_word = LexedWord::from_segment(self.unquoted_plain_segment(start, word));
+        if segment.as_str().is_empty() {
+            return None;
+        }
+        let mut lexed_word = LexedWord::from_segment(segment);
         if let Err(kind) = self.append_segmented_continuation(&mut lexed_word) {
             return Some(LexedToken::error(kind));
         }
@@ -1054,7 +1090,7 @@ impl<'a> Lexer<'a> {
                 if self.peek_char() == Some('(')
                     && (chunk.ends_with('=') || chunk.ends_with(['@', '?', '*', '+', '!']))
                 {
-                    return self.read_complex_word(start, chunk.to_string());
+                    return self.read_complex_word(start);
                 }
 
                 return self.finish_segmented_word(LexedWord::borrowed(
@@ -1065,7 +1101,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        self.read_complex_word(start, String::new())
+        self.read_complex_word(start)
     }
 
     fn finish_segmented_word(&mut self, mut lexed_word: LexedWord<'a>) -> Option<LexedToken<'a>> {
@@ -1076,55 +1112,44 @@ impl<'a> Lexer<'a> {
         Some(LexedToken::with_word_payload(TokenKind::Word, lexed_word))
     }
 
-    fn unquoted_plain_segment(&self, start: Position, word: String) -> LexedWordSegment<'a> {
-        let end = self.position;
-
-        if self.reinject_buf.is_empty()
-            && let Some(source) = self.input.get(start.offset..end.offset)
-            && source == word.as_str()
-        {
-            return LexedWordSegment::borrowed(
-                LexedWordSegmentKind::Plain,
-                source,
-                Some(Span::from_positions(start, end)),
-            );
-        }
-
-        LexedWordSegment::owned(LexedWordSegmentKind::Plain, word)
-    }
-
-    fn read_complex_word(&mut self, start: Position, mut word: String) -> Option<LexedToken<'a>> {
-        let word = match self.read_unquoted_segment(std::mem::take(&mut word)) {
-            Ok(word) => word,
+    fn read_complex_word(&mut self, start: Position) -> Option<LexedToken<'a>> {
+        let segment = match self.read_unquoted_segment(start) {
+            Ok(segment) => segment,
             Err(kind) => return Some(LexedToken::error(kind)),
         };
 
-        if word.is_empty() {
+        if segment.as_str().is_empty() {
             return None;
         }
 
-        self.finish_segmented_word(LexedWord::from_segment(
-            self.unquoted_plain_segment(start, word),
-        ))
+        self.finish_segmented_word(LexedWord::from_segment(segment))
     }
 
-    fn read_unquoted_segment(&mut self, mut word: String) -> Result<String, LexerErrorKind> {
+    fn read_unquoted_segment(
+        &mut self,
+        start: Position,
+    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+        let mut word = (!self.reinject_buf.is_empty()).then(String::new);
         while let Some(ch) = self.peek_char() {
             if ch == '"' || ch == '\'' {
                 break;
             } else if ch == '$' {
                 // Handle variable references and command substitution
+                let dollar_start = self.position;
                 self.advance();
 
                 // $'...' — ANSI-C quoting: resolve escapes at parse time
                 if self.peek_char() == Some('\'') {
+                    self.ensure_capture_from_source(&mut word, start, dollar_start);
                     self.advance(); // consume opening '
-                    word.push_str(&self.read_dollar_single_quoted_content());
+                    let cooked = self.read_dollar_single_quoted_content();
+                    Self::push_capture_str(&mut word, &cooked);
                     continue;
                 }
 
                 // $"..." — locale translation synonym, treated like "..."
                 if self.peek_char() == Some('"') {
+                    self.ensure_capture_from_source(&mut word, start, dollar_start);
                     self.advance(); // consume opening "
                     while let Some(c) = self.peek_char() {
                         if c == '"' {
@@ -1132,6 +1157,7 @@ impl<'a> Lexer<'a> {
                             break;
                         }
                         if c == '\\' {
+                            let escape_start = self.position;
                             self.advance();
                             if let Some(next) = self.peek_char() {
                                 match next {
@@ -1139,17 +1165,27 @@ impl<'a> Lexer<'a> {
                                         self.advance();
                                     }
                                     '$' => {
-                                        word.push('\x00');
-                                        word.push('$');
+                                        self.ensure_capture_from_source(
+                                            &mut word,
+                                            start,
+                                            escape_start,
+                                        );
+                                        Self::push_capture_char(&mut word, '\x00');
+                                        Self::push_capture_char(&mut word, '$');
                                         self.advance();
                                     }
                                     '"' | '\\' | '`' => {
-                                        word.push(next);
+                                        self.ensure_capture_from_source(
+                                            &mut word,
+                                            start,
+                                            escape_start,
+                                        );
+                                        Self::push_capture_char(&mut word, next);
                                         self.advance();
                                     }
                                     _ => {
-                                        word.push('\\');
-                                        word.push(next);
+                                        Self::push_capture_char(&mut word, '\\');
+                                        Self::push_capture_char(&mut word, next);
                                         self.advance();
                                     }
                                 }
@@ -1157,25 +1193,25 @@ impl<'a> Lexer<'a> {
                             }
                         }
                         if c == '$' {
-                            word.push(c);
+                            Self::push_capture_char(&mut word, c);
                             self.advance();
                             if let Some(nc) = self.peek_char() {
                                 if nc == '{' {
-                                    word.push(nc);
+                                    Self::push_capture_char(&mut word, nc);
                                     self.advance();
                                     while let Some(bc) = self.peek_char() {
-                                        word.push(bc);
+                                        Self::push_capture_char(&mut word, bc);
                                         self.advance();
                                         if bc == '}' {
                                             break;
                                         }
                                     }
                                 } else if nc == '(' {
-                                    word.push(nc);
+                                    Self::push_capture_char(&mut word, nc);
                                     self.advance();
                                     let mut depth = 1;
                                     while let Some(pc) = self.peek_char() {
-                                        word.push(pc);
+                                        Self::push_capture_char(&mut word, pc);
                                         self.advance();
                                         if pc == '(' {
                                             depth += 1;
@@ -1190,12 +1226,12 @@ impl<'a> Lexer<'a> {
                                     || nc == '_'
                                     || matches!(nc, '?' | '#' | '@' | '*' | '!' | '$' | '-')
                                 {
-                                    word.push(nc);
+                                    Self::push_capture_char(&mut word, nc);
                                     self.advance();
                                     if nc.is_ascii_alphabetic() || nc == '_' {
                                         while let Some(vc) = self.peek_char() {
                                             if vc.is_ascii_alphanumeric() || vc == '_' {
-                                                word.push(vc);
+                                                Self::push_capture_char(&mut word, vc);
                                                 self.advance();
                                             } else {
                                                 break;
@@ -1206,27 +1242,27 @@ impl<'a> Lexer<'a> {
                             }
                             continue;
                         }
-                        word.push(c);
+                        Self::push_capture_char(&mut word, c);
                         self.advance();
                     }
                     continue;
                 }
 
-                word.push(ch); // push the '$'
+                Self::push_capture_char(&mut word, ch); // push the '$'
 
                 // Check for $( - command substitution or arithmetic
                 if self.peek_char() == Some('(') {
-                    word.push('(');
+                    Self::push_capture_char(&mut word, '(');
                     self.advance();
 
                     // Check for $(( - arithmetic expansion
                     if self.peek_char() == Some('(') {
-                        word.push('(');
+                        Self::push_capture_char(&mut word, '(');
                         self.advance();
                         // Read until ))
                         let mut depth = 2;
                         while let Some(c) = self.peek_char() {
-                            word.push(c);
+                            Self::push_capture_char(&mut word, c);
                             self.advance();
                             if c == '(' {
                                 depth += 1;
@@ -1245,22 +1281,22 @@ impl<'a> Lexer<'a> {
                 } else if self.peek_char() == Some('{') {
                     // ${VAR} format — track nested braces so ${a[${#b[@]}]}
                     // doesn't stop at the inner }.
-                    word.push('{');
+                    Self::push_capture_char(&mut word, '{');
                     self.advance();
-                    let _ = self.read_param_expansion_into(&mut word);
+                    let _ = self.read_param_expansion_into(&mut word, start);
                 } else {
                     // Check for special single-character variables ($?, $#, $@, $*, $!, $$, $-, $0-$9)
                     if let Some(c) = self.peek_char() {
                         if matches!(c, '?' | '#' | '@' | '*' | '!' | '$' | '-')
                             || c.is_ascii_digit()
                         {
-                            word.push(c);
+                            Self::push_capture_char(&mut word, c);
                             self.advance();
                         } else {
                             // Read variable name (alphanumeric + _)
                             while let Some(c) = self.peek_char() {
                                 if c.is_ascii_alphanumeric() || c == '_' {
-                                    word.push(c);
+                                    Self::push_capture_char(&mut word, c);
                                     self.advance();
                                 } else {
                                     break;
@@ -1271,11 +1307,11 @@ impl<'a> Lexer<'a> {
                 }
             } else if ch == '{' {
                 // Brace expansion pattern - include entire {...} in word
-                word.push(ch);
+                Self::push_capture_char(&mut word, ch);
                 self.advance();
                 let mut depth = 1;
                 while let Some(c) = self.peek_char() {
-                    word.push(c);
+                    Self::push_capture_char(&mut word, c);
                     self.advance();
                     if c == '{' {
                         depth += 1;
@@ -1288,8 +1324,9 @@ impl<'a> Lexer<'a> {
                 }
             } else if ch == '`' {
                 // Backtick command substitution: convert `cmd` to $(cmd)
+                self.ensure_capture_from_source(&mut word, start, self.position);
                 self.advance(); // consume opening `
-                word.push_str("$(");
+                Self::push_capture_str(&mut word, "$(");
                 let mut closed = false;
                 while let Some(c) = self.peek_char() {
                     if c == '`' {
@@ -1302,24 +1339,25 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         if let Some(next) = self.peek_char() {
                             if matches!(next, '$' | '`' | '\\' | '\n') {
-                                word.push(next);
+                                Self::push_capture_char(&mut word, next);
                                 self.advance();
                             } else {
-                                word.push('\\');
-                                word.push(next);
+                                Self::push_capture_char(&mut word, '\\');
+                                Self::push_capture_char(&mut word, next);
                                 self.advance();
                             }
                         }
                     } else {
-                        word.push(c);
+                        Self::push_capture_char(&mut word, c);
                         self.advance();
                     }
                 }
                 if !closed {
                     return Err(LexerErrorKind::BacktickSubstitution);
                 }
-                word.push(')');
+                Self::push_capture_char(&mut word, ')');
             } else if ch == '\\' {
+                self.ensure_capture_from_source(&mut word, start, self.position);
                 self.advance();
                 if let Some(next) = self.peek_char() {
                     if next == '\n' {
@@ -1328,20 +1366,23 @@ impl<'a> Lexer<'a> {
                     } else {
                         // Escaped character: backslash quotes the next char
                         // (quote removal — only the literal char survives)
-                        word.push(next);
+                        Self::push_capture_char(&mut word, next);
                         self.advance();
                     }
                 } else {
-                    word.push('\\');
+                    Self::push_capture_char(&mut word, '\\');
                 }
-            } else if ch == '(' && word.ends_with('=') && self.looks_like_assoc_assign() {
+            } else if ch == '('
+                && self.current_word_text(start, &word).ends_with('=')
+                && self.looks_like_assoc_assign()
+            {
                 // Associative compound assignment: var=([k]="v" ...) — keep entire
                 // (...) as part of word so declare -A m=([k]="v") stays one token.
-                word.push(ch);
+                Self::push_capture_char(&mut word, ch);
                 self.advance();
                 let mut depth = 1;
                 while let Some(c) = self.peek_char() {
-                    word.push(c);
+                    Self::push_capture_char(&mut word, c);
                     self.advance();
                     match c {
                         '(' => depth += 1,
@@ -1353,7 +1394,7 @@ impl<'a> Lexer<'a> {
                         }
                         '"' => {
                             while let Some(qc) = self.peek_char() {
-                                word.push(qc);
+                                Self::push_capture_char(&mut word, qc);
                                 self.advance();
                                 if qc == '"' {
                                     break;
@@ -1361,14 +1402,14 @@ impl<'a> Lexer<'a> {
                                 if qc == '\\'
                                     && let Some(esc) = self.peek_char()
                                 {
-                                    word.push(esc);
+                                    Self::push_capture_char(&mut word, esc);
                                     self.advance();
                                 }
                             }
                         }
                         '\'' => {
                             while let Some(qc) = self.peek_char() {
-                                word.push(qc);
+                                Self::push_capture_char(&mut word, qc);
                                 self.advance();
                                 if qc == '\'' {
                                     break;
@@ -1377,21 +1418,25 @@ impl<'a> Lexer<'a> {
                         }
                         '\\' => {
                             if let Some(esc) = self.peek_char() {
-                                word.push(esc);
+                                Self::push_capture_char(&mut word, esc);
                                 self.advance();
                             }
                         }
                         _ => {}
                     }
                 }
-            } else if ch == '(' && word.ends_with(['@', '?', '*', '+', '!']) {
+            } else if ch == '('
+                && self
+                    .current_word_text(start, &word)
+                    .ends_with(['@', '?', '*', '+', '!'])
+            {
                 // Extglob: @(...), ?(...), *(...), +(...), !(...)
                 // Consume through matching ) including nested parens
-                word.push(ch);
+                Self::push_capture_char(&mut word, ch);
                 self.advance();
                 let mut depth = 1;
                 while let Some(c) = self.peek_char() {
-                    word.push(c);
+                    Self::push_capture_char(&mut word, c);
                     self.advance();
                     match c {
                         '(' => depth += 1,
@@ -1403,7 +1448,7 @@ impl<'a> Lexer<'a> {
                         }
                         '\\' => {
                             if let Some(esc) = self.peek_char() {
-                                word.push(esc);
+                                Self::push_capture_char(&mut word, esc);
                                 self.advance();
                             }
                         }
@@ -1413,10 +1458,10 @@ impl<'a> Lexer<'a> {
             } else if Self::is_plain_word_char(ch) {
                 if self.reinject_buf.is_empty() {
                     let chunk = self.cursor.eat_while(Self::is_plain_word_char);
-                    word.push_str(chunk);
+                    Self::push_capture_str(&mut word, chunk);
                     self.advance_position_without_newline(chunk);
                 } else {
-                    word.push(ch);
+                    Self::push_capture_char(&mut word, ch);
                     self.advance();
                 }
             } else {
@@ -1424,7 +1469,15 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Ok(word)
+        if let Some(word) = word {
+            Ok(LexedWordSegment::owned(LexedWordSegmentKind::Plain, word))
+        } else {
+            Ok(LexedWordSegment::borrowed(
+                LexedWordSegmentKind::Plain,
+                &self.input[start.offset..self.position.offset],
+                Some(Span::from_positions(start, self.position)),
+            ))
+        }
     }
 
     fn read_single_quoted_string(&mut self) -> Option<LexedToken<'a>> {
@@ -1544,11 +1597,11 @@ impl<'a> Lexer<'a> {
                     }
 
                     let start = self.position;
-                    let plain = self.read_unquoted_segment(String::new())?;
-                    if plain.is_empty() {
+                    let plain = self.read_unquoted_segment(start)?;
+                    if plain.as_str().is_empty() {
                         break;
                     }
-                    word.push_segment(self.unquoted_plain_segment(start, plain));
+                    word.push_segment(plain);
                 }
             }
         }
@@ -1703,7 +1756,7 @@ impl<'a> Lexer<'a> {
         let mut content_end = content_start;
         let mut simple = self.reinject_buf.is_empty();
         let mut borrowable = self.reinject_buf.is_empty();
-        let mut content = String::new();
+        let mut content = (!self.reinject_buf.is_empty()).then(String::new);
         let mut closed = false;
 
         while let Some(ch) = self.peek_char() {
@@ -1717,10 +1770,14 @@ impl<'a> Lexer<'a> {
                     }
                     '\\' | '$' | '`' => {
                         simple = false;
-                        if matches!(ch, '\\' | '`') {
+                        if ch == '`' {
                             borrowable = false;
+                            self.ensure_capture_from_source(
+                                &mut content,
+                                content_start,
+                                self.position,
+                            );
                         }
-                        content.push_str(&self.input[content_start.offset..self.position.offset]);
                     }
                     _ => {
                         self.advance();
@@ -1741,47 +1798,66 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 '\\' => {
-                    borrowable = false;
+                    let escape_start = self.position;
                     self.advance();
                     if let Some(next) = self.peek_char() {
                         match next {
                             '\n' => {
+                                borrowable = false;
+                                self.ensure_capture_from_source(
+                                    &mut content,
+                                    content_start,
+                                    escape_start,
+                                );
                                 self.advance();
                             }
                             '$' => {
-                                content.push('\x00');
-                                content.push('$');
+                                borrowable = false;
+                                self.ensure_capture_from_source(
+                                    &mut content,
+                                    content_start,
+                                    escape_start,
+                                );
+                                Self::push_capture_char(&mut content, '\x00');
+                                Self::push_capture_char(&mut content, '$');
                                 self.advance();
                             }
                             '"' | '\\' | '`' => {
-                                content.push(next);
+                                borrowable = false;
+                                self.ensure_capture_from_source(
+                                    &mut content,
+                                    content_start,
+                                    escape_start,
+                                );
+                                Self::push_capture_char(&mut content, next);
                                 self.advance();
                             }
                             _ => {
-                                content.push('\\');
-                                content.push(next);
+                                Self::push_capture_char(&mut content, '\\');
+                                Self::push_capture_char(&mut content, next);
                                 self.advance();
                             }
                         }
                     }
                 }
                 '$' => {
-                    content.push('$');
+                    Self::push_capture_char(&mut content, '$');
                     self.advance();
                     if self.peek_char() == Some('(') {
-                        content.push('(');
+                        Self::push_capture_char(&mut content, '(');
                         self.advance();
                         self.read_command_subst_into(&mut content);
                     } else if self.peek_char() == Some('{') {
-                        content.push('{');
+                        Self::push_capture_char(&mut content, '{');
                         self.advance();
-                        borrowable &= self.read_param_expansion_into(&mut content);
+                        borrowable &= self.read_param_expansion_into(&mut content, content_start);
                     }
                 }
                 '`' => {
                     borrowable = false;
+                    self.ensure_capture_from_source(&mut content, content_start, self.position);
                     self.advance(); // consume opening `
-                    content.push_str("$(");
+                    Self::push_capture_str(&mut content, "$(");
                     while let Some(c) = self.peek_char() {
                         if c == '`' {
                             self.advance();
@@ -1791,23 +1867,23 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             if let Some(next) = self.peek_char() {
                                 if matches!(next, '$' | '`' | '\\' | '"') {
-                                    content.push(next);
+                                    Self::push_capture_char(&mut content, next);
                                     self.advance();
                                 } else {
-                                    content.push('\\');
-                                    content.push(next);
+                                    Self::push_capture_char(&mut content, '\\');
+                                    Self::push_capture_char(&mut content, next);
                                     self.advance();
                                 }
                             }
                         } else {
-                            content.push(c);
+                            Self::push_capture_char(&mut content, c);
                             self.advance();
                         }
                     }
-                    content.push(')');
+                    Self::push_capture_char(&mut content, ')');
                 }
                 _ => {
-                    content.push(ch);
+                    Self::push_capture_char(&mut content, ch);
                     self.advance();
                 }
             }
@@ -1826,7 +1902,7 @@ impl<'a> Lexer<'a> {
         } else {
             Ok(LexedWordSegment::owned(
                 LexedWordSegmentKind::DoubleQuoted,
-                content,
+                content.unwrap_or_default(),
             ))
         }
     }
@@ -1834,7 +1910,7 @@ impl<'a> Lexer<'a> {
     /// Read command substitution content after `$(`, handling nested parens and quotes.
     /// Appends chars to `content` and adds the closing `)`.
     /// `subst_depth` tracks nesting to prevent stack overflow.
-    fn read_command_subst_into(&mut self, content: &mut String) -> bool {
+    fn read_command_subst_into(&mut self, content: &mut Option<String>) -> bool {
         self.read_command_subst_into_depth(content, 0)
     }
 
@@ -1860,7 +1936,11 @@ impl<'a> Lexer<'a> {
         current_word.clear();
     }
 
-    fn read_command_subst_into_depth(&mut self, content: &mut String, subst_depth: usize) -> bool {
+    fn read_command_subst_into_depth(
+        &mut self,
+        content: &mut Option<String>,
+        subst_depth: usize,
+    ) -> bool {
         if subst_depth >= self.max_subst_depth {
             // Depth limit exceeded — consume until matching ')' and emit error token
             let mut depth = 1;
@@ -1871,7 +1951,7 @@ impl<'a> Lexer<'a> {
                     ')' => {
                         depth -= 1;
                         if depth == 0 {
-                            content.push(')');
+                            Self::push_capture_char(content, ')');
                             return true;
                         }
                     }
@@ -1894,7 +1974,7 @@ impl<'a> Lexer<'a> {
                         &mut case_clause_depth,
                     );
                     depth += 1;
-                    content.push(c);
+                    Self::push_capture_char(content, c);
                     self.advance();
                 }
                 ')' => {
@@ -1904,17 +1984,17 @@ impl<'a> Lexer<'a> {
                         &mut case_clause_depth,
                     );
                     if depth == 1 && case_clause_depth > 0 {
-                        content.push(')');
+                        Self::push_capture_char(content, ')');
                         self.advance();
                         continue;
                     }
                     depth -= 1;
                     self.advance();
                     if depth == 0 {
-                        content.push(')');
+                        Self::push_capture_char(content, ')');
                         return true;
                     }
-                    content.push(c);
+                    Self::push_capture_char(content, c);
                 }
                 '"' => {
                     Self::flush_command_subst_keyword(
@@ -1923,28 +2003,28 @@ impl<'a> Lexer<'a> {
                         &mut case_clause_depth,
                     );
                     // Nested double-quoted string inside $()
-                    content.push('"');
+                    Self::push_capture_char(content, '"');
                     self.advance();
                     while let Some(qc) = self.peek_char() {
                         match qc {
                             '"' => {
-                                content.push('"');
+                                Self::push_capture_char(content, '"');
                                 self.advance();
                                 break;
                             }
                             '\\' => {
-                                content.push('\\');
+                                Self::push_capture_char(content, '\\');
                                 self.advance();
                                 if let Some(esc) = self.peek_char() {
-                                    content.push(esc);
+                                    Self::push_capture_char(content, esc);
                                     self.advance();
                                 }
                             }
                             '$' => {
-                                content.push('$');
+                                Self::push_capture_char(content, '$');
                                 self.advance();
                                 if self.peek_char() == Some('(') {
-                                    content.push('(');
+                                    Self::push_capture_char(content, '(');
                                     self.advance();
                                     if !self.read_command_subst_into_depth(content, subst_depth + 1)
                                     {
@@ -1953,7 +2033,7 @@ impl<'a> Lexer<'a> {
                                 }
                             }
                             _ => {
-                                content.push(qc);
+                                Self::push_capture_char(content, qc);
                                 self.advance();
                             }
                         }
@@ -1966,10 +2046,10 @@ impl<'a> Lexer<'a> {
                         &mut case_clause_depth,
                     );
                     // Single-quoted string inside $()
-                    content.push('\'');
+                    Self::push_capture_char(content, '\'');
                     self.advance();
                     while let Some(qc) = self.peek_char() {
-                        content.push(qc);
+                        Self::push_capture_char(content, qc);
                         self.advance();
                         if qc == '\'' {
                             break;
@@ -1982,10 +2062,10 @@ impl<'a> Lexer<'a> {
                         &mut pending_case_headers,
                         &mut case_clause_depth,
                     );
-                    content.push('\\');
+                    Self::push_capture_char(content, '\\');
                     self.advance();
                     if let Some(esc) = self.peek_char() {
-                        content.push(esc);
+                        Self::push_capture_char(content, esc);
                         self.advance();
                     }
                 }
@@ -1999,7 +2079,7 @@ impl<'a> Lexer<'a> {
                             &mut case_clause_depth,
                         );
                     }
-                    content.push(c);
+                    Self::push_capture_char(content, c);
                     self.advance();
                 }
             }
@@ -2011,7 +2091,11 @@ impl<'a> Lexer<'a> {
     /// Read parameter expansion content after `${`, handling nested braces and quotes.
     /// In bash, quotes inside `${...}` (e.g. `${arr["key"]}`) don't terminate the
     /// outer double-quoted string. Appends chars including closing `}` to `content`.
-    fn read_param_expansion_into(&mut self, content: &mut String) -> bool {
+    fn read_param_expansion_into(
+        &mut self,
+        content: &mut Option<String>,
+        segment_start: Position,
+    ) -> bool {
         let mut borrowable = true;
         let mut depth = 1;
         let mut in_single = false;
@@ -2020,42 +2104,53 @@ impl<'a> Lexer<'a> {
             if in_single {
                 match c {
                     '\'' => {
-                        content.push(c);
+                        Self::push_capture_char(content, c);
                         self.advance();
                         in_single = false;
                     }
                     '\\' => {
+                        let escape_start = self.position;
                         self.advance();
                         if let Some(esc) = self.peek_char() {
                             match esc {
                                 '$' => {
                                     borrowable = false;
-                                    content.push('\x00');
-                                    content.push('$');
+                                    self.ensure_capture_from_source(
+                                        content,
+                                        segment_start,
+                                        escape_start,
+                                    );
+                                    Self::push_capture_char(content, '\x00');
+                                    Self::push_capture_char(content, '$');
                                     self.advance();
                                 }
                                 '"' | '\\' | '`' => {
                                     borrowable = false;
-                                    content.push(esc);
+                                    self.ensure_capture_from_source(
+                                        content,
+                                        segment_start,
+                                        escape_start,
+                                    );
+                                    Self::push_capture_char(content, esc);
                                     self.advance();
                                 }
                                 '}' => {
-                                    content.push('\\');
-                                    content.push('}');
+                                    Self::push_capture_char(content, '\\');
+                                    Self::push_capture_char(content, '}');
                                     self.advance();
                                 }
                                 _ => {
-                                    content.push('\\');
-                                    content.push(esc);
+                                    Self::push_capture_char(content, '\\');
+                                    Self::push_capture_char(content, esc);
                                     self.advance();
                                 }
                             }
                         } else {
-                            content.push('\\');
+                            Self::push_capture_char(content, '\\');
                         }
                     }
                     _ => {
-                        content.push(c);
+                        Self::push_capture_char(content, c);
                         self.advance();
                     }
                 }
@@ -2065,25 +2160,25 @@ impl<'a> Lexer<'a> {
             match c {
                 '{' if !in_single && !in_double => {
                     depth += 1;
-                    content.push(c);
+                    Self::push_capture_char(content, c);
                     self.advance();
                 }
                 '}' if !in_single && !in_double => {
                     depth -= 1;
                     self.advance();
-                    content.push('}');
+                    Self::push_capture_char(content, '}');
                     if depth == 0 {
                         break;
                     }
                 }
                 '"' => {
                     // Quotes inside ${...} are part of the expansion, not string delimiters
-                    content.push('"');
+                    Self::push_capture_char(content, '"');
                     self.advance();
                     in_double = !in_double;
                 }
                 '\'' => {
-                    content.push('\'');
+                    Self::push_capture_char(content, '\'');
                     self.advance();
                     if !in_double {
                         in_single = true;
@@ -2092,51 +2187,62 @@ impl<'a> Lexer<'a> {
                 '\\' => {
                     // Inside ${...} within double quotes, same escape rules apply:
                     // \", \\, \$, \` produce the escaped char; others keep backslash
+                    let escape_start = self.position;
                     self.advance();
                     if let Some(esc) = self.peek_char() {
                         match esc {
                             '$' => {
                                 borrowable = false;
-                                content.push('\x00');
-                                content.push('$');
+                                self.ensure_capture_from_source(
+                                    content,
+                                    segment_start,
+                                    escape_start,
+                                );
+                                Self::push_capture_char(content, '\x00');
+                                Self::push_capture_char(content, '$');
                                 self.advance();
                             }
                             '"' | '\\' | '`' => {
                                 borrowable = false;
-                                content.push(esc);
+                                self.ensure_capture_from_source(
+                                    content,
+                                    segment_start,
+                                    escape_start,
+                                );
+                                Self::push_capture_char(content, esc);
                                 self.advance();
                             }
                             '}' => {
                                 // \} should be a literal } without closing the expansion
-                                content.push('\\');
-                                content.push('}');
+                                Self::push_capture_char(content, '\\');
+                                Self::push_capture_char(content, '}');
                                 self.advance();
                             }
                             _ => {
-                                content.push('\\');
-                                content.push(esc);
+                                Self::push_capture_char(content, '\\');
+                                Self::push_capture_char(content, esc);
                                 self.advance();
                             }
                         }
                     } else {
-                        content.push('\\');
+                        Self::push_capture_char(content, '\\');
                     }
                 }
                 '$' => {
-                    content.push('$');
+                    Self::push_capture_char(content, '$');
                     self.advance();
                     if self.peek_char() == Some('(') {
-                        content.push('(');
+                        Self::push_capture_char(content, '(');
                         self.advance();
                         self.read_command_subst_into(content);
                     } else if self.peek_char() == Some('{') {
-                        content.push('{');
+                        Self::push_capture_char(content, '{');
                         self.advance();
-                        borrowable &= self.read_param_expansion_into(content);
+                        borrowable &= self.read_param_expansion_into(content, segment_start);
                     }
                 }
                 _ => {
-                    content.push(c);
+                    Self::push_capture_char(content, c);
                     self.advance();
                 }
             }
@@ -2626,6 +2732,21 @@ mod tests {
     }
 
     #[test]
+    fn test_unquoted_nested_param_expansion_word_keeps_source_backing() {
+        let source = "${arr[$RANDOM % ${#arr[@]}]}";
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+
+        let word = token.word().unwrap();
+        let segment = word.single_segment().unwrap();
+        assert_eq!(segment.kind(), LexedWordSegmentKind::Plain);
+        assert_eq!(segment.as_str(), source);
+        assert_eq!(segment.span().unwrap().slice(source), source);
+    }
+
+    #[test]
     fn test_quoted_prefix_with_command_substitution_continuation_keeps_source_backing() {
         let source = "\"foo\"$(printf hi)";
         let mut lexer = Lexer::new(source);
@@ -2638,6 +2759,24 @@ mod tests {
         assert_eq!(continuation.kind(), LexedWordSegmentKind::Plain);
         assert_eq!(continuation.as_str(), "$(printf hi)");
         assert_eq!(continuation.span().unwrap().slice(source), "$(printf hi)");
+    }
+
+    #[test]
+    fn test_double_quoted_nested_param_expansion_keeps_source_backing() {
+        let source = r#""${arr[$RANDOM % ${#arr[@]}]}""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+
+        let word = token.word().unwrap();
+        let segment = word.single_segment().unwrap();
+        assert_eq!(segment.kind(), LexedWordSegmentKind::DoubleQuoted);
+        assert_eq!(segment.as_str(), "${arr[$RANDOM % ${#arr[@]}]}");
+        assert_eq!(
+            segment.span().unwrap().slice(source),
+            "${arr[$RANDOM % ${#arr[@]}]}"
+        );
     }
 
     #[test]

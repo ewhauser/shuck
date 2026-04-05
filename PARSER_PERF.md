@@ -163,16 +163,27 @@ Exit criteria:
 
 ### Stage 4: Make Nested Shell Constructs Source-Backed Too
 
-- [ ] Stop building temporary `String`s for command substitution and parameter expansion when the original source span is available.
-- [ ] Parse nested command substitutions from original source spans whenever possible.
-- [ ] Avoid temporary owned strings for `${...}` handling when only structure and spans are needed.
-- [ ] Audit `$()`, `` `...` ``, `${...}`, `$((...))`, array indices, and brace-expansion-like forms for avoidable allocation.
-- [ ] Keep allocation only for cooked constructs that materially transform bytes.
+- [x] Stop building temporary `String`s for command substitution and parameter expansion when the original source span is available.
+- [x] Parse nested command substitutions from original source spans whenever possible.
+- [x] Avoid temporary owned strings for `${...}` handling when only structure and spans are needed.
+- [x] Audit `$()`, `` `...` ``, `${...}`, `$((...))`, array indices, and brace-expansion-like forms for avoidable allocation.
+- [x] Keep allocation only for cooked constructs that materially transform bytes.
 - [ ] Re-profile before moving on.
 
 Exit criteria:
 
 - Nested shell expansions no longer force avoidable temporary string assembly in the common path.
+
+#### Stage 4 Notes
+
+- 2026-04-05: the lexer now scans nested `$()`, `$((...))`, and `${...}` segments with lazy capture buffers, so verbatim unquoted and double-quoted words stay source-backed unless a construct actually cooks bytes.
+- 2026-04-05: the parser now threads explicit source-backed context through word decoding, parses nested command substitutions from the original input via `nested_commands_from_current_input`, and builds `SourceText::source(...)` directly for arithmetic expressions, brace operands, replacement patterns, replacements, and array indices when the bytes are unchanged.
+- 2026-04-05: owned text is still intentional for genuinely cooked cases, including backticks normalized to `$()`, ANSI-C escapes, escaped `$` / `"` / `` ` `` inside double quotes, and synthetic or reinjected text that does not map cleanly back to a source span.
+- 2026-04-05: regression coverage now includes source-backed nested parameter expansions in unquoted and double-quoted lexer paths plus parser assertions that nested arithmetic expressions, brace operands, replacement patterns, and array indices remain source-backed on verbatim input while still rendering correctly on cooked input.
+- 2026-04-05: full `cargo bench -p shuck-benchmark --bench parser -- --noplot` measured `parser/nvm` at `3.1155 ms` (`[3.0972 ms 3.1155 ms 3.1502 ms]`) and `parser/all` at `6.5593 ms` (`[6.5312 ms 6.5593 ms 6.5935 ms]`), beating both the Stage 4 checkpoint targets (`3.2346 ms`, `6.8130 ms`) and the Stage 0 parser baseline (`3.1278 ms`, `6.6999 ms`).
+- 2026-04-05: full `cargo bench -p shuck-benchmark --bench lexer -- --noplot` remained healthy after the lexer-side refactor, with `lexer/nvm` at `853.94 µs` and `lexer/all` at `2.0287 ms`.
+- 2026-04-05: `cargo bench -p shuck-benchmark --bench linter -- --noplot` was also rerun, but those numbers are intentionally excluded from the Stage 4 verdict because the current `linter` regression is caused by an unrelated change.
+- 2026-04-05: fresh local `make profile-parser` reruns are currently blocked on this worktree because `scripts/profiling/profile_bench.sh` shells out to `samply`, and `samply` is not installed here. Existing Stage 0 profile artifacts remain the last successful saved profiles.
 
 ### Stage 5: Rework Alias Expansion And Synthetic Token Handling
 
@@ -289,11 +300,11 @@ Rejected as the first move because current profiles still show parser cost as th
 ## Verification
 
 - [x] `cargo test -p shuck-parser`
-- [ ] `cargo test -p shuck-benchmark`
-- [ ] `cargo test -p shuck-linter`
-- [ ] `cargo bench -p shuck-benchmark --bench lexer -- --noplot`
-- [ ] `cargo bench -p shuck-benchmark --bench parser -- --noplot`
-- [ ] `cargo bench -p shuck-benchmark --bench linter -- --noplot`
+- [x] `cargo test -p shuck-benchmark`
+- [x] `cargo test -p shuck-linter`
+- [x] `cargo bench -p shuck-benchmark --bench lexer -- --noplot`
+- [x] `cargo bench -p shuck-benchmark --bench parser -- --noplot`
+- [x] `cargo bench -p shuck-benchmark --bench linter -- --noplot`
 - [x] `PROFILE_CASE=all make profile-parser`
 - [x] `PROFILE_CASE=nvm make profile-parser`
 - [x] `PROFILE_CASE=all make profile-linter`
@@ -301,7 +312,7 @@ Rejected as the first move because current profiles still show parser cost as th
 
 For every completed stage:
 
-- [ ] compare benchmark means against Stage 0 baseline
+- [x] compare benchmark means against Stage 0 baseline
 - [ ] inspect the new top self-time hotspots
 - [ ] confirm the old hotspot moved or shrank for the expected reason
-- [ ] update this file with what changed before starting the next stage
+- [x] update this file with what changed before starting the next stage
