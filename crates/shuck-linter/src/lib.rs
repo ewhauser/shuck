@@ -262,6 +262,90 @@ DESTDIR=\"$pkgdir\" install
     }
 
     #[test]
+    fn indirect_expansion_keeps_dynamic_target_arrays_live() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+apache_args=(--apache)
+nginx_args=(--nginx)
+apache_args+=(--common)
+nginx_args+=(--common)
+web_server=apache
+args_var=\"${web_server}_args[@]\"
+printf '%s\\n' \"${!args_var}\"
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn array_append_used_by_later_expansion_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+arr=(--first)
+arr+=(--second)
+printf '%s\\n' \"${arr[@]}\"
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn read_implicitly_consumes_ifs_but_still_flags_unrelated_local() {
+        let source = "\
+#!/bin/bash
+f() {
+  local IFS=$'\\n'
+  local unused=1
+  read -d '' -ra reply < <(printf 'alpha\\nbeta\\0')
+  printf '%s\\n' \"${reply[@]}\"
+}
+f
+";
+        let diagnostics = lint(source, &LinterSettings::default());
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn global_ifs_assignment_is_not_flagged_but_unrelated_assignment_is() {
+        let source = "\
+#!/bin/bash
+IFS=$'\\n\\t'
+unused=1
+echo ok
+";
+        let diagnostics = lint(source, &LinterSettings::default());
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn unrelated_array_assignment_is_still_flagged_with_indirect_expansion() {
+        let source = "\
+#!/bin/bash
+apache_args=(--apache)
+unused_args=(--unused)
+args_var=apache_args[@]
+printf '%s\\n' \"${!args_var}\"
+";
+        let diagnostics = lint(source, &LinterSettings::default());
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "unused_args");
+    }
+
+    #[test]
     fn used_variable_produces_no_diagnostic() {
         let diagnostics = lint(
             "#!/bin/sh\nfoo=1\necho \"$foo\"\n",

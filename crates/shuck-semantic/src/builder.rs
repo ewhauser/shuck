@@ -16,8 +16,8 @@ use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::source_ref::{SourceRef, SourceRefKind};
 use crate::{
-    BindingId, ReferenceId, Scope, ScopeId, ScopeKind, SourceDirectiveOverride, SpanKey,
-    TraversalObserver,
+    BindingId, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind, SourceDirectiveOverride,
+    SpanKey, TraversalObserver,
 };
 
 pub(crate) struct BuildOutput {
@@ -32,6 +32,8 @@ pub(crate) struct BuildOutput {
     pub(crate) call_graph: CallGraph,
     pub(crate) source_refs: Vec<SourceRef>,
     pub(crate) declarations: Vec<Declaration>,
+    pub(crate) indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
+    pub(crate) indirect_expansion_refs: FxHashSet<ReferenceId>,
     pub(crate) flow_contexts: Vec<(Span, FlowContext)>,
     pub(crate) recorded_program: RecordedProgram,
     pub(crate) command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
@@ -52,6 +54,8 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     call_sites: FxHashMap<Name, Vec<CallSite>>,
     source_refs: Vec<SourceRef>,
     declarations: Vec<Declaration>,
+    indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
+    indirect_expansion_refs: FxHashSet<ReferenceId>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_function_bodies: FxHashMap<ScopeId, Vec<RecordedCommand>>,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
@@ -120,6 +124,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             call_sites: FxHashMap::default(),
             source_refs: Vec::new(),
             declarations: Vec::new(),
+            indirect_target_hints: FxHashMap::default(),
+            indirect_expansion_refs: FxHashSet::default(),
             flow_contexts: Vec::new(),
             recorded_function_bodies: FxHashMap::default(),
             command_bindings: FxHashMap::default(),
@@ -149,6 +155,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             call_graph,
             source_refs: builder.source_refs,
             declarations: builder.declarations,
+            indirect_target_hints: builder.indirect_target_hints,
+            indirect_expansion_refs: builder.indirect_expansion_refs,
             flow_contexts: builder.flow_contexts,
             recorded_program: RecordedProgram {
                 file_commands,
@@ -752,7 +760,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         assignment: &'a Assignment,
         declaration_kind: Option<(BindingKind, ScopeId)>,
-        attributes: BindingAttributes,
+        mut attributes: BindingAttributes,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let nested_regions = self.visit_assignment_value(assignment, flow);
@@ -768,14 +776,20 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             };
             (kind, self.current_scope())
         });
+        if matches!(assignment.value, AssignmentValue::Array(_)) || assignment.index.is_some() {
+            attributes |= BindingAttributes::ARRAY;
+        }
 
-        self.add_binding(
+        let binding = self.add_binding(
             assignment.name.clone(),
             kind,
             scope,
             assignment.name_span,
             attributes,
         );
+        if let Some(hint) = indirect_target_hint(assignment, self.source) {
+            self.indirect_target_hints.insert(binding, hint);
+        }
         nested_regions
     }
 
@@ -897,9 +911,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                 }
-                WordPart::ArrayIndices(name)
-                | WordPart::IndirectExpansion { name, .. }
-                | WordPart::PrefixMatch(name) => {
+                WordPart::ArrayIndices(name) | WordPart::PrefixMatch(name) => {
                     self.add_reference(
                         name.clone(),
                         if matches!(kind, WordVisitKind::Conditional) {
@@ -909,6 +921,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         },
                         span,
                     );
+                }
+                WordPart::IndirectExpansion { name, .. } => {
+                    let id = self.add_reference(
+                        name.clone(),
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::IndirectExpansion
+                        },
+                        span,
+                    );
+                    self.indirect_expansion_refs.insert(id);
                 }
                 WordPart::Substring { name, .. }
                 | WordPart::ArraySlice { name, .. }
@@ -997,6 +1021,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         BindingAttributes::empty(),
                     );
                 }
+                self.add_reference_if_bound(
+                    Name::from("IFS"),
+                    ReferenceKind::ImplicitRead,
+                    command.span,
+                );
             }
             "mapfile" | "readarray" => {
                 if let Some((argument, span)) = explicit_mapfile_target(&command.args, self.source)
@@ -1218,6 +1247,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let resolved_binding = resolved.map(|binding| &self.bindings[binding.index()]);
         self.observer.record_reference(reference, resolved_binding);
         id
+    }
+
+    fn add_reference_if_bound(&mut self, name: Name, kind: ReferenceKind, span: Span) {
+        if self
+            .resolve_reference(&name, self.current_scope(), span.start.offset)
+            .is_some()
+        {
+            self.add_reference(name, kind, span);
+        }
     }
 
     fn resolve_reference(&self, name: &Name, scope: ScopeId, offset: usize) -> Option<BindingId> {
@@ -1527,6 +1565,79 @@ fn assignment_value_span(assignment: &Assignment) -> Span {
             .map(|(start, end)| start.merge(end))
             .unwrap_or(assignment.span),
     }
+}
+
+fn indirect_target_hint(assignment: &Assignment, source: &str) -> Option<IndirectTargetHint> {
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return None;
+    };
+    indirect_target_hint_from_word(word, source)
+}
+
+fn indirect_target_hint_from_word(word: &Word, source: &str) -> Option<IndirectTargetHint> {
+    if let Some(text) = static_word_text(word, source) {
+        let (name, array_like) = parse_indirect_target_name(&text)?;
+        return Some(IndirectTargetHint::Exact {
+            name: Name::from(name),
+            array_like,
+        });
+    }
+
+    let mut prefix = String::new();
+    let mut suffix = String::new();
+    let mut saw_variable = false;
+    for (part, span) in word.parts_with_spans() {
+        match part {
+            WordPart::Literal(text) => {
+                if saw_variable {
+                    suffix.push_str(text.as_str(source, span));
+                } else {
+                    prefix.push_str(text.as_str(source, span));
+                }
+            }
+            WordPart::Variable(_) if !saw_variable => saw_variable = true,
+            _ => return None,
+        }
+    }
+
+    if !saw_variable {
+        return None;
+    }
+
+    let (suffix, array_like) = strip_array_like_suffix(suffix.as_str());
+    if (!prefix.is_empty() && !is_name_fragment(&prefix)) || !is_name_fragment(suffix) {
+        return None;
+    }
+    if prefix.is_empty() && suffix.is_empty() {
+        return None;
+    }
+
+    Some(IndirectTargetHint::Pattern {
+        prefix,
+        suffix: suffix.to_string(),
+        array_like,
+    })
+}
+
+fn parse_indirect_target_name(text: &str) -> Option<(&str, bool)> {
+    let (name, array_like) = strip_array_like_suffix(text);
+    is_name(name).then_some((name, array_like))
+}
+
+fn strip_array_like_suffix(text: &str) -> (&str, bool) {
+    if let Some(base) = text.strip_suffix("[@]") {
+        return (base, true);
+    }
+    if let Some(base) = text.strip_suffix("[*]") {
+        return (base, true);
+    }
+    (text, false)
+}
+
+fn is_name_fragment(value: &str) -> bool {
+    value
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 fn iter_read_targets<'a>(

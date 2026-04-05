@@ -4,7 +4,7 @@ use shuck_ast::Span;
 
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ControlFlowGraph,
-    Reference, ReferenceId, Scope, ScopeId, ScopeKind,
+    IndirectTargetHint, Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +58,7 @@ impl DataflowResult {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze(
     cfg: &ControlFlowGraph,
     scopes: &[Scope],
@@ -65,6 +66,8 @@ pub(crate) fn analyze(
     references: &[Reference],
     resolved: &FxHashMap<ReferenceId, BindingId>,
     call_sites: &FxHashMap<Name, Vec<CallSite>>,
+    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
+    indirect_expansion_refs: &FxHashSet<ReferenceId>,
 ) -> DataflowResult {
     let block_ids = cfg
         .blocks()
@@ -178,6 +181,9 @@ pub(crate) fn analyze(
 
     let mut uninitialized_references = Vec::new();
     for reference in references {
+        if matches!(reference.kind, ReferenceKind::ImplicitRead) {
+            continue;
+        }
         let Some(block_id) = reference_blocks.get(&reference.id).copied() else {
             continue;
         };
@@ -209,6 +215,12 @@ pub(crate) fn analyze(
         .filter(|binding| !binding.references.is_empty())
         .map(|binding| binding.id)
         .collect::<FxHashSet<_>>();
+    used_bindings.extend(
+        bindings
+            .iter()
+            .filter(|binding| binding.name == "IFS")
+            .map(|binding| binding.id),
+    );
     for reference in references {
         let Some(block_id) = reference_blocks.get(&reference.id).copied() else {
             continue;
@@ -224,21 +236,43 @@ pub(crate) fn analyze(
             }
         }
 
-        let Some(resolved_binding) = resolved.get(&reference.id).copied() else {
+        let Some(resolved_binding_id) = resolved.get(&reference.id).copied() else {
             continue;
         };
-        let resolved_binding = &bindings[resolved_binding.index()];
-        let Some(component) = scope_components.get(&resolved_binding.scope) else {
-            continue;
-        };
-        if component.blocks.contains(&block_id) {
-            continue;
+        let resolved_binding = &bindings[resolved_binding_id.index()];
+        if let Some(component) = scope_components.get(&resolved_binding.scope)
+            && !component.blocks.contains(&block_id)
+        {
+            for binding in &component.exit_defs {
+                if bindings[binding.index()].scope == resolved_binding.scope
+                    && bindings[binding.index()].name == reference.name
+                {
+                    used_bindings.insert(*binding);
+                }
+            }
         }
-        for binding in &component.exit_defs {
-            if bindings[binding.index()].scope == resolved_binding.scope
-                && bindings[binding.index()].name == reference.name
+
+        if indirect_expansion_refs.contains(&reference.id)
+            && let Some(hint) = indirect_target_hints.get(&resolved_binding_id)
+        {
+            if let Some(incoming) = reaching_definitions.reaching_in.get(&block_id) {
+                mark_indirect_targets_used(
+                    &mut used_bindings,
+                    incoming.iter().copied(),
+                    bindings,
+                    hint,
+                );
+            }
+
+            if let Some(component) = scope_components.get(&resolved_binding.scope)
+                && !component.blocks.contains(&block_id)
             {
-                used_bindings.insert(*binding);
+                mark_indirect_targets_used(
+                    &mut used_bindings,
+                    component.exit_defs.iter().copied(),
+                    bindings,
+                    hint,
+                );
             }
         }
     }
@@ -318,11 +352,18 @@ fn gen_set(
     block_id: BlockId,
     bindings: &[Binding],
 ) -> FxHashSet<BindingId> {
-    let mut latest_by_name = FxHashMap::default();
+    let mut generated = FxHashSet::default();
     for binding in &cfg.block(block_id).bindings {
-        latest_by_name.insert(bindings[binding.index()].name.clone(), *binding);
+        let binding_data = &bindings[binding.index()];
+        if matches!(binding_data.kind, BindingKind::AppendAssignment) {
+            generated.insert(*binding);
+            continue;
+        }
+
+        generated.retain(|candidate| bindings[candidate.index()].name != binding_data.name);
+        generated.insert(*binding);
     }
-    latest_by_name.into_values().collect()
+    generated
 }
 
 fn kill_set(
@@ -331,14 +372,22 @@ fn kill_set(
     bindings: &[Binding],
 ) -> FxHashSet<BindingId> {
     let block = cfg.block(block_id);
-    let names = block
+    let overwritten_names = block
         .bindings
         .iter()
+        .filter(|binding| {
+            !matches!(
+                bindings[binding.index()].kind,
+                BindingKind::AppendAssignment
+            )
+        })
         .map(|binding| bindings[binding.index()].name.clone())
         .collect::<FxHashSet<_>>();
     bindings
         .iter()
-        .filter(|binding| names.contains(&binding.name) && !block.bindings.contains(&binding.id))
+        .filter(|binding| {
+            overwritten_names.contains(&binding.name) && !block.bindings.contains(&binding.id)
+        })
         .map(|binding| binding.id)
         .collect()
 }
@@ -427,6 +476,44 @@ fn next_overwrite(binding: &Binding, bindings: &[Binding]) -> Option<BindingId> 
         })
         .min_by_key(|candidate| candidate.span.start.offset)
         .map(|candidate| candidate.id)
+}
+
+fn mark_indirect_targets_used(
+    used_bindings: &mut FxHashSet<BindingId>,
+    candidates: impl Iterator<Item = BindingId>,
+    bindings: &[Binding],
+    hint: &IndirectTargetHint,
+) {
+    for binding in candidates {
+        if indirect_target_matches(hint, &bindings[binding.index()]) {
+            used_bindings.insert(binding);
+        }
+    }
+}
+
+fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool {
+    match hint {
+        IndirectTargetHint::Exact { name, array_like } => {
+            binding.name == *name && (!array_like || is_array_like_binding(binding))
+        }
+        IndirectTargetHint::Pattern {
+            prefix,
+            suffix,
+            array_like,
+        } => {
+            let name = binding.name.as_str();
+            name.starts_with(prefix)
+                && name.ends_with(suffix)
+                && (!array_like || is_array_like_binding(binding))
+        }
+    }
+}
+
+fn is_array_like_binding(binding: &Binding) -> bool {
+    binding
+        .attributes
+        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
+        || matches!(binding.kind, BindingKind::ArrayAssignment)
 }
 
 fn interprocedural_function_uses(

@@ -20,7 +20,7 @@ pub use reference::{Reference, ReferenceId, ReferenceKind};
 pub use scope::{Scope, ScopeId, ScopeKind};
 pub use source_ref::{SourceRef, SourceRefKind};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, Name, Script, Span};
 use shuck_indexer::Indexer;
 
@@ -46,6 +46,19 @@ impl SpanKey {
 pub(crate) struct SourceDirectiveOverride {
     pub(crate) kind: SourceRefKind,
     pub(crate) own_line: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum IndirectTargetHint {
+    Exact {
+        name: Name,
+        array_like: bool,
+    },
+    Pattern {
+        prefix: String,
+        suffix: String,
+        array_like: bool,
+    },
 }
 
 #[doc(hidden)]
@@ -77,6 +90,8 @@ pub struct SemanticModel {
     call_graph: CallGraph,
     source_refs: Vec<SourceRef>,
     declarations: Vec<Declaration>,
+    indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
+    indirect_expansion_refs: FxHashSet<ReferenceId>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
@@ -105,6 +120,8 @@ impl SemanticModel {
             call_graph: built.call_graph,
             source_refs: built.source_refs,
             declarations: built.declarations,
+            indirect_target_hints: built.indirect_target_hints,
+            indirect_expansion_refs: built.indirect_expansion_refs,
             flow_contexts: built.flow_contexts,
             recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
@@ -282,6 +299,8 @@ impl SemanticModel {
                     &self.references,
                     &self.resolved,
                     &self.call_sites,
+                    &self.indirect_target_hints,
+                    &self.indirect_expansion_refs,
                 )
             };
             self.dataflow = Some(result);
@@ -798,6 +817,118 @@ echo \"$CFLAGS\"
     }
 
     #[test]
+    fn indirect_expansion_keeps_dynamic_target_arrays_live() {
+        let source = "\
+#!/bin/bash
+apache_args=(--apache)
+nginx_args=(--nginx)
+apache_args+=(--common)
+nginx_args+=(--common)
+web_server=apache
+args_var=\"${web_server}_args[@]\"
+printf '%s\\n' \"${!args_var}\"
+";
+        let mut model = model(source);
+        model.dataflow();
+
+        let unused = model
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unused.contains(&"apache_args"));
+        assert!(!unused.contains(&"nginx_args"));
+    }
+
+    #[test]
+    fn append_assignments_contribute_to_later_array_expansion() {
+        let source = "\
+#!/bin/bash
+arr=(--first)
+arr+=(--second)
+printf '%s\\n' \"${arr[@]}\"
+";
+        let mut model = model(source);
+        model.dataflow();
+
+        let unused = model
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unused.contains(&"arr"));
+    }
+
+    #[test]
+    fn read_implicitly_consumes_visible_ifs_binding() {
+        let source = "\
+#!/bin/bash
+f() {
+  local IFS=$'\\n'
+  local unused=1
+  read -d '' -ra reply < <(printf 'alpha\\nbeta\\0')
+  printf '%s\\n' \"${reply[@]}\"
+}
+f
+";
+        let mut model = model(source);
+        model.dataflow();
+
+        assert!(model.references().iter().any(|reference| {
+            reference.name == "IFS" && matches!(reference.kind, ReferenceKind::ImplicitRead)
+        }));
+
+        let unused = model
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unused.contains(&"IFS"));
+        assert!(unused.contains(&"unused"));
+    }
+
+    #[test]
+    fn ifs_assignments_are_treated_as_implicitly_used() {
+        let source = "\
+#!/bin/bash
+IFS=$'\\n\\t'
+unused=1
+echo ok
+";
+        let mut model = model(source);
+        model.dataflow();
+
+        let unused = model
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unused.contains(&"IFS"));
+        assert!(unused.contains(&"unused"));
+    }
+
+    #[test]
+    fn exact_indirect_expansion_does_not_keep_unrelated_array_live() {
+        let source = "\
+#!/bin/bash
+apache_args=(--apache)
+unused_args=(--unused)
+args_var=apache_args[@]
+printf '%s\\n' \"${!args_var}\"
+";
+        let mut model = model(source);
+        model.dataflow();
+
+        let unused = model
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unused.contains(&"apache_args"));
+        assert!(unused.contains(&"unused_args"));
+    }
+
+    #[test]
     fn detects_dead_code_after_exit() {
         let source = "exit 0\necho dead\n";
         let mut model = model(source);
@@ -923,6 +1054,8 @@ echo $(printf '%s' \"$X\")
             &model.references,
             &model.resolved,
             &model.call_sites,
+            &model.indirect_target_hints,
+            &model.indirect_expansion_refs,
         );
         let legacy_dataflow = crate::dataflow::analyze(
             &legacy_cfg,
@@ -931,6 +1064,8 @@ echo $(printf '%s' \"$X\")
             &model.references,
             &model.resolved,
             &model.call_sites,
+            &model.indirect_target_hints,
+            &model.indirect_expansion_refs,
         );
         assert_eq!(new_dataflow, legacy_dataflow);
     }

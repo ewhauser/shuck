@@ -24,6 +24,7 @@ pub struct Reference {
 pub enum ReferenceKind {
     DeclarationName,
     Expansion,
+    ImplicitRead,
     ParameterExpansion,
     Length,
     ArrayAccess,
