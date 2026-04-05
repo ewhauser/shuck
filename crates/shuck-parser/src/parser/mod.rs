@@ -690,6 +690,7 @@ impl<'a> Parser<'a> {
                 | Token::Clobber
                 | Token::RedirectAppend
                 | Token::RedirectIn
+                | Token::RedirectReadWrite
                 | Token::HereString
                 | Token::HereDoc
                 | Token::HereDocStrip
@@ -702,6 +703,7 @@ impl<'a> Parser<'a> {
                 | Token::DupFdIn(_, _)
                 | Token::DupFdClose(_)
                 | Token::RedirectFdIn(_)
+                | Token::RedirectFdReadWrite(_)
         )
     }
 
@@ -1428,6 +1430,21 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
+                Some(Token::RedirectReadWrite) => {
+                    let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
+                    self.advance();
+                    if let Ok(target) = self.expect_word() {
+                        redirects.push(Redirect {
+                            fd: None,
+                            fd_var,
+                            fd_var_span,
+                            kind: RedirectKind::ReadWrite,
+                            span: Self::redirect_span(operator_span, &target),
+                            target,
+                        });
+                    }
+                }
                 Some(Token::RedirectBoth) => {
                     let operator_span = self.current_span;
                     let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
@@ -1562,6 +1579,21 @@ impl<'a> Parser<'a> {
                             fd_var: None,
                             fd_var_span: None,
                             kind: RedirectKind::Input,
+                            span: Self::redirect_span(operator_span, &target),
+                            target,
+                        });
+                    }
+                }
+                Some(Token::RedirectFdReadWrite(fd)) => {
+                    let fd = *fd;
+                    let operator_span = self.current_span;
+                    self.advance();
+                    if let Ok(target) = self.expect_word() {
+                        redirects.push(Redirect {
+                            fd: Some(fd),
+                            fd_var: None,
+                            fd_var_span: None,
+                            kind: RedirectKind::ReadWrite,
                             span: Self::redirect_span(operator_span, &target),
                             target,
                         });
@@ -2868,7 +2900,9 @@ impl<'a> Parser<'a> {
                     composite = true;
                     self.advance();
                 }
-                Some(Token::RedirectIn) | Some(Token::RedirectOut) => {
+                Some(Token::RedirectIn)
+                | Some(Token::RedirectOut)
+                | Some(Token::RedirectReadWrite) => {
                     let literal = self.input
                         [self.current_span.start.offset..self.current_span.end.offset]
                         .to_string();
@@ -3741,6 +3775,20 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
+                Token::RedirectReadWrite => {
+                    let operator_span = self.current_span;
+                    self.advance();
+                    if let Ok(target) = self.expect_word() {
+                        redirects.push(Redirect {
+                            fd: None,
+                            fd_var: None,
+                            fd_var_span: None,
+                            kind: RedirectKind::ReadWrite,
+                            span: Self::redirect_span(operator_span, &target),
+                            target,
+                        });
+                    }
+                }
                 Token::RedirectBothAppend => {
                     let operator_span = self.current_span;
                     self.advance();
@@ -3799,6 +3847,21 @@ impl<'a> Parser<'a> {
                             fd_var: None,
                             fd_var_span: None,
                             kind: RedirectKind::Input,
+                            span: Self::redirect_span(operator_span, &target),
+                            target,
+                        });
+                    }
+                }
+                Token::RedirectFdReadWrite(fd) => {
+                    let fd = *fd;
+                    let operator_span = self.current_span;
+                    self.advance();
+                    if let Ok(target) = self.expect_word() {
+                        redirects.push(Redirect {
+                            fd: Some(fd),
+                            fd_var: None,
+                            fd_var_span: None,
+                            kind: RedirectKind::ReadWrite,
                             span: Self::redirect_span(operator_span, &target),
                             target,
                         });
@@ -3947,6 +4010,20 @@ impl<'a> Parser<'a> {
                         target,
                     });
                 }
+                Some(Token::RedirectReadWrite) => {
+                    let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
+                    self.advance();
+                    let target = self.expect_word()?;
+                    redirects.push(Redirect {
+                        fd: None,
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::ReadWrite,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
                 Some(Token::HereString) => {
                     let operator_span = self.current_span;
                     let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
@@ -4028,6 +4105,20 @@ impl<'a> Parser<'a> {
                         fd_var: None,
                         fd_var_span: None,
                         kind: RedirectKind::Append,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Some(Token::RedirectFdReadWrite(fd)) => {
+                    let fd = *fd;
+                    let operator_span = self.current_span;
+                    self.advance();
+                    let target = self.expect_word()?;
+                    redirects.push(Redirect {
+                        fd: Some(fd),
+                        fd_var: None,
+                        fd_var_span: None,
+                        kind: RedirectKind::ReadWrite,
                         span: Self::redirect_span(operator_span, &target),
                         target,
                     });
@@ -5239,6 +5330,37 @@ mod tests {
         } else {
             panic!("expected simple command");
         }
+    }
+
+    #[test]
+    fn test_parse_redirect_read_write() {
+        let input = "exec 8<> /tmp/rw";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(cmd) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(cmd.redirects.len(), 1);
+        assert_eq!(cmd.redirects[0].fd, Some(8));
+        assert_eq!(cmd.redirects[0].kind, RedirectKind::ReadWrite);
+        assert_eq!(cmd.redirects[0].target.render(input), "/tmp/rw");
+    }
+
+    #[test]
+    fn test_parse_named_fd_redirect_read_write() {
+        let input = "exec {rw}<> /tmp/rw";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(cmd) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(cmd.redirects.len(), 1);
+        assert_eq!(
+            cmd.redirects[0].fd_var.as_deref().map(|name| name.as_ref()),
+            Some("rw")
+        );
+        assert_eq!(cmd.redirects[0].kind, RedirectKind::ReadWrite);
+        assert_eq!(cmd.redirects[0].target.render(input), "/tmp/rw");
     }
 
     #[test]

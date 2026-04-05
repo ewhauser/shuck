@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 16 actionable `skip` entries remain in scope.
-- 27 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 13 actionable `skip` entries remain in scope.
+- 30 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 - 1 formerly skipped case now intentionally fails parsing and has been reclassified as `parse_err`.
 
 ## Expectation Cleanup (Already Parses)
@@ -58,9 +58,9 @@ Shared work: extend lexer token coverage for `|&`, `&>>`, and `<>`. Parser shoul
 
 - [x] `oils/pipeline.test.sh::|&` - the lexer now recognizes `|&` as a dedicated pipeline operator, and the parser lowers it by appending `2>&1` to the left-hand command before building the pipeline.
 - [x] `oils/redirect.test.sh::&>> appends stdout and stderr` - the lexer now recognizes `&>>`, and the parser lowers it to `>> file` plus `2>&1` so append-both redirection parses without a new AST node.
-- [ ] `oils/redirect.test.sh::<> for read/write` - add read-write redirect support.
-- [ ] `oils/redirect.test.sh::<> for read/write named pipes` - same `<>` support on named pipes.
-- [ ] `oils/redirect.test.sh::Named read-write file descriptor` - same `<>` support plus existing `{fdvar}` plumbing.
+- [x] `oils/redirect.test.sh::<> for read/write` - the lexer and parser now recognize plain `<>` and lower it to a dedicated `RedirectKind::ReadWrite`.
+- [x] `oils/redirect.test.sh::<> for read/write named pipes` - the same read-write redirect support now covers named-pipe operands too.
+- [x] `oils/redirect.test.sh::Named read-write file descriptor` - numeric and `{fdvar}` read-write redirects now parse through the existing fd-variable plumbing.
 - [x] `oils/redirect.test.sh::noclobber can still write to non-regular files like /dev/null` - once `&>>` parses as append-both redirection, the `/dev/null` noclobber case is no longer blocked at parse time.
 
 ## Nested Shell Constructs, Function Bodies, and (( Ambiguity)

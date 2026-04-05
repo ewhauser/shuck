@@ -1129,6 +1129,8 @@ pub enum RedirectKind {
     Append,
     /// < - redirect input
     Input,
+    /// <> - redirect input and output
+    ReadWrite,
     /// << - here document
     HereDoc,
     /// <<- - here document with leading tab stripping
@@ -1656,6 +1658,7 @@ mod tests {
         assert_eq!(RedirectKind::Output, RedirectKind::Output);
         assert_eq!(RedirectKind::Append, RedirectKind::Append);
         assert_eq!(RedirectKind::Input, RedirectKind::Input);
+        assert_eq!(RedirectKind::ReadWrite, RedirectKind::ReadWrite);
         assert_eq!(RedirectKind::HereDoc, RedirectKind::HereDoc);
         assert_eq!(RedirectKind::HereDocStrip, RedirectKind::HereDocStrip);
         assert_eq!(RedirectKind::HereString, RedirectKind::HereString);

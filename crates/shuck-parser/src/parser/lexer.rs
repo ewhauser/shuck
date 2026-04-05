@@ -295,6 +295,9 @@ impl<'a> Lexer<'a> {
                     } else {
                         Some(Token::HereDoc)
                     }
+                } else if self.peek_char() == Some('>') {
+                    self.advance();
+                    Some(Token::RedirectReadWrite)
                 } else if self.peek_char() == Some('(') {
                     self.advance();
                     Some(Token::ProcessSubIn)
@@ -520,6 +523,12 @@ impl<'a> Lexer<'a> {
                     }
                     let target_fd: i32 = target_str.parse().unwrap_or(0);
                     return Some(Token::DupFdIn(fd, target_fd));
+                }
+                (Some('<'), Some('>')) => {
+                    self.advance(); // consume digit
+                    self.advance(); // consume <
+                    self.advance(); // consume >
+                    return Some(Token::RedirectFdReadWrite(fd));
                 }
                 (Some('<'), Some('<')) => {}
                 (Some('<'), _) => {
@@ -2040,7 +2049,7 @@ EOF
 
     #[test]
     fn test_redirects() {
-        let mut lexer = Lexer::new("a > b >> c < d << e <<< f &>> g");
+        let mut lexer = Lexer::new("a > b >> c < d << e <<< f &>> g <> h");
 
         assert_eq!(lexer.next_token(), Some(Token::Word("a".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
@@ -2055,6 +2064,8 @@ EOF
         assert_eq!(lexer.next_token(), Some(Token::Word("f".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::RedirectBothAppend));
         assert_eq!(lexer.next_token(), Some(Token::Word("g".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::RedirectReadWrite));
+        assert_eq!(lexer.next_token(), Some(Token::Word("h".to_string())));
     }
 
     #[test]
