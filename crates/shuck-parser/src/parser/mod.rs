@@ -5200,7 +5200,9 @@ coproc worker { true; }
             panic!("expected assignment operand");
         };
         assert_eq!(assignment.name, "VAR");
-        assert!(matches!(&assignment.value, AssignmentValue::Scalar(value) if value.span.slice(input) == "value"));
+        assert!(
+            matches!(&assignment.value, AssignmentValue::Scalar(value) if value.span.slice(input) == "value")
+        );
 
         let DeclOperand::Name(name) = &command.operands[2] else {
             panic!("expected bare name operand");

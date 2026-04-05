@@ -1,8 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name, ParameterOp, Script,
-    SourceText, Span, Word, WordPart,
+    ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name, ParameterOp, Script, SourceText,
+    Span, Word, WordPart,
 };
 use shuck_indexer::Indexer;
 
@@ -12,9 +12,7 @@ use crate::cfg::FlowContext;
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::source_ref::{SourceRef, SourceRefKind};
-use crate::{
-    BindingId, ReferenceId, Scope, ScopeId, ScopeKind, SourceDirectiveOverride, SpanKey,
-};
+use crate::{BindingId, ReferenceId, Scope, ScopeId, ScopeKind, SourceDirectiveOverride, SpanKey};
 
 pub(crate) struct BuildOutput {
     pub(crate) scopes: Vec<Scope>,
@@ -178,12 +176,15 @@ impl<'a> SemanticModelBuilder<'a> {
         if let Some(name) = static_word_text(&command.name, self.source) {
             let callee = Name::from(name.as_str());
             let scope = self.current_scope();
-            self.call_sites.entry(callee.clone()).or_default().push(CallSite {
-                callee: callee.clone(),
-                span: command.span,
-                scope,
-                arg_count: command.args.len(),
-            });
+            self.call_sites
+                .entry(callee.clone())
+                .or_default()
+                .push(CallSite {
+                    callee: callee.clone(),
+                    span: command.span,
+                    scope,
+                    arg_count: command.args.len(),
+                });
 
             self.classify_special_simple_command(&callee, command, flow);
         }
@@ -316,9 +317,10 @@ impl<'a> SemanticModelBuilder<'a> {
 
         for (index, command) in commands.into_iter().enumerate() {
             let mut nested = flow;
-            nested.exit_status_checked =
-                matches!(operators.get(index).copied(), Some(ListOperator::And | ListOperator::Or))
-                    || flow.exit_status_checked;
+            nested.exit_status_checked = matches!(
+                operators.get(index).copied(),
+                Some(ListOperator::And | ListOperator::Or)
+            ) || flow.exit_status_checked;
             self.visit_command(command, nested);
         }
     }
@@ -536,7 +538,9 @@ impl<'a> SemanticModelBuilder<'a> {
         attributes: BindingAttributes,
     ) {
         match &assignment.value {
-            AssignmentValue::Scalar(word) => self.visit_word(word, WordVisitKind::Expansion, FlowState::default()),
+            AssignmentValue::Scalar(word) => {
+                self.visit_word(word, WordVisitKind::Expansion, FlowState::default())
+            }
             AssignmentValue::Array(words) => {
                 for word in words {
                     self.visit_word(word, WordVisitKind::Expansion, FlowState::default());
@@ -547,7 +551,9 @@ impl<'a> SemanticModelBuilder<'a> {
         let (kind, scope) = declaration_kind.unwrap_or_else(|| {
             let kind = if assignment.append {
                 BindingKind::AppendAssignment
-            } else if matches!(assignment.value, AssignmentValue::Array(_)) || assignment.index.is_some() {
+            } else if matches!(assignment.value, AssignmentValue::Array(_))
+                || assignment.index.is_some()
+            {
                 BindingKind::ArrayAssignment
             } else {
                 BindingKind::Assignment
@@ -555,7 +561,13 @@ impl<'a> SemanticModelBuilder<'a> {
             (kind, self.current_scope())
         });
 
-        self.add_binding(assignment.name.clone(), kind, scope, assignment.span, attributes);
+        self.add_binding(
+            assignment.name.clone(),
+            kind,
+            scope,
+            assignment.span,
+            attributes,
+        );
     }
 
     fn visit_word(&mut self, word: &Word, kind: WordVisitKind, flow: FlowState) {
@@ -575,11 +587,8 @@ impl<'a> SemanticModelBuilder<'a> {
                 }
                 WordPart::CommandSubstitution(commands)
                 | WordPart::ProcessSubstitution { commands, .. } => {
-                    let scope = self.push_scope(
-                        ScopeKind::CommandSubstitution,
-                        self.current_scope(),
-                        span,
-                    );
+                    let scope =
+                        self.push_scope(ScopeKind::CommandSubstitution, self.current_scope(), span);
                     self.visit_commands(
                         commands,
                         FlowState {
@@ -665,7 +674,9 @@ impl<'a> SemanticModelBuilder<'a> {
             ConditionalExpr::Parenthesized(expr) => self.visit_conditional_expr(&expr.expr, flow),
             ConditionalExpr::Word(word)
             | ConditionalExpr::Pattern(word)
-            | ConditionalExpr::Regex(word) => self.visit_word(word, WordVisitKind::Conditional, flow),
+            | ConditionalExpr::Regex(word) => {
+                self.visit_word(word, WordVisitKind::Conditional, flow)
+            }
         }
     }
 
@@ -682,7 +693,11 @@ impl<'a> SemanticModelBuilder<'a> {
     fn visit_arithmetic_text(&mut self, text: &str, base: Span) {
         for event in scan_arithmetic(text, base) {
             if event.read {
-                self.add_reference(event.name.clone(), ReferenceKind::ArithmeticRead, event.span);
+                self.add_reference(
+                    event.name.clone(),
+                    ReferenceKind::ArithmeticRead,
+                    event.span,
+                );
             }
             if event.write {
                 self.add_binding(
@@ -778,11 +793,9 @@ impl<'a> SemanticModelBuilder<'a> {
         }
 
         let previous = line.checked_sub(1)?;
-        self.source_directives.get(&previous).and_then(|directive| {
-            directive
-                .own_line
-                .then_some(directive.kind.clone())
-        })
+        self.source_directives
+            .get(&previous)
+            .and_then(|directive| directive.own_line.then_some(directive.kind.clone()))
     }
 
     fn declaration_scope_and_attributes(
@@ -817,8 +830,10 @@ impl<'a> SemanticModelBuilder<'a> {
         }
 
         let local_like = matches!(builtin, DeclarationBuiltin::Local)
-            || (matches!(builtin, DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset)
-                && self.nearest_function_scope().is_some()
+            || (matches!(
+                builtin,
+                DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset
+            ) && self.nearest_function_scope().is_some()
                 && !flags.contains(&'g'));
 
         if local_like {
@@ -827,7 +842,8 @@ impl<'a> SemanticModelBuilder<'a> {
 
         (
             if local_like {
-                self.nearest_function_scope().unwrap_or_else(|| self.current_scope())
+                self.nearest_function_scope()
+                    .unwrap_or_else(|| self.current_scope())
             } else {
                 self.current_scope()
             },
@@ -981,8 +997,10 @@ impl<'a> SemanticModelBuilder<'a> {
         self.bindings
             .iter()
             .filter(|binding| {
-                !matches!(binding.kind, BindingKind::FunctionDefinition | BindingKind::Imported)
-                    && binding.references.is_empty()
+                !matches!(
+                    binding.kind,
+                    BindingKind::FunctionDefinition | BindingKind::Imported
+                ) && binding.references.is_empty()
             })
             .map(|binding| binding.id)
             .collect()
@@ -1011,9 +1029,11 @@ impl<'a> SemanticModelBuilder<'a> {
     }
 
     fn nearest_function_scope(&self) -> Option<ScopeId> {
-        self.scope_stack.iter().rev().copied().find(|scope| {
-            matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_))
-        })
+        self.scope_stack
+            .iter()
+            .rev()
+            .copied()
+            .find(|scope| matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_)))
     }
 }
 
@@ -1146,7 +1166,10 @@ fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
     SourceRefKind::Dynamic
 }
 
-fn parse_source_directives(source: &str, indexer: &Indexer) -> FxHashMap<usize, SourceDirectiveOverride> {
+fn parse_source_directives(
+    source: &str,
+    indexer: &Indexer,
+) -> FxHashMap<usize, SourceDirectiveOverride> {
     let mut directives = FxHashMap::default();
     for comment in indexer.comment_index().comments() {
         let text = comment.range.slice(source).trim_start_matches('#').trim();

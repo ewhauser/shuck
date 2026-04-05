@@ -12,8 +12,8 @@ pub use binding::{Binding, BindingAttributes, BindingId, BindingKind};
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext};
 pub use dataflow::{
-    DataflowResult, DeadCode, ReachingDefinitions, UninitializedCertainty,
-    UninitializedReference, UnusedAssignment, UnusedReason,
+    DataflowResult, DeadCode, ReachingDefinitions, UninitializedCertainty, UninitializedReference,
+    UnusedAssignment, UnusedReason,
 };
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 pub use reference::{Reference, ReferenceId, ReferenceKind};
@@ -25,7 +25,7 @@ use shuck_ast::{Name, Script, Span};
 use shuck_indexer::Indexer;
 
 use crate::builder::SemanticModelBuilder;
-use crate::cfg::{build_control_flow_graph, RecordedProgram};
+use crate::cfg::{RecordedProgram, build_control_flow_graph};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SpanKey {
@@ -117,7 +117,9 @@ impl SemanticModel {
     }
 
     pub fn resolved_binding(&self, id: ReferenceId) -> Option<&Binding> {
-        self.resolved.get(&id).map(|binding| &self.bindings[binding.index()])
+        self.resolved
+            .get(&id)
+            .map(|binding| &self.bindings[binding.index()])
     }
 
     pub fn bindings_for(&self, name: &Name) -> &[BindingId] {
@@ -167,11 +169,9 @@ impl SemanticModel {
     }
 
     pub fn maybe_defined_outside(&self, name: &Name, scope: ScopeId) -> bool {
-        self.ancestor_scopes(scope).skip(1).any(|scope| {
-            self.scopes[scope.index()]
-                .bindings
-                .contains_key(name)
-        })
+        self.ancestor_scopes(scope)
+            .skip(1)
+            .any(|scope| self.scopes[scope.index()].bindings.contains_key(name))
     }
 
     pub fn unused_assignments(&self) -> &[BindingId] {
@@ -302,17 +302,22 @@ mod tests {
         let model = model(source);
 
         assert!(matches!(model.scope_kind(ScopeId(0)), ScopeKind::File));
-        assert!(model
-            .scopes()
-            .iter()
-            .any(|scope| matches!(&scope.kind, ScopeKind::Function(name) if name == "f")));
+        assert!(
+            model
+                .scopes()
+                .iter()
+                .any(|scope| matches!(&scope.kind, ScopeKind::Function(name) if name == "f"))
+        );
 
         let local_binding = model
             .bindings()
             .iter()
             .find(|binding| {
                 binding.name == "VAR"
-                    && matches!(binding.kind, BindingKind::Declaration(DeclarationBuiltin::Local))
+                    && matches!(
+                        binding.kind,
+                        BindingKind::Declaration(DeclarationBuiltin::Local)
+                    )
             })
             .unwrap();
         assert!(matches!(
@@ -405,7 +410,8 @@ done
         let indexer = Indexer::new(source, &output);
         let model = SemanticModel::build(&output.script, source, &indexer);
 
-        let Command::Compound(CompoundCommand::If(if_command), _) = &output.script.commands[0] else {
+        let Command::Compound(CompoundCommand::If(if_command), _) = &output.script.commands[0]
+        else {
             panic!("expected if command");
         };
         let condition_span = match &if_command.condition[0] {
@@ -415,7 +421,8 @@ done
         let condition_context = model.flow_context_at(&condition_span).unwrap();
         assert!(condition_context.exit_status_checked);
 
-        let Command::Compound(CompoundCommand::For(for_command), _) = &output.script.commands[1] else {
+        let Command::Compound(CompoundCommand::For(for_command), _) = &output.script.commands[1]
+        else {
             panic!("expected for command");
         };
         let break_span = match &for_command.body[0] {
@@ -453,7 +460,10 @@ done
         let mut model = model(source);
         let dead_code = model.dead_code();
         assert_eq!(dead_code.len(), 1);
-        assert_eq!(dead_code[0].unreachable[0].slice(source).trim_end(), "echo dead");
+        assert_eq!(
+            dead_code[0].unreachable[0].slice(source).trim_end(),
+            "echo dead"
+        );
         assert_eq!(dead_code[0].cause.slice(source).trim_end(), "exit 0");
     }
 }

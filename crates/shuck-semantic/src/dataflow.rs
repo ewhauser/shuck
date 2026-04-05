@@ -59,7 +59,11 @@ pub(crate) fn analyze(
     bindings: &[Binding],
     references: &[Reference],
 ) -> DataflowResult {
-    let block_ids = cfg.blocks().iter().map(|block| block.id).collect::<Vec<_>>();
+    let block_ids = cfg
+        .blocks()
+        .iter()
+        .map(|block| block.id)
+        .collect::<Vec<_>>();
     let mut reaching_in: FxHashMap<BlockId, FxHashSet<BindingId>> = FxHashMap::default();
     let mut reaching_out: FxHashMap<BlockId, FxHashSet<BindingId>> = FxHashMap::default();
 
@@ -79,19 +83,20 @@ pub(crate) fn analyze(
             let incoming = cfg
                 .predecessors(*block_id)
                 .iter()
-                .flat_map(|predecessor| reaching_out.get(predecessor).into_iter().flatten().copied())
+                .flat_map(|predecessor| {
+                    reaching_out.get(predecessor).into_iter().flatten().copied()
+                })
                 .collect::<FxHashSet<_>>();
             let outgoing = gen_sets
                 .get(block_id)
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
-                .chain(
-                    incoming
-                        .iter()
-                        .copied()
-                        .filter(|binding| !kill_sets.get(block_id).is_some_and(|kills| kills.contains(binding))),
-                )
+                .chain(incoming.iter().copied().filter(|binding| {
+                    !kill_sets
+                        .get(block_id)
+                        .is_some_and(|kills| kills.contains(binding))
+                }))
                 .collect::<FxHashSet<_>>();
 
             if reaching_in.get(block_id) != Some(&incoming) {
@@ -156,9 +161,9 @@ pub(crate) fn analyze(
                 })
                 .collect::<Vec<_>>();
             let first = predecessor_sets.pop().unwrap_or_default();
-            let intersection = predecessor_sets.into_iter().fold(first, |acc, set| {
-                acc.intersection(&set).cloned().collect()
-            });
+            let intersection = predecessor_sets
+                .into_iter()
+                .fold(first, |acc, set| acc.intersection(&set).cloned().collect());
             (*block_id, intersection)
         })
         .collect::<FxHashMap<_, _>>();
@@ -257,7 +262,11 @@ pub(crate) fn analyze(
     }
 }
 
-fn gen_set(cfg: &ControlFlowGraph, block_id: BlockId, bindings: &[Binding]) -> FxHashSet<BindingId> {
+fn gen_set(
+    cfg: &ControlFlowGraph,
+    block_id: BlockId,
+    bindings: &[Binding],
+) -> FxHashSet<BindingId> {
     let mut latest_by_name = FxHashMap::default();
     for binding in &cfg.block(block_id).bindings {
         latest_by_name.insert(bindings[binding.index()].name.clone(), *binding);
@@ -316,7 +325,8 @@ fn next_overwrite(binding: &Binding, bindings: &[Binding]) -> Option<BindingId> 
     bindings
         .iter()
         .filter(|candidate| {
-            candidate.name == binding.name && candidate.span.start.offset > binding.span.start.offset
+            candidate.name == binding.name
+                && candidate.span.start.offset > binding.span.start.offset
         })
         .min_by_key(|candidate| candidate.span.start.offset)
         .map(|candidate| candidate.id)

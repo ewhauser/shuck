@@ -121,8 +121,12 @@ pub(crate) struct IsolatedRegion {
 #[derive(Debug, Clone)]
 pub(crate) enum RecordedCommandKind {
     Linear,
-    Break { depth: usize },
-    Continue { depth: usize },
+    Break {
+        depth: usize,
+    },
+    Continue {
+        depth: usize,
+    },
     Return,
     Exit,
     List {
@@ -317,14 +321,20 @@ fn convert_command(
             },
             CompoundCommand::For(command) => RecordedCommand {
                 span: command.span,
-                nested_regions: collect_regions_from_for(command, redirects, scopes, function_bodies),
+                nested_regions: collect_regions_from_for(
+                    command,
+                    redirects,
+                    scopes,
+                    function_bodies,
+                ),
                 kind: RecordedCommandKind::For {
                     body: convert_commands(&command.body, scopes, function_bodies),
                 },
             },
-            CompoundCommand::Select(SelectCommand { words, body, span, .. }) => {
-                let mut nested =
-                    collect_regions_from_words(words, scopes, function_bodies);
+            CompoundCommand::Select(SelectCommand {
+                words, body, span, ..
+            }) => {
+                let mut nested = collect_regions_from_words(words, scopes, function_bodies);
                 nested.extend(collect_regions_from_redirects(
                     redirects,
                     scopes,
@@ -359,43 +369,48 @@ fn convert_command(
                         arms: command
                             .cases
                             .iter()
-                            .map(|CaseItem {
-                                      patterns,
-                                      commands,
-                                      terminator,
-                                  }| {
-                                let pattern_regions =
-                                    collect_regions_from_words(patterns, scopes, function_bodies);
-                                if !pattern_regions.is_empty() {
-                                    // Patterns execute as part of the case command.
-                                    // Fold them into the first body command by attaching to
-                                    // an empty leading command if needed.
-                                    let mut recorded =
-                                        convert_commands(commands, scopes, function_bodies);
-                                    if let Some(first) = recorded.first_mut() {
-                                        first.nested_regions.splice(0..0, pattern_regions);
+                            .map(
+                                |CaseItem {
+                                     patterns,
+                                     commands,
+                                     terminator,
+                                 }| {
+                                    let pattern_regions = collect_regions_from_words(
+                                        patterns,
+                                        scopes,
+                                        function_bodies,
+                                    );
+                                    if !pattern_regions.is_empty() {
+                                        // Patterns execute as part of the case command.
+                                        // Fold them into the first body command by attaching to
+                                        // an empty leading command if needed.
+                                        let mut recorded =
+                                            convert_commands(commands, scopes, function_bodies);
+                                        if let Some(first) = recorded.first_mut() {
+                                            first.nested_regions.splice(0..0, pattern_regions);
+                                        } else {
+                                            recorded.push(RecordedCommand {
+                                                span: command.span,
+                                                nested_regions: pattern_regions,
+                                                kind: RecordedCommandKind::Linear,
+                                            });
+                                        }
+                                        RecordedCaseArm {
+                                            terminator: terminator.clone(),
+                                            commands: recorded,
+                                        }
                                     } else {
-                                        recorded.push(RecordedCommand {
-                                            span: command.span,
-                                            nested_regions: pattern_regions,
-                                            kind: RecordedCommandKind::Linear,
-                                        });
+                                        RecordedCaseArm {
+                                            terminator: terminator.clone(),
+                                            commands: convert_commands(
+                                                commands,
+                                                scopes,
+                                                function_bodies,
+                                            ),
+                                        }
                                     }
-                                    RecordedCaseArm {
-                                        terminator: terminator.clone(),
-                                        commands: recorded,
-                                    }
-                                } else {
-                                    RecordedCaseArm {
-                                        terminator: terminator.clone(),
-                                        commands: convert_commands(
-                                            commands,
-                                            scopes,
-                                            function_bodies,
-                                        ),
-                                    }
-                                }
-                            })
+                                },
+                            )
                             .collect(),
                     },
                 }
@@ -421,7 +436,11 @@ fn convert_command(
             },
             CompoundCommand::Conditional(command) => RecordedCommand {
                 span: command.span,
-                nested_regions: collect_regions_from_conditional(&command.expression, scopes, function_bodies),
+                nested_regions: collect_regions_from_conditional(
+                    &command.expression,
+                    scopes,
+                    function_bodies,
+                ),
                 kind: RecordedCommandKind::Linear,
             },
             CompoundCommand::Time(command) => RecordedCommand {
@@ -435,7 +454,11 @@ fn convert_command(
             },
             CompoundCommand::Coproc(command) => RecordedCommand {
                 span: command.span,
-                nested_regions: collect_regions_from_command(&command.body, scopes, function_bodies),
+                nested_regions: collect_regions_from_command(
+                    &command.body,
+                    scopes,
+                    function_bodies,
+                ),
                 kind: RecordedCommandKind::Linear,
             },
         },
@@ -495,7 +518,11 @@ fn collect_regions_from_command(
         Command::List(CommandList { first, rest, .. }) => {
             let mut regions = collect_regions_from_command(first, scopes, function_bodies);
             for (_, command) in rest {
-                regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                regions.extend(collect_regions_from_command(
+                    command,
+                    scopes,
+                    function_bodies,
+                ));
             }
             regions
         }
@@ -504,83 +531,167 @@ fn collect_regions_from_command(
             match command {
                 CompoundCommand::If(command) => {
                     for condition in &command.condition {
-                        regions.extend(collect_regions_from_command(condition, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            condition,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                     for command in &command.then_branch {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                     for (condition, body) in &command.elif_branches {
                         for command in condition {
-                            regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                            regions.extend(collect_regions_from_command(
+                                command,
+                                scopes,
+                                function_bodies,
+                            ));
                         }
                         for command in body {
-                            regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                            regions.extend(collect_regions_from_command(
+                                command,
+                                scopes,
+                                function_bodies,
+                            ));
                         }
                     }
                     if let Some(body) = &command.else_branch {
                         for command in body {
-                            regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                            regions.extend(collect_regions_from_command(
+                                command,
+                                scopes,
+                                function_bodies,
+                            ));
                         }
                     }
                 }
                 CompoundCommand::For(command) => {
-                    regions.extend(collect_regions_from_words(&command.words.clone().unwrap_or_default(), scopes, function_bodies));
+                    regions.extend(collect_regions_from_words(
+                        &command.words.clone().unwrap_or_default(),
+                        scopes,
+                        function_bodies,
+                    ));
                     for command in &command.body {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                 }
                 CompoundCommand::ArithmeticFor(command) => {
                     for command in &command.body {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                 }
                 CompoundCommand::While(command) => {
                     for condition in &command.condition {
-                        regions.extend(collect_regions_from_command(condition, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            condition,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                     for command in &command.body {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                 }
                 CompoundCommand::Until(command) => {
                     for condition in &command.condition {
-                        regions.extend(collect_regions_from_command(condition, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            condition,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                     for command in &command.body {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                 }
                 CompoundCommand::Case(command) => {
-                    regions.extend(collect_regions_from_word(&command.word, scopes, function_bodies));
+                    regions.extend(collect_regions_from_word(
+                        &command.word,
+                        scopes,
+                        function_bodies,
+                    ));
                     for case in &command.cases {
-                        regions.extend(collect_regions_from_words(&case.patterns, scopes, function_bodies));
+                        regions.extend(collect_regions_from_words(
+                            &case.patterns,
+                            scopes,
+                            function_bodies,
+                        ));
                         for command in &case.commands {
-                            regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                            regions.extend(collect_regions_from_command(
+                                command,
+                                scopes,
+                                function_bodies,
+                            ));
                         }
                     }
                 }
                 CompoundCommand::Select(command) => {
-                    regions.extend(collect_regions_from_words(&command.words, scopes, function_bodies));
+                    regions.extend(collect_regions_from_words(
+                        &command.words,
+                        scopes,
+                        function_bodies,
+                    ));
                     for command in &command.body {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                 }
                 CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
                     for command in commands {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                 }
                 CompoundCommand::Arithmetic(_) => {}
                 CompoundCommand::Time(command) => {
                     if let Some(command) = &command.command {
-                        regions.extend(collect_regions_from_command(command, scopes, function_bodies));
+                        regions.extend(collect_regions_from_command(
+                            command,
+                            scopes,
+                            function_bodies,
+                        ));
                     }
                 }
                 CompoundCommand::Conditional(command) => {
-                    regions.extend(collect_regions_from_conditional(&command.expression, scopes, function_bodies));
+                    regions.extend(collect_regions_from_conditional(
+                        &command.expression,
+                        scopes,
+                        function_bodies,
+                    ));
                 }
                 CompoundCommand::Coproc(command) => {
-                    regions.extend(collect_regions_from_command(&command.body, scopes, function_bodies));
+                    regions.extend(collect_regions_from_command(
+                        &command.body,
+                        scopes,
+                        function_bodies,
+                    ));
                 }
             }
             regions
@@ -649,11 +760,8 @@ fn collect_regions_from_builtin(
     scopes: &[Scope],
     function_bodies: &mut FxHashMap<ScopeId, Vec<RecordedCommand>>,
 ) -> Vec<IsolatedRegion> {
-    let mut regions = collect_regions_from_assignments(
-        command.assignments(),
-        scopes,
-        function_bodies,
-    );
+    let mut regions =
+        collect_regions_from_assignments(command.assignments(), scopes, function_bodies);
     regions.extend(collect_regions_from_redirects(
         command.redirects(),
         scopes,
@@ -848,7 +956,9 @@ fn collect_regions_from_word(
 fn scope_for_span(scopes: &[Scope], span: Span) -> ScopeId {
     scopes
         .iter()
-        .filter(|scope| span.start.offset >= scope.span.start.offset && span.end.offset <= scope.span.end.offset)
+        .filter(|scope| {
+            span.start.offset >= scope.span.start.offset && span.end.offset <= scope.span.end.offset
+        })
         .min_by_key(|scope| scope.span.end.offset - scope.span.start.offset)
         .map(|scope| scope.id)
         .unwrap_or(ScopeId(0))
@@ -975,7 +1085,8 @@ pub(crate) fn build_control_flow_graph(
     }
 
     let predecessors = derive_predecessors(&builder.successors);
-    let unreachable = compute_unreachable(&builder.blocks, &builder.scope_entries, &builder.successors);
+    let unreachable =
+        compute_unreachable(&builder.blocks, &builder.scope_entries, &builder.successors);
 
     ControlFlowGraph {
         blocks: builder.blocks,
@@ -991,7 +1102,11 @@ pub(crate) fn build_control_flow_graph(
 }
 
 impl<'a> GraphBuilder<'a> {
-    fn build_sequence(&mut self, commands: &[RecordedCommand], loops: &[LoopTarget]) -> SequenceResult {
+    fn build_sequence(
+        &mut self,
+        commands: &[RecordedCommand],
+        loops: &[LoopTarget],
+    ) -> SequenceResult {
         let mut entry = None;
         let mut pending = Vec::new();
         let mut unreachable_cause = None;
@@ -1023,7 +1138,10 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        SequenceResult { entry, exits: pending }
+        SequenceResult {
+            entry,
+            exits: pending,
+        }
     }
 
     fn build_command(&mut self, command: &RecordedCommand, loops: &[LoopTarget]) -> SequenceResult {
@@ -1063,7 +1181,9 @@ impl<'a> GraphBuilder<'a> {
                     exits: Vec::new(),
                 }
             }
-            RecordedCommandKind::List { first, rest } => self.build_list(command, first, rest, loops),
+            RecordedCommandKind::List { first, rest } => {
+                self.build_list(command, first, rest, loops)
+            }
             RecordedCommandKind::If {
                 condition,
                 then_branch,
@@ -1085,7 +1205,9 @@ impl<'a> GraphBuilder<'a> {
             }
             RecordedCommandKind::For { body }
             | RecordedCommandKind::Select { body }
-            | RecordedCommandKind::ArithmeticFor { body } => self.build_loop_command(command, body, loops),
+            | RecordedCommandKind::ArithmeticFor { body } => {
+                self.build_loop_command(command, body, loops)
+            }
             RecordedCommandKind::Case { arms } => self.build_case(command, arms, loops),
             RecordedCommandKind::BraceGroup { body } => self.build_sequence(body, loops),
             RecordedCommandKind::Subshell { body, .. } => {
@@ -1363,7 +1485,12 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    fn attach_nested_regions(&mut self, block: BlockId, regions: &[IsolatedRegion], loops: &[LoopTarget]) {
+    fn attach_nested_regions(
+        &mut self,
+        block: BlockId,
+        regions: &[IsolatedRegion],
+        loops: &[LoopTarget],
+    ) {
         for region in regions {
             let sequence = self.build_sequence(&region.commands, loops);
             if let Some(entry) = sequence.entry {
@@ -1377,7 +1504,11 @@ impl<'a> GraphBuilder<'a> {
         if command.nested_regions.is_empty() {
             return;
         }
-        if let Some(blocks) = self.command_blocks.get(&SpanKey::new(command.span)).cloned() {
+        if let Some(blocks) = self
+            .command_blocks
+            .get(&SpanKey::new(command.span))
+            .cloned()
+        {
             for block in blocks {
                 self.attach_nested_regions(block, &command.nested_regions, &[]);
             }
@@ -1391,7 +1522,11 @@ impl<'a> GraphBuilder<'a> {
             id,
             commands: vec![span],
             bindings: self.command_bindings.get(&key).cloned().unwrap_or_default(),
-            references: self.command_references.get(&key).cloned().unwrap_or_default(),
+            references: self
+                .command_references
+                .get(&key)
+                .cloned()
+                .unwrap_or_default(),
         });
         self.command_blocks.entry(key).or_default().push(id);
         id

@@ -18,13 +18,21 @@ pub struct Declaration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclarationOperand {
-    Flag { flag: char, span: Span },
-    Name { name: Name, span: Span },
+    Flag {
+        flag: char,
+        span: Span,
+    },
+    Name {
+        name: Name,
+        span: Span,
+    },
     Assignment {
         name: Name,
         name_span: Span,
         value_span: Span,
         append: bool,
     },
-    DynamicWord { span: Span },
+    DynamicWord {
+        span: Span,
+    },
 }
