@@ -78,7 +78,7 @@ macro_rules! declare_rules {
             }
         }
 
-        pub fn code_to_rule(code: &str) -> Option<Rule> {
+        fn canonical_code_to_rule(code: &str) -> Option<Rule> {
             match code {
                 $($code => Some(Rule::$name),)*
                 _ => None,
@@ -88,7 +88,19 @@ macro_rules! declare_rules {
 }
 
 declare_rules! {
+    ("C001", Category::Correctness, Severity::Error, UndefinedVariable),
+    ("C002", Category::Correctness, Severity::Error, UnusedAssignment),
+    ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("C999", Category::Correctness, Severity::Warning, NoopPlaceholder),
+}
+
+pub fn code_to_rule(code: &str) -> Option<Rule> {
+    canonical_code_to_rule(code).or(match code {
+        "SH-001" => Some(Rule::UnquotedExpansion),
+        "SH-003" => Some(Rule::UnusedAssignment),
+        "SH-039" => Some(Rule::UndefinedVariable),
+        _ => None,
+    })
 }
 
 #[cfg(test)]
@@ -100,5 +112,12 @@ mod tests {
     fn rule_codes_are_unique() {
         let codes = Rule::iter().map(Rule::code).collect::<BTreeSet<_>>();
         assert_eq!(codes.len(), Rule::COUNT);
+    }
+
+    #[test]
+    fn resolves_legacy_shuck_aliases() {
+        assert_eq!(code_to_rule("SH-001"), Some(Rule::UnquotedExpansion));
+        assert_eq!(code_to_rule("SH-003"), Some(Rule::UnusedAssignment));
+        assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
     }
 }

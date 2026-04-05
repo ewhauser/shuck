@@ -7,7 +7,9 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
 use shuck_indexer::Indexer;
-use shuck_linter::LinterSettings;
+use shuck_linter::{
+    LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, parse_directives,
+};
 use shuck_parser::{Error as ParseError, parser::Parser};
 use shuck_semantic::SemanticModel;
 
@@ -172,6 +174,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
 
     let settings = EffectiveCheckSettings::default();
     let linter_settings = LinterSettings::default();
+    let shellcheck_map = ShellCheckCodeMap::default();
 
     let mut report = CheckReport::default();
 
@@ -218,6 +221,15 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
             let cached = match Parser::new(&source).parse() {
                 Ok(output) => {
                     let indexer = Indexer::new(&source, &output);
+                    let directives =
+                        parse_directives(&source, indexer.comment_index(), &shellcheck_map);
+                    let suppression_index = (!directives.is_empty()).then(|| {
+                        SuppressionIndex::new(
+                            &directives,
+                            &output.script,
+                            first_statement_line(&output.script).unwrap_or(u32::MAX),
+                        )
+                    });
                     let semantic = SemanticModel::build(&output.script, &source, &indexer);
                     let diagnostics = shuck_linter::lint_file(
                         &output.script,
@@ -225,6 +237,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                         &semantic,
                         &indexer,
                         &linter_settings,
+                        suppression_index.as_ref(),
                     );
 
                     for diagnostic in &diagnostics {
