@@ -1,0 +1,23 @@
+legacy_code: SH-001
+legacy_name: unquoted-argument-expansion
+new_category: Style
+new_code: S001
+runtime_kind: ast
+shellcheck_code: SC2086
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Unquoted parameter expansion in a normal argument position can split one value into several words or match path patterns unexpectedly.
+rationale: Quote ordinary parameter expansions unless the script deliberately relies on shell field splitting and pathname matching.
+source:
+  shell_checks_rule: rules/SH-001.yaml
+  shell_checks_example: examples/001.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/001.sh
+    code: |
+      #!/bin/sh
+      path=$1
+      printf '%s\n' $path
