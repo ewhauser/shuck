@@ -116,7 +116,7 @@ impl Span {
 
     /// Slice the source text covered by this span.
     pub fn slice<'a>(&self, source: &'a str) -> &'a str {
-        &source[self.start.offset..self.end.offset]
+        slice_with_byte_offsets(source, self.start.offset, self.end.offset)
     }
 
     /// Convert this span to a [`TextRange`] using only the byte offsets.
@@ -220,7 +220,7 @@ impl TextRange {
 
     /// Slice the source text covered by this range.
     pub fn slice<'a>(&self, source: &'a str) -> &'a str {
-        &source[usize::from(self.start)..usize::from(self.end)]
+        slice_with_byte_offsets(source, usize::from(self.start), usize::from(self.end))
     }
 
     /// Shift the range by adding a base offset to both start and end.
@@ -230,6 +230,36 @@ impl TextRange {
             end: self.end + base,
         }
     }
+}
+
+fn slice_with_byte_offsets(source: &str, start: usize, end: usize) -> &str {
+    if start > end || end > source.len() {
+        return "";
+    }
+
+    if let Some(slice) = source.get(start..end) {
+        return slice;
+    }
+
+    let start = floor_char_boundary(source, start);
+    let end = ceil_char_boundary(source, end);
+    source.get(start..end).unwrap_or("")
+}
+
+fn floor_char_boundary(source: &str, offset: usize) -> usize {
+    let mut offset = offset.min(source.len());
+    while offset > 0 && !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn ceil_char_boundary(source: &str, offset: usize) -> usize {
+    let mut offset = offset.min(source.len());
+    while offset < source.len() && !source.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
 }
 
 #[cfg(test)]
@@ -329,5 +359,32 @@ mod tests {
             },
         };
         assert_eq!(format!("{}", multi_line), "lines 1-5");
+    }
+
+    #[test]
+    fn span_slice_handles_non_char_boundaries() {
+        let source = "a─b";
+        let span = Span::from_positions(
+            Position {
+                line: 1,
+                column: 2,
+                offset: 1,
+            },
+            Position {
+                line: 1,
+                column: 3,
+                offset: 3,
+            },
+        );
+
+        assert_eq!(span.slice(source), "─");
+    }
+
+    #[test]
+    fn text_range_slice_handles_non_char_boundaries() {
+        let source = "x🔉y";
+        let range = TextRange::new(TextSize::new(1), TextSize::new(4));
+
+        assert_eq!(range.slice(source), "🔉");
     }
 }
