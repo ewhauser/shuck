@@ -6,7 +6,7 @@ Proposed
 
 ## Summary
 
-A benchmarking setup for shuck-rs that measures parse, semantic, and lint throughput on real-world shell scripts and compares end-to-end CLI performance against shellcheck. The design follows ruff's two-tier approach: **Criterion.rs micro-benchmarks** in a dedicated `shuck-benchmark` crate for measuring individual components (lexer, parser, semantic analysis, linter), and **hyperfine macro-benchmarks** via shell scripts for CLI-vs-shellcheck wall-time comparison. Both tiers operate on the same 5 vendored benchmark fixtures used by the Go frontend (`shuck`), copied directly from `shuck/testdata/benchmarks/`.
+A benchmarking setup for shuck that measures parse, semantic, and lint throughput on real-world shell scripts and compares end-to-end CLI performance against shellcheck. The design follows ruff's two-tier approach: **Criterion.rs micro-benchmarks** in a dedicated `shuck-benchmark` crate for measuring individual components (lexer, parser, semantic analysis, linter), and **hyperfine macro-benchmarks** via shell scripts for CLI-vs-shellcheck wall-time comparison. Both tiers operate on the same 5 vendored benchmark fixtures used by the Go frontend (`shuck`), copied directly from `shuck/testdata/benchmarks/`.
 
 ## Motivation
 

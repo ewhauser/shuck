@@ -109,7 +109,7 @@ jobs:
         run: |
           curl -L --fail --retry 3 \
             -o /tmp/shuck-cache.tar.zst \
-            https://github.com/ewhauser/shuck-rs/releases/download/v0.0.0-test-files/shuck-cache.tar.zst
+            https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-cache.tar.zst
           echo "28e37f8d3e77fc5d0c6d10f02612a2444d1f211157ba252dbd887d9e6285305f  /tmp/shuck-cache.tar.zst" | sha256sum -c -
       - name: "Extract large corpus cache"
         run: tar --zstd -xf /tmp/shuck-cache.tar.zst -C "$GITHUB_WORKSPACE"

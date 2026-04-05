@@ -1,5 +1,5 @@
 {
-  description = "shuck-rs dev shell";
+  description = "shuck dev shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
