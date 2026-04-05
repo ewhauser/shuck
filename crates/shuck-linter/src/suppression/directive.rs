@@ -1,4 +1,4 @@
-use shuck_ast::TextRange;
+use shuck_ast::{TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment};
 
 use crate::{Rule, code_to_rule};
@@ -42,10 +42,13 @@ pub fn parse_directives(
     let mut directives = Vec::new();
 
     for comment in comment_index.comments() {
-        let text = comment.range.slice(source);
-        if let Some(directive) = parse_shuck_directive(text, comment) {
+        let Some(comment) = normalized_comment(source, comment) else {
+            continue;
+        };
+
+        if let Some(directive) = parse_shuck_directive(&comment) {
             directives.push(directive);
-        } else if let Some(directive) = parse_shellcheck_directive(text, comment, shellcheck_map) {
+        } else if let Some(directive) = parse_shellcheck_directive(&comment, shellcheck_map) {
             directives.push(directive);
         }
     }
@@ -60,8 +63,59 @@ pub fn parse_directives(
     directives
 }
 
-fn parse_shuck_directive(text: &str, comment: &IndexedComment) -> Option<SuppressionDirective> {
-    let body = strip_comment_prefix(text);
+#[derive(Debug, Clone, Copy)]
+struct NormalizedComment<'a> {
+    text: &'a str,
+    range: TextRange,
+    line: u32,
+    is_own_line: bool,
+}
+
+fn normalized_comment<'a>(
+    source: &'a str,
+    comment: &IndexedComment,
+) -> Option<NormalizedComment<'a>> {
+    let start = usize::from(comment.range.start()).min(source.len());
+    let end = usize::from(comment.range.end()).min(source.len());
+    let line_start = source[..start].rfind('\n').map_or(0, |index| index + 1);
+    let line_end = source[end..]
+        .find('\n')
+        .map_or(source.len(), |index| end + index);
+    let line = &source[line_start..line_end];
+    let relative_start = start.saturating_sub(line_start).min(line.len());
+    let relative_end = end.saturating_sub(line_start).min(line.len());
+    let marker = find_comment_marker(line, relative_start, relative_end)?;
+    let comment_start = line_start + marker;
+
+    Some(NormalizedComment {
+        text: &source[comment_start..line_end],
+        range: TextRange::new(
+            TextSize::new(comment_start as u32),
+            TextSize::new(line_end as u32),
+        ),
+        line: u32::try_from(comment.line).ok()?,
+        is_own_line: is_horizontal_whitespace(&source[line_start..comment_start]),
+    })
+}
+
+fn find_comment_marker(line: &str, start: usize, end: usize) -> Option<usize> {
+    line.match_indices('#')
+        .min_by_key(|(index, _)| {
+            (
+                index.abs_diff(start),
+                usize::from(*index < start),
+                index.abs_diff(end),
+            )
+        })
+        .map(|(index, _)| index)
+}
+
+fn is_horizontal_whitespace(text: &str) -> bool {
+    text.chars().all(|ch| matches!(ch, ' ' | '\t' | '\r'))
+}
+
+fn parse_shuck_directive(comment: &NormalizedComment<'_>) -> Option<SuppressionDirective> {
+    let body = strip_comment_prefix(comment.text);
     let remainder = strip_prefix_ignore_ascii_case(body, "shuck:")?;
     let remainder = remainder
         .split_once('#')
@@ -78,20 +132,19 @@ fn parse_shuck_directive(text: &str, comment: &IndexedComment) -> Option<Suppres
         source: SuppressionSource::Shuck,
         codes,
         range: comment.range,
-        line: u32::try_from(comment.line).ok()?,
+        line: comment.line,
     })
 }
 
 fn parse_shellcheck_directive(
-    text: &str,
-    comment: &IndexedComment,
+    comment: &NormalizedComment<'_>,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
     if !comment.is_own_line {
         return None;
     }
 
-    let body = strip_comment_prefix(text);
+    let body = strip_comment_prefix(comment.text);
     let remainder = strip_prefix_ignore_ascii_case(body, "shellcheck")?;
     if let Some(first) = remainder.chars().next()
         && !first.is_ascii_whitespace()
@@ -115,7 +168,7 @@ fn parse_shellcheck_directive(
         source: SuppressionSource::ShellCheck,
         codes,
         range: comment.range,
-        line: u32::try_from(comment.line).ok()?,
+        line: comment.line,
     })
 }
 
@@ -220,5 +273,21 @@ value=1 # shellcheck disable=SC2034
 
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].codes, vec![Rule::UndefinedVariable]);
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_inside_command_substitutions() {
+        let source = "\
+value=\"$(
+  # shellcheck disable=SC2086
+  echo $foo
+)\"
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
+        assert_eq!(directives[0].line, 2);
     }
 }

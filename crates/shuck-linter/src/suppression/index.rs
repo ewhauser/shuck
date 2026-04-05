@@ -178,9 +178,15 @@ fn consider_command(span: Span, offset: TextSize, next: &mut Option<Span>) {
 }
 
 fn line_range(span: Span) -> Option<LineRange> {
+    let start_line = u32::try_from(span.start.line).ok()?;
+    let mut end_line = u32::try_from(span.end.line).ok()?;
+    if span.end.offset > span.start.offset && span.end.column == 1 {
+        end_line = end_line.saturating_sub(1);
+    }
+
     Some(LineRange {
-        start_line: u32::try_from(span.start.line).ok()?,
-        end_line: u32::try_from(span.end.line).ok()?,
+        start_line,
+        end_line: end_line.max(start_line),
     })
 }
 
