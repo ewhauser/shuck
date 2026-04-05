@@ -1438,6 +1438,40 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn read_plain_continuation_segment(&mut self) -> Option<LexedWordSegment<'a>> {
+        let start = self.position;
+
+        if self.reinject_buf.is_empty() {
+            let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+            if chunk.is_empty() {
+                return None;
+            }
+
+            self.advance_position_without_newline(chunk);
+            return Some(LexedWordSegment::borrowed(
+                LexedWordSegmentKind::Plain,
+                &self.input[start.offset..self.position.offset],
+                Some(Span::from_positions(start, self.position)),
+            ));
+        }
+
+        let ch = self.peek_char()?;
+        if !Self::is_plain_word_char(ch) {
+            return None;
+        }
+
+        let mut text = String::new();
+        while let Some(ch) = self.peek_char() {
+            if !Self::is_plain_word_char(ch) {
+                break;
+            }
+            text.push(ch);
+            self.advance();
+        }
+
+        Some(LexedWordSegment::owned(LexedWordSegmentKind::Plain, text))
+    }
+
     /// After a closing quote, read any adjacent quoted or unquoted word chars
     /// into `word`. Handles concatenation like `'foo'"bar"baz`.
     fn append_segmented_continuation(
@@ -1461,6 +1495,11 @@ impl<'a> Lexer<'a> {
                     );
                 }
                 _ => {
+                    if let Some(segment) = self.read_plain_continuation_segment() {
+                        word.push_segment(segment);
+                        continue;
+                    }
+
                     let plain = self.read_unquoted_segment(String::new())?;
                     if plain.is_empty() {
                         break;
@@ -2497,7 +2536,8 @@ mod tests {
 
     #[test]
     fn test_single_quoted_prefix_keeps_plain_continuation_segment() {
-        let mut lexer = Lexer::new("'foo'bar");
+        let source = "'foo'bar";
+        let mut lexer = Lexer::new(source);
 
         let token = lexer.next_lexed_token().unwrap();
         assert_eq!(token.kind, TokenKind::LiteralWord);
@@ -2516,6 +2556,14 @@ mod tests {
             ]
         );
         assert_eq!(word.joined_text(), "foobar");
+        assert_eq!(
+            word.segments()
+                .nth(1)
+                .and_then(LexedWordSegment::span)
+                .unwrap()
+                .slice(source),
+            "bar"
+        );
     }
 
     #[test]
