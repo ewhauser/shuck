@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-large-corpus test-large-corpus bench bench-save bench-compare bench-parser bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
+.PHONY: build test run check setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -20,7 +20,19 @@ test:
 setup-large-corpus:
 	./scripts/corpus-download.sh
 
-test-large-corpus:
+ensure-cache:
+	@if [ ! -e .cache ]; then \
+		main_worktree=$$(git worktree list --porcelain | head -1 | sed 's/^worktree //'); \
+		if [ "$$main_worktree" != "$$(pwd)" ] && [ -d "$$main_worktree/.cache" ]; then \
+			echo "Symlinking .cache -> $$main_worktree/.cache"; \
+			ln -s "$$main_worktree/.cache" .cache; \
+		else \
+			echo "No .cache found in main worktree ($$main_worktree). Run 'make setup-large-corpus' first."; \
+			exit 1; \
+		fi \
+	fi
+
+test-large-corpus: ensure-cache
 	SHUCK_TEST_LARGE_CORPUS=1 \
 	SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
