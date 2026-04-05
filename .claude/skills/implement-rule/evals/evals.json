@@ -1,0 +1,17 @@
+{
+  "skill_name": "implement-rule",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Implement C002",
+      "expected_output": "Working C002 rule (dynamic-source-path) with violation struct, checker dispatch in check_source_refs, registry entry, shellcheck map entry, test fixture, and passing snapshot test",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "Implement docs/rules/S001.yaml",
+      "expected_output": "Working S001 rule (unquoted-expansion) with new style/ category module, violation struct, checker dispatch in check_references, registry entry, shellcheck map entry, test fixture, and passing snapshot test",
+      "files": []
+    }
+  ]
+}
