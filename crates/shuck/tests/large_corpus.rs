@@ -1,8 +1,12 @@
-use std::collections::HashMap;
+use std::any::Any;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+use std::thread;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -17,9 +21,12 @@ const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
 const LARGE_CORPUS_TIMEOUT_ENV: &str = "SHUCK_LARGE_CORPUS_TIMEOUT_SECS";
 const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
 const LARGE_CORPUS_SHARDS_ENV: &str = "TEST_TOTAL_SHARDS";
+const LARGE_CORPUS_MAPPED_ONLY_ENV: &str = "SHUCK_LARGE_CORPUS_MAPPED_ONLY";
+const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
 
 const LARGE_CORPUS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
+const LARGE_CORPUS_WORKER_COUNT: usize = 4;
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
 
@@ -34,6 +41,8 @@ struct LargeCorpusConfig {
     timeout: Duration,
     shard_index: usize,
     total_shards: usize,
+    mapped_only: bool,
+    keep_going: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -191,56 +200,202 @@ fn large_corpus_conforms_with_shellcheck() {
 
     let supported_shells = shellcheck_supported_shells(&shellcheck_path);
     let shellcheck_index = build_shellcheck_index();
+    let mapped_shellcheck_codes = cfg.mapped_only.then(build_mapped_shellcheck_codes);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck_path);
     let linter_settings = shuck_linter::LinterSettings::default();
+    let supported_fixtures: Vec<_> = fixtures
+        .iter()
+        .filter(|fixture| fixture_supported_for_large_corpus(fixture, Some(&supported_shells)))
+        .collect();
+    let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
 
-    for fixture in &fixtures {
-        if !supported_shells.contains_key(fixture.shell.as_str()) {
-            continue;
-        }
+    let failures = collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
+        evaluate_fixture_compatibility(
+            fixture,
+            &shellcheck_cache,
+            &shellcheck_path,
+            cfg.timeout,
+            &linter_settings,
+            &shellcheck_index,
+            mapped_shellcheck_codes.as_ref(),
+        )
+    });
 
-        let mut issues: Vec<String> = Vec::new();
+    assert!(
+        failures.is_empty(),
+        "large corpus compatibility had {} failure(s) across {} fixture(s) ({} skipped unsupported shells):\n\n{}",
+        failures.len(),
+        fixtures.len(),
+        skipped_unsupported_shells,
+        failures.join("\n\n")
+    );
+}
 
-        let shuck_run = run_shuck(fixture, &linter_settings);
-        if let Some(ref err) = shuck_run.parse_error {
-            issues.push(format!("shuck parse error: {err}"));
-        }
+fn collect_fixture_failures<F>(
+    fixtures: &[&LargeCorpusFixture],
+    keep_going: bool,
+    evaluate: F,
+) -> Vec<String>
+where
+    F: Fn(&LargeCorpusFixture) -> Option<String> + Sync,
+{
+    if keep_going {
+        return collect_fixture_failures_in_parallel(
+            fixtures,
+            LARGE_CORPUS_WORKER_COUNT,
+            &evaluate,
+        );
+    }
 
-        match shellcheck_cache.run_fixture(fixture, &shellcheck_path, cfg.timeout) {
-            Ok(sc_run) => {
-                if shuck_run.parse_error.is_none() {
-                    let sc_locations =
-                        count_codes(&shellcheck_compatibility_locations(&sc_run.diagnostics));
-                    let shuck_locations = &shuck_run.locations;
-                    if let Some(diff) =
-                        compatibility_code_diff(&sc_locations, shuck_locations, DiffMode::All)
-                    {
-                        let src = fs::read(&fixture.path).unwrap_or_default();
-                        issues.push(format_compatibility_diff(
-                            &diff,
-                            &src,
-                            &sc_locations,
-                            shuck_locations,
-                            &sc_run,
-                            &shuck_run.diagnostics,
-                            &shellcheck_index,
-                        ));
-                    }
-                }
-            }
-            Err(err) => {
-                issues.push(format!("shellcheck error: {err}"));
-            }
-        }
+    collect_fixture_failures_sequential(fixtures, &evaluate)
+}
 
-        if !issues.is_empty() {
-            panic!(
-                "{}\n{}",
-                fixture.path.display(),
-                indent_detail(&issues.join("\n\n"))
-            );
+fn collect_fixture_failures_sequential<F>(
+    fixtures: &[&LargeCorpusFixture],
+    evaluate: &F,
+) -> Vec<String>
+where
+    F: Fn(&LargeCorpusFixture) -> Option<String>,
+{
+    for fixture in fixtures {
+        if let Some(failure) = evaluate(fixture) {
+            panic!("{failure}");
         }
     }
+
+    Vec::new()
+}
+
+fn collect_fixture_failures_in_parallel<F>(
+    fixtures: &[&LargeCorpusFixture],
+    worker_count: usize,
+    evaluate: &F,
+) -> Vec<String>
+where
+    F: Fn(&LargeCorpusFixture) -> Option<String> + Sync,
+{
+    if fixtures.is_empty() {
+        return Vec::new();
+    }
+
+    let worker_count = worker_count.max(1).min(fixtures.len());
+    let chunk_size = fixtures.len().div_ceil(worker_count);
+    let failures = Mutex::new(Vec::<(usize, String)>::new());
+
+    thread::scope(|scope| {
+        for (chunk_index, chunk) in fixtures.chunks(chunk_size).enumerate() {
+            let failures = &failures;
+            scope.spawn(move || {
+                let mut local_failures = Vec::new();
+                for (offset, fixture) in chunk.iter().enumerate() {
+                    let fixture = *fixture;
+                    let index = chunk_index * chunk_size + offset;
+                    match panic::catch_unwind(AssertUnwindSafe(|| evaluate(fixture))) {
+                        Ok(Some(failure)) => local_failures.push((index, failure)),
+                        Ok(None) => {}
+                        Err(payload) => {
+                            local_failures.push((index, format_fixture_panic(fixture, payload)));
+                        }
+                    }
+                }
+
+                if !local_failures.is_empty() {
+                    failures.lock().unwrap().extend(local_failures);
+                }
+            });
+        }
+    });
+
+    let mut failures = failures.into_inner().unwrap();
+    failures.sort_by_key(|(index, _)| *index);
+    failures.into_iter().map(|(_, failure)| failure).collect()
+}
+
+fn format_fixture_panic(fixture: &LargeCorpusFixture, payload: Box<dyn Any + Send>) -> String {
+    format_fixture_failure(
+        &fixture.path,
+        &[format!("fixture panic: {}", panic_payload_message(payload))],
+    )
+}
+
+fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
+    let payload = &*payload;
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        return (*message).to_owned();
+    }
+    "non-string panic payload".into()
+}
+
+fn evaluate_fixture_compatibility(
+    fixture: &LargeCorpusFixture,
+    shellcheck_cache: &ShellCheckCache,
+    shellcheck_path: &str,
+    timeout: Duration,
+    linter_settings: &shuck_linter::LinterSettings,
+    shellcheck_index: &HashMap<String, String>,
+    mapped_shellcheck_codes: Option<&HashSet<u32>>,
+) -> Option<String> {
+    let mut issues: Vec<String> = Vec::new();
+
+    let shuck_run = run_shuck(fixture, linter_settings);
+    if let Some(ref err) = shuck_run.parse_error {
+        issues.push(format!("shuck parse error: {err}"));
+    }
+
+    match shellcheck_cache.run_fixture(fixture, shellcheck_path, timeout) {
+        Ok(sc_run) => {
+            let sc_run = filter_shellcheck_run(sc_run, mapped_shellcheck_codes);
+            if shuck_run.parse_error.is_none() {
+                let sc_locations =
+                    count_codes(&shellcheck_compatibility_locations(&sc_run.diagnostics));
+                let shuck_locations = &shuck_run.locations;
+                if let Some(diff) =
+                    compatibility_code_diff(&sc_locations, shuck_locations, DiffMode::All)
+                {
+                    let src = fs::read(&fixture.path).unwrap_or_default();
+                    issues.push(format_compatibility_diff(
+                        &diff,
+                        &src,
+                        &sc_locations,
+                        shuck_locations,
+                        &sc_run,
+                        &shuck_run.diagnostics,
+                        shellcheck_index,
+                    ));
+                }
+            }
+        }
+        Err(err) => {
+            issues.push(format!("shellcheck error: {err}"));
+        }
+    }
+
+    (!issues.is_empty()).then(|| format_fixture_failure(&fixture.path, &issues))
+}
+
+fn filter_shellcheck_run(
+    mut run: ShellCheckRun,
+    mapped_shellcheck_codes: Option<&HashSet<u32>>,
+) -> ShellCheckRun {
+    let Some(mapped_shellcheck_codes) = mapped_shellcheck_codes else {
+        return run;
+    };
+
+    run.diagnostics
+        .retain(|diag| mapped_shellcheck_codes.contains(&diag.code));
+    run.parse_aborted = shellcheck_parse_aborted(&run.diagnostics);
+    run
+}
+
+fn format_fixture_failure(path: &Path, issues: &[String]) -> String {
+    format!(
+        "{}\n{}",
+        path.display(),
+        indent_detail(&issues.join("\n\n"))
+    )
 }
 
 #[test]
@@ -267,39 +422,147 @@ fn large_corpus_parses_without_panic() {
 
 fn run_parse_only(fixtures: &[LargeCorpusFixture]) {
     let linter_settings = shuck_linter::LinterSettings::default();
-    let mut parse_errors = 0usize;
-    let mut parse_successes = 0usize;
-
-    for fixture in fixtures {
-        let source = match fs::read_to_string(&fixture.path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("  SKIP {}: {e}", fixture.path.display());
-                continue;
-            }
-        };
-
-        let output = match shuck_parser::parser::Parser::new(&source).parse() {
-            Ok(o) => o,
-            Err(_) => {
-                parse_errors += 1;
-                continue;
-            }
-        };
-
-        // Run the full pipeline to catch panics in the indexer/semantic/linter.
-        let indexer = shuck_indexer::Indexer::new(&source, &output);
-        let _ = shuck_linter::lint_file(&output.script, &source, &indexer, &linter_settings, None);
-
-        parse_successes += 1;
-    }
+    let stats = collect_parse_only_stats(fixtures, LARGE_CORPUS_WORKER_COUNT, &linter_settings);
 
     eprintln!(
-        "parsed {} fixtures: {} ok, {} errors",
+        "parsed {} fixtures: {} ok, {} errors, {} skipped unsupported, {} unreadable",
         fixtures.len(),
-        parse_successes,
-        parse_errors
+        stats.parse_successes,
+        stats.parse_errors,
+        stats.skipped_unsupported,
+        stats.read_errors,
     );
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ParseOnlyStats {
+    parse_errors: usize,
+    parse_successes: usize,
+    skipped_unsupported: usize,
+    read_errors: usize,
+}
+
+impl ParseOnlyStats {
+    fn merge(&mut self, other: Self) {
+        self.parse_errors += other.parse_errors;
+        self.parse_successes += other.parse_successes;
+        self.skipped_unsupported += other.skipped_unsupported;
+        self.read_errors += other.read_errors;
+    }
+}
+
+fn collect_parse_only_stats(
+    fixtures: &[LargeCorpusFixture],
+    worker_count: usize,
+    linter_settings: &shuck_linter::LinterSettings,
+) -> ParseOnlyStats {
+    if fixtures.is_empty() {
+        return ParseOnlyStats::default();
+    }
+
+    let worker_count = worker_count.max(1).min(fixtures.len());
+    let chunk_size = fixtures.len().div_ceil(worker_count);
+    let stats = Mutex::new(ParseOnlyStats::default());
+
+    thread::scope(|scope| {
+        for chunk in fixtures.chunks(chunk_size) {
+            let stats = &stats;
+            scope.spawn(move || {
+                let mut local = ParseOnlyStats::default();
+
+                for fixture in chunk {
+                    local.merge(process_parse_only_fixture(fixture, linter_settings));
+                }
+
+                if local != ParseOnlyStats::default() {
+                    stats.lock().unwrap().merge(local);
+                }
+            });
+        }
+    });
+
+    stats.into_inner().unwrap()
+}
+
+fn process_parse_only_fixture(
+    fixture: &LargeCorpusFixture,
+    linter_settings: &shuck_linter::LinterSettings,
+) -> ParseOnlyStats {
+    if !fixture_supported_for_large_corpus(fixture, None) {
+        return ParseOnlyStats {
+            skipped_unsupported: 1,
+            ..ParseOnlyStats::default()
+        };
+    }
+
+    let source = match fs::read_to_string(&fixture.path) {
+        Ok(s) => s,
+        Err(_) => {
+            return ParseOnlyStats {
+                read_errors: 1,
+                ..ParseOnlyStats::default()
+            };
+        }
+    };
+
+    let output = match shuck_parser::parser::Parser::new(&source).parse() {
+        Ok(o) => o,
+        Err(_) => {
+            return ParseOnlyStats {
+                parse_errors: 1,
+                ..ParseOnlyStats::default()
+            };
+        }
+    };
+
+    // Run the full pipeline to catch panics in the indexer/semantic/linter.
+    let indexer = shuck_indexer::Indexer::new(&source, &output);
+    let _ = shuck_linter::lint_file(&output.script, &source, &indexer, linter_settings, None);
+
+    ParseOnlyStats {
+        parse_successes: 1,
+        ..ParseOnlyStats::default()
+    }
+}
+
+fn fixture_supported_for_large_corpus(
+    fixture: &LargeCorpusFixture,
+    shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
+) -> bool {
+    if fixture_looks_like_zsh(fixture) || fixture_is_repo_git_entry(fixture) {
+        return false;
+    }
+
+    shell_supported_for_large_corpus(fixture.shell.as_str(), shellcheck_supported_shells)
+}
+
+fn shell_supported_for_large_corpus(
+    shell: &str,
+    shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
+) -> bool {
+    if shell == "zsh" {
+        return false;
+    }
+
+    shellcheck_supported_shells
+        .map(|supported| supported.contains_key(shell))
+        .unwrap_or(true)
+}
+
+fn fixture_looks_like_zsh(fixture: &LargeCorpusFixture) -> bool {
+    let Some(name) = fixture.path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    name.ends_with(".zsh") || name.ends_with(".zsh-theme") || name.starts_with(".zsh")
+}
+
+fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
+    let Some(name) = fixture.path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    name.contains("__.git__")
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +610,8 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
                 timeout: Duration::from_secs(timeout_secs as u64),
                 shard_index,
                 total_shards,
+                mapped_only: env_truthy(LARGE_CORPUS_MAPPED_ONLY_ENV, false),
+                keep_going: env_truthy(LARGE_CORPUS_KEEP_GOING_ENV, false),
             });
         }
     }
@@ -535,9 +800,17 @@ fn run_shuck(
 }
 
 fn build_shellcheck_index() -> HashMap<String, String> {
-    // Maps shuck rule codes to shellcheck codes.
-    // As rules are added with shellcheck equivalents, add them here.
-    HashMap::new()
+    shuck_linter::ShellCheckCodeMap::default()
+        .mappings()
+        .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
+        .collect()
+}
+
+fn build_mapped_shellcheck_codes() -> HashSet<u32> {
+    shuck_linter::ShellCheckCodeMap::default()
+        .mappings()
+        .map(|(sc_code, _)| sc_code)
+        .collect()
 }
 
 fn shuck_compatibility_locations(
@@ -1177,6 +1450,45 @@ mod tests {
     }
 
     #[test]
+    fn zsh_is_not_supported_for_large_corpus_even_if_shellcheck_supports_it() {
+        let supported = HashMap::from([("sh", ()), ("bash", ()), ("zsh", ())]);
+
+        assert!(!shell_supported_for_large_corpus("zsh", Some(&supported)));
+        assert!(shell_supported_for_large_corpus("sh", Some(&supported)));
+        assert!(shell_supported_for_large_corpus("bash", Some(&supported)));
+    }
+
+    #[test]
+    fn parse_only_support_filter_skips_zsh_without_shellcheck_context() {
+        assert!(!shell_supported_for_large_corpus("zsh", None));
+        assert!(shell_supported_for_large_corpus("sh", None));
+    }
+
+    #[test]
+    fn zsh_paths_are_skipped_even_when_resolved_shell_is_sh() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("example.zsh"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(fixture_looks_like_zsh(&fixture));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+    }
+
+    #[test]
+    fn flattened_repo_git_entries_are_skipped() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("repo__.git__hooks__pre-commit.sample"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(fixture_is_repo_git_entry(&fixture));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+    }
+
+    #[test]
     fn shellcheck_parse_abort_classification() {
         let aborted = vec![
             ShellCheckDiagnostic {
@@ -1232,6 +1544,80 @@ mod tests {
         let counts = count_codes(&codes);
         assert_eq!(counts["SC2086"], 2);
         assert_eq!(counts["SC2154"], 1);
+    }
+
+    #[test]
+    fn build_shellcheck_index_uses_linter_mappings() {
+        let index = build_shellcheck_index();
+
+        assert_eq!(index.get("C001").map(String::as_str), Some("SC2034"));
+        assert_eq!(index.get("S001").map(String::as_str), Some("SC2086"));
+        assert_eq!(index.get("C002").map(String::as_str), Some("SC2154"));
+        assert_eq!(index.len(), 3);
+    }
+
+    #[test]
+    fn mapped_only_filter_drops_unmapped_shellcheck_diagnostics() {
+        let mapped_shellcheck_codes = build_mapped_shellcheck_codes();
+        let run = ShellCheckRun {
+            diagnostics: vec![
+                shellcheck_diagnostic(2034),
+                shellcheck_diagnostic(2086),
+                shellcheck_diagnostic(1072),
+            ],
+            parse_aborted: true,
+        };
+
+        let filtered = filter_shellcheck_run(run, Some(&mapped_shellcheck_codes));
+        let codes = filtered
+            .diagnostics
+            .iter()
+            .map(|diag| diag.code)
+            .collect::<Vec<_>>();
+
+        assert_eq!(codes, vec![2034, 2086]);
+        assert!(!filtered.parse_aborted);
+    }
+
+    #[test]
+    fn keep_going_collects_multiple_fixture_failures() {
+        let first = fixture("first.sh");
+        let second = fixture("second.sh");
+        let fixtures = vec![&first, &second];
+        let seen = Mutex::new(Vec::new());
+
+        let failures = collect_fixture_failures(&fixtures, true, |fixture| {
+            seen.lock().unwrap().push(fixture.path.clone());
+            Some(format_fixture_failure(
+                &fixture.path,
+                &[format!("{} failed", fixture.path.display())],
+            ))
+        });
+
+        let mut seen = seen.into_inner().unwrap();
+        seen.sort();
+
+        assert_eq!(
+            seen,
+            vec![PathBuf::from("first.sh"), PathBuf::from("second.sh")]
+        );
+        assert_eq!(failures.len(), 2);
+        assert!(failures[0].contains("first.sh"));
+        assert!(failures[1].contains("second.sh"));
+    }
+
+    #[test]
+    fn keep_going_captures_fixture_panics() {
+        let fixture = fixture("panic.sh");
+        let fixtures = vec![&fixture];
+
+        let failures = collect_fixture_failures(&fixtures, true, |_| -> Option<String> {
+            panic!("boom");
+        });
+
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("panic.sh"));
+        assert!(failures[0].contains("fixture panic: boom"));
     }
 
     #[test]
@@ -1298,5 +1684,26 @@ mod tests {
     fn format_range_handles_zeros() {
         assert_eq!(format_range(1, 2, 0, 0), "1:2-1:2");
         assert_eq!(format_range(1, 2, 3, 4), "1:2-3:4");
+    }
+
+    fn fixture(path: &str) -> LargeCorpusFixture {
+        LargeCorpusFixture {
+            path: PathBuf::from(path),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        }
+    }
+
+    fn shellcheck_diagnostic(code: u32) -> ShellCheckDiagnostic {
+        ShellCheckDiagnostic {
+            file: String::new(),
+            code,
+            line: 1,
+            end_line: 1,
+            column: 1,
+            end_column: 1,
+            level: "error".into(),
+            message: format!("diagnostic {code}"),
+        }
     }
 }

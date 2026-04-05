@@ -8,6 +8,8 @@ PROFILE_FILE ?= crates/shuck-benchmark/resources/files/$(PROFILE_CASE).sh
 PROFILE_DIR ?= .cache/profiles
 PROFILE_RATE ?= 1000
 PROFILE_ITERATIONS ?= 1
+SHUCK_LARGE_CORPUS_MAPPED_ONLY ?= 1
+SHUCK_LARGE_CORPUS_KEEP_GOING ?= 1
 
 build:
 	cargo build
@@ -19,7 +21,10 @@ setup-large-corpus:
 	./scripts/corpus-download.sh
 
 test-large-corpus:
-	SHUCK_TEST_LARGE_CORPUS=1 $(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored
+	SHUCK_TEST_LARGE_CORPUS=1 \
+	SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
+	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
+	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored
 
 run:
 	cargo run -p shuck -- $(ARGS)

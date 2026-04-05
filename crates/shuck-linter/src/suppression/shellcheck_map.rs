@@ -13,6 +13,10 @@ impl ShellCheckCodeMap {
         Self::default()
     }
 
+    pub fn mappings(&self) -> impl Iterator<Item = (u32, Rule)> + '_ {
+        self.map.iter().map(|(sc_code, rule)| (*sc_code, *rule))
+    }
+
     /// Look up a shellcheck code like `SC2086`.
     pub fn resolve(&self, sc_code: &str) -> Option<Rule> {
         let number = sc_code
@@ -48,5 +52,20 @@ mod tests {
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC9999"), None);
+    }
+
+    #[test]
+    fn exposes_all_mappings() {
+        let mut mappings = ShellCheckCodeMap::default().mappings().collect::<Vec<_>>();
+        mappings.sort_unstable_by_key(|(sc_code, _)| *sc_code);
+
+        assert_eq!(
+            mappings,
+            vec![
+                (2034, Rule::UnusedAssignment),
+                (2086, Rule::UnquotedExpansion),
+                (2154, Rule::UndefinedVariable),
+            ]
+        );
     }
 }

@@ -91,3 +91,37 @@ jobs:
         run: rustup show
       - name: "Run tests"
         run: cargo test --workspace --all-features
+
+  large-corpus:
+    name: "large corpus"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: "Install Nix"
+        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: "Download large corpus cache"
+        run: |
+          curl -L --fail --retry 3 \
+            -o /tmp/shuck-cache.tar.zst \
+            https://github.com/ewhauser/shuck-rs/releases/download/v0.0.0-test-files/shuck-cache.tar.zst
+          echo "28e37f8d3e77fc5d0c6d10f02612a2444d1f211157ba252dbd887d9e6285305f  /tmp/shuck-cache.tar.zst" | sha256sum -c -
+      - name: "Extract large corpus cache"
+        run: tar --zstd -xf /tmp/shuck-cache.tar.zst -C "$GITHUB_WORKSPACE"
+      - name: "Run large corpus tests"
+        id: large-corpus
+        continue-on-error: true
+        run: nix develop --command make NIX_DEVELOP= test-large-corpus
+      - name: "Summarize large corpus result"
+        if: always()
+        run: |
+          echo "Large corpus test outcome: ${{ steps.large-corpus.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.large-corpus.outcome }}" = "failure" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "This job is non-blocking for now, so corpus mismatches do not fail CI." >> "$GITHUB_STEP_SUMMARY"
+          fi
