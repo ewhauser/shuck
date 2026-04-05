@@ -71,4 +71,22 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn every_real_rule_has_a_shellcheck_mapping() {
+        let map = ShellCheckCodeMap::default();
+        let mapped_rules: std::collections::HashSet<Rule> =
+            map.mappings().map(|(_, rule)| rule).collect();
+
+        let unmapped: Vec<&str> = Rule::iter()
+            .filter(|r| *r != Rule::NoopPlaceholder)
+            .filter(|r| !mapped_rules.contains(r))
+            .map(|r| r.code())
+            .collect();
+
+        assert!(
+            unmapped.is_empty(),
+            "rules without a shellcheck mapping: {unmapped:?}"
+        );
+    }
 }

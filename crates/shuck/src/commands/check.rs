@@ -408,10 +408,7 @@ mod tests {
         let c014 = report
             .diagnostics
             .iter()
-            .filter_map(|diagnostic| match &diagnostic.kind {
-                DisplayedDiagnosticKind::Lint { code, .. } if code == "C014" => Some(diagnostic),
-                _ => None,
-            })
+            .filter(|diagnostic| matches!(&diagnostic.kind, DisplayedDiagnosticKind::Lint { code, .. } if code == "C014"))
             .collect::<Vec<_>>();
 
         assert_eq!(c014.len(), 1);
