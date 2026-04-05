@@ -53,7 +53,10 @@ pub fn analyze_file(
     suppression_index: Option<&SuppressionIndex>,
 ) -> AnalysisResult {
     let mut observer = LintTraversalObserver::default();
-    let semantic = build_with_observer(script, source, indexer, &mut observer);
+    let mut semantic = build_with_observer(script, source, indexer, &mut observer);
+    if settings.rules.contains(Rule::UnusedAssignment) {
+        let _ = semantic.dataflow();
+    }
     let checker = Checker::new(script, source, &semantic, indexer, &settings.rules);
     let mut diagnostics = observer.into_diagnostics();
     diagnostics.extend(checker.check());
@@ -222,6 +225,101 @@ echo $bar
     #[test]
     fn exported_variable_not_flagged() {
         let diagnostics = lint("#!/bin/sh\nexport FOO=1\n", &LinterSettings::default());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn branch_assignments_followed_by_a_read_are_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+if command -v code >/dev/null 2>&1; then
+  code_command=\"code\"
+else
+  code_command=\"flatpak run com.visualstudio.code\"
+fi
+${code_command} --version
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn name_only_local_declaration_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+f() {
+  local foo
+  printf '%s\\n' \"$foo\"
+}
+f
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn initialized_local_declaration_is_flagged_when_unused() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+f() {
+  local foo=1
+}
+f
+",
+            &LinterSettings::default(),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert!(diagnostics[0].message.contains("foo"));
+    }
+
+    #[test]
+    fn name_only_export_consumes_existing_assignment() {
+        let diagnostics = lint("#!/bin/sh\nfoo=1\nexport foo\n", &LinterSettings::default());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn name_only_readonly_consumes_existing_assignment() {
+        let diagnostics = lint(
+            "#!/bin/sh\nfoo=1\nreadonly foo\n",
+            &LinterSettings::default(),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn corpus_false_negative_moduleselfname_is_now_flagged() {
+        let diagnostics = lint(
+            "#!/bin/bash\nmoduleselfname=\"$(basename \"$(readlink -f \"${BASH_SOURCE[0]}\")\")\"\n",
+            &LinterSettings::default(),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert!(diagnostics[0].message.contains("moduleselfname"));
+    }
+
+    #[test]
+    fn global_assignment_used_in_a_function_body_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+red='\\e[31m'
+print_red() { printf '%s\\n' \"$red\"; }
+print_red
+",
+            &LinterSettings::default(),
+        );
+
         assert!(diagnostics.is_empty());
     }
 

@@ -196,7 +196,11 @@ pub(crate) fn analyze(
         }
     }
 
-    let mut used_bindings = FxHashSet::default();
+    let mut used_bindings = bindings
+        .iter()
+        .filter(|binding| !binding.references.is_empty())
+        .map(|binding| binding.id)
+        .collect::<FxHashSet<_>>();
     for reference in references {
         let Some(block_id) = reference_blocks.get(&reference.id).copied() else {
             continue;

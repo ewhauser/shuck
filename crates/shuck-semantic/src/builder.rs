@@ -349,18 +349,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
                 }
                 DeclOperand::Name(name) => {
-                    let (scope, attributes) =
-                        self.declaration_scope_and_attributes(builtin, &flags);
-                    let kind = if attributes.contains(BindingAttributes::NAMEREF) {
-                        BindingKind::Nameref
-                    } else {
-                        BindingKind::Declaration(builtin)
-                    };
-                    self.add_binding(name.name.clone(), kind, scope, name.span, attributes);
+                    self.visit_name_only_declaration_operand(
+                        builtin,
+                        &flags,
+                        name.name.clone(),
+                        name.span,
+                    );
                 }
                 DeclOperand::Assignment(assignment) => {
-                    let (scope, attributes) =
+                    let (scope, mut attributes) =
                         self.declaration_scope_and_attributes(builtin, &flags);
+                    attributes |= BindingAttributes::DECLARATION_INITIALIZED;
                     let kind = if attributes.contains(BindingAttributes::NAMEREF) {
                         BindingKind::Nameref
                     } else {
@@ -1109,6 +1108,34 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             },
             attributes,
         )
+    }
+
+    fn visit_name_only_declaration_operand(
+        &mut self,
+        builtin: DeclarationBuiltin,
+        flags: &FxHashSet<char>,
+        name: Name,
+        span: Span,
+    ) {
+        let (scope, attributes) = self.declaration_scope_and_attributes(builtin, flags);
+        let local_like = attributes.contains(BindingAttributes::LOCAL);
+        let existing = self.resolve_reference(&name, scope, span.start.offset);
+
+        if let Some(existing) = existing {
+            let existing_scope = self.bindings[existing.index()].scope;
+            if !local_like || existing_scope == scope {
+                self.add_reference(name, ReferenceKind::DeclarationName, span);
+                self.bindings[existing.index()].attributes |= attributes;
+                return;
+            }
+        }
+
+        let kind = if attributes.contains(BindingAttributes::NAMEREF) {
+            BindingKind::Nameref
+        } else {
+            BindingKind::Declaration(builtin)
+        };
+        self.add_binding(name, kind, scope, span, attributes);
     }
 
     fn add_binding(

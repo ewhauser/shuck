@@ -20,6 +20,10 @@ pub fn unused_assignment(checker: &mut Checker) {
     for &binding_id in checker.semantic().unused_assignments() {
         let binding = checker.semantic().binding(binding_id);
 
+        if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
+            continue;
+        }
+
         // Exported variables are consumed by child processes.
         if binding.attributes.contains(BindingAttributes::EXPORTED) {
             continue;
@@ -37,5 +41,23 @@ pub fn unused_assignment(checker: &mut Checker) {
             },
             binding.span,
         );
+    }
+}
+
+fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
+    match kind {
+        BindingKind::Assignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => true,
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+        }
+        BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
     }
 }

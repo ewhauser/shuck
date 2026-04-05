@@ -23,6 +23,7 @@ assert_cmd = "2"
 predicates = "3"
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 shuck-indexer = { path = "../shuck-indexer" }
 shuck-linter = { path = "../shuck-linter" }

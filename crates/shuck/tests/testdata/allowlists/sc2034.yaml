@@ -1,0 +1,10 @@
+# Large-corpus allowlist entries for reviewed SC2034 divergences from ShellCheck.
+# Keep this file narrow and review-backed: every entry must name the exact
+# location we intentionally diverge on and why.
+entries:
+  - path_suffix: "SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf"
+    line: 19
+    end_line: 19
+    column: 1
+    end_column: 14
+    reason: "config value is consumed by rc.bluez-alsa after sourcing the file"

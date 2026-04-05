@@ -486,6 +486,81 @@ done
     }
 
     #[test]
+    fn branch_assignments_reaching_a_later_read_are_both_used() {
+        let source = "\
+if command -v code >/dev/null 2>&1; then
+  code_command=\"code\"
+else
+  code_command=\"flatpak run com.visualstudio.code\"
+fi
+${code_command} --version
+";
+        let mut model = model(source);
+        let dataflow = model.dataflow();
+
+        assert!(dataflow.unused_assignments.is_empty());
+    }
+
+    #[test]
+    fn name_only_export_consumes_existing_binding() {
+        let source = "foo=1\nexport foo\n";
+        let model = model(source);
+
+        let foo_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.name == "foo")
+            .collect::<Vec<_>>();
+        assert_eq!(foo_bindings.len(), 1);
+        assert!(
+            foo_bindings[0]
+                .attributes
+                .contains(BindingAttributes::EXPORTED)
+        );
+
+        let declaration_reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::DeclarationName && reference.name == "foo"
+            })
+            .unwrap();
+        let resolved = model.resolved_binding(declaration_reference.id).unwrap();
+        assert_eq!(resolved.id, foo_bindings[0].id);
+    }
+
+    #[test]
+    fn name_only_local_creates_a_binding_for_later_reads() {
+        let source = "f() { local VAR; echo \"$VAR\"; }\n";
+        let model = model(source);
+
+        let local_binding = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "VAR"
+                    && matches!(
+                        binding.kind,
+                        BindingKind::Declaration(DeclarationBuiltin::Local)
+                    )
+            })
+            .unwrap();
+        assert!(
+            !local_binding
+                .attributes
+                .contains(BindingAttributes::DECLARATION_INITIALIZED)
+        );
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "VAR")
+            .unwrap();
+        let resolved = model.resolved_binding(reference.id).unwrap();
+        assert_eq!(resolved.id, local_binding.id);
+    }
+
+    #[test]
     fn detects_dead_code_after_exit() {
         let source = "exit 0\necho dead\n";
         let mut model = model(source);

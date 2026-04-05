@@ -27,6 +27,7 @@ const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
 const LARGE_CORPUS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
 const LARGE_CORPUS_WORKER_COUNT: usize = 4;
+const SHELLCHECK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
 
@@ -79,6 +80,23 @@ struct ShellCheckDiagnostic {
 struct ShellCheckRun {
     diagnostics: Vec<ShellCheckDiagnostic>,
     parse_aborted: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct ShellCheckRuleAllowlistDocument {
+    entries: Vec<ShellCheckRuleAllowlistEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct ShellCheckRuleAllowlistEntry {
+    path_suffix: String,
+    line: usize,
+    end_line: usize,
+    column: usize,
+    end_column: usize,
+    reason: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +218,8 @@ fn large_corpus_conforms_with_shellcheck() {
 
     let supported_shells = shellcheck_supported_shells(&shellcheck_path);
     let shellcheck_index = build_shellcheck_index();
+    let sc2034_allowlist =
+        load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
     let mapped_shellcheck_codes = cfg.mapped_only.then(build_mapped_shellcheck_codes);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck_path);
     let linter_settings = shuck_linter::LinterSettings::default();
@@ -217,6 +237,7 @@ fn large_corpus_conforms_with_shellcheck() {
             cfg.timeout,
             &linter_settings,
             &shellcheck_index,
+            &sc2034_allowlist,
             mapped_shellcheck_codes.as_ref(),
         )
     });
@@ -336,6 +357,7 @@ fn evaluate_fixture_compatibility(
     timeout: Duration,
     linter_settings: &shuck_linter::LinterSettings,
     shellcheck_index: &HashMap<String, String>,
+    sc2034_allowlist: &[ShellCheckRuleAllowlistEntry],
     mapped_shellcheck_codes: Option<&HashSet<u32>>,
 ) -> Option<String> {
     let mut issues: Vec<String> = Vec::new();
@@ -347,7 +369,12 @@ fn evaluate_fixture_compatibility(
 
     match shellcheck_cache.run_fixture(fixture, shellcheck_path, timeout) {
         Ok(sc_run) => {
-            let sc_run = filter_shellcheck_run(sc_run, mapped_shellcheck_codes);
+            let sc_run = apply_shellcheck_allowlist(
+                sc2034_allowlist,
+                2034,
+                fixture,
+                filter_shellcheck_run(sc_run, mapped_shellcheck_codes),
+            );
             if shuck_run.parse_error.is_none() {
                 let sc_locations =
                     count_codes(&shellcheck_compatibility_locations(&sc_run.diagnostics));
@@ -388,6 +415,57 @@ fn filter_shellcheck_run(
         .retain(|diag| mapped_shellcheck_codes.contains(&diag.code));
     run.parse_aborted = shellcheck_parse_aborted(&run.diagnostics);
     run
+}
+
+fn apply_shellcheck_allowlist(
+    allowlist: &[ShellCheckRuleAllowlistEntry],
+    code: u32,
+    fixture: &LargeCorpusFixture,
+    mut run: ShellCheckRun,
+) -> ShellCheckRun {
+    run.diagnostics
+        .retain(|diag| shellcheck_allowlist_reason(allowlist, code, &fixture.path, diag).is_none());
+    run.parse_aborted = shellcheck_parse_aborted(&run.diagnostics);
+    run
+}
+
+fn shellcheck_allowlist_reason<'a>(
+    allowlist: &'a [ShellCheckRuleAllowlistEntry],
+    code: u32,
+    path: &Path,
+    diag: &ShellCheckDiagnostic,
+) -> Option<&'a str> {
+    if diag.code != code {
+        return None;
+    }
+
+    let path = path.to_string_lossy();
+    allowlist.iter().find_map(|entry| {
+        (path.ends_with(entry.path_suffix.as_str())
+            && diag.line == entry.line
+            && diag.end_line == entry.end_line
+            && diag.column == entry.column
+            && diag.end_column == entry.end_column)
+            .then_some(entry.reason.as_str())
+    })
+}
+
+fn load_shellcheck_rule_allowlist(
+    rule_code: &str,
+) -> Result<Vec<ShellCheckRuleAllowlistEntry>, String> {
+    let path = shellcheck_rule_allowlist_path(rule_code);
+    let data =
+        fs::read_to_string(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
+    let document: ShellCheckRuleAllowlistDocument =
+        serde_yaml::from_str(&data).map_err(|err| format!("parse {}: {err}", path.display()))?;
+    Ok(document.entries)
+}
+
+fn shellcheck_rule_allowlist_path(rule_code: &str) -> PathBuf {
+    let filename = format!("{}.yaml", rule_code.to_ascii_lowercase());
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(SHELLCHECK_RULE_ALLOWLIST_DIR)
+        .join(filename)
 }
 
 fn format_fixture_failure(path: &Path, issues: &[String]) -> String {
@@ -1577,6 +1655,71 @@ mod tests {
 
         assert_eq!(codes, vec![2034, 2086]);
         assert!(!filtered.parse_aborted);
+    }
+
+    #[test]
+    fn shellcheck_rule_allowlist_path_uses_rule_code_convention() {
+        assert_eq!(
+            shellcheck_rule_allowlist_path("SC2034"),
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/testdata/allowlists")
+                .join("sc2034.yaml")
+        );
+    }
+
+    #[test]
+    fn sc2034_allowlist_filters_exact_matches_only() {
+        let allowlist =
+            load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
+        let fixture =
+            fixture("SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf");
+        let run = ShellCheckRun {
+            diagnostics: vec![
+                ShellCheckDiagnostic {
+                    file: String::new(),
+                    code: 2034,
+                    line: 19,
+                    end_line: 19,
+                    column: 1,
+                    end_column: 14,
+                    level: "warning".into(),
+                    message: "allowlisted".into(),
+                },
+                ShellCheckDiagnostic {
+                    file: String::new(),
+                    code: 2034,
+                    line: 19,
+                    end_line: 19,
+                    column: 1,
+                    end_column: 15,
+                    level: "warning".into(),
+                    message: "still visible".into(),
+                },
+            ],
+            parse_aborted: false,
+        };
+
+        let filtered = apply_shellcheck_allowlist(&allowlist, 2034, &fixture, run);
+
+        assert_eq!(filtered.diagnostics.len(), 1);
+        assert_eq!(filtered.diagnostics[0].end_column, 15);
+    }
+
+    #[test]
+    fn sc2034_allowlist_loads_documented_entries() {
+        let allowlist =
+            load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
+
+        assert!(allowlist.iter().any(|entry| {
+            entry.path_suffix
+                == "SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf"
+                && entry.line == 19
+                && entry.end_line == 19
+                && entry.column == 1
+                && entry.end_column == 14
+                && entry.reason
+                    == "config value is consumed by rc.bluez-alsa after sourcing the file"
+        }));
     }
 
     #[test]

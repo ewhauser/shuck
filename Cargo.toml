@@ -29,8 +29,9 @@ sha2 = "0.11"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
-# Serialization (JSON)
+# Serialization
 serde_json = "1"
+serde_yaml = "0.9"
 
 # Testing
 tempfile = "3"

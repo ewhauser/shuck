@@ -22,6 +22,7 @@ pub struct Reference {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReferenceKind {
+    DeclarationName,
     Expansion,
     ParameterExpansion,
     Length,
