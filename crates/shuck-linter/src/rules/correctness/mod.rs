@@ -1,4 +1,5 @@
 pub mod noop;
+pub mod pipe_to_kill;
 pub mod script_scope_local;
 pub mod unused_assignment;
 
@@ -13,6 +14,7 @@ mod tests {
 
     #[test_case(Rule::UnusedAssignment, Path::new("C001.sh"))]
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
+    #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

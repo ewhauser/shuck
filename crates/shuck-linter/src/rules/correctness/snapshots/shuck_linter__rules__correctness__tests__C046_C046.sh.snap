@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C046 piping data into `kill` has no effect
+ --> <source>:4:1
+  |
+4 | printf '%s\n' 123 | kill -9
+  |
+
+C046 piping data into `kill` has no effect
+ --> <source>:7:10
+  |
+7 | result=$(printf '%s\n' 456 | kill -TERM)
+  |

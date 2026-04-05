@@ -91,6 +91,7 @@ declare_rules! {
     ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
     ("C002", Category::Correctness, Severity::Error, UndefinedVariable),
     ("C014", Category::Correctness, Severity::Error, LocalTopLevel),
+    ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("C999", Category::Correctness, Severity::Warning, NoopPlaceholder),
 }
@@ -100,6 +101,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-001" => Some(Rule::UnquotedExpansion),
         "SH-003" => Some(Rule::UnusedAssignment),
         "SH-052" => Some(Rule::LocalTopLevel),
+        "SH-134" => Some(Rule::PipeToKill),
         "SH-039" => Some(Rule::UndefinedVariable),
         _ => None,
     })
@@ -121,6 +123,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-001"), Some(Rule::UnquotedExpansion));
         assert_eq!(code_to_rule("SH-003"), Some(Rule::UnusedAssignment));
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
+        assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
     }
 }
