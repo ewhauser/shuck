@@ -89,8 +89,8 @@ macro_rules! declare_rules {
 
 declare_rules! {
     ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
-    ("C002", Category::Correctness, Severity::Error, UndefinedVariable),
     ("C005", Category::Correctness, Severity::Warning, SingleQuotedLiteral),
+    ("C006", Category::Correctness, Severity::Error, UndefinedVariable),
     ("C007", Category::Correctness, Severity::Warning, FindOutputToXargs),
     ("C008", Category::Correctness, Severity::Warning, TrapStringExpansion),
     ("C009", Category::Correctness, Severity::Warning, QuotedBashRegex),
@@ -105,6 +105,7 @@ declare_rules! {
     ("C022", Category::Correctness, Severity::Error, EmptyTest),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
+    ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("C999", Category::Correctness, Severity::Warning, NoopPlaceholder),
 }
@@ -129,6 +130,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-075" => Some(Rule::EmptyTest),
         "SH-134" => Some(Rule::PipeToKill),
         "SH-171" => Some(Rule::OverwrittenFunction),
+        "SH-293" => Some(Rule::UnreachableAfterExit),
         _ => None,
     })
 }
@@ -164,5 +166,9 @@ mod tests {
         assert_eq!(code_to_rule("SH-075"), Some(Rule::EmptyTest));
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));
         assert_eq!(code_to_rule("SH-171"), Some(Rule::OverwrittenFunction));
+        assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
+        assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
+        assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
     }
 }

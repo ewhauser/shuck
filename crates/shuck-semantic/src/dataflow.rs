@@ -59,7 +59,74 @@ impl DataflowResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UnusedAssignmentsResult {
+    unused_assignments: Vec<UnusedAssignment>,
+    unused_assignment_ids: Vec<BindingId>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct BindingNameData {
+    bindings_by_name: FxHashMap<Name, Vec<BindingId>>,
+}
+
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn analyze_unused_assignments(
+    cfg: &ControlFlowGraph,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    references: &[Reference],
+    resolved: &FxHashMap<ReferenceId, BindingId>,
+    call_sites: &FxHashMap<Name, Vec<CallSite>>,
+    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
+    indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    synthetic_reads: &[SyntheticRead],
+) -> Vec<BindingId> {
+    analyze_unused_assignments_exact(
+        cfg,
+        scopes,
+        bindings,
+        references,
+        resolved,
+        call_sites,
+        indirect_target_hints,
+        indirect_expansion_refs,
+        synthetic_reads,
+    )
+    .unused_assignment_ids
+}
+
+pub(crate) fn analyze_uninitialized_references(
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    references: &[Reference],
+) -> Vec<UninitializedReference> {
+    let names = build_uninitialized_name_table(bindings, references);
+    let binding_data = build_dense_binding_data_for_scope_count(
+        bindings,
+        bindings
+            .iter()
+            .map(|binding| binding.scope.index() + 1)
+            .max()
+            .unwrap_or(0),
+        &names,
+    );
+    let reaching_definitions = compute_reaching_definitions_dense(cfg, bindings, &binding_data);
+    analyze_uninitialized_references_dense(
+        cfg,
+        bindings,
+        references,
+        &names,
+        &binding_data,
+        &reaching_definitions,
+    )
+}
+
+pub(crate) fn analyze_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
+    build_dead_code(cfg)
+}
+
+#[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn analyze(
     cfg: &ControlFlowGraph,
     scopes: &[Scope],
@@ -71,6 +138,156 @@ pub(crate) fn analyze(
     indirect_expansion_refs: &FxHashSet<ReferenceId>,
     synthetic_reads: &[SyntheticRead],
 ) -> DataflowResult {
+    let binding_name_data = build_binding_name_data(bindings);
+    let reaching_definitions =
+        compute_reaching_definitions(cfg, bindings, &binding_name_data.bindings_by_name);
+    let names = build_name_table(bindings, references, synthetic_reads, indirect_target_hints);
+    let dense_binding_data = build_dense_binding_data(bindings, scopes, &names);
+    let dense_reaching_definitions =
+        compute_reaching_definitions_dense(cfg, bindings, &dense_binding_data);
+    let unused_assignments = analyze_unused_assignments_exact(
+        cfg,
+        scopes,
+        bindings,
+        references,
+        resolved,
+        call_sites,
+        indirect_target_hints,
+        indirect_expansion_refs,
+        synthetic_reads,
+    );
+    let uninitialized_references = analyze_uninitialized_references_dense(
+        cfg,
+        bindings,
+        references,
+        &names,
+        &dense_binding_data,
+        &dense_reaching_definitions,
+    );
+    let dead_code = build_dead_code(cfg);
+
+    DataflowResult {
+        reaching_definitions,
+        unused_assignments: unused_assignments.unused_assignments,
+        uninitialized_references,
+        dead_code,
+        unused_assignment_ids: unused_assignments.unused_assignment_ids,
+    }
+}
+
+fn analyze_uninitialized_references_dense(
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    references: &[Reference],
+    names: &NameTable,
+    binding_data: &DenseBindingData,
+    reaching_definitions: &DenseReachingDefinitions,
+) -> Vec<UninitializedReference> {
+    let reference_blocks = build_reference_block_index(cfg, references.len());
+    let unreachable = build_unreachable_block_set(cfg);
+    let name_count = names.len();
+    let initializing_name_ids = build_initializing_name_ids(bindings, binding_data);
+    let maybe_defined = reaching_definitions
+        .reaching_in
+        .iter()
+        .map(|incoming| initialized_names_from_dense(incoming, &initializing_name_ids, name_count))
+        .collect::<Vec<_>>();
+    let maybe_defined_out = reaching_definitions
+        .reaching_out
+        .iter()
+        .map(|outgoing| initialized_names_from_dense(outgoing, &initializing_name_ids, name_count))
+        .collect::<Vec<_>>();
+    let definitely_defined = cfg
+        .blocks()
+        .iter()
+        .map(|block| {
+            let predecessors = cfg.predecessors(block.id);
+            if predecessors.is_empty() {
+                return DenseBitSet::new(name_count);
+            }
+            let mut intersection = maybe_defined_out[predecessors[0].index()].clone();
+            for predecessor in predecessors.iter().skip(1) {
+                intersection.intersect_with(&maybe_defined_out[predecessor.index()]);
+            }
+            intersection
+        })
+        .collect::<Vec<_>>();
+
+    let mut uninitialized_references = Vec::new();
+    for reference in references {
+        if matches!(
+            reference.kind,
+            ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
+        ) {
+            continue;
+        }
+        let Some(block_id) = reference_blocks[reference.id.index()] else {
+            continue;
+        };
+        if unreachable.contains(block_id.index()) {
+            continue;
+        }
+        let Some(name_id) = names.get(&reference.name) else {
+            continue;
+        };
+        let maybe = maybe_defined[block_id.index()].contains(name_id.index());
+        let definite = definitely_defined[block_id.index()].contains(name_id.index());
+
+        if !maybe {
+            uninitialized_references.push(UninitializedReference {
+                reference: reference.id,
+                certainty: UninitializedCertainty::Definite,
+            });
+        } else if !definite {
+            uninitialized_references.push(UninitializedReference {
+                reference: reference.id,
+                certainty: UninitializedCertainty::Possible,
+            });
+        }
+    }
+
+    uninitialized_references
+}
+
+fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
+    let mut dead_code_by_cause: FxHashMap<(usize, usize), (Span, Vec<Span>)> = FxHashMap::default();
+    for block_id in cfg.unreachable() {
+        let block = cfg.block(*block_id);
+        if block.commands.is_empty() {
+            continue;
+        }
+        let cause = cfg
+            .unreachable_cause(*block_id)
+            .unwrap_or_else(|| block.commands[0]);
+        dead_code_by_cause
+            .entry((cause.start.offset, cause.end.offset))
+            .or_insert_with(|| (cause, Vec::new()))
+            .1
+            .extend(block.commands.iter().copied());
+    }
+    dead_code_by_cause
+        .into_iter()
+        .map(|(_, (cause, unreachable))| DeadCode { unreachable, cause })
+        .collect()
+}
+
+fn build_binding_name_data(bindings: &[Binding]) -> BindingNameData {
+    let mut bindings_by_name: FxHashMap<Name, Vec<BindingId>> = FxHashMap::default();
+    for binding in bindings {
+        bindings_by_name
+            .entry(binding.name.clone())
+            .or_default()
+            .push(binding.id);
+    }
+
+    BindingNameData { bindings_by_name }
+}
+
+fn compute_reaching_definitions(
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    bindings_by_name: &FxHashMap<Name, Vec<BindingId>>,
+) -> ReachingDefinitions {
     let block_ids = cfg
         .blocks()
         .iter()
@@ -85,7 +302,12 @@ pub(crate) fn analyze(
         .collect::<FxHashMap<_, _>>();
     let kill_sets = block_ids
         .iter()
-        .map(|block_id| (*block_id, kill_set(cfg, *block_id, bindings)))
+        .map(|block_id| {
+            (
+                *block_id,
+                kill_set(cfg, *block_id, bindings, bindings_by_name),
+            )
+        })
         .collect::<FxHashMap<_, _>>();
 
     let mut changed = true;
@@ -122,208 +344,173 @@ pub(crate) fn analyze(
         }
     }
 
-    let reaching_definitions = ReachingDefinitions {
+    ReachingDefinitions {
         reaching_in,
         reaching_out,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn analyze_unused_assignments_exact(
+    cfg: &ControlFlowGraph,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    references: &[Reference],
+    resolved: &FxHashMap<ReferenceId, BindingId>,
+    call_sites: &FxHashMap<Name, Vec<CallSite>>,
+    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
+    indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    synthetic_reads: &[SyntheticRead],
+) -> UnusedAssignmentsResult {
+    let names = build_name_table(bindings, references, synthetic_reads, indirect_target_hints);
+    let binding_data = build_dense_binding_data(bindings, scopes, &names);
+    let reference_name_ids = references
+        .iter()
+        .map(|reference| names.get(&reference.name).expect("reference name interned"))
+        .collect::<Vec<_>>();
+    let synthetic_read_name_ids = synthetic_reads
+        .iter()
+        .map(|read| names.get(&read.name).expect("synthetic read name interned"))
+        .collect::<Vec<_>>();
+    let binding_blocks = build_binding_block_index(cfg, bindings.len());
+    let reference_blocks = build_reference_block_index(cfg, references.len());
+    let unreachable_blocks = build_unreachable_block_set(cfg);
+    let reaching_definitions = compute_reaching_definitions_dense(cfg, bindings, &binding_data);
+    let scope_components = compute_scope_components_dense(
+        cfg,
+        scopes.len(),
+        cfg.blocks().len(),
+        bindings.len(),
+        &reaching_definitions.reaching_out,
+    );
+    let indirect_target_matches = build_indirect_target_matches(
+        bindings,
+        indirect_target_hints,
+        &names,
+        &binding_data.bindings_for_name,
+        &binding_data.array_like_bindings,
+    );
+    let interprocedural_reads = if call_sites.is_empty() {
+        None
+    } else {
+        let (read_plans, callers_by_callee) = build_scope_read_plans(
+            scopes,
+            bindings,
+            references,
+            synthetic_reads,
+            &reference_name_ids,
+            &synthetic_read_name_ids,
+            call_sites,
+            names.len(),
+        );
+        let interprocedural =
+            compute_interprocedural_read_sets(&read_plans, &callers_by_callee, names.len());
+        Some((read_plans, interprocedural))
     };
 
-    let reference_blocks = reference_blocks(cfg);
-    let binding_blocks = binding_blocks(cfg);
-    let command_blocks = command_blocks(cfg);
-    let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-    let scope_components = scope_components(cfg, &reaching_definitions);
-    let interprocedural_reads =
-        interprocedural_reads(scopes, bindings, references, synthetic_reads, call_sites);
-
-    let maybe_defined = block_ids
-        .iter()
-        .map(|block_id| {
-            (
-                *block_id,
-                names_from_bindings(
-                    reaching_definitions
-                        .reaching_in
-                        .get(block_id)
-                        .cloned()
-                        .unwrap_or_default()
-                        .iter()
-                        .copied(),
-                    bindings,
-                ),
-            )
-        })
-        .collect::<FxHashMap<_, _>>();
-
-    let definitely_defined = block_ids
-        .iter()
-        .map(|block_id| {
-            let predecessors = cfg.predecessors(*block_id);
-            if predecessors.is_empty() {
-                return (*block_id, FxHashSet::default());
-            }
-            let mut predecessor_sets = predecessors
-                .iter()
-                .map(|predecessor| {
-                    names_from_bindings(
-                        reaching_definitions
-                            .reaching_out
-                            .get(predecessor)
-                            .cloned()
-                            .unwrap_or_default()
-                            .iter()
-                            .copied(),
-                        bindings,
-                    )
-                })
-                .collect::<Vec<_>>();
-            let first = predecessor_sets.pop().unwrap_or_default();
-            let intersection = predecessor_sets
-                .into_iter()
-                .fold(first, |acc, set| acc.intersection(&set).cloned().collect());
-            (*block_id, intersection)
-        })
-        .collect::<FxHashMap<_, _>>();
-
-    let mut uninitialized_references = Vec::new();
-    for reference in references {
-        if matches!(reference.kind, ReferenceKind::ImplicitRead) {
-            continue;
-        }
-        let Some(block_id) = reference_blocks.get(&reference.id).copied() else {
-            continue;
-        };
-        if unreachable.contains(&block_id) {
-            continue;
-        }
-        let maybe = maybe_defined
-            .get(&block_id)
-            .is_some_and(|names| names.contains(&reference.name));
-        let definite = definitely_defined
-            .get(&block_id)
-            .is_some_and(|names| names.contains(&reference.name));
-
-        if !maybe {
-            uninitialized_references.push(UninitializedReference {
-                reference: reference.id,
-                certainty: UninitializedCertainty::Definite,
-            });
-        } else if !definite {
-            uninitialized_references.push(UninitializedReference {
-                reference: reference.id,
-                certainty: UninitializedCertainty::Possible,
-            });
+    let mut used_bindings = DenseBitSet::new(bindings.len());
+    for binding in bindings {
+        if !binding.references.is_empty() || binding.name == "IFS" {
+            used_bindings.insert(binding.id.index());
         }
     }
 
-    let mut used_bindings = bindings
-        .iter()
-        .filter(|binding| !binding.references.is_empty())
-        .map(|binding| binding.id)
-        .collect::<FxHashSet<_>>();
-    used_bindings.extend(
-        bindings
-            .iter()
-            .filter(|binding| binding.name == "IFS")
-            .map(|binding| binding.id),
-    );
-    for reference in references {
-        let Some(block_id) = reference_blocks.get(&reference.id).copied() else {
+    for (reference_index, reference) in references.iter().enumerate() {
+        let Some(block_id) = reference_blocks[reference_index] else {
             continue;
         };
-        if unreachable.contains(&block_id) {
+        if unreachable_blocks.contains(block_id.index()) {
             continue;
         }
-        if let Some(incoming) = reaching_definitions.reaching_in.get(&block_id) {
-            for binding in incoming {
-                if bindings[binding.index()].name == reference.name {
-                    used_bindings.insert(*binding);
-                }
-            }
-        }
+
+        let incoming = &reaching_definitions.reaching_in[block_id.index()];
+        let name_id = reference_name_ids[reference_index];
+        used_bindings
+            .or_intersection_with(incoming, &binding_data.bindings_for_name[name_id.index()]);
 
         let Some(resolved_binding_id) = resolved.get(&reference.id).copied() else {
             continue;
         };
         let resolved_binding = &bindings[resolved_binding_id.index()];
-        if let Some(component) = scope_components.get(&resolved_binding.scope)
-            && !component.blocks.contains(&block_id)
-        {
-            for binding in &component.exit_defs {
-                if bindings[binding.index()].scope == resolved_binding.scope
-                    && bindings[binding.index()].name == reference.name
-                {
-                    used_bindings.insert(*binding);
-                }
-            }
+        let component = &scope_components[resolved_binding.scope.index()];
+        if !component.blocks.contains(block_id.index()) {
+            used_bindings.or_intersection3_with(
+                &component.exit_defs,
+                &binding_data.bindings_for_name[name_id.index()],
+                &binding_data.bindings_in_scope[resolved_binding.scope.index()],
+            );
         }
 
         if indirect_expansion_refs.contains(&reference.id)
-            && let Some(hint) = indirect_target_hints.get(&resolved_binding_id)
+            && let Some(candidates) = indirect_target_matches[resolved_binding_id.index()].as_ref()
         {
-            if let Some(incoming) = reaching_definitions.reaching_in.get(&block_id) {
-                mark_indirect_targets_used(
-                    &mut used_bindings,
-                    incoming.iter().copied(),
-                    bindings,
-                    hint,
-                );
-            }
-
-            if let Some(component) = scope_components.get(&resolved_binding.scope)
-                && !component.blocks.contains(&block_id)
-            {
-                mark_indirect_targets_used(
-                    &mut used_bindings,
-                    component.exit_defs.iter().copied(),
-                    bindings,
-                    hint,
-                );
+            used_bindings.or_intersection_with(incoming, candidates);
+            if !component.blocks.contains(block_id.index()) {
+                used_bindings.or_intersection_with(&component.exit_defs, candidates);
             }
         }
     }
-    for synthetic_read in synthetic_reads {
-        let Some(block_id) = command_blocks
-            .get(&SpanKey::new(synthetic_read.span))
-            .copied()
-        else {
+
+    for (read_index, synthetic_read) in synthetic_reads.iter().enumerate() {
+        let Some(block_id) = command_block_for_span(cfg, synthetic_read.span) else {
             continue;
         };
-        if unreachable.contains(&block_id) {
+        if unreachable_blocks.contains(block_id.index()) {
             continue;
         }
-        if let Some(incoming) = reaching_definitions.reaching_in.get(&block_id) {
-            for binding in incoming {
-                if bindings[binding.index()].name == synthetic_read.name {
-                    used_bindings.insert(*binding);
+        used_bindings.or_intersection_with(
+            &reaching_definitions.reaching_in[block_id.index()],
+            &binding_data.bindings_for_name[synthetic_read_name_ids[read_index].index()],
+        );
+    }
+
+    if let Some((read_plans, interprocedural)) = &interprocedural_reads {
+        for plan in read_plans {
+            for call in &plan.calls {
+                let Some(block_id) = command_block_for_span(cfg, call.span) else {
+                    continue;
+                };
+                if unreachable_blocks.contains(block_id.index()) {
+                    continue;
                 }
+                mark_reaching_defs_for_names_used(
+                    &mut used_bindings,
+                    &reaching_definitions.reaching_in[block_id.index()],
+                    &binding_data.binding_name_ids,
+                    &interprocedural.transitive_reads[call.callee_scope.index()],
+                );
+            }
+        }
+
+        for binding in bindings {
+            if is_function_escape_candidate(binding, scopes)
+                && future_reads_contain_after(
+                    binding.scope,
+                    binding.span.start.offset,
+                    binding_data.binding_name_ids[binding.id.index()],
+                    read_plans,
+                    &interprocedural.future_reads,
+                    &interprocedural.escape_reads,
+                )
+            {
+                used_bindings.insert(binding.id.index());
             }
         }
     }
-    mark_callsite_reads_used(
-        &mut used_bindings,
-        bindings,
-        &reaching_definitions,
-        &command_blocks,
-        &unreachable,
-        &interprocedural_reads,
-    );
-    used_bindings.extend(interprocedural_function_uses(
-        scopes,
-        bindings,
-        &interprocedural_reads,
-    ));
 
     let mut unused_assignments = Vec::new();
     let mut unused_assignment_ids = Vec::new();
     for binding in bindings {
-        let Some(block_id) = binding_blocks.get(&binding.id).copied() else {
+        let Some(block_id) = binding_blocks[binding.id.index()] else {
             continue;
         };
-        if unreachable.contains(&block_id) || used_bindings.contains(&binding.id) {
+        if unreachable_blocks.contains(block_id.index())
+            || used_bindings.contains(binding.id.index())
+        {
             continue;
         }
 
-        let reason = next_overwrite(binding, bindings)
+        let reason = binding_data.next_overwrite[binding.id.index()]
             .map(|by| UnusedReason::Overwritten { by })
             .unwrap_or(UnusedReason::ScopeEnd);
         unused_assignments.push(UnusedAssignment {
@@ -333,32 +520,180 @@ pub(crate) fn analyze(
         unused_assignment_ids.push(binding.id);
     }
 
-    let mut dead_code_by_cause: FxHashMap<(usize, usize), (Span, Vec<Span>)> = FxHashMap::default();
-    for block_id in cfg.unreachable() {
-        let block = cfg.block(*block_id);
-        if block.commands.is_empty() {
-            continue;
-        }
-        let cause = cfg
-            .unreachable_cause(*block_id)
-            .unwrap_or_else(|| block.commands[0]);
-        dead_code_by_cause
-            .entry((cause.start.offset, cause.end.offset))
-            .or_insert_with(|| (cause, Vec::new()))
-            .1
-            .extend(block.commands.iter().copied());
-    }
-    let dead_code = dead_code_by_cause
-        .into_iter()
-        .map(|(_, (cause, unreachable))| DeadCode { unreachable, cause })
-        .collect();
-
-    DataflowResult {
-        reaching_definitions,
+    UnusedAssignmentsResult {
         unused_assignments,
-        uninitialized_references,
-        dead_code,
         unused_assignment_ids,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DenseBitSet {
+    words: Vec<usize>,
+}
+
+impl DenseBitSet {
+    const WORD_BITS: usize = usize::BITS as usize;
+
+    fn new(bit_len: usize) -> Self {
+        Self {
+            words: vec![0; bit_len.div_ceil(Self::WORD_BITS)],
+        }
+    }
+
+    fn insert(&mut self, index: usize) {
+        let word = index / Self::WORD_BITS;
+        let bit = index % Self::WORD_BITS;
+        self.words[word] |= 1usize << bit;
+    }
+
+    fn contains(&self, index: usize) -> bool {
+        let word = index / Self::WORD_BITS;
+        let bit = index % Self::WORD_BITS;
+        self.words
+            .get(word)
+            .is_some_and(|word| (word & (1usize << bit)) != 0)
+    }
+
+    fn union_with(&mut self, other: &Self) {
+        debug_assert_eq!(self.words.len(), other.words.len());
+        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
+            *word |= *other_word;
+        }
+    }
+
+    fn subtract_with(&mut self, other: &Self) {
+        debug_assert_eq!(self.words.len(), other.words.len());
+        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
+            *word &= !*other_word;
+        }
+    }
+
+    fn intersect_with(&mut self, other: &Self) {
+        debug_assert_eq!(self.words.len(), other.words.len());
+        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
+            *word &= *other_word;
+        }
+    }
+
+    fn or_intersection_with(&mut self, left: &Self, right: &Self) {
+        debug_assert_eq!(self.words.len(), left.words.len());
+        debug_assert_eq!(self.words.len(), right.words.len());
+        for ((word, left_word), right_word) in
+            self.words.iter_mut().zip(&left.words).zip(&right.words)
+        {
+            *word |= *left_word & *right_word;
+        }
+    }
+
+    fn or_intersection3_with(&mut self, first: &Self, second: &Self, third: &Self) {
+        debug_assert_eq!(self.words.len(), first.words.len());
+        debug_assert_eq!(self.words.len(), second.words.len());
+        debug_assert_eq!(self.words.len(), third.words.len());
+        for (((word, first_word), second_word), third_word) in self
+            .words
+            .iter_mut()
+            .zip(&first.words)
+            .zip(&second.words)
+            .zip(&third.words)
+        {
+            *word |= *first_word & *second_word & *third_word;
+        }
+    }
+
+    fn iter_ones(&self) -> DenseBitSetIter<'_> {
+        DenseBitSetIter {
+            words: &self.words,
+            word_index: 0,
+            current_word: 0,
+        }
+    }
+}
+
+struct DenseBitSetIter<'a> {
+    words: &'a [usize],
+    word_index: usize,
+    current_word: usize,
+}
+
+impl Iterator for DenseBitSetIter<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.current_word != 0 {
+                let bit = self.current_word.trailing_zeros() as usize;
+                self.current_word &= self.current_word - 1;
+                return Some((self.word_index - 1) * DenseBitSet::WORD_BITS + bit);
+            }
+
+            let next_word = self.words.get(self.word_index).copied()?;
+            self.current_word = next_word;
+            self.word_index += 1;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct NameId(u32);
+
+impl NameId {
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct NameTable {
+    ids_by_name: FxHashMap<Name, NameId>,
+}
+
+impl NameTable {
+    fn intern(&mut self, name: &Name) -> NameId {
+        if let Some(id) = self.ids_by_name.get(name).copied() {
+            return id;
+        }
+
+        let id = NameId(self.ids_by_name.len() as u32);
+        self.ids_by_name.insert(name.clone(), id);
+        id
+    }
+
+    fn get(&self, name: &Name) -> Option<NameId> {
+        self.ids_by_name.get(name).copied()
+    }
+
+    fn len(&self) -> usize {
+        self.ids_by_name.len()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DenseBindingData {
+    binding_name_ids: Vec<NameId>,
+    bindings_for_name: Vec<DenseBitSet>,
+    bindings_in_scope: Vec<DenseBitSet>,
+    next_overwrite: Vec<Option<BindingId>>,
+    array_like_bindings: DenseBitSet,
+}
+
+#[derive(Debug, Clone)]
+struct DenseReachingDefinitions {
+    reaching_in: Vec<DenseBitSet>,
+    reaching_out: Vec<DenseBitSet>,
+}
+
+#[derive(Debug, Clone)]
+struct ExactScopeComponent {
+    blocks: DenseBitSet,
+    exit_defs: DenseBitSet,
+}
+
+impl ExactScopeComponent {
+    fn new(block_count: usize, binding_count: usize) -> Self {
+        Self {
+            blocks: DenseBitSet::new(block_count),
+            exit_defs: DenseBitSet::new(binding_count),
+        }
     }
 }
 
@@ -369,24 +704,581 @@ struct ResolvedCallSite {
     callee_scope: ScopeId,
 }
 
-#[derive(Debug, Clone)]
-struct ScopedName {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScopeReadEventKind {
+    Direct(NameId),
+    Call(ScopeId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScopeReadEvent {
     offset: usize,
-    name: Name,
+    kind: ScopeReadEventKind,
 }
 
-#[derive(Debug, Clone, Default)]
-struct ScopeComponent {
-    blocks: FxHashSet<BlockId>,
-    exit_defs: FxHashSet<BindingId>,
+#[derive(Debug, Clone)]
+struct ScopeReadPlan {
+    direct_reads: DenseBitSet,
+    calls: Vec<ResolvedCallSite>,
+    events: Vec<ScopeReadEvent>,
+    is_function: bool,
 }
 
-#[derive(Debug, Clone, Default)]
-struct InterproceduralReads {
-    calls_by_scope: FxHashMap<ScopeId, Vec<ResolvedCallSite>>,
-    refs_by_scope: FxHashMap<ScopeId, Vec<ScopedName>>,
-    transitive_reads: FxHashMap<ScopeId, FxHashSet<Name>>,
-    escape_reads: FxHashMap<ScopeId, FxHashSet<Name>>,
+impl ScopeReadPlan {
+    fn new(name_count: usize, is_function: bool) -> Self {
+        Self {
+            direct_reads: DenseBitSet::new(name_count),
+            calls: Vec::new(),
+            events: Vec::new(),
+            is_function,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ScopeFutureReads {
+    suffix_reads: Vec<DenseBitSet>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CallerReadSite {
+    caller_scope: ScopeId,
+    offset: usize,
+}
+
+#[derive(Debug, Clone)]
+struct InterproceduralReadSets {
+    transitive_reads: Vec<DenseBitSet>,
+    escape_reads: Vec<DenseBitSet>,
+    future_reads: Vec<ScopeFutureReads>,
+}
+
+fn build_name_table(
+    bindings: &[Binding],
+    references: &[Reference],
+    synthetic_reads: &[SyntheticRead],
+    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
+) -> NameTable {
+    let mut names = NameTable::default();
+    for binding in bindings {
+        names.intern(&binding.name);
+    }
+    for reference in references {
+        names.intern(&reference.name);
+    }
+    for synthetic_read in synthetic_reads {
+        names.intern(&synthetic_read.name);
+    }
+    for hint in indirect_target_hints.values() {
+        if let IndirectTargetHint::Exact { name, .. } = hint {
+            names.intern(name);
+        }
+    }
+    names
+}
+
+fn build_uninitialized_name_table(bindings: &[Binding], references: &[Reference]) -> NameTable {
+    let mut names = NameTable::default();
+    for binding in bindings {
+        names.intern(&binding.name);
+    }
+    for reference in references {
+        names.intern(&reference.name);
+    }
+    names
+}
+
+fn build_dense_binding_data(
+    bindings: &[Binding],
+    scopes: &[Scope],
+    names: &NameTable,
+) -> DenseBindingData {
+    build_dense_binding_data_for_scope_count(bindings, scopes.len(), names)
+}
+
+fn build_dense_binding_data_for_scope_count(
+    bindings: &[Binding],
+    scope_count: usize,
+    names: &NameTable,
+) -> DenseBindingData {
+    let name_count = names.len();
+    let binding_count = bindings.len();
+    let mut binding_name_ids = Vec::with_capacity(binding_count);
+    let mut bindings_for_name = (0..name_count)
+        .map(|_| DenseBitSet::new(binding_count))
+        .collect::<Vec<_>>();
+    let mut bindings_by_name = vec![Vec::new(); name_count];
+    let mut bindings_in_scope = (0..scope_count)
+        .map(|_| DenseBitSet::new(binding_count))
+        .collect::<Vec<_>>();
+    let mut array_like_bindings = DenseBitSet::new(binding_count);
+
+    for binding in bindings {
+        let name_id = names.get(&binding.name).expect("binding name interned");
+        binding_name_ids.push(name_id);
+        bindings_for_name[name_id.index()].insert(binding.id.index());
+        bindings_by_name[name_id.index()].push(binding.id);
+        if let Some(bindings_in_scope) = bindings_in_scope.get_mut(binding.scope.index()) {
+            bindings_in_scope.insert(binding.id.index());
+        }
+        if is_array_like_binding(binding) {
+            array_like_bindings.insert(binding.id.index());
+        }
+    }
+
+    let mut next_overwrite = vec![None; binding_count];
+    for binding_ids in bindings_by_name {
+        for pair in binding_ids.windows(2) {
+            next_overwrite[pair[0].index()] = Some(pair[1]);
+        }
+    }
+
+    DenseBindingData {
+        binding_name_ids,
+        bindings_for_name,
+        bindings_in_scope,
+        next_overwrite,
+        array_like_bindings,
+    }
+}
+
+fn build_binding_block_index(cfg: &ControlFlowGraph, binding_count: usize) -> Vec<Option<BlockId>> {
+    let mut blocks = vec![None; binding_count];
+    for block in cfg.blocks() {
+        for binding in &block.bindings {
+            blocks[binding.index()] = Some(block.id);
+        }
+    }
+    blocks
+}
+
+fn build_reference_block_index(
+    cfg: &ControlFlowGraph,
+    reference_count: usize,
+) -> Vec<Option<BlockId>> {
+    let mut blocks = vec![None; reference_count];
+    for block in cfg.blocks() {
+        for reference in &block.references {
+            blocks[reference.index()] = Some(block.id);
+        }
+    }
+    blocks
+}
+
+fn build_unreachable_block_set(cfg: &ControlFlowGraph) -> DenseBitSet {
+    let mut unreachable = DenseBitSet::new(cfg.blocks().len());
+    for block in cfg.unreachable() {
+        unreachable.insert(block.index());
+    }
+    unreachable
+}
+
+fn command_block_for_span(cfg: &ControlFlowGraph, span: Span) -> Option<BlockId> {
+    cfg.command_blocks
+        .get(&SpanKey::new(span))
+        .and_then(|blocks| blocks.last())
+        .copied()
+}
+
+fn compute_reaching_definitions_dense(
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    binding_data: &DenseBindingData,
+) -> DenseReachingDefinitions {
+    let block_count = cfg.blocks().len();
+    let binding_count = bindings.len();
+    let name_count = binding_data.bindings_for_name.len();
+    let block_bindings = cfg
+        .blocks()
+        .iter()
+        .map(|block| {
+            let mut bitset = DenseBitSet::new(binding_count);
+            for binding in &block.bindings {
+                bitset.insert(binding.index());
+            }
+            bitset
+        })
+        .collect::<Vec<_>>();
+    let gen_sets = cfg
+        .blocks()
+        .iter()
+        .map(|block| {
+            let mut generated = DenseBitSet::new(binding_count);
+            for binding in &block.bindings {
+                let binding_info = &bindings[binding.index()];
+                if matches!(binding_info.kind, BindingKind::AppendAssignment) {
+                    generated.insert(binding.index());
+                    continue;
+                }
+
+                let name_id = binding_data.binding_name_ids[binding.index()];
+                generated.subtract_with(&binding_data.bindings_for_name[name_id.index()]);
+                generated.insert(binding.index());
+            }
+            generated
+        })
+        .collect::<Vec<_>>();
+    let kill_sets = cfg
+        .blocks()
+        .iter()
+        .enumerate()
+        .map(|(block_index, block)| {
+            let mut overwritten_names = DenseBitSet::new(name_count);
+            for binding in &block.bindings {
+                if !matches!(
+                    bindings[binding.index()].kind,
+                    BindingKind::AppendAssignment
+                ) {
+                    overwritten_names
+                        .insert(binding_data.binding_name_ids[binding.index()].index());
+                }
+            }
+
+            let mut killed = DenseBitSet::new(binding_count);
+            for name_index in overwritten_names.iter_ones() {
+                killed.union_with(&binding_data.bindings_for_name[name_index]);
+            }
+            killed.subtract_with(&block_bindings[block_index]);
+            killed
+        })
+        .collect::<Vec<_>>();
+
+    let mut reaching_in = vec![DenseBitSet::new(binding_count); block_count];
+    let mut reaching_out = vec![DenseBitSet::new(binding_count); block_count];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in cfg.blocks() {
+            let block_index = block.id.index();
+            let mut incoming = DenseBitSet::new(binding_count);
+            for predecessor in cfg.predecessors(block.id) {
+                incoming.union_with(&reaching_out[predecessor.index()]);
+            }
+
+            let mut carried = incoming.clone();
+            carried.subtract_with(&kill_sets[block_index]);
+            let mut outgoing = gen_sets[block_index].clone();
+            outgoing.union_with(&carried);
+
+            if reaching_in[block_index] != incoming {
+                reaching_in[block_index] = incoming;
+                changed = true;
+            }
+            if reaching_out[block_index] != outgoing {
+                reaching_out[block_index] = outgoing;
+                changed = true;
+            }
+        }
+    }
+
+    DenseReachingDefinitions {
+        reaching_in,
+        reaching_out,
+    }
+}
+
+fn compute_scope_components_dense(
+    cfg: &ControlFlowGraph,
+    scope_count: usize,
+    block_count: usize,
+    binding_count: usize,
+    reaching_out: &[DenseBitSet],
+) -> Vec<ExactScopeComponent> {
+    let mut components = (0..scope_count)
+        .map(|_| ExactScopeComponent::new(block_count, binding_count))
+        .collect::<Vec<_>>();
+
+    for (scope, entry) in &cfg.scope_entries {
+        let blocks = reachable_blocks_dense(cfg, *entry, block_count);
+        let mut exit_defs = DenseBitSet::new(binding_count);
+        for block_index in blocks.iter_ones() {
+            let block_id = BlockId(block_index as u32);
+            if cfg
+                .successors(block_id)
+                .iter()
+                .all(|(successor, _)| !blocks.contains(successor.index()))
+            {
+                exit_defs.union_with(&reaching_out[block_index]);
+            }
+        }
+        components[scope.index()] = ExactScopeComponent { blocks, exit_defs };
+    }
+
+    components
+}
+
+fn build_initializing_name_ids(
+    bindings: &[Binding],
+    binding_data: &DenseBindingData,
+) -> Vec<Option<NameId>> {
+    bindings
+        .iter()
+        .enumerate()
+        .map(|(binding_index, binding)| {
+            binding_initializes_name(binding)
+                .then_some(binding_data.binding_name_ids[binding_index])
+        })
+        .collect()
+}
+
+fn initialized_names_from_dense(
+    reaching_definitions: &DenseBitSet,
+    initializing_name_ids: &[Option<NameId>],
+    name_count: usize,
+) -> DenseBitSet {
+    let mut initialized_names = DenseBitSet::new(name_count);
+    for binding_index in reaching_definitions.iter_ones() {
+        if let Some(name_id) = initializing_name_ids[binding_index] {
+            initialized_names.insert(name_id.index());
+        }
+    }
+    initialized_names
+}
+
+fn reachable_blocks_dense(
+    cfg: &ControlFlowGraph,
+    entry: BlockId,
+    block_count: usize,
+) -> DenseBitSet {
+    let mut visited = DenseBitSet::new(block_count);
+    let mut stack = vec![entry];
+    while let Some(block_id) = stack.pop() {
+        if visited.contains(block_id.index()) {
+            continue;
+        }
+        visited.insert(block_id.index());
+        stack.extend(
+            cfg.successors(block_id)
+                .iter()
+                .map(|(successor, _)| *successor),
+        );
+    }
+    visited
+}
+
+fn build_indirect_target_matches(
+    bindings: &[Binding],
+    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
+    names: &NameTable,
+    bindings_for_name: &[DenseBitSet],
+    array_like_bindings: &DenseBitSet,
+) -> Vec<Option<DenseBitSet>> {
+    let mut matches_by_binding = vec![None; bindings.len()];
+    for (binding_id, hint) in indirect_target_hints {
+        let matches = match hint {
+            IndirectTargetHint::Exact { name, array_like } => {
+                let name_id = names
+                    .get(name)
+                    .expect("exact indirect target name interned");
+                let mut matches = bindings_for_name[name_id.index()].clone();
+                if *array_like {
+                    matches.intersect_with(array_like_bindings);
+                }
+                matches
+            }
+            IndirectTargetHint::Pattern { .. } => {
+                let mut matches = DenseBitSet::new(bindings.len());
+                for binding in bindings {
+                    if indirect_target_matches(hint, binding) {
+                        matches.insert(binding.id.index());
+                    }
+                }
+                matches
+            }
+        };
+        matches_by_binding[binding_id.index()] = Some(matches);
+    }
+    matches_by_binding
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_scope_read_plans(
+    scopes: &[Scope],
+    bindings: &[Binding],
+    references: &[Reference],
+    synthetic_reads: &[SyntheticRead],
+    reference_name_ids: &[NameId],
+    synthetic_read_name_ids: &[NameId],
+    call_sites: &FxHashMap<Name, Vec<CallSite>>,
+    name_count: usize,
+) -> (Vec<ScopeReadPlan>, Vec<Vec<CallerReadSite>>) {
+    let function_scopes = function_scopes_by_binding(scopes, bindings);
+    let calls_by_scope = resolved_calls_by_scope(scopes, bindings, call_sites, &function_scopes);
+    let mut plans = scopes
+        .iter()
+        .map(|scope| ScopeReadPlan::new(name_count, matches!(scope.kind, ScopeKind::Function(_))))
+        .collect::<Vec<_>>();
+    let mut callers_by_callee = vec![Vec::new(); scopes.len()];
+
+    for (reference_index, reference) in references.iter().enumerate() {
+        let plan = &mut plans[reference.scope.index()];
+        let name_id = reference_name_ids[reference_index];
+        plan.direct_reads.insert(name_id.index());
+        plan.events.push(ScopeReadEvent {
+            offset: reference.span.start.offset,
+            kind: ScopeReadEventKind::Direct(name_id),
+        });
+    }
+
+    for (read_index, synthetic_read) in synthetic_reads.iter().enumerate() {
+        let plan = &mut plans[synthetic_read.scope.index()];
+        let name_id = synthetic_read_name_ids[read_index];
+        plan.direct_reads.insert(name_id.index());
+        plan.events.push(ScopeReadEvent {
+            offset: synthetic_read.span.start.offset,
+            kind: ScopeReadEventKind::Direct(name_id),
+        });
+    }
+
+    for (scope_id, calls) in calls_by_scope {
+        let plan = &mut plans[scope_id.index()];
+        for call in &calls {
+            callers_by_callee[call.callee_scope.index()].push(CallerReadSite {
+                caller_scope: scope_id,
+                offset: call.offset,
+            });
+            plan.events.push(ScopeReadEvent {
+                offset: call.offset,
+                kind: ScopeReadEventKind::Call(call.callee_scope),
+            });
+        }
+        plan.calls = calls;
+    }
+
+    for plan in &mut plans {
+        plan.events.sort_by_key(|event| event.offset);
+    }
+
+    (plans, callers_by_callee)
+}
+
+fn compute_interprocedural_read_sets(
+    read_plans: &[ScopeReadPlan],
+    callers_by_callee: &[Vec<CallerReadSite>],
+    name_count: usize,
+) -> InterproceduralReadSets {
+    let mut transitive_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
+    loop {
+        let mut changed = false;
+        for (scope_index, plan) in read_plans.iter().enumerate() {
+            let mut reads = plan.direct_reads.clone();
+            for call in &plan.calls {
+                reads.union_with(&transitive_reads[call.callee_scope.index()]);
+            }
+            if transitive_reads[scope_index] != reads {
+                transitive_reads[scope_index] = reads;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    let future_reads = build_future_read_summaries(read_plans, &transitive_reads, name_count);
+    let mut escape_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
+    loop {
+        let mut changed = false;
+        for (scope_index, plan) in read_plans.iter().enumerate() {
+            if !plan.is_function {
+                continue;
+            }
+
+            let mut reads = DenseBitSet::new(name_count);
+            for caller in &callers_by_callee[scope_index] {
+                future_reads_union_after(
+                    &mut reads,
+                    caller.caller_scope,
+                    caller.offset,
+                    read_plans,
+                    &future_reads,
+                    &escape_reads,
+                );
+            }
+            if escape_reads[scope_index] != reads {
+                escape_reads[scope_index] = reads;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    InterproceduralReadSets {
+        transitive_reads,
+        escape_reads,
+        future_reads,
+    }
+}
+
+fn build_future_read_summaries(
+    read_plans: &[ScopeReadPlan],
+    transitive_reads: &[DenseBitSet],
+    name_count: usize,
+) -> Vec<ScopeFutureReads> {
+    read_plans
+        .iter()
+        .map(|plan| {
+            let mut suffix_reads = vec![DenseBitSet::new(name_count); plan.events.len() + 1];
+            for event_index in (0..plan.events.len()).rev() {
+                suffix_reads[event_index] = suffix_reads[event_index + 1].clone();
+                match plan.events[event_index].kind {
+                    ScopeReadEventKind::Direct(name_id) => {
+                        suffix_reads[event_index].insert(name_id.index());
+                    }
+                    ScopeReadEventKind::Call(callee_scope) => {
+                        suffix_reads[event_index]
+                            .union_with(&transitive_reads[callee_scope.index()]);
+                    }
+                }
+            }
+            ScopeFutureReads { suffix_reads }
+        })
+        .collect()
+}
+
+fn future_reads_union_after(
+    destination: &mut DenseBitSet,
+    scope: ScopeId,
+    offset: usize,
+    read_plans: &[ScopeReadPlan],
+    future_reads: &[ScopeFutureReads],
+    escape_reads: &[DenseBitSet],
+) {
+    let plan = &read_plans[scope.index()];
+    let index = plan.events.partition_point(|event| event.offset <= offset);
+    destination.union_with(&future_reads[scope.index()].suffix_reads[index]);
+    if plan.is_function {
+        destination.union_with(&escape_reads[scope.index()]);
+    }
+}
+
+fn future_reads_contain_after(
+    scope: ScopeId,
+    offset: usize,
+    name_id: NameId,
+    read_plans: &[ScopeReadPlan],
+    future_reads: &[ScopeFutureReads],
+    escape_reads: &[DenseBitSet],
+) -> bool {
+    let plan = &read_plans[scope.index()];
+    let index = plan.events.partition_point(|event| event.offset <= offset);
+    future_reads[scope.index()].suffix_reads[index].contains(name_id.index())
+        || (plan.is_function && escape_reads[scope.index()].contains(name_id.index()))
+}
+
+fn mark_reaching_defs_for_names_used(
+    used_bindings: &mut DenseBitSet,
+    incoming: &DenseBitSet,
+    binding_name_ids: &[NameId],
+    used_names: &DenseBitSet,
+) {
+    for binding_index in incoming.iter_ones() {
+        if used_names.contains(binding_name_ids[binding_index].index()) {
+            used_bindings.insert(binding_index);
+        }
+    }
 }
 
 fn gen_set(
@@ -412,6 +1304,7 @@ fn kill_set(
     cfg: &ControlFlowGraph,
     block_id: BlockId,
     bindings: &[Binding],
+    bindings_by_name: &FxHashMap<Name, Vec<BindingId>>,
 ) -> FxHashSet<BindingId> {
     let block = cfg.block(block_id);
     let overwritten_names = block
@@ -425,155 +1318,36 @@ fn kill_set(
         })
         .map(|binding| bindings[binding.index()].name.clone())
         .collect::<FxHashSet<_>>();
-    bindings
-        .iter()
-        .filter(|binding| {
-            overwritten_names.contains(&binding.name) && !block.bindings.contains(&binding.id)
-        })
-        .map(|binding| binding.id)
-        .collect()
-}
 
-fn names_from_bindings(
-    bindings_iter: impl Iterator<Item = BindingId>,
-    bindings: &[Binding],
-) -> FxHashSet<shuck_ast::Name> {
-    bindings_iter
-        .map(|binding| bindings[binding.index()].name.clone())
-        .collect()
-}
-
-fn reference_blocks(cfg: &ControlFlowGraph) -> FxHashMap<ReferenceId, BlockId> {
-    let mut map = FxHashMap::default();
-    for block in cfg.blocks() {
-        for reference in &block.references {
-            map.insert(*reference, block.id);
-        }
-    }
-    map
-}
-
-fn binding_blocks(cfg: &ControlFlowGraph) -> FxHashMap<BindingId, BlockId> {
-    let mut map = FxHashMap::default();
-    for block in cfg.blocks() {
-        for binding in &block.bindings {
-            map.insert(*binding, block.id);
-        }
-    }
-    map
-}
-
-fn command_blocks(cfg: &ControlFlowGraph) -> FxHashMap<SpanKey, BlockId> {
-    let mut map = FxHashMap::default();
-    for block in cfg.blocks() {
-        for command in &block.commands {
-            map.insert(SpanKey::new(*command), block.id);
-        }
-    }
-    map
-}
-
-fn mark_callsite_reads_used(
-    used_bindings: &mut FxHashSet<BindingId>,
-    bindings: &[Binding],
-    reaching_definitions: &ReachingDefinitions,
-    command_blocks: &FxHashMap<SpanKey, BlockId>,
-    unreachable: &FxHashSet<BlockId>,
-    interprocedural_reads: &InterproceduralReads,
-) {
-    for calls in interprocedural_reads.calls_by_scope.values() {
-        for call in calls {
-            let Some(block_id) = command_blocks.get(&SpanKey::new(call.span)).copied() else {
-                continue;
-            };
-            if unreachable.contains(&block_id) {
-                continue;
-            }
-            let Some(reads) = interprocedural_reads
-                .transitive_reads
-                .get(&call.callee_scope)
-            else {
-                continue;
-            };
-            let Some(incoming) = reaching_definitions.reaching_in.get(&block_id) else {
-                continue;
-            };
-            for binding in incoming {
-                if reads.contains(&bindings[binding.index()].name) {
-                    used_bindings.insert(*binding);
-                }
-            }
-        }
-    }
-}
-
-fn scope_components(
-    cfg: &ControlFlowGraph,
-    reaching_definitions: &ReachingDefinitions,
-) -> FxHashMap<ScopeId, ScopeComponent> {
-    cfg.scope_entries
-        .iter()
-        .map(|(scope, entry)| {
-            let blocks = reachable_blocks(cfg, *entry);
-            let exit_defs = blocks
-                .iter()
-                .copied()
-                .filter(|block| {
-                    cfg.successors(*block)
-                        .iter()
-                        .all(|(successor, _)| !blocks.contains(successor))
-                })
-                .flat_map(|block| {
-                    reaching_definitions
-                        .reaching_out
-                        .get(&block)
-                        .into_iter()
-                        .flatten()
-                        .copied()
-                })
-                .collect();
-            (*scope, ScopeComponent { blocks, exit_defs })
-        })
-        .collect()
-}
-
-fn reachable_blocks(cfg: &ControlFlowGraph, entry: BlockId) -> FxHashSet<BlockId> {
-    let mut visited = FxHashSet::default();
-    let mut stack = vec![entry];
-    while let Some(block) = stack.pop() {
-        if !visited.insert(block) {
+    let mut killed = FxHashSet::default();
+    for name in overwritten_names {
+        let Some(binding_ids) = bindings_by_name.get(&name) else {
             continue;
+        };
+        for binding_id in binding_ids {
+            if !block.bindings.contains(binding_id) {
+                killed.insert(*binding_id);
+            }
         }
-        stack.extend(
-            cfg.successors(block)
-                .iter()
-                .map(|(successor, _)| *successor),
-        );
     }
-    visited
+    killed
 }
 
-fn next_overwrite(binding: &Binding, bindings: &[Binding]) -> Option<BindingId> {
-    bindings
-        .iter()
-        .filter(|candidate| {
-            candidate.name == binding.name
-                && candidate.span.start.offset > binding.span.start.offset
-        })
-        .min_by_key(|candidate| candidate.span.start.offset)
-        .map(|candidate| candidate.id)
-}
-
-fn mark_indirect_targets_used(
-    used_bindings: &mut FxHashSet<BindingId>,
-    candidates: impl Iterator<Item = BindingId>,
-    bindings: &[Binding],
-    hint: &IndirectTargetHint,
-) {
-    for binding in candidates {
-        if indirect_target_matches(hint, &bindings[binding.index()]) {
-            used_bindings.insert(binding);
-        }
+fn binding_initializes_name(binding: &Binding) -> bool {
+    match binding.kind {
+        BindingKind::Declaration(_) | BindingKind::Nameref => binding
+            .attributes
+            .contains(BindingAttributes::DECLARATION_INITIALIZED),
+        BindingKind::FunctionDefinition | BindingKind::Imported => false,
+        BindingKind::Assignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => true,
     }
 }
 
@@ -600,114 +1374,6 @@ fn is_array_like_binding(binding: &Binding) -> bool {
         .attributes
         .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
         || matches!(binding.kind, BindingKind::ArrayAssignment)
-}
-
-fn interprocedural_reads(
-    scopes: &[Scope],
-    bindings: &[Binding],
-    references: &[Reference],
-    synthetic_reads: &[SyntheticRead],
-    call_sites: &FxHashMap<Name, Vec<CallSite>>,
-) -> InterproceduralReads {
-    let function_scopes = function_scopes_by_binding(scopes, bindings);
-    let calls_by_scope = resolved_calls_by_scope(scopes, bindings, call_sites, &function_scopes);
-    let refs_by_scope = references_by_scope(references, synthetic_reads);
-    let scope_ids = scopes.iter().map(|scope| scope.id).collect::<Vec<_>>();
-
-    let mut transitive_reads = FxHashMap::default();
-    loop {
-        let mut changed = false;
-        for scope_id in &scope_ids {
-            let mut reads = refs_by_scope
-                .get(scope_id)
-                .into_iter()
-                .flatten()
-                .map(|reference| reference.name.clone())
-                .collect::<FxHashSet<_>>();
-            if let Some(calls) = calls_by_scope.get(scope_id) {
-                for call in calls {
-                    reads.extend(
-                        transitive_reads
-                            .get(&call.callee_scope)
-                            .into_iter()
-                            .flatten()
-                            .cloned(),
-                    );
-                }
-            }
-            if transitive_reads.get(scope_id) != Some(&reads) {
-                transitive_reads.insert(*scope_id, reads);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    let mut escape_reads = FxHashMap::default();
-    loop {
-        let mut changed = false;
-        for scope in scopes {
-            if !matches!(scope.kind, ScopeKind::Function(_)) {
-                continue;
-            }
-            let mut reads = FxHashSet::default();
-            for (caller_scope, calls) in &calls_by_scope {
-                for call in calls {
-                    if call.callee_scope == scope.id {
-                        reads.extend(names_after_offset(
-                            scopes,
-                            *caller_scope,
-                            call.offset,
-                            &refs_by_scope,
-                            &calls_by_scope,
-                            &transitive_reads,
-                            &escape_reads,
-                        ));
-                    }
-                }
-            }
-            if escape_reads.get(&scope.id) != Some(&reads) {
-                escape_reads.insert(scope.id, reads);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    InterproceduralReads {
-        calls_by_scope,
-        refs_by_scope,
-        transitive_reads,
-        escape_reads,
-    }
-}
-
-fn interprocedural_function_uses(
-    scopes: &[Scope],
-    bindings: &[Binding],
-    interprocedural_reads: &InterproceduralReads,
-) -> FxHashSet<BindingId> {
-    bindings
-        .iter()
-        .filter(|binding| is_function_escape_candidate(binding, scopes))
-        .filter(|binding| {
-            names_after_offset(
-                scopes,
-                binding.scope,
-                binding.span.start.offset,
-                &interprocedural_reads.refs_by_scope,
-                &interprocedural_reads.calls_by_scope,
-                &interprocedural_reads.transitive_reads,
-                &interprocedural_reads.escape_reads,
-            )
-            .contains(&binding.name)
-        })
-        .map(|binding| binding.id)
-        .collect()
 }
 
 fn function_scopes_by_binding(
@@ -814,73 +1480,6 @@ fn visible_function_binding(
         }
     }
     None
-}
-
-fn references_by_scope(
-    references: &[Reference],
-    synthetic_reads: &[SyntheticRead],
-) -> FxHashMap<ScopeId, Vec<ScopedName>> {
-    let mut refs_by_scope: FxHashMap<ScopeId, Vec<ScopedName>> = FxHashMap::default();
-    for reference in references {
-        refs_by_scope
-            .entry(reference.scope)
-            .or_default()
-            .push(ScopedName {
-                offset: reference.span.start.offset,
-                name: reference.name.clone(),
-            });
-    }
-    for synthetic_read in synthetic_reads {
-        refs_by_scope
-            .entry(synthetic_read.scope)
-            .or_default()
-            .push(ScopedName {
-                offset: synthetic_read.span.start.offset,
-                name: synthetic_read.name.clone(),
-            });
-    }
-    for references in refs_by_scope.values_mut() {
-        references.sort_by_key(|reference| reference.offset);
-    }
-    refs_by_scope
-}
-
-fn names_after_offset(
-    scopes: &[Scope],
-    scope: ScopeId,
-    offset: usize,
-    refs_by_scope: &FxHashMap<ScopeId, Vec<ScopedName>>,
-    calls_by_scope: &FxHashMap<ScopeId, Vec<ResolvedCallSite>>,
-    transitive_reads: &FxHashMap<ScopeId, FxHashSet<Name>>,
-    escape_reads: &FxHashMap<ScopeId, FxHashSet<Name>>,
-) -> FxHashSet<Name> {
-    let mut names = refs_by_scope
-        .get(&scope)
-        .into_iter()
-        .flatten()
-        .filter(|reference| reference.offset > offset)
-        .map(|reference| reference.name.clone())
-        .collect::<FxHashSet<_>>();
-
-    if let Some(calls) = calls_by_scope.get(&scope) {
-        for call in calls {
-            if call.offset > offset {
-                names.extend(
-                    transitive_reads
-                        .get(&call.callee_scope)
-                        .into_iter()
-                        .flatten()
-                        .cloned(),
-                );
-            }
-        }
-    }
-
-    if matches!(scopes[scope.index()].kind, ScopeKind::Function(_)) {
-        names.extend(escape_reads.get(&scope).into_iter().flatten().cloned());
-    }
-
-    names
 }
 
 fn is_function_escape_candidate(binding: &Binding, scopes: &[Scope]) -> bool {

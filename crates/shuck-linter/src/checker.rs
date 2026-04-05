@@ -84,7 +84,11 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_references(&mut self) {}
+    fn check_references(&mut self) {
+        if self.is_rule_enabled(Rule::UndefinedVariable) {
+            rules::correctness::undefined_variable::undefined_variable(self);
+        }
+    }
 
     fn check_scopes(&mut self) {}
 
@@ -148,12 +152,8 @@ impl<'a> Checker<'a> {
     }
 
     fn check_flow(&mut self) {
-        if self.rules_need_dataflow() {
-            // TODO: run dataflow-dependent rules
+        if self.is_rule_enabled(Rule::UnreachableAfterExit) {
+            rules::correctness::unreachable_after_exit::unreachable_after_exit(self);
         }
-    }
-
-    fn rules_need_dataflow(&self) -> bool {
-        false
     }
 }

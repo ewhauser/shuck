@@ -1979,7 +1979,8 @@ mod tests {
         // Spot-check known mappings.
         assert_eq!(index.get("C001").map(String::as_str), Some("SC2034"));
         assert_eq!(index.get("S001").map(String::as_str), Some("SC2086"));
-        assert_eq!(index.get("C002").map(String::as_str), Some("SC2154"));
+        assert_eq!(index.get("C006").map(String::as_str), Some("SC2154"));
+        assert_eq!(index.get("C124").map(String::as_str), Some("SC2365"));
     }
 
     #[test]

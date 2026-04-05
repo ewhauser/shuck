@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C124 code is unreachable
+  --> <source>:10:1
+   |
+10 | echo unreachable
+   |
+
+C124 code is unreachable
+  --> <source>:11:1
+   |
+11 | printf '%s\n' never
+   |
+
+C124 code is unreachable
+  --> <source>:13:1
+   |
+13 | f() {
+   |
+
+C124 code is unreachable
+  --> <source>:15:3
+   |
+15 |   echo also_unreachable
+   |
+
+C124 code is unreachable
+  --> <source>:17:1
+   |
+17 | f
+   |

@@ -15,6 +15,8 @@ pub mod sudo_redirection_order;
 pub mod syntax;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
+pub mod undefined_variable;
+pub mod unreachable_after_exit;
 pub mod unused_assignment;
 
 #[cfg(test)]
@@ -28,6 +30,7 @@ mod tests {
 
     #[test_case(Rule::UnusedAssignment, Path::new("C001.sh"))]
     #[test_case(Rule::SingleQuotedLiteral, Path::new("C005.sh"))]
+    #[test_case(Rule::UndefinedVariable, Path::new("C006.sh"))]
     #[test_case(Rule::FindOutputToXargs, Path::new("C007.sh"))]
     #[test_case(Rule::TrapStringExpansion, Path::new("C008.sh"))]
     #[test_case(Rule::QuotedBashRegex, Path::new("C009.sh"))]
@@ -42,6 +45,7 @@ mod tests {
     #[test_case(Rule::EmptyTest, Path::new("C022.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]
+    #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

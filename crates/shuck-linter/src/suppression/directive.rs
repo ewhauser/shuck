@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn parses_shuck_directives_and_strips_reasons() {
-        let directives = directives("# shuck: disable=C002,S001 # legacy code\n");
+        let directives = directives("# shuck: disable=C006,S001 # legacy code\n");
 
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].action, SuppressionAction::Disable);
@@ -241,6 +241,20 @@ mod tests {
             vec![Rule::UndefinedVariable, Rule::UnquotedExpansion]
         );
         assert_eq!(directives[0].line, 1);
+    }
+
+    #[test]
+    fn parses_dead_code_rule_aliases() {
+        let directives = directives(
+            "\
+# shuck: disable=C124
+# shuck: disable=SH-293
+",
+        );
+
+        assert_eq!(directives.len(), 2);
+        assert_eq!(directives[0].codes, vec![Rule::UnreachableAfterExit]);
+        assert_eq!(directives[1].codes, vec![Rule::UnreachableAfterExit]);
     }
 
     #[test]

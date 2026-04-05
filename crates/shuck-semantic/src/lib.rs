@@ -109,6 +109,9 @@ pub struct SemanticModel {
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
     cfg: Option<ControlFlowGraph>,
     dataflow: Option<DataflowResult>,
+    precise_unused_assignments: Option<Vec<BindingId>>,
+    precise_uninitialized_references: Option<Vec<UninitializedReference>>,
+    precise_dead_code: Option<Vec<DeadCode>>,
     heuristic_unused_assignments: Vec<BindingId>,
 }
 
@@ -140,6 +143,9 @@ impl SemanticModel {
             command_references: built.command_references,
             cfg: None,
             dataflow: None,
+            precise_unused_assignments: None,
+            precise_uninitialized_references: None,
+            precise_dead_code: None,
             heuristic_unused_assignments: built.heuristic_unused_assignments,
         }
     }
@@ -226,7 +232,42 @@ impl SemanticModel {
         self.dataflow
             .as_ref()
             .map(DataflowResult::unused_assignment_ids)
+            .or(self.precise_unused_assignments.as_deref())
             .unwrap_or(&self.heuristic_unused_assignments)
+    }
+
+    pub fn uninitialized_references(&self) -> &[UninitializedReference] {
+        self.dataflow
+            .as_ref()
+            .map(|dataflow| dataflow.uninitialized_references.as_slice())
+            .or(self.precise_uninitialized_references.as_deref())
+            .unwrap_or(&[])
+    }
+
+    fn needs_precise_unused_assignments(&self) -> bool {
+        if self.heuristic_unused_assignments.is_empty() {
+            return false;
+        }
+
+        if !self.synthetic_reads.is_empty() || !self.indirect_expansion_refs.is_empty() {
+            return true;
+        }
+
+        let has_call_sites = !self.call_sites.is_empty();
+        self.heuristic_unused_assignments.iter().any(|binding_id| {
+            let binding = &self.bindings[binding_id.index()];
+            binding.name == "IFS"
+                || self
+                    .binding_index
+                    .get(&binding.name)
+                    .is_some_and(|binding_ids| binding_ids.len() > 1)
+                || (has_call_sites
+                    && matches!(
+                        self.scopes[binding.scope.index()].kind,
+                        ScopeKind::Function(_)
+                    )
+                    && !binding.attributes.contains(BindingAttributes::LOCAL))
+        })
     }
 
     pub fn unresolved_references(&self) -> &[ReferenceId] {
@@ -293,6 +334,7 @@ impl SemanticModel {
         self.cfg.as_ref().unwrap()
     }
 
+    #[allow(dead_code)]
     fn dataflow(&mut self) -> &DataflowResult {
         if self.dataflow.is_none() {
             if self.cfg.is_none() {
@@ -321,9 +363,73 @@ impl SemanticModel {
         self.dataflow.as_ref().unwrap()
     }
 
+    pub fn precompute_unused_assignments(&mut self) -> &[BindingId] {
+        if self.precise_unused_assignments.is_none() {
+            if !self.needs_precise_unused_assignments() {
+                self.precise_unused_assignments = Some(self.heuristic_unused_assignments.clone());
+                return self.precise_unused_assignments.as_deref().unwrap();
+            }
+            if self.cfg.is_none() {
+                self.cfg = Some(build_control_flow_graph(
+                    &self.recorded_program,
+                    &self.command_bindings,
+                    &self.command_references,
+                ));
+            }
+            let cfg = self.cfg.as_ref().unwrap();
+            self.precise_unused_assignments = Some(dataflow::analyze_unused_assignments(
+                cfg,
+                &self.scopes,
+                &self.bindings,
+                &self.references,
+                &self.resolved,
+                &self.call_sites,
+                &self.indirect_target_hints,
+                &self.indirect_expansion_refs,
+                &self.synthetic_reads,
+            ));
+        }
+        self.precise_unused_assignments.as_deref().unwrap()
+    }
+
+    pub fn precompute_uninitialized_references(&mut self) -> &[UninitializedReference] {
+        if self.precise_uninitialized_references.is_none() {
+            if self.cfg.is_none() {
+                self.cfg = Some(build_control_flow_graph(
+                    &self.recorded_program,
+                    &self.command_bindings,
+                    &self.command_references,
+                ));
+            }
+            let cfg = self.cfg.as_ref().unwrap();
+            self.precise_uninitialized_references = Some(
+                dataflow::analyze_uninitialized_references(cfg, &self.bindings, &self.references),
+            );
+        }
+        self.precise_uninitialized_references.as_deref().unwrap()
+    }
+
+    pub fn precompute_dead_code(&mut self) -> &[DeadCode] {
+        if self.precise_dead_code.is_none() {
+            if self.cfg.is_none() {
+                self.cfg = Some(build_control_flow_graph(
+                    &self.recorded_program,
+                    &self.command_bindings,
+                    &self.command_references,
+                ));
+            }
+            let cfg = self.cfg.as_ref().unwrap();
+            self.precise_dead_code = Some(dataflow::analyze_dead_code(cfg));
+        }
+        self.precise_dead_code.as_deref().unwrap()
+    }
+
     pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {
         self.synthetic_reads = synthetic_reads;
         self.dataflow = None;
+        self.precise_unused_assignments = None;
+        self.precise_uninitialized_references = None;
+        self.precise_dead_code = None;
     }
 
     pub fn is_reachable(&mut self, span: &Span) -> bool {
@@ -333,8 +439,12 @@ impl SemanticModel {
             .all(|block| !cfg.unreachable().contains(block))
     }
 
-    pub fn dead_code(&mut self) -> &[DeadCode] {
-        &self.dataflow().dead_code
+    pub fn dead_code(&self) -> &[DeadCode] {
+        self.dataflow
+            .as_ref()
+            .map(|dataflow| dataflow.dead_code.as_slice())
+            .or(self.precise_dead_code.as_deref())
+            .unwrap_or(&[])
     }
 }
 
@@ -400,7 +510,7 @@ mod tests {
     }
 
     fn reportable_unused_names(model: &mut SemanticModel) -> Vec<Name> {
-        let _ = model.dataflow();
+        let _ = model.precompute_unused_assignments();
         model
             .unused_assignments()
             .iter()
@@ -421,6 +531,24 @@ mod tests {
                 .then_some(binding.name.clone())
             })
             .collect()
+    }
+
+    fn assert_unused_assignment_parity(model: &mut SemanticModel) {
+        let precise = model.precompute_unused_assignments().to_vec();
+        let exact = model.dataflow().unused_assignment_ids().to_vec();
+        assert_eq!(precise, exact);
+    }
+
+    fn assert_uninitialized_reference_parity(model: &mut SemanticModel) {
+        let precise = model.precompute_uninitialized_references().to_vec();
+        let exact = model.dataflow().uninitialized_references.clone();
+        assert_eq!(precise, exact);
+    }
+
+    fn assert_dead_code_parity(model: &mut SemanticModel) {
+        let precise = model.precompute_dead_code().to_vec();
+        let exact = model.dataflow().dead_code.clone();
+        assert_eq!(precise, exact);
     }
 
     #[test]
@@ -579,6 +707,112 @@ done
             dataflow.uninitialized_references[0].certainty,
             UninitializedCertainty::Possible
         );
+    }
+
+    #[test]
+    fn precise_uninitialized_references_match_dataflow_for_representative_cases() {
+        let cases = [
+            "echo $VAR\n",
+            "if cond; then VAR=x; fi\necho $VAR\n",
+            "f() { local VAR; echo \"$VAR\"; }\nf\n",
+        ];
+
+        for source in cases {
+            let mut model = model(source);
+            assert_uninitialized_reference_parity(&mut model);
+        }
+    }
+
+    #[test]
+    fn precise_dead_code_matches_dataflow_for_representative_cases() {
+        let cases = [
+            "exit 0\necho dead\n",
+            "\
+if true; then
+  exit 0
+else
+  exit 1
+fi
+echo unreachable
+",
+            "\
+f() {
+  return 0
+  echo dead
+}
+f
+",
+        ];
+
+        for source in cases {
+            let mut model = model(source);
+            assert_dead_code_parity(&mut model);
+        }
+    }
+
+    #[test]
+    fn precise_unused_assignments_match_dataflow_for_representative_cases() {
+        let cases = [
+            "VAR=x\nVAR=y\necho $VAR\n",
+            "\
+if command -v code >/dev/null 2>&1; then
+  code_command=\"code\"
+else
+  code_command=\"flatpak run com.visualstudio.code\"
+fi
+${code_command} --version
+",
+            "\
+pass_args() {
+  local_install=1
+  proxy=$1
+}
+main() {
+  pass_args \"$@\"
+  printf '%s %s\\n' \"$local_install\" \"$proxy\"
+}
+main \"$@\"
+",
+            "\
+check_status() {
+  if [[ $is_wget ]]; then
+    printf '%s\\n' ok
+  else
+    is_wget=1
+    check_status
+  fi
+}
+check_status
+",
+            "\
+#!/bin/bash
+IFS=$'\\n\\t'
+unused=1
+echo ok
+",
+            "\
+#!/bin/bash
+apache_args=(--apache)
+unused_args=(--unused)
+args_var=apache_args[@]
+printf '%s\\n' \"${!args_var}\"
+",
+            "\
+#!/bin/bash
+apache_args=(--apache)
+nginx_args=(--nginx)
+apache_args+=(--common)
+nginx_args+=(--common)
+web_server=apache
+args_var=\"${web_server}_args[@]\"
+printf '%s\\n' \"${!args_var}\"
+",
+        ];
+
+        for source in cases {
+            let mut model = model(source);
+            assert_unused_assignment_parity(&mut model);
+        }
     }
 
     #[test]
@@ -771,7 +1005,7 @@ check_status
     #[test]
     fn name_only_local_creates_a_binding_for_later_reads() {
         let source = "f() { local VAR; echo \"$VAR\"; }\n";
-        let model = model(source);
+        let mut model = model(source);
 
         let local_binding = model
             .bindings()
@@ -797,6 +1031,12 @@ check_status
             .unwrap();
         let resolved = model.resolved_binding(reference.id).unwrap();
         assert_eq!(resolved.id, local_binding.id);
+        let reference_id = reference.id;
+
+        let uninitialized = model.precompute_uninitialized_references();
+        assert_eq!(uninitialized.len(), 1);
+        assert_eq!(uninitialized[0].reference, reference_id);
+        assert_eq!(uninitialized[0].certainty, UninitializedCertainty::Definite);
     }
 
     #[test]
@@ -1021,7 +1261,7 @@ printf '%s\\n' \"${!args_var}\"
     fn detects_dead_code_after_exit() {
         let source = "exit 0\necho dead\n";
         let mut model = model(source);
-        let dead_code = model.dead_code();
+        let dead_code = model.precompute_dead_code();
         assert_eq!(dead_code.len(), 1);
         assert_eq!(
             dead_code[0].unreachable[0].slice(source).trim_end(),
@@ -1210,6 +1450,43 @@ load helper.sh
         );
         let unused = reportable_unused_names(&mut model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn precise_unused_assignments_match_dataflow_for_source_closure_cases() {
+        let temp = tempdir().unwrap();
+
+        let sourced_main = temp.path().join("sourced-main.sh");
+        let sourced_helper = temp.path().join("sourced-helper.sh");
+        fs::write(
+            &sourced_main,
+            "\
+#!/bin/sh
+flag=1
+. ./sourced-helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&sourced_helper, "echo \"$flag\"\n").unwrap();
+
+        let executed_main = temp.path().join("executed-main.sh");
+        let executed_helper = temp.path().join("executed-helper.sh");
+        fs::write(
+            &executed_main,
+            "\
+#!/bin/sh
+unused=1
+executed-helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&executed_helper, "printf '%s\\n' ok\n").unwrap();
+
+        let mut sourced_model = model_at_path(&sourced_main);
+        assert_unused_assignment_parity(&mut sourced_model);
+
+        let mut executed_model = model_at_path(&executed_main);
+        assert_unused_assignment_parity(&mut executed_model);
     }
 
     #[test]

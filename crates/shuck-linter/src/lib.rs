@@ -69,11 +69,20 @@ pub fn analyze_file_at_path(
     source_path: Option<&Path>,
 ) -> AnalysisResult {
     let mut observer = LintTraversalObserver::default();
-    let semantic = if source_path.is_some() {
+    let mut semantic = if source_path.is_some() {
         build_with_observer_at_path(script, source, indexer, &mut observer, source_path)
     } else {
         build_with_observer(script, source, indexer, &mut observer)
     };
+    if settings.rules.contains(Rule::UnusedAssignment) {
+        let _ = semantic.precompute_unused_assignments();
+    }
+    if settings.rules.contains(Rule::UndefinedVariable) {
+        let _ = semantic.precompute_uninitialized_references();
+    }
+    if settings.rules.contains(Rule::UnreachableAfterExit) {
+        let _ = semantic.precompute_dead_code();
+    }
     let shell = if settings.shell == ShellDialect::Unknown {
         ShellDialect::infer(source, None)
     } else {
@@ -175,6 +184,14 @@ mod tests {
         )
     }
 
+    fn lint_for_rule(source: &str, rule: Rule) -> Vec<Diagnostic> {
+        lint(source, &LinterSettings::for_rule(rule))
+    }
+
+    fn lint_path_for_rule(path: &Path, rule: Rule) -> Vec<Diagnostic> {
+        lint_path(path, &LinterSettings::for_rule(rule))
+    }
+
     #[test]
     fn default_settings_run_without_emitting_noop_diagnostics() {
         let diagnostics = lint("#!/bin/bash\necho ok\n", &LinterSettings::default());
@@ -266,7 +283,7 @@ echo $bar
     #[test]
     fn unused_assignment_flags_unread_variable() {
         let source = "#!/bin/sh\nfoo=1\n";
-        let diagnostics = lint(source, &LinterSettings::default());
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
         assert!(diagnostics[0].message.contains("foo"));
@@ -276,7 +293,7 @@ echo $bar
     #[test]
     fn unused_assignment_reports_read_target_name_span() {
         let source = "#!/bin/sh\nread -r foo\n";
-        let diagnostics = lint(source, &LinterSettings::default());
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
@@ -291,8 +308,7 @@ while getopts \"ab\" opt; do
   :
 done
 ";
-        let diagnostics = lint(source, &LinterSettings::default());
-
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
         assert_eq!(diagnostics[0].span.slice(source), "opt");
@@ -307,7 +323,7 @@ printf '%s\n' 'service safe ok yes' | while read UNIT EXPOSURE PREDICATE HAPPY; 
   printf '%s %s %s %s\n' \"$UNIT\" \"$EXPOSURE\" \"$PREDICATE\" \"$HAPPY\"
 done
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -321,7 +337,7 @@ done
 CFLAGS=\"$SLKCFLAGS\" make
 DESTDIR=\"$pkgdir\" install
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -340,7 +356,7 @@ web_server=apache
 args_var=\"${web_server}_args[@]\"
 printf '%s\\n' \"${!args_var}\"
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -355,7 +371,7 @@ arr=(--first)
 arr+=(--second)
 printf '%s\\n' \"${arr[@]}\"
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -373,8 +389,7 @@ f() {
 }
 f
 ";
-        let diagnostics = lint(source, &LinterSettings::default());
-
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
         assert_eq!(diagnostics[0].span.slice(source), "unused");
@@ -388,8 +403,7 @@ IFS=$'\\n\\t'
 unused=1
 echo ok
 ";
-        let diagnostics = lint(source, &LinterSettings::default());
-
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
         assert_eq!(diagnostics[0].span.slice(source), "unused");
@@ -404,8 +418,7 @@ unused_args=(--unused)
 args_var=apache_args[@]
 printf '%s\\n' \"${!args_var}\"
 ";
-        let diagnostics = lint(source, &LinterSettings::default());
-
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
         assert_eq!(diagnostics[0].span.slice(source), "unused_args");
@@ -415,7 +428,7 @@ printf '%s\\n' \"${!args_var}\"
     fn used_variable_produces_no_diagnostic() {
         let diagnostics = lint(
             "#!/bin/sh\nfoo=1\necho \"$foo\"\n",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
         assert!(diagnostics.is_empty());
     }
@@ -424,7 +437,7 @@ printf '%s\\n' \"${!args_var}\"
     fn local_at_script_scope_is_flagged() {
         let diagnostics = lint(
             "#!/bin/bash\nlocal foo=bar\nprintf '%s\\n' \"$foo\"\n",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::LocalTopLevel),
         );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::LocalTopLevel);
@@ -434,7 +447,7 @@ printf '%s\\n' \"${!args_var}\"
     fn local_at_script_scope_in_sh_is_not_flagged() {
         let diagnostics = lint(
             "#!/bin/sh\nlocal foo=bar\nprintf '%s\\n' \"$foo\"\n",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::LocalTopLevel),
         );
         assert!(diagnostics.is_empty());
     }
@@ -450,14 +463,14 @@ f() {
 }
 f
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::LocalTopLevel),
         );
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn exported_variable_not_flagged() {
-        let diagnostics = lint("#!/bin/sh\nexport FOO=1\n", &LinterSettings::default());
+        let diagnostics = lint_for_rule("#!/bin/sh\nexport FOO=1\n", Rule::UnusedAssignment);
         assert!(diagnostics.is_empty());
     }
 
@@ -473,7 +486,7 @@ else
 fi
 ${code_command} --version
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -499,7 +512,7 @@ download() {
   echo \"$core_arch\"
 }
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -520,7 +533,7 @@ main() {
 }
 main \"$@\"
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -541,7 +554,7 @@ check_status() {
 }
 check_status
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -557,7 +570,7 @@ f() {
 }
 f
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert_eq!(diagnostics.len(), 1);
@@ -571,8 +584,8 @@ f
     }
 
     #[test]
-    fn name_only_local_declaration_is_not_flagged() {
-        let diagnostics = lint(
+    fn name_only_local_declaration_read_is_reported_as_uninitialized() {
+        let diagnostics = lint_for_rule(
             "\
 #!/bin/bash
 f() {
@@ -581,7 +594,53 @@ f() {
 }
 f
 ",
-            &LinterSettings::default(),
+            Rule::UndefinedVariable,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("foo"));
+    }
+
+    #[test]
+    fn undefined_variable_reports_definite_and_possible_reads() {
+        let source = "\
+#!/bin/bash
+echo \"$missing\"
+if true; then
+  maybe=1
+fi
+echo \"$maybe\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("missing"));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("referenced before assignment")
+        );
+        assert_eq!(diagnostics[1].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[1].message.contains("maybe"));
+        assert!(
+            diagnostics[1]
+                .message
+                .contains("may be referenced before assignment")
+        );
+    }
+
+    #[test]
+    fn undefined_variable_ignores_declaration_names_and_special_parameters() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+readonly declared
+export exported
+printf '%s %s %s\\n' \"$1\" \"$@\" \"$#\"
+",
+            Rule::UndefinedVariable,
         );
 
         assert!(diagnostics.is_empty());
@@ -599,7 +658,7 @@ f() {
 }
 f
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -615,7 +674,7 @@ f() {
 }
 f
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert_eq!(diagnostics.len(), 1);
@@ -625,7 +684,7 @@ f
 
     #[test]
     fn name_only_export_consumes_existing_assignment() {
-        let diagnostics = lint("#!/bin/sh\nfoo=1\nexport foo\n", &LinterSettings::default());
+        let diagnostics = lint_for_rule("#!/bin/sh\nfoo=1\nexport foo\n", Rule::UnusedAssignment);
         assert!(diagnostics.is_empty());
     }
 
@@ -633,7 +692,7 @@ f
     fn name_only_readonly_consumes_existing_assignment() {
         let diagnostics = lint(
             "#!/bin/sh\nfoo=1\nreadonly foo\n",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
         assert!(diagnostics.is_empty());
     }
@@ -642,7 +701,7 @@ f
     fn corpus_false_negative_moduleselfname_is_now_flagged() {
         let diagnostics = lint(
             "#!/bin/bash\nmoduleselfname=\"$(basename \"$(readlink -f \"${BASH_SOURCE[0]}\")\")\"\n",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert_eq!(diagnostics.len(), 1);
@@ -659,7 +718,7 @@ red='\\e[31m'
 print_red() { printf '%s\\n' \"$red\"; }
 print_red
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -674,7 +733,7 @@ show() { echo \"$flag\"; }
 flag=1
 show
 ",
-            &LinterSettings::default(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -696,7 +755,7 @@ flag=1
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
 
-        let diagnostics = lint_path(&main, &LinterSettings::default());
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
         assert!(diagnostics.is_empty());
     }
@@ -718,7 +777,7 @@ done
         .unwrap();
         fs::write(&helper, "printf '%s\\n' \"$queryip\"\n").unwrap();
 
-        let diagnostics = lint_path(&main, &LinterSettings::default());
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
         assert!(diagnostics.is_empty());
     }
@@ -736,7 +795,7 @@ helper.sh
         fs::write(&main, source).unwrap();
         fs::write(&helper, "printf '%s\\n' ok\n").unwrap();
 
-        let diagnostics = lint_path(&main, &LinterSettings::default());
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
@@ -760,9 +819,58 @@ load helper.sh
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
 
-        let diagnostics = lint_path(&main, &LinterSettings::default());
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_each_unreachable_command() {
+        let source = "\
+#!/bin/bash
+if [ -f /etc/hosts ]; then
+  echo found
+  exit 0
+else
+  echo missing
+  exit 1
+fi
+echo unreachable
+printf '%s\\n' never
+f() {
+  return 0
+  echo also_unreachable
+}
+f
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 5);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule == Rule::UnreachableAfterExit)
+        );
+        assert_eq!(
+            diagnostics[0].span.slice(source).trim_end(),
+            "echo unreachable"
+        );
+        assert_eq!(
+            diagnostics[1].span.slice(source).trim_end(),
+            "printf '%s\\n' never"
+        );
+        assert!(
+            diagnostics[2]
+                .span
+                .slice(source)
+                .trim_end()
+                .starts_with("f() {")
+        );
+        assert_eq!(
+            diagnostics[3].span.slice(source).trim_end(),
+            "echo also_unreachable"
+        );
+        assert_eq!(diagnostics[4].span.slice(source).trim_end(), "f");
     }
 
     #[test]

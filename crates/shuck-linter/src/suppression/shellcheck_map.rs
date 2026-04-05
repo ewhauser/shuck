@@ -50,6 +50,7 @@ impl Default for ShellCheckCodeMap {
                 (2194, Rule::ConstantCaseSubject),
                 (2154, Rule::UndefinedVariable),
                 (2266, Rule::OverwrittenFunction),
+                (2365, Rule::UnreachableAfterExit),
             ]),
         }
     }
@@ -81,6 +82,7 @@ mod tests {
         assert_eq!(map.resolve("SC2194"), Some(Rule::ConstantCaseSubject));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
+        assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC9999"), None);
     }
 
@@ -110,6 +112,7 @@ mod tests {
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2266, Rule::OverwrittenFunction),
+                (2365, Rule::UnreachableAfterExit),
             ]
         );
     }
