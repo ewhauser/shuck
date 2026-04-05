@@ -14,8 +14,10 @@ use std::{
     sync::Arc,
 };
 
-pub use lexer::{HeredocRead, Lexer, SpannedToken};
-use lexer::{LexedToken, LexedWordSegmentKind};
+pub use lexer::{
+    HeredocRead, LexedToken, LexedWord, LexedWordSegment, LexedWordSegmentKind, Lexer,
+    LexerErrorKind,
+};
 
 use shuck_ast::{
     ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,

@@ -8,7 +8,7 @@ fn lex_source(source: &str) -> usize {
     let mut lexer = Lexer::new(source);
     let mut tokens = Vec::new();
 
-    while let Some(token) = lexer.next_token() {
+    while let Some(token) = lexer.next_lexed_token() {
         tokens.push(token);
     }
 

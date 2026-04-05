@@ -5,25 +5,7 @@
 use std::{collections::VecDeque, ops::Range, sync::Arc};
 
 use memchr::{memchr, memchr_iter, memrchr};
-use shuck_ast::{Position, Span, Token, TokenKind};
-
-/// A token with its source location span.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SpannedToken {
-    pub kind: TokenKind,
-    pub token: Token,
-    pub span: Span,
-}
-
-impl SpannedToken {
-    pub(crate) fn new(token: Token, span: Span) -> Self {
-        Self {
-            kind: token.kind(),
-            token,
-            span,
-        }
-    }
-}
+use shuck_ast::{Position, Span, TokenKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct TokenFlags(u8);
@@ -98,7 +80,7 @@ impl TokenText<'_> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LexedWordSegmentKind {
+pub enum LexedWordSegmentKind {
     Plain,
     Literal,
     DoubleQuoted,
@@ -106,7 +88,7 @@ pub(crate) enum LexedWordSegmentKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LexedWordSegment<'a> {
+pub struct LexedWordSegment<'a> {
     kind: LexedWordSegmentKind,
     text: TokenText<'a>,
     span: Option<Span>,
@@ -129,15 +111,15 @@ impl<'a> LexedWordSegment<'a> {
         }
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         self.text.as_str()
     }
 
-    pub(crate) const fn kind(&self) -> LexedWordSegmentKind {
+    pub const fn kind(&self) -> LexedWordSegmentKind {
         self.kind
     }
 
-    pub(crate) const fn span(&self) -> Option<Span> {
+    pub const fn span(&self) -> Option<Span> {
         self.span
     }
 
@@ -164,7 +146,7 @@ impl<'a> LexedWordSegment<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LexedWord<'a> {
+pub struct LexedWord<'a> {
     primary_segment: LexedWordSegment<'a>,
     trailing_segments: Vec<LexedWordSegment<'a>>,
 }
@@ -193,15 +175,15 @@ impl<'a> LexedWord<'a> {
         self.push_segment(LexedWordSegment::owned(kind, text));
     }
 
-    pub(crate) fn segments(&self) -> impl Iterator<Item = &LexedWordSegment<'a>> {
+    pub fn segments(&self) -> impl Iterator<Item = &LexedWordSegment<'a>> {
         std::iter::once(&self.primary_segment).chain(self.trailing_segments.iter())
     }
 
-    pub(crate) fn text(&self) -> Option<&str> {
+    pub fn text(&self) -> Option<&str> {
         self.single_segment().map(LexedWordSegment::as_str)
     }
 
-    pub(crate) fn joined_text(&self) -> String {
+    pub fn joined_text(&self) -> String {
         let mut text = String::new();
         for segment in self.segments() {
             text.push_str(segment.as_str());
@@ -209,7 +191,7 @@ impl<'a> LexedWord<'a> {
         text
     }
 
-    pub(crate) fn single_segment(&self) -> Option<&LexedWordSegment<'a>> {
+    pub fn single_segment(&self) -> Option<&LexedWordSegment<'a>> {
         self.trailing_segments
             .is_empty()
             .then_some(&self.primary_segment)
@@ -254,7 +236,7 @@ impl<'a> LexedWord<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LexerErrorKind {
+pub enum LexerErrorKind {
     CommandSubstitution,
     BacktickSubstitution,
     SingleQuote,
@@ -262,7 +244,7 @@ pub(crate) enum LexerErrorKind {
 }
 
 impl LexerErrorKind {
-    pub(crate) const fn message(self) -> &'static str {
+    pub const fn message(self) -> &'static str {
         match self {
             Self::CommandSubstitution => "unterminated command substitution",
             Self::BacktickSubstitution => "unterminated backtick substitution",
@@ -282,10 +264,10 @@ pub(crate) enum TokenPayload<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LexedToken<'a> {
+pub struct LexedToken<'a> {
     pub kind: TokenKind,
     pub span: Span,
-    pub flags: TokenFlags,
+    pub(crate) flags: TokenFlags,
     payload: TokenPayload<'a>,
 }
 
@@ -423,7 +405,7 @@ impl<'a> LexedToken<'a> {
         }
     }
 
-    pub(crate) fn word_text(&self) -> Option<&str> {
+    pub fn word_text(&self) -> Option<&str> {
         self.kind
             .is_word_like()
             .then_some(())
@@ -433,7 +415,7 @@ impl<'a> LexedToken<'a> {
             })
     }
 
-    pub(crate) fn word_string(&self) -> Option<String> {
+    pub fn word_string(&self) -> Option<String> {
         self.kind
             .is_word_like()
             .then_some(())
@@ -443,14 +425,14 @@ impl<'a> LexedToken<'a> {
             })
     }
 
-    pub(crate) fn word(&self) -> Option<&LexedWord<'a>> {
+    pub fn word(&self) -> Option<&LexedWord<'a>> {
         match &self.payload {
             TokenPayload::Word(word) => Some(word),
             _ => None,
         }
     }
 
-    pub(crate) fn source_slice<'b>(&self, source: &'b str) -> Option<&'b str> {
+    pub fn source_slice<'b>(&self, source: &'b str) -> Option<&'b str> {
         if !self.kind.is_word_like() || self.flags.has_cooked_text() || self.flags.is_synthetic() {
             return None;
         }
@@ -459,21 +441,21 @@ impl<'a> LexedToken<'a> {
             .then(|| &source[self.span.start.offset..self.span.end.offset])
     }
 
-    pub(crate) fn fd_value(&self) -> Option<i32> {
+    pub fn fd_value(&self) -> Option<i32> {
         match self.payload {
             TokenPayload::Fd(fd) => Some(fd),
             _ => None,
         }
     }
 
-    pub(crate) fn fd_pair_value(&self) -> Option<(i32, i32)> {
+    pub fn fd_pair_value(&self) -> Option<(i32, i32)> {
         match self.payload {
             TokenPayload::FdPair(src_fd, dst_fd) => Some((src_fd, dst_fd)),
             _ => None,
         }
     }
 
-    pub(crate) fn error_kind(&self) -> Option<LexerErrorKind> {
+    pub fn error_kind(&self) -> Option<LexerErrorKind> {
         match self.payload {
             TokenPayload::Error(kind) => Some(kind),
             _ => None,
@@ -695,22 +677,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Get the next token from the input (without span info).
-    pub fn next_token(&mut self) -> Option<Token> {
-        self.next_lexed_token()
-            .map(|token| self.materialize_legacy_token(&token))
-    }
-
-    /// Get the next token kind from the input without rebuilding the legacy
-    /// `Token` payload enum.
+    /// Get the next token kind from the input without decoding or materializing
+    /// any payload text.
     pub fn next_token_kind(&mut self) -> Option<TokenKind> {
         self.next_lexed_token().map(|token| token.kind)
-    }
-
-    /// Get the next token from the input, preserving line comments.
-    pub fn next_token_with_comments(&mut self) -> Option<Token> {
-        self.next_lexed_token_with_comments()
-            .map(|token| self.materialize_legacy_token(&token))
     }
 
     fn peek_char(&mut self) -> Option<char> {
@@ -836,92 +806,8 @@ impl<'a> Lexer<'a> {
             .unwrap_or(&self.input[start.offset..self.offset])
     }
 
-    fn materialize_legacy_token(&self, token: &LexedToken<'_>) -> Token {
-        match token.kind {
-            TokenKind::Word => Token::Word(token.word_string().unwrap_or_default()),
-            TokenKind::LiteralWord => Token::LiteralWord(token.word_string().unwrap_or_default()),
-            TokenKind::QuotedWord => Token::QuotedWord(token.word_string().unwrap_or_default()),
-            TokenKind::Comment => {
-                let start = token.span.start.offset.saturating_add(1);
-                Token::Comment(self.input[start..token.span.end.offset].to_string())
-            }
-            TokenKind::Newline => Token::Newline,
-            TokenKind::Semicolon => Token::Semicolon,
-            TokenKind::DoubleSemicolon => Token::DoubleSemicolon,
-            TokenKind::SemiAmp => Token::SemiAmp,
-            TokenKind::DoubleSemiAmp => Token::DoubleSemiAmp,
-            TokenKind::Pipe => Token::Pipe,
-            TokenKind::PipeBoth => Token::PipeBoth,
-            TokenKind::And => Token::And,
-            TokenKind::Or => Token::Or,
-            TokenKind::Background => Token::Background,
-            TokenKind::RedirectOut => Token::RedirectOut,
-            TokenKind::RedirectAppend => Token::RedirectAppend,
-            TokenKind::RedirectIn => Token::RedirectIn,
-            TokenKind::RedirectReadWrite => Token::RedirectReadWrite,
-            TokenKind::HereDoc => Token::HereDoc,
-            TokenKind::HereDocStrip => Token::HereDocStrip,
-            TokenKind::HereString => Token::HereString,
-            TokenKind::LeftParen => Token::LeftParen,
-            TokenKind::RightParen => Token::RightParen,
-            TokenKind::DoubleLeftParen => Token::DoubleLeftParen,
-            TokenKind::DoubleRightParen => Token::DoubleRightParen,
-            TokenKind::LeftBrace => Token::LeftBrace,
-            TokenKind::RightBrace => Token::RightBrace,
-            TokenKind::DoubleLeftBracket => Token::DoubleLeftBracket,
-            TokenKind::DoubleRightBracket => Token::DoubleRightBracket,
-            TokenKind::Assignment => Token::Assignment,
-            TokenKind::ProcessSubIn => Token::ProcessSubIn,
-            TokenKind::ProcessSubOut => Token::ProcessSubOut,
-            TokenKind::RedirectBoth => Token::RedirectBoth,
-            TokenKind::RedirectBothAppend => Token::RedirectBothAppend,
-            TokenKind::Clobber => Token::Clobber,
-            TokenKind::DupOutput => Token::DupOutput,
-            TokenKind::DupInput => Token::DupInput,
-            TokenKind::RedirectFd => Token::RedirectFd(token.fd_value().unwrap_or_default()),
-            TokenKind::RedirectFdAppend => {
-                Token::RedirectFdAppend(token.fd_value().unwrap_or_default())
-            }
-            TokenKind::DupFd => {
-                let (src_fd, dst_fd) = token.fd_pair_value().unwrap_or_default();
-                Token::DupFd(src_fd, dst_fd)
-            }
-            TokenKind::DupFdIn => {
-                let (src_fd, dst_fd) = token.fd_pair_value().unwrap_or_default();
-                Token::DupFdIn(src_fd, dst_fd)
-            }
-            TokenKind::DupFdClose => Token::DupFdClose(token.fd_value().unwrap_or_default()),
-            TokenKind::RedirectFdIn => Token::RedirectFdIn(token.fd_value().unwrap_or_default()),
-            TokenKind::RedirectFdReadWrite => {
-                Token::RedirectFdReadWrite(token.fd_value().unwrap_or_default())
-            }
-            TokenKind::Error => Token::Error(
-                token
-                    .error_kind()
-                    .map(LexerErrorKind::message)
-                    .unwrap_or("unknown lexer error")
-                    .to_string(),
-            ),
-        }
-    }
-
-    /// Get the next token with its source span.
-    pub fn next_spanned_token(&mut self) -> Option<SpannedToken> {
-        self.next_lexed_token().map(|token| {
-            let span = token.span;
-            SpannedToken::new(self.materialize_legacy_token(&token), span)
-        })
-    }
-
-    /// Get the next token with its source span, preserving line comments.
-    pub fn next_spanned_token_with_comments(&mut self) -> Option<SpannedToken> {
-        self.next_lexed_token_with_comments().map(|token| {
-            let span = token.span;
-            SpannedToken::new(self.materialize_legacy_token(&token), span)
-        })
-    }
-
-    pub(crate) fn next_lexed_token(&mut self) -> Option<LexedToken<'a>> {
+    /// Get the next source-backed token from the input, skipping line comments.
+    pub fn next_lexed_token(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
         let start = self.current_position();
         let token = self.next_lexed_token_inner(false)?;
@@ -929,7 +815,8 @@ impl<'a> Lexer<'a> {
         Some(token.with_span(Span::from_positions(start, end)))
     }
 
-    pub(crate) fn next_lexed_token_with_comments(&mut self) -> Option<LexedToken<'a>> {
+    /// Get the next source-backed token from the input, preserving line comments.
+    pub fn next_lexed_token_with_comments(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
         let start = self.current_position();
         let token = self.next_lexed_token_inner(true)?;
@@ -2910,11 +2797,47 @@ impl<'a> Lexer<'a> {
 mod tests {
     use super::*;
 
+    fn token_text(token: &LexedToken<'_>, source: &str) -> Option<String> {
+        match token.kind {
+            kind if kind.is_word_like() => token.word_string(),
+            TokenKind::Comment => token
+                .span
+                .slice(source)
+                .strip_prefix('#')
+                .map(str::to_string),
+            TokenKind::Error => token
+                .error_kind()
+                .map(LexerErrorKind::message)
+                .map(str::to_string),
+            _ => None,
+        }
+    }
+
+    fn assert_next_token(
+        lexer: &mut Lexer<'_>,
+        expected_kind: TokenKind,
+        expected_text: Option<&str>,
+    ) {
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, expected_kind);
+        assert_eq!(token_text(&token, lexer.input).as_deref(), expected_text);
+    }
+
+    fn assert_next_token_with_comments(
+        lexer: &mut Lexer<'_>,
+        expected_kind: TokenKind,
+        expected_text: Option<&str>,
+    ) {
+        let token = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(token.kind, expected_kind);
+        assert_eq!(token_text(&token, lexer.input).as_deref(), expected_text);
+    }
+
     fn assert_non_newline_tokens_stay_on_one_line(input: &str) {
         let mut lexer = Lexer::new(input);
 
-        while let Some(token) = lexer.next_spanned_token() {
-            if matches!(token.token, Token::Newline | Token::Comment(_)) {
+        while let Some(token) = lexer.next_lexed_token() {
+            if token.kind == TokenKind::Newline {
                 continue;
             }
 
@@ -2930,35 +2853,29 @@ mod tests {
     fn test_simple_words() {
         let mut lexer = Lexer::new("echo hello world");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("hello".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("world".to_string())));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("hello"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("world"));
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
     fn test_single_quoted_string() {
         let mut lexer = Lexer::new("echo 'hello world'");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
         // Single-quoted strings return LiteralWord (no variable expansion)
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::LiteralWord("hello world".to_string()))
-        );
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::LiteralWord, Some("hello world"));
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
     fn test_double_quoted_string() {
         let mut lexer = Lexer::new("echo \"hello world\"");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::QuotedWord("hello world".to_string()))
-        );
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::QuotedWord, Some("hello world"));
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
@@ -3108,9 +3025,9 @@ mod tests {
     fn test_ansi_c_control_escape_can_consume_quote() {
         let mut lexer = Lexer::new("echo $'\\c''");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("\x07".to_string())));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("\x07"));
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
@@ -3119,12 +3036,13 @@ mod tests {
 "#;
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::Word(r#"out_line=${out_line//'"'/'"'}"#.to_string()))
+        assert_next_token(
+            &mut lexer,
+            TokenKind::Word,
+            Some(r#"out_line=${out_line//'"'/'"'}"#),
         );
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
@@ -3137,111 +3055,109 @@ EOF
 "#;
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::Word(r#"out_line=${out_line//'"'/'"'}"#.to_string()))
+        assert_next_token(
+            &mut lexer,
+            TokenKind::Word,
+            Some(r#"out_line=${out_line//'"'/'"'}"#),
         );
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::QuotedWord("Error: Missing python3!".to_string()))
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(
+            &mut lexer,
+            TokenKind::QuotedWord,
+            Some("Error: Missing python3!"),
         );
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::LiteralWord("EOF".to_string()))
-        );
-        assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::QuotedWord("${pywrapper}".to_string()))
-        );
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::LiteralWord, Some("EOF"));
+        assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
+        assert_next_token(&mut lexer, TokenKind::QuotedWord, Some("${pywrapper}"));
     }
 
     #[test]
     fn test_operators() {
         let mut lexer = Lexer::new("a |& b | c && d || e; f &");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("a".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::PipeBoth));
-        assert_eq!(lexer.next_token(), Some(Token::Word("b".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Pipe));
-        assert_eq!(lexer.next_token(), Some(Token::Word("c".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::And));
-        assert_eq!(lexer.next_token(), Some(Token::Word("d".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Or));
-        assert_eq!(lexer.next_token(), Some(Token::Word("e".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Semicolon));
-        assert_eq!(lexer.next_token(), Some(Token::Word("f".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Background));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("a"));
+        assert_next_token(&mut lexer, TokenKind::PipeBoth, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("b"));
+        assert_next_token(&mut lexer, TokenKind::Pipe, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("c"));
+        assert_next_token(&mut lexer, TokenKind::And, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("d"));
+        assert_next_token(&mut lexer, TokenKind::Or, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("e"));
+        assert_next_token(&mut lexer, TokenKind::Semicolon, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("f"));
+        assert_next_token(&mut lexer, TokenKind::Background, None);
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
     fn test_double_left_bracket_requires_separator() {
         let mut lexer = Lexer::new("[[ foo ]]\n[[z]\n");
 
-        assert_eq!(lexer.next_token(), Some(Token::DoubleLeftBracket));
-        assert_eq!(lexer.next_token(), Some(Token::Word("foo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::DoubleRightBracket));
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), Some(Token::Word("[[z]".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::DoubleLeftBracket, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("foo"));
+        assert_next_token(&mut lexer, TokenKind::DoubleRightBracket, None);
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("[[z]"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
     fn test_redirects() {
         let mut lexer = Lexer::new("a > b >> c < d << e <<< f &>> g <> h");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("a".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
-        assert_eq!(lexer.next_token(), Some(Token::Word("b".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::RedirectAppend));
-        assert_eq!(lexer.next_token(), Some(Token::Word("c".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::RedirectIn));
-        assert_eq!(lexer.next_token(), Some(Token::Word("d".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token(), Some(Token::Word("e".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereString));
-        assert_eq!(lexer.next_token(), Some(Token::Word("f".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::RedirectBothAppend));
-        assert_eq!(lexer.next_token(), Some(Token::Word("g".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::RedirectReadWrite));
-        assert_eq!(lexer.next_token(), Some(Token::Word("h".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("a"));
+        assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("b"));
+        assert_next_token(&mut lexer, TokenKind::RedirectAppend, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("c"));
+        assert_next_token(&mut lexer, TokenKind::RedirectIn, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("d"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("e"));
+        assert_next_token(&mut lexer, TokenKind::HereString, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("f"));
+        assert_next_token(&mut lexer, TokenKind::RedirectBothAppend, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("g"));
+        assert_next_token(&mut lexer, TokenKind::RedirectReadWrite, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("h"));
     }
 
     #[test]
     fn test_comment() {
         let mut lexer = Lexer::new("echo hello # this is a comment\necho world");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("hello".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("world".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("hello"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("world"));
     }
 
     #[test]
     fn test_comment_token_with_span() {
         let mut lexer = Lexer::new("# lead\necho hi # tail");
 
-        let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(comment.token, Token::Comment(" lead".to_string()));
+        let comment = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(comment.kind, TokenKind::Comment);
+        assert_eq!(token_text(&comment, lexer.input).as_deref(), Some(" lead"));
         assert_eq!(comment.span.start.line, 1);
         assert_eq!(comment.span.start.column, 1);
         assert_eq!(comment.span.end.line, 1);
         assert_eq!(comment.span.end.column, 7);
 
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("hi".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("hi"));
 
-        let inline = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(inline.token, Token::Comment(" tail".to_string()));
+        let inline = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(inline.kind, TokenKind::Comment);
+        assert_eq!(token_text(&inline, lexer.input).as_deref(), Some(" tail"));
         assert_eq!(inline.span.start.line, 2);
         assert_eq!(inline.span.start.column, 9);
     }
@@ -3250,52 +3166,34 @@ EOF
     fn test_comment_token_preserves_hash_boundaries() {
         let mut lexer = Lexer::new("echo foo#bar ${x#y} '# nope' \"# nope\" # yep");
 
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("echo".to_string()))
-        );
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("foo#bar".to_string()))
-        );
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("${x#y}".to_string()))
-        );
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::LiteralWord("# nope".to_string()))
-        );
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::QuotedWord("# nope".to_string()))
-        );
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Comment(" yep".to_string()))
-        );
-        assert_eq!(lexer.next_token_with_comments(), None);
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("foo#bar"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("${x#y}"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::LiteralWord, Some("# nope"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::QuotedWord, Some("# nope"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::Comment, Some(" yep"));
+        assert!(lexer.next_lexed_token_with_comments().is_none());
     }
 
     #[test]
     fn test_variable_words() {
         let mut lexer = Lexer::new("echo $HOME $USER");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("$HOME".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("$USER".to_string())));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("$HOME"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("$USER"));
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
     fn test_pipeline_tokens() {
         let mut lexer = Lexer::new("echo hello | cat");
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("hello".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Pipe));
-        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("hello"));
+        assert_next_token(&mut lexer, TokenKind::Pipe, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
@@ -3319,9 +3217,9 @@ EOF
         let mut lexer = Lexer::new("cat <<EOF\nhello\nworld\nEOF");
 
         // Parser would read these tokens
-        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
         // Now read heredoc content
         let content = lexer.read_heredoc("EOF");
@@ -3332,17 +3230,14 @@ EOF
     fn test_read_heredoc_with_redirect() {
         // Rest-of-line (> file.txt) is re-injected into the lexer buffer
         let mut lexer = Lexer::new("cat <<EOF > file.txt\nhello\nEOF");
-        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
         let content = lexer.read_heredoc("EOF");
         assert_eq!(content.content, "hello\n");
         // The redirect tokens are now available from the lexer
-        assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::Word("file.txt".to_string()))
-        );
+        assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("file.txt"));
     }
 
     #[test]
@@ -3350,27 +3245,32 @@ EOF
         let source = "cat <<EOF > file.txt\nhello\nEOF\n# done\n";
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
         let heredoc = lexer.read_heredoc("EOF");
         assert_eq!(heredoc.content, "hello\n");
 
-        let redirect = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(redirect.token, Token::RedirectOut);
+        let redirect = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(redirect.kind, TokenKind::RedirectOut);
         assert_eq!(redirect.span.slice(source), ">");
 
-        let target = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(target.token, Token::Word("file.txt".to_string()));
+        let target = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(target.kind, TokenKind::Word);
+        assert_eq!(
+            token_text(&target, lexer.input).as_deref(),
+            Some("file.txt")
+        );
         assert_eq!(target.span.slice(source), "file.txt");
 
-        let newline = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(newline.token, Token::Newline);
+        let newline = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(newline.kind, TokenKind::Newline);
         assert_eq!(newline.span.slice(source), "\n");
 
-        let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(comment.token, Token::Comment(" done".to_string()));
+        let comment = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(comment.kind, TokenKind::Comment);
+        assert_eq!(token_text(&comment, lexer.input).as_deref(), Some(" done"));
         assert_eq!(comment.span.slice(source), "# done");
     }
 
@@ -3380,8 +3280,12 @@ EOF
         let source = "# café résumé\necho ok";
         let mut lexer = Lexer::new(source);
 
-        let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(comment.token, Token::Comment(" café résumé".to_string()));
+        let comment = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(comment.kind, TokenKind::Comment);
+        assert_eq!(
+            token_text(&comment, lexer.input).as_deref(),
+            Some(" café résumé")
+        );
         // Span should cover exactly the comment bytes (including #)
         let start = comment.span.start.offset;
         let end = comment.span.end.offset;
@@ -3390,11 +3294,8 @@ EOF
         assert!(source.is_char_boundary(start));
         assert!(source.is_char_boundary(end));
 
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::Newline));
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("echo".to_string()))
-        );
+        assert_next_token_with_comments(&mut lexer, TokenKind::Newline, None);
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("echo"));
     }
 
     #[test]
@@ -3403,8 +3304,12 @@ EOF
         let source = "# 你好世界\necho ok";
         let mut lexer = Lexer::new(source);
 
-        let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(comment.token, Token::Comment(" 你好世界".to_string()));
+        let comment = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(comment.kind, TokenKind::Comment);
+        assert_eq!(
+            token_text(&comment, lexer.input).as_deref(),
+            Some(" 你好世界")
+        );
         let start = comment.span.start.offset;
         let end = comment.span.end.offset;
         assert_eq!(&source[start..end], "# 你好世界");
@@ -3418,24 +3323,22 @@ EOF
         let source = "cat <<EOF\n# not a comment\nreal line\nEOF\n# real comment\n";
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("cat".to_string()))
-        );
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::HereDoc));
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("EOF".to_string()))
-        );
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("EOF"));
 
         let heredoc = lexer.read_heredoc("EOF");
         assert_eq!(heredoc.content, "# not a comment\nreal line\n");
 
         // After heredoc, replayed line termination should appear before
         // tokens from following source lines.
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::Newline));
-        let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(comment.token, Token::Comment(" real comment".to_string()));
+        assert_next_token_with_comments(&mut lexer, TokenKind::Newline, None);
+        let comment = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(comment.kind, TokenKind::Comment);
+        assert_eq!(
+            token_text(&comment, lexer.input).as_deref(),
+            Some(" real comment")
+        );
     }
 
     #[test]
@@ -3444,15 +3347,9 @@ EOF
         let source = "cat <<EOF\nval=${x#prefix}\nEOF\n";
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("cat".to_string()))
-        );
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::HereDoc));
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Word("EOF".to_string()))
-        );
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("EOF"));
 
         let heredoc = lexer.read_heredoc("EOF");
         assert_eq!(heredoc.content, "val=${x#prefix}\n");
@@ -3465,9 +3362,9 @@ EOF
         let source = "cat <<EOF\nhello\nworld\nEOF\necho after";
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
         let heredoc = lexer.read_heredoc("EOF");
         let start = heredoc.content_span.start.offset;
@@ -3480,9 +3377,9 @@ EOF
         assert_eq!(&source[start..end], "hello\nworld\n");
 
         // Tokens after heredoc should still parse correctly
-        assert_eq!(lexer.next_token(), Some(Token::Newline));
-        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Word("after".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("after"));
     }
 
     #[test]
@@ -3491,9 +3388,9 @@ EOF
         let source = "cat <<EOF\n# 你好\ncafé\nEOF\n";
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
         let heredoc = lexer.read_heredoc("EOF");
         assert_eq!(heredoc.content, "# 你好\ncafé\n");
@@ -3515,11 +3412,12 @@ EOF
         // declare -A m=([foo]="bar" [baz]="qux") should keep the compound
         // assignment as a single Word token
         let mut lexer = Lexer::new(r#"m=([foo]="bar" [baz]="qux")"#);
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token::Word(r#"m=([foo]="bar" [baz]="qux")"#.to_string()))
+        assert_next_token(
+            &mut lexer,
+            TokenKind::Word,
+            Some(r#"m=([foo]="bar" [baz]="qux")"#),
         );
-        assert_eq!(lexer.next_token(), None);
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
@@ -3527,8 +3425,8 @@ EOF
         // arr=("hello world") should NOT be collapsed — parser handles
         // quoted elements token-by-token via the LeftParen path
         let mut lexer = Lexer::new(r#"arr=("hello world")"#);
-        assert_eq!(lexer.next_token(), Some(Token::Word("arr=".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::LeftParen));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("arr="));
+        assert_next_token(&mut lexer, TokenKind::LeftParen, None);
     }
 
     /// Regression test for fuzz crash: single digit at EOF should not panic
@@ -3537,7 +3435,7 @@ EOF
     fn test_digit_at_eof_no_panic() {
         // A lone digit with no following redirect operator must not panic
         let mut lexer = Lexer::new("2");
-        let token = lexer.next_token();
+        let token = lexer.next_lexed_token();
         assert!(token.is_some());
     }
 
@@ -3546,21 +3444,17 @@ EOF
     fn test_nested_brace_expansion_single_token() {
         // ${arr[${#arr[@]} - 1]} should be ONE word token, not split at inner }
         let mut lexer = Lexer::new("${arr[${#arr[@]} - 1]}");
-        let token = lexer.next_token();
-        assert_eq!(
-            token,
-            Some(Token::Word("${arr[${#arr[@]} - 1]}".to_string()))
-        );
+        assert_next_token(&mut lexer, TokenKind::Word, Some("${arr[${#arr[@]} - 1]}"));
         // No more tokens — everything was consumed
-        assert_eq!(lexer.next_token(), None);
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     /// Simple ${var} still works after brace depth change.
     #[test]
     fn test_simple_brace_expansion_unchanged() {
         let mut lexer = Lexer::new("${foo}");
-        assert_eq!(lexer.next_token(), Some(Token::Word("${foo}".to_string())));
-        assert_eq!(lexer.next_token(), None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("${foo}"));
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]
@@ -3569,7 +3463,7 @@ EOF
         let mut lexer = Lexer::new(input);
         let mut tokens = 0usize;
 
-        while lexer.next_token().is_some() {
+        while lexer.next_lexed_token().is_some() {
             tokens += 1;
             assert!(
                 tokens < 100_000,
@@ -3592,9 +3486,11 @@ EOF
         assert_non_newline_tokens_stay_on_one_line(input);
 
         let mut lexer = Lexer::new(input);
-        let tokens = std::iter::from_fn(|| lexer.next_token()).collect::<Vec<_>>();
-        assert!(tokens.contains(&Token::DoubleSemicolon));
-        assert!(tokens.contains(&Token::Word("esac".to_string())));
+        let tokens = std::iter::from_fn(|| lexer.next_lexed_token())
+            .map(|token| (token.kind, token_text(&token, input)))
+            .collect::<Vec<_>>();
+        assert!(tokens.contains(&(TokenKind::DoubleSemicolon, None)));
+        assert!(tokens.contains(&(TokenKind::Word, Some("esac".to_string()))));
     }
 
     #[test]

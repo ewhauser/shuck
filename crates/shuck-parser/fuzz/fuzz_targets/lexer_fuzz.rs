@@ -21,7 +21,7 @@ fuzz_target!(|data: &[u8]| {
 
         // Tokenize all input - should never panic
         let mut lexer = shuck_parser::parser::Lexer::new(input);
-        while lexer.next_token().is_some() {
+        while lexer.next_lexed_token().is_some() {
             // Consume all tokens
         }
     }

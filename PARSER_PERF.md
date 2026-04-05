@@ -273,15 +273,24 @@ Exit criteria:
 
 ### Stage 9: Delete Legacy Paths
 
-- [ ] Remove the legacy string-owning token variants.
-- [ ] Remove compatibility helpers that rebuild old token/text structures.
-- [ ] Remove parser-side word reparsing helpers from the normal pipeline.
-- [ ] Remove dead tests and snapshots tied only to the old token model.
-- [ ] Re-baseline all parser and linter benchmarks.
+- [x] Remove the legacy string-owning token variants.
+- [x] Remove compatibility helpers that rebuild old token/text structures.
+- [x] Remove parser-side word reparsing helpers from the normal pipeline.
+- [x] Remove dead tests and snapshots tied only to the old token model.
+- [x] Re-baseline all parser and linter benchmarks.
 
 Exit criteria:
 
 - There is only one hot-path token model and one hot-path word decoding path.
+
+#### Stage 9 Notes
+
+- 2026-04-05: `shuck_ast::Token` and the lexer-side `SpannedToken` compatibility wrapper are gone, so the public lexer API now exposes the source-backed `LexedToken` / `LexedWord` model directly instead of rebuilding owned token payloads on demand.
+- 2026-04-05: `Lexer::next_token`, `next_token_with_comments`, `next_spanned_token`, and `next_spanned_token_with_comments` were deleted alongside the legacy materialization helper, and the benchmark harness, example token dumper, fuzz target, and lexer tests now all consume `next_lexed_token*`.
+- 2026-04-05: `cargo test -p shuck-parser`, `cargo test -p shuck-benchmark`, `cargo test -p shuck-linter`, and `cargo test -p shuck-parser --example dump_tokens` all passed after the API cleanup.
+- 2026-04-05: full `cargo bench -p shuck-benchmark --bench lexer -- --noplot` measured `lexer/nvm` at `828.88 µs` (`[822.98 µs 828.88 µs 839.53 µs]`) and `lexer/all` at `1.9437 ms` (`[1.9378 ms 1.9437 ms 1.9510 ms]`). That pass now measures the real source-backed token stream rather than the deleted owned-token compatibility layer, and it improved clearly relative to the previous stage-8 lexer benchmark.
+- 2026-04-05: full `cargo bench -p shuck-benchmark --bench parser -- --noplot` measured `parser/nvm` at `3.2968 ms` (`[3.2854 ms 3.2968 ms 3.3184 ms]`) and `parser/all` at `7.0314 ms` (`[7.0119 ms 7.0314 ms 7.0569 ms]`). The compatibility deletion did not produce a matching parser-wide win on this machine, so the parser remains functionally cleaner but still needs a fresh profile for the next targeted optimization pass.
+- 2026-04-05: full `cargo bench -p shuck-benchmark --bench linter -- --noplot` measured `linter/nvm` at `75.755 ms` (`[75.518 ms 75.755 ms 76.071 ms]`) and `linter/all` at `108.98 ms` (`[108.52 ms 108.98 ms 109.82 ms]`). Those numbers are the new post-cleanup baseline for the current linter stack rather than evidence of a phase-9 throughput win.
 
 ## Stage Order
 
