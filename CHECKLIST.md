@@ -3,8 +3,9 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 35 actionable `skip` entries remain in scope.
-- 9 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 19 actionable `skip` entries remain in scope.
+- 24 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 1 formerly skipped case now intentionally fails parsing and has been reclassified as `parse_err`.
 
 ## Expectation Cleanup (Already Parses)
 
@@ -34,22 +35,22 @@ Shared work: make assignment detection more grammar-aware. The lexer and parser 
 
 Shared work: parser should support redirect-only simple commands, redirect prefixes before the command name, multiple heredocs on the same command, and full trailing redirect collection after heredocs and compound commands. Function definitions need trailing redirects attached to the function body command. AST change: none with the current `Command::Compound(..., redirects)` plus empty-name `SimpleCommand`.
 
-- [ ] `oils/command-sub.test.sh::Here doc with pipeline` - prefix heredoc must attach to `tac` and still allow the following pipeline.
-- [ ] `oils/here-doc.test.sh::Function def and execution with here doc` - allow a trailing heredoc redirect after a function definition.
-- [ ] `oils/here-doc.test.sh::Here doc and < redirect -- last one wins` - trailing `< file` after a heredoc must be collected, not left as a new top-level command.
-- [ ] `oils/here-doc.test.sh::Here doc as command prefix` - allow `<<EOF cmd` with no command word before the redirect.
-- [ ] `oils/here-doc.test.sh::Redirect after here doc` - collect `1>&2` and other fd-dup redirects after a heredoc, not just a subset of redirect forms.
-- [ ] `oils/here-doc.test.sh::Two here docs -- first is ignored; second ones wins!` - keep parsing after the first prefix heredoc so both heredocs attach to the same command.
-- [ ] `oils/redirect-command.test.sh::>$file touches a file` - accept redirect-only commands like `>file`.
-- [ ] `oils/redirect-command.test.sh::< file in pipeline and subshell doesn't work` - accept redirect-only commands as pipeline stages and inside subshells.
-- [ ] `oils/redirect-command.test.sh::Redirect in function body` - accept a trailing redirect after a function definition.
-- [ ] `oils/redirect-command.test.sh::Redirect in function body AND function call` - same trailing-function-redirect fix; the later call-site redirect already fits once definition parsing works.
-- [ ] `oils/redirect-command.test.sh::Redirect in function body is evaluated multiple times` - same parser fix; runtime semantics are separate.
-- [ ] `oils/redirect-multi.test.sh::Redirect to $empty (in function body)` - same trailing-function-redirect fix for word targets that expand at runtime.
-- [ ] `oils/redirect.test.sh::2>&1 with no command` - accept redirect-only commands consisting only of fd duplication.
-- [ ] `oils/toysh.test.sh::{abc}<<< - http://landley.net/notes-2019.html#09-12-2019` - allow `{fdvar}` redirects after compound commands, not only after simple commands.
-- [ ] `oils/var-sub.test.sh::Here doc with bad "$@" delimiter` - validate heredoc delimiters as static literal words before reading the body; reject dynamic delimiters like `"$@"` up front.
-- [ ] `oils/vars-special.test.sh::$LINENO in "bare" redirect arg (bug regression)` - same redirect-only command support; `> $TMP/bare$LINENO` should parse even when the operator is separated by whitespace.
+- [x] `oils/command-sub.test.sh::Here doc with pipeline` - heredoc replay now preserves only same-line tail tokens, so the prefix heredoc still attaches to `tac` and the following pipeline remains visible.
+- [x] `oils/here-doc.test.sh::Function def and execution with here doc` - function definitions now absorb trailing heredoc redirects on the function body command.
+- [x] `oils/here-doc.test.sh::Here doc and < redirect -- last one wins` - trailing `< file` redirects are now collected after a heredoc instead of becoming a new top-level command.
+- [x] `oils/here-doc.test.sh::Here doc as command prefix` - prefix heredocs now work before the command name by replaying the rest of the original command line after the heredoc body.
+- [x] `oils/here-doc.test.sh::Redirect after here doc` - trailing fd-dup and related redirect forms are now collected after a heredoc.
+- [x] `oils/here-doc.test.sh::Two here docs -- first is ignored; second ones wins!` - multiple same-line heredocs now stay attached to one command without consuming the next line’s keywords.
+- [x] `oils/redirect-command.test.sh::>$file touches a file` - redirect-only commands now parse as empty-name simple commands.
+- [x] `oils/redirect-command.test.sh::< file in pipeline and subshell doesn't work` - redirect-only commands now parse inside pipelines and subshells too.
+- [x] `oils/redirect-command.test.sh::Redirect in function body` - trailing redirects now attach correctly to function-definition bodies.
+- [x] `oils/redirect-command.test.sh::Redirect in function body AND function call` - the same function-body redirect handling now covers the mixed definition-and-call form.
+- [x] `oils/redirect-command.test.sh::Redirect in function body is evaluated multiple times` - the parser now accepts the function-body redirect form; runtime semantics are unchanged.
+- [x] `oils/redirect-multi.test.sh::Redirect to $empty (in function body)` - the same trailing function-body redirect parsing now works with runtime-expanded targets.
+- [x] `oils/redirect.test.sh::2>&1 with no command` - redirect-only fd-dup commands now parse with an empty command name.
+- [x] `oils/toysh.test.sh::{abc}<<< - http://landley.net/notes-2019.html#09-12-2019` - `{fdvar}` redirects now parse after compound commands, not just after simple commands.
+- [x] `oils/var-sub.test.sh::Here doc with bad "$@" delimiter` - heredoc delimiters now must be static literal words, so dynamic delimiters are rejected up front and tracked as `parse_err`.
+- [x] `oils/vars-special.test.sh::$LINENO in "bare" redirect arg (bug regression)` - spaced bare redirects now parse even when the target word contains expansions like `$LINENO`.
 
 ## Missing Redirect Operators
 

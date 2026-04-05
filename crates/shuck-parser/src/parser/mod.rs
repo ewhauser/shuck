@@ -662,6 +662,59 @@ impl<'a> Parser<'a> {
         Some(text)
     }
 
+    fn fd_var_from_text(text: &str, span: Span) -> Option<(Name, Span)> {
+        if !text.starts_with('{') || !text.ends_with('}') || text.len() <= 2 {
+            return None;
+        }
+
+        let inner = &text[1..text.len() - 1];
+        if !inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return None;
+        }
+
+        let start = span.start.advanced_by("{");
+        let span = Span::from_positions(start, start.advanced_by(inner));
+        Some((Name::from(inner), span))
+    }
+
+    fn current_fd_var(&mut self) -> Option<(Name, Span)> {
+        let word = self.current_word_to_word()?;
+        let text = self.literal_word_text(&word)?;
+        Self::fd_var_from_text(&text, word.span)
+    }
+
+    fn is_redirect_token(token: &Token) -> bool {
+        matches!(
+            token,
+            Token::RedirectOut
+                | Token::Clobber
+                | Token::RedirectAppend
+                | Token::RedirectIn
+                | Token::HereString
+                | Token::HereDoc
+                | Token::HereDocStrip
+                | Token::RedirectBoth
+                | Token::DupOutput
+                | Token::RedirectFd(_)
+                | Token::RedirectFdAppend(_)
+                | Token::DupFd(_, _)
+                | Token::DupInput
+                | Token::DupFdIn(_, _)
+                | Token::DupFdClose(_)
+                | Token::RedirectFdIn(_)
+        )
+    }
+
+    fn current_static_word(&mut self) -> Option<(String, bool)> {
+        let quoted = matches!(
+            self.current_token,
+            Some(Token::LiteralWord(_)) | Some(Token::QuotedWord(_))
+        );
+        let word = self.current_word_to_word()?;
+        let text = self.literal_word_text(&word)?;
+        Some((text, quoted))
+    }
+
     fn next_spanned_token_with_comments(&mut self) -> Option<SpannedToken> {
         self.synthetic_tokens
             .pop_front()
@@ -1263,7 +1316,17 @@ impl<'a> Parser<'a> {
     /// Parse redirections that follow a compound command (>, >>, 2>, etc.)
     fn parse_trailing_redirects(&mut self) -> Vec<Redirect> {
         let mut redirects = Vec::new();
+        let mut pending_fd_var = None;
         loop {
+            if pending_fd_var.is_none()
+                && let Some((fd_var, fd_var_span)) = self.current_fd_var()
+                && matches!(self.peek_next(), Some(token) if Self::is_redirect_token(token))
+            {
+                pending_fd_var = Some((fd_var, fd_var_span));
+                self.advance();
+                continue;
+            }
+
             match &self.current_token {
                 Some(Token::RedirectOut) | Some(Token::Clobber) => {
                     let operator_span = self.current_span;
@@ -1272,12 +1335,13 @@ impl<'a> Parser<'a> {
                     } else {
                         RedirectKind::Output
                     };
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
                             fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
+                            fd_var,
+                            fd_var_span,
                             kind,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1286,12 +1350,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::RedirectAppend) => {
                     let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
                             fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
+                            fd_var,
+                            fd_var_span,
                             kind: RedirectKind::Append,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1300,12 +1365,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::RedirectIn) => {
                     let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
                             fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
+                            fd_var,
+                            fd_var_span,
                             kind: RedirectKind::Input,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1314,12 +1380,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::RedirectBoth) => {
                     let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
                             fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
+                            fd_var,
+                            fd_var_span,
                             kind: RedirectKind::OutputBoth,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1328,12 +1395,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::DupOutput) => {
                     let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
-                            fd: Some(1),
-                            fd_var: None,
-                            fd_var_span: None,
+                            fd: if fd_var.is_some() { None } else { Some(1) },
+                            fd_var,
+                            fd_var_span,
                             kind: RedirectKind::DupOutput,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1386,12 +1454,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::DupInput) => {
                     let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
-                            fd: Some(0),
-                            fd_var: None,
-                            fd_var_span: None,
+                            fd: if fd_var.is_some() { None } else { Some(0) },
+                            fd_var,
+                            fd_var_span,
                             kind: RedirectKind::DupInput,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1442,12 +1511,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(Token::HereString) => {
                     let operator_span = self.current_span;
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
                             fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
+                            fd_var,
+                            fd_var_span,
                             kind: RedirectKind::HereString,
                             span: Self::redirect_span(operator_span, &target),
                             target,
@@ -1458,12 +1528,10 @@ impl<'a> Parser<'a> {
                     let operator_span = self.current_span;
                     let strip_tabs = matches!(self.current_token, Some(Token::HereDocStrip));
                     self.advance();
-                    let (delimiter, quoted) = match &self.current_token {
-                        Some(Token::Word(w)) => (w.clone(), false),
-                        Some(Token::LiteralWord(w)) => (w.clone(), true),
-                        Some(Token::QuotedWord(w)) => (w.clone(), true),
-                        _ => break,
+                    let Some((delimiter, quoted)) = self.current_static_word() else {
+                        break;
                     };
+                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
                     let heredoc = self.lexer.read_heredoc(&delimiter);
                     let content_span = heredoc.content_span;
                     let content = heredoc.content;
@@ -1494,15 +1562,14 @@ impl<'a> Parser<'a> {
                     };
                     redirects.push(Redirect {
                         fd: None,
-                        fd_var: None,
-                        fd_var_span: None,
+                        fd_var,
+                        fd_var_span,
                         kind,
                         span: operator_span,
                         target,
                     });
-                    // Rest-of-line tokens re-injected by lexer; break so callers
-                    // can see pipes/semicolons.
-                    break;
+                    self.advance();
+                    continue;
                 }
                 _ => break,
             }
@@ -2887,11 +2954,12 @@ impl<'a> Parser<'a> {
 
         // Parse body as brace group
         let body = self.parse_brace_group()?;
+        let redirects = self.parse_trailing_redirects();
 
         Ok(Command::Function(FunctionDef {
             name,
             name_span,
-            body: Box::new(Command::Compound(body, Vec::new())),
+            body: Box::new(Command::Compound(body, redirects)),
             span: start_span.merge(self.current_span),
         }))
     }
@@ -2925,11 +2993,12 @@ impl<'a> Parser<'a> {
 
         // Parse body as brace group
         let body = self.parse_brace_group()?;
+        let redirects = self.parse_trailing_redirects();
 
         Ok(Command::Function(FunctionDef {
             name,
             name_span,
-            body: Box::new(Command::Compound(body, Vec::new())),
+            body: Box::new(Command::Compound(body, redirects)),
             span: start_span.merge(self.current_span),
         }))
     }
@@ -3509,12 +3578,9 @@ impl<'a> Parser<'a> {
         let operator_span = self.current_span;
         self.advance();
         // Get the delimiter word and track if it was quoted
-        let (delimiter, quoted) = match &self.current_token {
-            Some(Token::Word(w)) => (w.clone(), false),
-            Some(Token::LiteralWord(w)) => (w.clone(), true),
-            Some(Token::QuotedWord(w)) => (w.clone(), true),
-            _ => return Err(Error::parse("expected delimiter after <<".to_string())),
-        };
+        let (delimiter, quoted) = self
+            .current_static_word()
+            .ok_or_else(|| Error::parse("expected static heredoc delimiter".to_string()))?;
 
         let heredoc = self.lexer.read_heredoc(&delimiter);
         let content_span = heredoc.content_span;
@@ -3833,7 +3899,7 @@ impl<'a> Parser<'a> {
                 Some(Token::HereDoc) | Some(Token::HereDocStrip) => {
                     let strip_tabs = matches!(self.current_token, Some(Token::HereDocStrip));
                     self.parse_heredoc_redirect(strip_tabs, &mut redirects)?;
-                    break;
+                    continue;
                 }
                 Some(Token::ProcessSubIn) | Some(Token::ProcessSubOut) => {
                     let word = self.expect_word()?;
@@ -3984,8 +4050,8 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Handle assignment-only commands (VAR=value with no command)
-        if words.is_empty() && !assignments.is_empty() {
+        // Handle assignment-only or redirect-only commands with no command word.
+        if words.is_empty() && (!assignments.is_empty() || !redirects.is_empty()) {
             return Ok(Some(SimpleCommand {
                 name: Word::literal(""),
                 args: Vec::new(),
@@ -5096,6 +5162,76 @@ mod tests {
     }
 
     #[test]
+    fn test_prefix_heredoc_before_command_in_pipeline_parses() {
+        let input = "<<EOF tac | tr '\\n' 'X'\none\ntwo\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Pipeline(pipeline) = &script.commands[0] else {
+            panic!("expected pipeline");
+        };
+        assert_eq!(pipeline.commands.len(), 2);
+        let Command::Simple(command) = &pipeline.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.name.render(input), "tac");
+        assert_eq!(command.redirects.len(), 1);
+        assert_eq!(command.redirects[0].kind, RedirectKind::HereDoc);
+    }
+
+    #[test]
+    fn test_redirect_only_command_parses() {
+        let input = ">myfile\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert!(command.name.render(input).is_empty());
+        assert_eq!(command.redirects.len(), 1);
+        assert_eq!(command.redirects[0].kind, RedirectKind::Output);
+        assert_eq!(command.redirects[0].target.render(input), "myfile");
+    }
+
+    #[test]
+    fn test_function_definition_absorbs_trailing_heredoc_redirect() {
+        let input = "f() { cat; } <<EOF\nhello\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Function(function) = &script.commands[0] else {
+            panic!("expected function definition");
+        };
+        let Command::Compound(_, redirects) = function.body.as_ref() else {
+            panic!("expected compound function body");
+        };
+        assert_eq!(redirects.len(), 1);
+        assert_eq!(redirects[0].kind, RedirectKind::HereDoc);
+    }
+
+    #[test]
+    fn test_function_body_command_with_heredoc_parses() {
+        let input = "f() {\n  read head << EOF\nref: refs/heads/dev/andy\nEOF\n}\nf\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        assert_eq!(script.commands.len(), 2);
+
+        let Command::Function(function) = &script.commands[0] else {
+            panic!("expected function definition");
+        };
+        let Command::Compound(CompoundCommand::BraceGroup(body), redirects) = function.body.as_ref()
+        else {
+            panic!("expected brace-group function body");
+        };
+        assert!(redirects.is_empty());
+        assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn test_dynamic_heredoc_delimiter_is_rejected() {
+        let parser = Parser::new("cat <<\"$@\"\nbody\n$@\n");
+        assert!(parser.parse().is_err(), "dynamic heredoc delimiter should fail");
+    }
+
+    #[test]
     fn test_heredoc_multiple_on_line() {
         let input = "while cat <<E1 && cat <<E2; do cat <<E3; break; done\n1\nE1\n2\nE2\n3\nE3\n";
         let parser = Parser::new(input);
@@ -5111,6 +5247,20 @@ mod tests {
         } else {
             panic!("expected While compound command");
         }
+    }
+
+    #[test]
+    fn test_heredoc_multiple_lines_preserve_while_do_boundary() {
+        let input = "while cat <<E1 && cat <<E2\n1\nE1\n2\nE2\ndo\n  cat <<E3\n3\nE3\n  break\ndone\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        assert!(redirects.is_empty());
+        let CompoundCommand::While(command) = compound else {
+            panic!("expected while command");
+        };
+        assert_eq!(command.condition.len(), 1);
+        assert_eq!(command.body.len(), 2);
     }
 
     #[test]

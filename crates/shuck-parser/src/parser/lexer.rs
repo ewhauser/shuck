@@ -1889,17 +1889,17 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Re-inject saved rest-of-line so subsequent tokens (pipes, commands, etc.)
-        // are visible to the parser. Add a newline so the tokenizer sees the line break.
+        // Re-inject the command-line tail so subsequent same-line tokens (pipes,
+        // redirects, command words, additional heredocs) stay visible to the
+        // parser. Always replay a terminating newline so parsing stops before
+        // tokens that originally lived on later source lines, like `}` or `do`.
         let post_heredoc_position = self.position;
-        if !rest_of_line.is_empty() {
-            self.position = rest_of_line_start;
-            for ch in rest_of_line.chars() {
-                self.reinject_buf.push_back(ch);
-            }
-            self.reinject_buf.push_back('\n');
-            self.reinject_resume_position = Some(post_heredoc_position);
+        self.position = rest_of_line_start;
+        for ch in rest_of_line.chars() {
+            self.reinject_buf.push_back(ch);
         }
+        self.reinject_buf.push_back('\n');
+        self.reinject_resume_position = Some(post_heredoc_position);
 
         HeredocRead {
             content,
@@ -2262,7 +2262,9 @@ EOF
         let heredoc = lexer.read_heredoc("EOF");
         assert_eq!(heredoc.content, "# not a comment\nreal line\n");
 
-        // After heredoc, the next token should be the real comment
+        // After heredoc, replayed line termination should appear before
+        // tokens from following source lines.
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::Newline));
         let comment = lexer.next_spanned_token_with_comments().unwrap();
         assert_eq!(comment.token, Token::Comment(" real comment".to_string()));
     }
@@ -2309,6 +2311,7 @@ EOF
         assert_eq!(&source[start..end], "hello\nworld\n");
 
         // Tokens after heredoc should still parse correctly
+        assert_eq!(lexer.next_token(), Some(Token::Newline));
         assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::Word("after".to_string())));
     }

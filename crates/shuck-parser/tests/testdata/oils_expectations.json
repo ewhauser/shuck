@@ -47,10 +47,6 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
-  "oils/command-sub.test.sh::Here doc with pipeline": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/command-sub.test.sh::Making keyword out of command sub should NOT work": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
@@ -131,25 +127,13 @@
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
-  "oils/here-doc.test.sh::Function def and execution with here doc": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  "oils/here-doc.test.sh::Here doc with bad comsub delimiter": {
+    "expectation": "parse_err",
+    "reason": "non-static heredoc delimiters are rejected during parsing"
   },
-  "oils/here-doc.test.sh::Here doc and < redirect -- last one wins": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/here-doc.test.sh::Here doc as command prefix": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/here-doc.test.sh::Redirect after here doc": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/here-doc.test.sh::Two here docs -- first is ignored; second ones wins!": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  "oils/here-doc.test.sh::Here doc with bad var delimiter": {
+    "expectation": "parse_err",
+    "reason": "non-static heredoc delimiters are rejected during parsing"
   },
   "oils/known-differences.test.sh::nested function declaration - xcb-util-renderutil": {
     "expectation": "parse_err",
@@ -227,39 +211,11 @@
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
-  "oils/redirect-command.test.sh::>$file touches a file": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/redirect-command.test.sh::< file in pipeline and subshell doesn't work": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/redirect-command.test.sh::Prefix redirect for loop -- not allowed": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
-  "oils/redirect-command.test.sh::Redirect in function body": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/redirect-command.test.sh::Redirect in function body AND function call": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/redirect-command.test.sh::Redirect in function body is evaluated multiple times": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/redirect-multi.test.sh::Redirect to $empty (in function body)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/redirect.test.sh::&>> appends stdout and stderr": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/redirect.test.sh::2>&1 with no command": {
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
@@ -303,10 +259,6 @@
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
-  "oils/toysh.test.sh::{abc}<<< - http://landley.net/notes-2019.html#09-12-2019": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
   "oils/var-op-strip.test.sh::Strip Right Brace (#702)": {
     "expectation": "skip",
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
@@ -316,11 +268,7 @@
     "reason": "current parser does not yet support this valid or option-dependent syntax form"
   },
   "oils/var-sub.test.sh::Here doc with bad \"$@\" delimiter": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/vars-special.test.sh::$LINENO in \"bare\" redirect arg (bug regression)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+    "expectation": "parse_err",
+    "reason": "non-static heredoc delimiters are rejected during parsing"
   }
 }
