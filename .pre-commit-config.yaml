@@ -4,3 +4,11 @@ repos:
     hooks:
       - id: fmt
       - id: clippy
+  - repo: local
+    hooks:
+      - id: test
+        name: make test
+        entry: make test
+        language: system
+        pass_filenames: false
+        always_run: true
