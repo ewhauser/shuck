@@ -50,7 +50,7 @@ jobs:
       - name: "Install Rust toolchain"
         run: rustup component add clippy
       - name: "Clippy"
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --offline -- -D warnings
 
   cargo-test-linux:
     name: "cargo test (linux)"
