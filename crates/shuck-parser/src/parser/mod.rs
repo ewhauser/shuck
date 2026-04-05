@@ -6153,6 +6153,12 @@ coproc worker { true; }
     }
 
     #[test]
+    fn test_parse_command_substitution_with_case_pattern_right_paren() {
+        let input = "echo $(foo=a; case $foo in [0-9]) echo number;; [a-z]) echo letter ;; esac)\n";
+        Parser::new(input).parse().unwrap();
+    }
+
+    #[test]
     fn test_process_substitution_spans_are_absolute() {
         let script = Parser::new("cat <(\n  printf '%s\\n' $x\n)\n")
             .parse()

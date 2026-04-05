@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 13 actionable `skip` entries remain in scope.
-- 30 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 12 actionable `skip` entries remain in scope.
+- 31 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 - 1 formerly skipped case now intentionally fails parsing and has been reclassified as `parse_err`.
 
 ## Expectation Cleanup (Already Parses)
@@ -67,7 +67,7 @@ Shared work: extend lexer token coverage for `|&`, `&>>`, and `<>`. Parser shoul
 
 Shared work: parser needs to distinguish arithmetic `(( ... ))` from grouped-command or subshell spellings that happen to start with `((`. Function definitions should accept any compound command body, not just `{ ... }`. The lexer's `$(` scanner should stop terminating a command substitution on case-item `)` tokens. AST change: none.
 
-- [ ] `oils/command-sub.test.sh::case in subshell` - `$(` scanning must survive `case ... pattern)` inside the substitution body.
+- [x] `oils/command-sub.test.sh::case in subshell` - the `$(` scanner now keeps top-level case-item `)` tokens inside an open `case ... in ... esac`, so command substitutions are not terminated early.
 - [ ] `oils/divergence.test.sh::builtin cat crashes a subshell (#2530)` - treat `(( ... ) | true)` here as grouped commands or subshell syntax, not an arithmetic command.
 - [ ] `oils/for-expr.test.sh::Accepts { } syntax too` - allow `{ ... }` as the body form after an arithmetic `for ((...))` header if we want this Bash-compatible extension.
 - [ ] `oils/func-parsing.test.sh::subshell function` - allow `name() ( ... )` as a function body.

@@ -1374,6 +1374,28 @@ impl<'a> Lexer<'a> {
         self.read_command_subst_into_depth(content, 0)
     }
 
+    fn flush_command_subst_keyword(
+        current_word: &mut String,
+        pending_case_headers: &mut usize,
+        case_clause_depth: &mut usize,
+    ) {
+        if current_word.is_empty() {
+            return;
+        }
+
+        match current_word.as_str() {
+            "case" => *pending_case_headers += 1,
+            "in" if *pending_case_headers > 0 => {
+                *pending_case_headers -= 1;
+                *case_clause_depth += 1;
+            }
+            "esac" if *case_clause_depth > 0 => *case_clause_depth -= 1,
+            _ => {}
+        }
+
+        current_word.clear();
+    }
+
     fn read_command_subst_into_depth(&mut self, content: &mut String, subst_depth: usize) -> bool {
         if subst_depth >= self.max_subst_depth {
             // Depth limit exceeded — consume until matching ')' and emit error token
@@ -1396,14 +1418,32 @@ impl<'a> Lexer<'a> {
         }
 
         let mut depth = 1;
+        let mut pending_case_headers = 0usize;
+        let mut case_clause_depth = 0usize;
+        let mut current_word = String::new();
         while let Some(c) = self.peek_char() {
             match c {
                 '(' => {
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
                     depth += 1;
                     content.push(c);
                     self.advance();
                 }
                 ')' => {
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
+                    if depth == 1 && case_clause_depth > 0 {
+                        content.push(')');
+                        self.advance();
+                        continue;
+                    }
                     depth -= 1;
                     self.advance();
                     if depth == 0 {
@@ -1413,6 +1453,11 @@ impl<'a> Lexer<'a> {
                     content.push(c);
                 }
                 '"' => {
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
                     // Nested double-quoted string inside $()
                     content.push('"');
                     self.advance();
@@ -1451,6 +1496,11 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '\'' => {
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
                     // Single-quoted string inside $()
                     content.push('\'');
                     self.advance();
@@ -1463,6 +1513,11 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '\\' => {
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
                     content.push('\\');
                     self.advance();
                     if let Some(esc) = self.peek_char() {
@@ -1471,6 +1526,15 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 _ => {
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        current_word.push(c);
+                    } else {
+                        Self::flush_command_subst_keyword(
+                            &mut current_word,
+                            &mut pending_case_headers,
+                            &mut case_clause_depth,
+                        );
+                    }
                     content.push(c);
                     self.advance();
                 }
