@@ -61,6 +61,9 @@ bench-parser:
 bench-lexer:
 	cargo bench -p shuck-benchmark --bench lexer
 
+bench-semantic:
+	cargo bench -p shuck-benchmark --bench semantic
+
 bench-linter:
 	cargo bench -p shuck-benchmark --bench linter
 
