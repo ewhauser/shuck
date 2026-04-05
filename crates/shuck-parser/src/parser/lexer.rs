@@ -83,6 +83,8 @@ pub struct Lexer<'a> {
     /// Buffer for re-injected characters (e.g., rest-of-line after heredoc delimiter).
     /// Consumed before `cursor`.
     reinject_buf: VecDeque<char>,
+    /// Cursor position to restore once a heredoc replay buffer is exhausted.
+    reinject_resume_position: Option<Position>,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
 }
@@ -101,6 +103,7 @@ impl<'a> Lexer<'a> {
             position: Position::new(),
             cursor: Cursor::new(input),
             reinject_buf: VecDeque::new(),
+            reinject_resume_position: None,
             max_subst_depth: max_depth,
         }
     }
@@ -108,6 +111,14 @@ impl<'a> Lexer<'a> {
     /// Get the current position in the input.
     pub fn position(&self) -> Position {
         self.position
+    }
+
+    fn sync_position_to_cursor(&mut self) {
+        if self.reinject_buf.is_empty() {
+            if let Some(position) = self.reinject_resume_position.take() {
+                self.position = position;
+            }
+        }
     }
 
     /// Get the next token from the input (without span info).
@@ -123,6 +134,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn peek_char(&mut self) -> Option<char> {
+        self.sync_position_to_cursor();
         if let Some(&ch) = self.reinject_buf.front() {
             Some(ch)
         } else {
@@ -131,6 +143,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn advance(&mut self) -> Option<char> {
+        self.sync_position_to_cursor();
         let ch = if !self.reinject_buf.is_empty() {
             self.reinject_buf.pop_front()
         } else {
@@ -166,6 +179,7 @@ impl<'a> Lexer<'a> {
 
     fn consume_source_bytes_without_newline(&mut self, byte_len: usize) {
         debug_assert!(self.reinject_buf.is_empty());
+        self.sync_position_to_cursor();
         let text = &self.cursor.rest()[..byte_len];
         self.advance_position_without_newline(text);
         self.cursor.skip_bytes(byte_len);
@@ -1812,6 +1826,7 @@ impl<'a> Lexer<'a> {
         // Quoted strings may span multiple lines (e.g., `cat <<EOF; echo "two\nthree"`),
         // so we track quoting state and continue across newlines until quotes close.
         let mut rest_of_line = String::new();
+        let rest_of_line_start = self.position;
         let mut in_double_quote = false;
         let mut in_single_quote = false;
         while let Some(ch) = self.peek_char() {
@@ -1835,6 +1850,10 @@ impl<'a> Lexer<'a> {
             rest_of_line.push(ch);
         }
 
+        // If we just drained a heredoc replay buffer (for example when multiple
+        // heredocs share one command line), resume tracking from the true cursor
+        // position before we measure the body span.
+        self.sync_position_to_cursor();
         let content_start = self.position;
         let mut current_line_start = self.position;
         let content_end;
@@ -1909,11 +1928,14 @@ impl<'a> Lexer<'a> {
 
         // Re-inject saved rest-of-line so subsequent tokens (pipes, commands, etc.)
         // are visible to the parser. Add a newline so the tokenizer sees the line break.
+        let post_heredoc_position = self.position;
         if !rest_of_line.is_empty() {
+            self.position = rest_of_line_start;
             for ch in rest_of_line.chars() {
                 self.reinject_buf.push_back(ch);
             }
             self.reinject_buf.push_back('\n');
+            self.reinject_resume_position = Some(post_heredoc_position);
         }
 
         HeredocRead {
@@ -1926,6 +1948,22 @@ impl<'a> Lexer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_non_newline_tokens_stay_on_one_line(input: &str) {
+        let mut lexer = Lexer::new(input);
+
+        while let Some(token) = lexer.next_spanned_token() {
+            if matches!(token.token, Token::Newline | Token::Comment(_)) {
+                continue;
+            }
+
+            assert_eq!(
+                token.span.start.line, token.span.end.line,
+                "token should stay on one line: {:?}",
+                token
+            );
+        }
+    }
 
     #[test]
     fn test_simple_words() {
@@ -2128,6 +2166,158 @@ mod tests {
     }
 
     #[test]
+    fn test_read_heredoc_with_redirect_preserves_following_spans() {
+        let source = "cat <<EOF > file.txt\nhello\nEOF\n# done\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
+        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+
+        let heredoc = lexer.read_heredoc("EOF");
+        assert_eq!(heredoc.content, "hello\n");
+
+        let redirect = lexer.next_spanned_token_with_comments().unwrap();
+        assert_eq!(redirect.token, Token::RedirectOut);
+        assert_eq!(redirect.span.slice(source), ">");
+
+        let target = lexer.next_spanned_token_with_comments().unwrap();
+        assert_eq!(target.token, Token::Word("file.txt".to_string()));
+        assert_eq!(target.span.slice(source), "file.txt");
+
+        let newline = lexer.next_spanned_token_with_comments().unwrap();
+        assert_eq!(newline.token, Token::Newline);
+        assert_eq!(newline.span.slice(source), "\n");
+
+        let comment = lexer.next_spanned_token_with_comments().unwrap();
+        assert_eq!(comment.token, Token::Comment(" done".to_string()));
+        assert_eq!(comment.span.slice(source), "# done");
+    }
+
+    #[test]
+    fn test_comment_with_unicode() {
+        // Comment containing multi-byte UTF-8 characters
+        let source = "# café résumé\necho ok";
+        let mut lexer = Lexer::new(source);
+
+        let comment = lexer.next_spanned_token_with_comments().unwrap();
+        assert_eq!(
+            comment.token,
+            Token::Comment(" café résumé".to_string())
+        );
+        // Span should cover exactly the comment bytes (including #)
+        let start = comment.span.start.offset;
+        let end = comment.span.end.offset;
+        assert_eq!(start, 0);
+        assert_eq!(&source[start..end], "# café résumé");
+        assert!(source.is_char_boundary(start));
+        assert!(source.is_char_boundary(end));
+
+        assert_eq!(
+            lexer.next_token_with_comments(),
+            Some(Token::Newline)
+        );
+        assert_eq!(
+            lexer.next_token_with_comments(),
+            Some(Token::Word("echo".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_comment_with_cjk_characters() {
+        // CJK characters are 3-byte UTF-8; offsets must land on char boundaries
+        let source = "# 你好世界\necho ok";
+        let mut lexer = Lexer::new(source);
+
+        let comment = lexer.next_spanned_token_with_comments().unwrap();
+        assert_eq!(
+            comment.token,
+            Token::Comment(" 你好世界".to_string())
+        );
+        let start = comment.span.start.offset;
+        let end = comment.span.end.offset;
+        assert_eq!(&source[start..end], "# 你好世界");
+        assert!(source.is_char_boundary(start));
+        assert!(source.is_char_boundary(end));
+    }
+
+    #[test]
+    fn test_heredoc_with_comments_inside() {
+        // Comments inside heredoc body should NOT appear as comment tokens
+        let source = "cat <<EOF\n# not a comment\nreal line\nEOF\n# real comment\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("cat".to_string())));
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::HereDoc));
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("EOF".to_string())));
+
+        let heredoc = lexer.read_heredoc("EOF");
+        assert_eq!(heredoc.content, "# not a comment\nreal line\n");
+
+        // After heredoc, the next token should be the real comment
+        let comment = lexer.next_spanned_token_with_comments().unwrap();
+        assert_eq!(
+            comment.token,
+            Token::Comment(" real comment".to_string())
+        );
+    }
+
+    #[test]
+    fn test_heredoc_with_hash_in_variable() {
+        // ${var#pattern} inside heredoc should not produce comment tokens
+        let source = "cat <<EOF\nval=${x#prefix}\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("cat".to_string())));
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::HereDoc));
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("EOF".to_string())));
+
+        let heredoc = lexer.read_heredoc("EOF");
+        assert_eq!(heredoc.content, "val=${x#prefix}\n");
+    }
+
+    #[test]
+    fn test_heredoc_span_does_not_leak() {
+        // Heredoc content span must be within source bounds and must not
+        // overlap with content before or after.
+        let source = "cat <<EOF\nhello\nworld\nEOF\necho after";
+        let mut lexer = Lexer::new(source);
+
+        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
+        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+
+        let heredoc = lexer.read_heredoc("EOF");
+        let start = heredoc.content_span.start.offset;
+        let end = heredoc.content_span.end.offset;
+        assert!(end <= source.len(), "heredoc span end ({end}) exceeds source length ({})", source.len());
+        assert_eq!(&source[start..end], "hello\nworld\n");
+
+        // Tokens after heredoc should still parse correctly
+        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::Word("after".to_string())));
+    }
+
+    #[test]
+    fn test_heredoc_with_unicode_content() {
+        // Heredoc containing multi-byte characters; spans must be on char boundaries
+        let source = "cat <<EOF\n# 你好\ncafé\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
+        assert_eq!(lexer.next_token(), Some(Token::Word("EOF".to_string())));
+
+        let heredoc = lexer.read_heredoc("EOF");
+        assert_eq!(heredoc.content, "# 你好\ncafé\n");
+        let start = heredoc.content_span.start.offset;
+        let end = heredoc.content_span.end.offset;
+        assert!(source.is_char_boundary(start), "heredoc span start ({start}) not on char boundary");
+        assert!(source.is_char_boundary(end), "heredoc span end ({end}) not on char boundary");
+        assert_eq!(&source[start..end], "# 你好\ncafé\n");
+    }
+
+    #[test]
     fn test_assoc_compound_assignment() {
         // declare -A m=([foo]="bar" [baz]="qux") should keep the compound
         // assignment as a single Word token
@@ -2195,5 +2385,32 @@ mod tests {
         }
 
         assert!(tokens > 0, "nvm fixture should produce at least one token");
+    }
+
+    #[test]
+    fn test_case_arm_with_quoted_space_substitution_stays_line_local() {
+        let input = concat!(
+            "case \"${_input_type:-}\" in\n",
+            "  html) _hashtag_pattern=\"<a\\ href=\\\"${_hashtag_replacement_url//' '/%20}\\\">\\#\\\\2<\\/a>\" ;;\n",
+            "  org)  _hashtag_pattern=\"[[${_hashtag_replacement_url//' '/%20}][\\#\\\\2]]\" ;;\n",
+            "esac\n",
+        );
+
+        assert_non_newline_tokens_stay_on_one_line(input);
+
+        let mut lexer = Lexer::new(input);
+        let tokens = std::iter::from_fn(|| lexer.next_token()).collect::<Vec<_>>();
+        assert!(tokens.contains(&Token::DoubleSemicolon));
+        assert!(tokens.contains(&Token::Word("esac".to_string())));
+    }
+
+    #[test]
+    fn test_inline_if_with_array_append_stays_line_local() {
+        let input = concat!(
+            "if [[ -n $arr ]]; then pyout+=(\"${output}\")\n",
+            "elif [[ -n $var ]]; then pyout+=\"${output}${ln:+\\n}\"; fi\n",
+        );
+
+        assert_non_newline_tokens_stay_on_one_line(input);
     }
 }

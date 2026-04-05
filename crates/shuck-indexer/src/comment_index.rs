@@ -27,6 +27,13 @@ impl CommentIndex {
     pub fn new(source: &str, line_index: &LineIndex, comments: &[Comment]) -> Self {
         let mut indexed_comments = comments
             .iter()
+            .filter(|comment| {
+                let start = usize::from(comment.range.start());
+                let end = usize::from(comment.range.end());
+                end <= source.len()
+                    && source.is_char_boundary(start)
+                    && source.is_char_boundary(end)
+            })
             .map(|comment| {
                 let line = line_index.line_number(comment.range.start());
                 let line_range = line_index
@@ -34,8 +41,12 @@ impl CommentIndex {
                     .unwrap_or_else(|| TextRange::new(comment.range.start(), comment.range.end()));
                 let before_comment =
                     &source[usize::from(line_range.start())..usize::from(comment.range.start())];
+                // A comment may span past the line end (e.g. parser bug or
+                // multi-line heredoc comment). Clamp to avoid panicking.
+                let after_end = usize::from(comment.range.end())
+                    .min(usize::from(line_range.end()));
                 let after_comment =
-                    &source[usize::from(comment.range.end())..usize::from(line_range.end())];
+                    &source[after_end..usize::from(line_range.end())];
 
                 IndexedComment {
                     range: comment.range,

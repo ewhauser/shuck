@@ -4435,15 +4435,16 @@ mod tests {
 
     #[test]
     fn test_parse_simple_command() {
-        let parser = Parser::new("echo hello");
+        let input = "echo hello";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         assert_eq!(script.commands.len(), 1);
 
         if let Command::Simple(cmd) = &script.commands[0] {
-            assert_eq!(cmd.name.to_string(), "echo");
+            assert_eq!(cmd.name.render(input), "echo");
             assert_eq!(cmd.args.len(), 1);
-            assert_eq!(cmd.args[0].to_string(), "hello");
+            assert_eq!(cmd.args[0].render(input), "hello");
         } else {
             panic!("expected simple command");
         }
@@ -4451,63 +4452,68 @@ mod tests {
 
     #[test]
     fn test_parse_break_as_typed_builtin() {
-        let parser = Parser::new("break 2");
+        let input = "break 2";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Break(command)) = &script.commands[0] else {
             panic!("expected break builtin");
         };
 
-        assert_eq!(command.depth.as_ref().unwrap().to_string(), "2");
+        assert_eq!(command.depth.as_ref().unwrap().render(input), "2");
         assert!(command.extra_args.is_empty());
     }
 
     #[test]
     fn test_parse_continue_preserves_extra_args() {
-        let parser = Parser::new("continue 1 extra");
+        let input = "continue 1 extra";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Continue(command)) = &script.commands[0] else {
             panic!("expected continue builtin");
         };
 
-        assert_eq!(command.depth.as_ref().unwrap().to_string(), "1");
+        assert_eq!(command.depth.as_ref().unwrap().render(input), "1");
         assert_eq!(command.extra_args.len(), 1);
-        assert_eq!(command.extra_args[0].to_string(), "extra");
+        assert_eq!(command.extra_args[0].render(input), "extra");
     }
 
     #[test]
     fn test_parse_return_preserves_assignments_and_redirects() {
-        let parser = Parser::new("FOO=bar return 42 > out.txt");
+        let input = "FOO=bar return 42 > out.txt";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Return(command)) = &script.commands[0] else {
             panic!("expected return builtin");
         };
 
-        assert_eq!(command.code.as_ref().unwrap().to_string(), "42");
+        assert_eq!(command.code.as_ref().unwrap().render(input), "42");
         assert_eq!(command.assignments.len(), 1);
         assert_eq!(command.assignments[0].name, "FOO");
         assert_eq!(command.redirects.len(), 1);
-        assert_eq!(command.redirects[0].target.to_string(), "out.txt");
+        assert_eq!(command.redirects[0].target.render(input), "out.txt");
     }
 
     #[test]
     fn test_parse_exit_as_typed_builtin() {
-        let parser = Parser::new("exit 1");
+        let input = "exit 1";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         let Command::Builtin(BuiltinCommand::Exit(command)) = &script.commands[0] else {
             panic!("expected exit builtin");
         };
 
-        assert_eq!(command.code.as_ref().unwrap().to_string(), "1");
+        assert_eq!(command.code.as_ref().unwrap().render(input), "1");
         assert!(command.extra_args.is_empty());
     }
 
     #[test]
     fn test_parse_quoted_flow_control_name_stays_simple_command() {
-        let parser = Parser::new("'break' 2");
+        let input = "'break' 2";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         let Command::Simple(command) = &script.commands[0] else {
@@ -4515,20 +4521,21 @@ mod tests {
         };
 
         assert!(command.name.quoted);
-        assert_eq!(command.name.to_string(), "break");
-        assert_eq!(command.args[0].to_string(), "2");
+        assert_eq!(command.name.render(input), "break");
+        assert_eq!(command.args[0].render(input), "2");
     }
 
     #[test]
     fn test_parse_multiple_args() {
-        let parser = Parser::new("echo hello world");
+        let input = "echo hello world";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         if let Command::Simple(cmd) = &script.commands[0] {
-            assert_eq!(cmd.name.to_string(), "echo");
+            assert_eq!(cmd.name.render(input), "echo");
             assert_eq!(cmd.args.len(), 2);
-            assert_eq!(cmd.args[0].to_string(), "hello");
-            assert_eq!(cmd.args[1].to_string(), "world");
+            assert_eq!(cmd.args[0].render(input), "hello");
+            assert_eq!(cmd.args[1].render(input), "world");
         } else {
             panic!("expected simple command");
         }
@@ -4564,7 +4571,8 @@ mod tests {
 
     #[test]
     fn test_parse_recovered_skips_invalid_command_and_continues() {
-        let recovered = Parser::new("echo one\ncat >\necho two\n").parse_recovered();
+        let input = "echo one\ncat >\necho two\n";
+        let recovered = Parser::new(input).parse_recovered();
 
         assert_eq!(recovered.script.commands.len(), 2);
         assert_eq!(recovered.diagnostics.len(), 1);
@@ -4574,14 +4582,14 @@ mod tests {
         let Command::Simple(first) = &recovered.script.commands[0] else {
             panic!("expected first command to be simple");
         };
-        assert_eq!(first.name.to_string(), "echo");
-        assert_eq!(first.args[0].to_string(), "one");
+        assert_eq!(first.name.render(input), "echo");
+        assert_eq!(first.args[0].render(input), "one");
 
         let Command::Simple(second) = &recovered.script.commands[1] else {
             panic!("expected second command to be simple");
         };
-        assert_eq!(second.name.to_string(), "echo");
-        assert_eq!(second.args[0].to_string(), "two");
+        assert_eq!(second.name.render(input), "echo");
+        assert_eq!(second.args[0].render(input), "two");
     }
 
     #[test]
@@ -4599,13 +4607,14 @@ mod tests {
 
     #[test]
     fn test_parse_redirect_out() {
-        let parser = Parser::new("echo hello > /tmp/out");
+        let input = "echo hello > /tmp/out";
+        let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
 
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.redirects.len(), 1);
             assert_eq!(cmd.redirects[0].kind, RedirectKind::Output);
-            assert_eq!(cmd.redirects[0].target.to_string(), "/tmp/out");
+            assert_eq!(cmd.redirects[0].target.render(input), "/tmp/out");
         } else {
             panic!("expected simple command");
         }
@@ -4787,7 +4796,7 @@ mod tests {
         let script = parser.parse().unwrap().script;
         assert_eq!(script.commands.len(), 1);
         if let Command::Simple(cmd) = &script.commands[0] {
-            assert_eq!(cmd.name.to_string(), "echo");
+            assert_eq!(cmd.name.render(input), "echo");
             assert_eq!(cmd.args.len(), 1);
             // The arg should contain an ArrayAccess with the full nested index
             let arg = &cmd.args[0];
@@ -5021,10 +5030,8 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_pattern_rhs_preserves_structure() {
-        let script = Parser::new("[[ foo == (bar|baz)* ]]\n")
-            .parse()
-            .unwrap()
-            .script;
+        let input = "[[ foo == (bar|baz)* ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -5039,15 +5046,13 @@ coproc worker { true; }
         let ConditionalExpr::Pattern(word) = binary.right.as_ref() else {
             panic!("expected pattern rhs");
         };
-        assert_eq!(word.to_string(), "(bar|baz)*");
+        assert_eq!(word.render(input), "(bar|baz)*");
     }
 
     #[test]
     fn test_parse_conditional_regex_rhs_preserves_structure() {
-        let script = Parser::new("[[ foo =~ [ab](c|d) ]]\n")
-            .parse()
-            .unwrap()
-            .script;
+        let input = "[[ foo =~ [ab](c|d) ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
         else {
@@ -5062,7 +5067,7 @@ coproc worker { true; }
         let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
             panic!("expected regex rhs");
         };
-        assert_eq!(word.to_string(), "[ab](c|d)");
+        assert_eq!(word.render(input), "[ab](c|d)");
     }
 
     #[test]
@@ -5206,5 +5211,115 @@ coproc worker { true; }
             panic!("expected bare name operand");
         };
         assert_eq!(name.name, "other");
+    }
+
+    // -----------------------------------------------------------------------
+    // Comment range tests — verify Comment.range is valid for all comments
+    // -----------------------------------------------------------------------
+
+    /// Assert every comment range is within source bounds, on char boundaries,
+    /// and starts with `#`.
+    fn assert_comment_ranges_valid(source: &str, output: &ParseOutput) {
+        for (i, comment) in output.comments.iter().enumerate() {
+            let start = usize::from(comment.range.start());
+            let end = usize::from(comment.range.end());
+            assert!(
+                end <= source.len(),
+                "comment {i}: end ({end}) exceeds source length ({})",
+                source.len()
+            );
+            assert!(
+                source.is_char_boundary(start),
+                "comment {i}: start ({start}) not on char boundary"
+            );
+            assert!(
+                source.is_char_boundary(end),
+                "comment {i}: end ({end}) not on char boundary"
+            );
+            let text = &source[start..end];
+            assert!(
+                text.starts_with('#'),
+                "comment {i}: expected '#' at start, got {:?}",
+                text.chars().next()
+            );
+            assert!(
+                !text.contains('\n'),
+                "comment {i}: spans multiple lines: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_comment_ranges_simple() {
+        let source = "# head\necho hi # inline\n# tail\n";
+        let output = Parser::new(source).parse().unwrap();
+        assert_eq!(output.comments.len(), 3);
+        assert_comment_ranges_valid(source, &output);
+    }
+
+    #[test]
+    fn test_comment_ranges_with_unicode() {
+        let source = "# café résumé\necho ok\n# 你好世界\n";
+        let output = Parser::new(source).parse().unwrap();
+        assert_eq!(output.comments.len(), 2);
+        assert_comment_ranges_valid(source, &output);
+    }
+
+    #[test]
+    fn test_comment_ranges_heredoc_no_false_comments() {
+        // Lines with # inside a heredoc must NOT produce Comment entries
+        let source = "cat <<EOF\n# not a comment\nline two\nEOF\n# real\n";
+        let output = Parser::new(source).parse().unwrap();
+        assert_comment_ranges_valid(source, &output);
+        // Only the real comment after EOF should be collected
+        let texts: Vec<&str> = output
+            .comments
+            .iter()
+            .map(|c| c.range.slice(source))
+            .collect();
+        assert!(
+            !texts.iter().any(|t| t.contains("not a comment")),
+            "heredoc body produced a false comment: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn test_comment_ranges_heredoc_with_unicode() {
+        let source = "cat <<EOF\n# 你好\ncafé\nEOF\n# end\n";
+        let output = Parser::new(source).parse().unwrap();
+        assert_comment_ranges_valid(source, &output);
+    }
+
+    #[test]
+    fn test_comment_ranges_heredoc_desktop_entry() {
+        // Reproduces the pattern from the distrobox corpus file:
+        // a heredoc containing lines with ${var} expansions and no actual comments
+        let source = r#"cat << EOF > "${HOME}/test.desktop"
+[Desktop Entry]
+Name=${entry_name}
+GenericName=Terminal entering ${entry_name}
+Comment=Terminal entering ${entry_name}
+Categories=Distrobox;System;Utility
+Exec=${distrobox_path}/distrobox enter ${extra_flags} ${container_name}
+Icon=${icon}
+Terminal=true
+Type=Application
+EOF
+# done
+"#;
+        let output = Parser::new(source).parse().unwrap();
+        assert_comment_ranges_valid(source, &output);
+        let texts: Vec<&str> = output
+            .comments
+            .iter()
+            .map(|c| c.range.slice(source))
+            .collect();
+        // None of the heredoc lines should appear as comments
+        for text in &texts {
+            assert!(
+                !text.contains("Desktop") && !text.contains("entry_name"),
+                "heredoc body leaked as comment: {text:?}"
+            );
+        }
     }
 }

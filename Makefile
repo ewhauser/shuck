@@ -15,10 +15,10 @@ PROFILE_RATE ?= 1000
 PROFILE_ITERATIONS ?= 1
 
 build:
-	cargo build -p shuck -p shuck-cache
+	cargo build
 
 test:
-	cargo test -p shuck -p shuck-cache
+	cargo test
 
 corpus-download:
 	mkdir -p $(CORPUS_DIR)
@@ -42,7 +42,7 @@ setup-large-corpus:
 	./scripts/corpus-download.sh
 
 test-large-corpus:
-	SHUCK_TEST_LARGE_CORPUS=1 cargo test -p shuck --test large_corpus -- --ignored
+	SHUCK_TEST_LARGE_CORPUS=1 $(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored
 
 run:
 	cargo run -p shuck -- $(ARGS)

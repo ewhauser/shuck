@@ -186,21 +186,13 @@ fn large_corpus_conforms_with_shellcheck() {
         );
     }
 
-    let shellcheck_path = match find_shellcheck() {
-        Some(p) => p,
-        None => {
-            eprintln!("shellcheck not found on PATH, skipping shellcheck comparison");
-            run_parse_only(&fixtures);
-            return;
-        }
-    };
+    let shellcheck_path = find_shellcheck()
+        .expect("shellcheck not found on PATH; install it to run the large corpus test");
 
     let supported_shells = shellcheck_supported_shells(&shellcheck_path);
     let shellcheck_index = build_shellcheck_index();
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck_path);
     let linter_settings = shuck_linter::LinterSettings::default();
-
-    let mut failures = Vec::new();
 
     for fixture in &fixtures {
         if !supported_shells.contains_key(fixture.shell.as_str()) {
@@ -242,20 +234,12 @@ fn large_corpus_conforms_with_shellcheck() {
         }
 
         if !issues.is_empty() {
-            failures.push(format!(
+            panic!(
                 "{}\n{}",
                 fixture.path.display(),
                 indent_detail(&issues.join("\n\n"))
-            ));
+            );
         }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} fixture(s) failed:\n\n{}",
-            failures.len(),
-            failures.join("\n\n")
-        );
     }
 }
 
@@ -282,6 +266,7 @@ fn large_corpus_parses_without_panic() {
 }
 
 fn run_parse_only(fixtures: &[LargeCorpusFixture]) {
+    let linter_settings = shuck_linter::LinterSettings::default();
     let mut parse_errors = 0usize;
     let mut parse_successes = 0usize;
 
@@ -294,10 +279,28 @@ fn run_parse_only(fixtures: &[LargeCorpusFixture]) {
             }
         };
 
-        match shuck_parser::parser::Parser::new(&source).parse() {
-            Ok(_) => parse_successes += 1,
-            Err(_) => parse_errors += 1,
-        }
+        let output = match shuck_parser::parser::Parser::new(&source).parse() {
+            Ok(o) => o,
+            Err(_) => {
+                parse_errors += 1;
+                continue;
+            }
+        };
+
+        // Run the full pipeline to catch panics in the indexer/semantic/linter.
+        let indexer = shuck_indexer::Indexer::new(&source, &output);
+        let semantic =
+            shuck_semantic::SemanticModel::build(&output.script, &source, &indexer);
+        let _ = shuck_linter::lint_file(
+            &output.script,
+            &source,
+            &semantic,
+            &indexer,
+            &linter_settings,
+            None,
+        );
+
+        parse_successes += 1;
     }
 
     eprintln!(
