@@ -187,16 +187,25 @@ Exit criteria:
 
 ### Stage 5: Rework Alias Expansion And Synthetic Token Handling
 
-- [ ] Replace synthetic token queues of heavyweight token objects with lightweight token slices or compact replay buffers.
-- [ ] Avoid re-lexing alias expansions into full owned token payloads where possible.
-- [ ] Preserve alias semantics, including recursive expansion guards and "expand next word" behavior.
-- [ ] Ensure synthetic tokens remain cheap after the token-model split.
-- [ ] Re-profile before moving on.
+- [x] Replace synthetic token queues of heavyweight token objects with lightweight token slices or compact replay buffers.
+- [x] Avoid re-lexing alias expansions into full owned token payloads where possible.
+- [x] Preserve alias semantics, including recursive expansion guards and "expand next word" behavior.
+- [x] Ensure synthetic tokens remain cheap after the token-model split.
+- [x] Re-profile before moving on.
 
 Exit criteria:
 
 - Alias expansion is no longer coupled to heavyweight token allocation.
 - Synthetic-token handling does not dominate peek/advance costs.
+
+#### Stage 5 Notes
+
+- 2026-04-05: alias definitions are now compiled once into shared-token replay buffers backed by `Arc<[LexedToken]>`, and expansion replays one token at a time instead of re-lexing into a queued `VecDeque<LexedToken>`.
+- 2026-04-05: the parser now keeps tiny synthetic punctuation in a compact kind-and-span queue, while replayed alias tokens preserve rebased spans without letting synthetic words masquerade as source-backed AST literals or comments.
+- 2026-04-05: regression coverage now includes trailing-space alias expansion for the next word plus recursive self-alias guards, alongside the existing alias tests for `for`, brace groups, and subshell openings.
+- 2026-04-05: `cargo test -p shuck-parser` passed after the refactor, including the Oils parser expectations suite.
+- 2026-04-05: full `cargo bench -p shuck-benchmark --bench parser -- --noplot` measured `parser/nvm` at `2.9909 ms` (`[2.9860 ms 2.9909 ms 2.9969 ms]`) and `parser/all` at `6.4294 ms` (`[6.4107 ms 6.4294 ms 6.4519 ms]`), improving on the Stage 4 checkpoint (`3.1155 ms`, `6.5593 ms`) and Stage 0 baseline (`3.1278 ms`, `6.6999 ms`).
+- 2026-04-05: `cargo flamegraph --profile profiling -p shuck-benchmark --bench parser -o target/profiles/flame-parser-stage5-nvm.svg -- nvm --noplot` completed successfully after creating the output directory, producing a fresh local Stage 5 parser profile artifact at `target/profiles/flame-parser-stage5-nvm.svg`.
 
 ### Stage 6: Switch Hot Position Tracking To Byte Offsets
 

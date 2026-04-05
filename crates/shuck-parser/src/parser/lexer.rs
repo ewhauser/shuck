@@ -2,7 +2,7 @@
 //!
 //! Tokenizes input into a stream of tokens with source position tracking.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, ops::Range, sync::Arc};
 
 use memchr::memchr;
 use shuck_ast::{Position, Span, Token, TokenKind};
@@ -56,6 +56,10 @@ impl TokenFlags {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TokenText<'a> {
     Borrowed(&'a str),
+    Shared {
+        source: Arc<str>,
+        range: Range<usize>,
+    },
     Owned(String),
 }
 
@@ -63,6 +67,7 @@ impl TokenText<'_> {
     pub(crate) fn as_str(&self) -> &str {
         match self {
             Self::Borrowed(text) => text,
+            Self::Shared { source, range } => &source[range.clone()],
             Self::Owned(text) => text,
         }
     }
@@ -70,6 +75,23 @@ impl TokenText<'_> {
     fn into_owned<'a>(self) -> TokenText<'a> {
         match self {
             Self::Borrowed(text) => TokenText::Owned(text.to_string()),
+            Self::Shared { source, range } => TokenText::Shared { source, range },
+            Self::Owned(text) => TokenText::Owned(text),
+        }
+    }
+
+    fn into_shared<'a>(self, source: &Arc<str>, span: Option<Span>) -> TokenText<'a> {
+        match self {
+            Self::Borrowed(text) => span
+                .filter(|span| span.end.offset <= source.len())
+                .map_or_else(
+                    || TokenText::Owned(text.to_string()),
+                    |span| TokenText::Shared {
+                        source: Arc::clone(source),
+                        range: span.start.offset..span.end.offset,
+                    },
+                ),
+            Self::Shared { source, range } => TokenText::Shared { source, range },
             Self::Owned(text) => TokenText::Owned(text),
         }
     }
@@ -119,10 +141,23 @@ impl<'a> LexedWordSegment<'a> {
         self.span
     }
 
+    fn rebased(mut self, base: Position) -> Self {
+        self.span = self.span.map(|span| span.rebased(base));
+        self
+    }
+
     fn into_owned<'b>(self) -> LexedWordSegment<'b> {
         LexedWordSegment {
             kind: self.kind,
             text: self.text.into_owned(),
+            span: self.span,
+        }
+    }
+
+    fn into_shared<'b>(self, source: &Arc<str>) -> LexedWordSegment<'b> {
+        LexedWordSegment {
+            kind: self.kind,
+            text: self.text.into_shared(source, self.span),
             span: self.span,
         }
     }
@@ -185,6 +220,16 @@ impl<'a> LexedWord<'a> {
             .any(|segment| matches!(segment.text, TokenText::Owned(_)))
     }
 
+    fn rebased(mut self, base: Position) -> Self {
+        self.primary_segment = self.primary_segment.rebased(base);
+        self.trailing_segments = self
+            .trailing_segments
+            .into_iter()
+            .map(|segment| segment.rebased(base))
+            .collect();
+        self
+    }
+
     fn into_owned<'b>(self) -> LexedWord<'b> {
         LexedWord {
             primary_segment: self.primary_segment.into_owned(),
@@ -192,6 +237,17 @@ impl<'a> LexedWord<'a> {
                 .trailing_segments
                 .into_iter()
                 .map(LexedWordSegment::into_owned)
+                .collect(),
+        }
+    }
+
+    fn into_shared<'b>(self, source: &Arc<str>) -> LexedWord<'b> {
+        LexedWord {
+            primary_segment: self.primary_segment.into_shared(source),
+            trailing_segments: self
+                .trailing_segments
+                .into_iter()
+                .map(|segment| segment.into_shared(source))
                 .collect(),
         }
     }
@@ -321,6 +377,10 @@ impl<'a> LexedToken<'a> {
 
     pub(crate) fn rebased(mut self, base: Position) -> Self {
         self.span = self.span.rebased(base);
+        self.payload = match self.payload {
+            TokenPayload::Word(word) => TokenPayload::Word(word.rebased(base)),
+            payload => payload,
+        };
         self
     }
 
@@ -333,6 +393,23 @@ impl<'a> LexedToken<'a> {
         let payload = match self.payload {
             TokenPayload::None => TokenPayload::None,
             TokenPayload::Word(word) => TokenPayload::Word(word.into_owned()),
+            TokenPayload::Fd(fd) => TokenPayload::Fd(fd),
+            TokenPayload::FdPair(src_fd, dst_fd) => TokenPayload::FdPair(src_fd, dst_fd),
+            TokenPayload::Error(kind) => TokenPayload::Error(kind),
+        };
+
+        LexedToken {
+            kind: self.kind,
+            span: self.span,
+            flags: self.flags,
+            payload,
+        }
+    }
+
+    pub(crate) fn into_shared<'b>(self, source: &Arc<str>) -> LexedToken<'b> {
+        let payload = match self.payload {
+            TokenPayload::None => TokenPayload::None,
+            TokenPayload::Word(word) => TokenPayload::Word(word.into_shared(source)),
             TokenPayload::Fd(fd) => TokenPayload::Fd(fd),
             TokenPayload::FdPair(src_fd, dst_fd) => TokenPayload::FdPair(src_fd, dst_fd),
             TokenPayload::Error(kind) => TokenPayload::Error(kind),

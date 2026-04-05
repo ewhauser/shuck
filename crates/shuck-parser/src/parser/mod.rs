@@ -11,6 +11,7 @@ mod lexer;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
 };
 
 pub use lexer::{HeredocRead, Lexer, SpannedToken};
@@ -58,7 +59,8 @@ pub struct ParseOutput {
 pub struct Parser<'a> {
     input: &'a str,
     lexer: Lexer<'a>,
-    synthetic_tokens: VecDeque<LexedToken<'a>>,
+    synthetic_tokens: VecDeque<SyntheticToken>,
+    alias_replays: Vec<AliasReplay>,
     current_token: Option<LexedToken<'a>>,
     current_word_cache: Option<Word>,
     current_token_kind: Option<TokenKind>,
@@ -102,8 +104,47 @@ pub struct RecoveredParse {
 
 #[derive(Debug, Clone)]
 struct AliasDefinition {
-    value: String,
+    tokens: Arc<[LexedToken<'static>]>,
     expands_next_word: bool,
+}
+
+#[derive(Debug, Clone)]
+struct AliasReplay {
+    tokens: Arc<[LexedToken<'static>]>,
+    next_index: usize,
+    base: Position,
+}
+
+impl AliasReplay {
+    fn new(alias: &AliasDefinition, base: Position) -> Self {
+        Self {
+            tokens: Arc::clone(&alias.tokens),
+            next_index: 0,
+            base,
+        }
+    }
+
+    fn next_token<'b>(&mut self) -> Option<LexedToken<'b>> {
+        let token = self.tokens.get(self.next_index)?.clone();
+        self.next_index += 1;
+        Some(token.into_owned().rebased(self.base).with_synthetic_flag())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SyntheticToken {
+    kind: TokenKind,
+    span: Span,
+}
+
+impl SyntheticToken {
+    const fn punctuation(kind: TokenKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+
+    fn materialize<'b>(self) -> LexedToken<'b> {
+        LexedToken::punctuation(self.kind).with_span(self.span)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -153,6 +194,7 @@ impl<'a> Parser<'a> {
             input,
             lexer,
             synthetic_tokens: VecDeque::new(),
+            alias_replays: Vec::new(),
             current_token,
             current_word_cache: None,
             current_token_kind,
@@ -200,6 +242,14 @@ impl<'a> Parser<'a> {
         )
     }
 
+    fn maybe_record_comment(&mut self, token: &LexedToken<'_>) {
+        if token.kind == TokenKind::Comment && !token.flags.is_synthetic() {
+            self.comments.push(Comment {
+                range: token.span.to_range(),
+            });
+        }
+    }
+
     fn word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
         if let Some(word) = self.simple_word_from_token(token, span) {
             return Some(word);
@@ -219,6 +269,7 @@ impl<'a> Parser<'a> {
 
         for segment in word.segments() {
             let text = segment.as_str();
+            let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
             match segment.kind() {
                 LexedWordSegmentKind::Plain | LexedWordSegmentKind::DoubleQuoted
                     if Self::word_text_needs_parse(text) =>
@@ -231,7 +282,7 @@ impl<'a> Parser<'a> {
                 LexedWordSegmentKind::Composite => return None,
             }
 
-            parts.push(WordPart::Literal(if segment.span().is_some() {
+            parts.push(WordPart::Literal(if source_backed {
                 LiteralText::source()
             } else {
                 LiteralText::owned(text.to_string())
@@ -269,10 +320,11 @@ impl<'a> Parser<'a> {
         if let Some(segment) = word.single_segment() {
             let text = segment.as_str();
             let segment_span = segment.span().unwrap_or(span);
+            let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
 
             return match segment.kind() {
                 LexedWordSegmentKind::Literal => Some(Word {
-                    parts: vec![WordPart::Literal(if segment.span().is_some() {
+                    parts: vec![WordPart::Literal(if source_backed {
                         LiteralText::source()
                     } else {
                         LiteralText::owned(text.to_string())
@@ -281,26 +333,14 @@ impl<'a> Parser<'a> {
                     quoted: true,
                     span,
                 }),
-                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => {
-                    Some(self.decode_word_text(
-                        text,
-                        span,
-                        segment_span.start,
-                        false,
-                        segment.span().is_some(),
-                    ))
-                }
+                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
+                    self.decode_word_text(text, span, segment_span.start, false, source_backed),
+                ),
                 LexedWordSegmentKind::DoubleQuoted if Self::word_text_needs_parse(text) => {
-                    Some(self.decode_word_text(
-                        text,
-                        span,
-                        segment_span.start,
-                        true,
-                        segment.span().is_some(),
-                    ))
+                    Some(self.decode_word_text(text, span, segment_span.start, true, source_backed))
                 }
                 LexedWordSegmentKind::Plain | LexedWordSegmentKind::DoubleQuoted => Some(Word {
-                    parts: vec![WordPart::Literal(if segment.span().is_some() {
+                    parts: vec![WordPart::Literal(if source_backed {
                         LiteralText::source()
                     } else {
                         LiteralText::owned(text.to_string())
@@ -328,6 +368,7 @@ impl<'a> Parser<'a> {
                 cursor = end;
                 Span::from_positions(start, end)
             };
+            let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
 
             match segment.kind() {
                 LexedWordSegmentKind::Literal => self.push_literal_part_from_segment(
@@ -335,14 +376,14 @@ impl<'a> Parser<'a> {
                     &mut part_spans,
                     text,
                     segment_span,
-                    segment.span().is_some(),
+                    source_backed,
                 ),
                 LexedWordSegmentKind::Plain | LexedWordSegmentKind::DoubleQuoted => {
                     if Self::word_text_needs_parse(text) {
                         self.decode_word_parts_into(
                             text,
                             segment_span.start,
-                            segment.span().is_some(),
+                            source_backed,
                             &mut parts,
                             &mut part_spans,
                         );
@@ -352,7 +393,7 @@ impl<'a> Parser<'a> {
                             &mut part_spans,
                             text,
                             segment_span,
-                            segment.span().is_some(),
+                            source_backed,
                         );
                     }
                 }
@@ -989,22 +1030,37 @@ impl<'a> Parser<'a> {
         self.current_token_kind = None;
     }
 
+    fn next_pending_token(&mut self) -> Option<LexedToken<'a>> {
+        if let Some(token) = self.synthetic_tokens.pop_front() {
+            return Some(token.materialize());
+        }
+
+        loop {
+            let replay = self.alias_replays.last_mut()?;
+            if let Some(token) = replay.next_token() {
+                return Some(token);
+            }
+            self.alias_replays.pop();
+        }
+    }
+
     fn next_spanned_token_with_comments(&mut self) -> Option<LexedToken<'a>> {
-        self.synthetic_tokens
-            .pop_front()
+        self.next_pending_token()
             .or_else(|| self.lexer.next_lexed_token_with_comments())
     }
 
-    fn queue_synthetic_tokens(&mut self, source: &str, base: Position) {
-        let mut lexer = Lexer::with_max_subst_depth(source, self.max_depth);
-        let mut queued = Vec::new();
+    fn compile_alias_definition(&self, value: &str) -> AliasDefinition {
+        let source = Arc::<str>::from(value.to_string());
+        let mut lexer = Lexer::with_max_subst_depth(source.as_ref(), self.max_depth);
+        let mut tokens = Vec::new();
 
         while let Some(token) = lexer.next_lexed_token_with_comments() {
-            queued.push(token.into_owned().rebased(base).with_synthetic_flag());
+            tokens.push(token.into_shared(&source));
         }
 
-        for token in queued.into_iter().rev() {
-            self.synthetic_tokens.push_front(token);
+        AliasDefinition {
+            tokens: tokens.into(),
+            expands_next_word: value.chars().last().is_some_and(char::is_whitespace),
         }
     }
 
@@ -1033,7 +1089,8 @@ impl<'a> Parser<'a> {
 
             expands_next_word = alias.expands_next_word;
             self.peeked_token = None;
-            self.queue_synthetic_tokens(&alias.value, self.current_span.start);
+            self.alias_replays
+                .push(AliasReplay::new(&alias, self.current_span.start));
             self.advance_raw();
         }
 
@@ -1075,16 +1132,8 @@ impl<'a> Parser<'a> {
                     let Some((alias_name, value)) = arg.split_once('=') else {
                         continue;
                     };
-                    self.aliases.insert(
-                        alias_name.to_string(),
-                        AliasDefinition {
-                            value: value.to_string(),
-                            expands_next_word: value
-                                .chars()
-                                .last()
-                                .is_some_and(char::is_whitespace),
-                        },
-                    );
+                    self.aliases
+                        .insert(alias_name.to_string(), self.compile_alias_definition(value));
                 }
             }
             "unalias" => {
@@ -1422,9 +1471,7 @@ impl<'a> Parser<'a> {
             loop {
                 match self.next_spanned_token_with_comments() {
                     Some(st) if st.kind == TokenKind::Comment => {
-                        self.comments.push(Comment {
-                            range: st.span.to_range(),
-                        });
+                        self.maybe_record_comment(&st);
                     }
                     Some(st) => {
                         self.set_current_spanned(st);
@@ -1454,9 +1501,7 @@ impl<'a> Parser<'a> {
             loop {
                 match self.next_spanned_token_with_comments() {
                     Some(st) if st.kind == TokenKind::Comment => {
-                        self.comments.push(Comment {
-                            range: st.span.to_range(),
-                        });
+                        self.maybe_record_comment(&st);
                     }
                     other => {
                         self.peeked_token = other;
@@ -2263,7 +2308,10 @@ impl<'a> Parser<'a> {
         let (left_span, right_span) = Self::split_double_left_paren(self.current_span);
         self.set_current_kind(TokenKind::LeftParen, left_span);
         self.synthetic_tokens
-            .push_front(LexedToken::punctuation(TokenKind::LeftParen).with_span(right_span));
+            .push_front(SyntheticToken::punctuation(
+                TokenKind::LeftParen,
+                right_span,
+            ));
     }
 
     /// Parse a single command (simple or compound)
@@ -7391,6 +7439,53 @@ LEFT echo one; echo two )
             panic!("expected final command to be a subshell");
         };
         assert!(matches!(commands.as_slice(), [Command::List(_)]));
+    }
+
+    #[test]
+    fn test_alias_expansion_with_trailing_space_expands_next_word() {
+        let input = "\
+shopt -s expand_aliases
+alias greet='echo '
+alias subject='hello'
+greet subject
+";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Some(Command::Simple(command)) = script.commands.last() else {
+            panic!("expected final command to be a simple command");
+        };
+
+        assert_eq!(command.name.render(input), "echo");
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].render(input), "hello");
+
+        let WordPart::Literal(name_text) = &command.name.parts[0] else {
+            panic!("expected alias-expanded command name to stay literal");
+        };
+        let WordPart::Literal(arg_text) = &command.args[0].parts[0] else {
+            panic!("expected alias-expanded arg to stay literal");
+        };
+
+        assert!(!name_text.is_source_backed());
+        assert!(!arg_text.is_source_backed());
+    }
+
+    #[test]
+    fn test_alias_expansion_recursive_guard_stops_self_reference() {
+        let input = "\
+shopt -s expand_aliases
+alias loop='loop echo'
+loop
+";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Some(Command::Simple(command)) = script.commands.last() else {
+            panic!("expected final command to be a simple command");
+        };
+
+        assert_eq!(command.name.render(input), "loop");
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].render(input), "echo");
     }
 
     // -----------------------------------------------------------------------
