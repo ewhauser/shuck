@@ -10,8 +10,8 @@ mod lexer;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use lexer::LexedToken;
 pub use lexer::{HeredocRead, Lexer, SpannedToken};
+use lexer::{LexedToken, LexedWordSegmentKind};
 
 use shuck_ast::{
     ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,
@@ -194,6 +194,10 @@ impl<'a> Parser<'a> {
     }
 
     fn word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
+        if let Some(word) = self.simple_word_from_token(token, span) {
+            return Some(word);
+        }
+
         let text = token.word_text()?;
         match token.kind {
             TokenKind::Word => Some(self.parse_word_with_context(text, span, span.start)),
@@ -204,6 +208,46 @@ impl<'a> Parser<'a> {
                 Some(word)
             }
             TokenKind::LiteralWord => Some(Word::quoted_literal_with_span(text.to_string(), span)),
+            _ => None,
+        }
+    }
+
+    fn word_text_needs_parse(text: &str) -> bool {
+        text.contains(['$', '`', '\x00'])
+    }
+
+    fn simple_word_from_token(&self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
+        let word = token.word()?;
+        let segment = word.single_segment()?;
+        let part_span = segment.span().unwrap_or(span);
+        let text = segment.as_str();
+
+        match (token.kind, segment.kind()) {
+            (TokenKind::Word, LexedWordSegmentKind::Plain)
+                if !Self::word_text_needs_parse(text) =>
+            {
+                Some(if segment.span().is_some() {
+                    Word::source_literal_with_spans(span, part_span)
+                } else {
+                    Word::literal_with_span(text.to_string(), span)
+                })
+            }
+            (TokenKind::LiteralWord, LexedWordSegmentKind::Literal) => {
+                Some(if segment.span().is_some() {
+                    Word::quoted_source_literal_with_spans(span, part_span)
+                } else {
+                    Word::quoted_literal_with_span(text.to_string(), span)
+                })
+            }
+            (TokenKind::QuotedWord, LexedWordSegmentKind::DoubleQuoted)
+                if !Self::word_text_needs_parse(text) =>
+            {
+                Some(if segment.span().is_some() {
+                    Word::quoted_source_literal_with_spans(span, part_span)
+                } else {
+                    Word::quoted_literal_with_span(text.to_string(), span)
+                })
+            }
             _ => None,
         }
     }
@@ -229,6 +273,18 @@ impl<'a> Parser<'a> {
             .filter(|kind| kind.is_word_like())
             .and_then(|_| self.current_word_str())
             .map(|word| (Name::from(word), self.current_span))
+    }
+
+    fn current_static_token_text(&self) -> Option<(&str, bool)> {
+        let token = self.current_token.as_ref()?;
+        let text = token.word_text()?;
+
+        match token.kind {
+            TokenKind::LiteralWord => Some((text, true)),
+            TokenKind::QuotedWord if !Self::word_text_needs_parse(text) => Some((text, true)),
+            TokenKind::Word if !Self::word_text_needs_parse(text) => Some((text, false)),
+            _ => None,
+        }
     }
 
     fn nested_commands_from_source(&mut self, source: &str, base: Position) -> Vec<Command> {
@@ -697,6 +753,20 @@ impl<'a> Parser<'a> {
     }
 
     fn current_fd_var(&mut self) -> Option<(Name, Span)> {
+        if let Some(token) = self.current_token.as_ref()
+            && token.kind == TokenKind::Word
+            && let Some(word) = token.word()
+            && let Some(segment) = word.single_segment()
+            && segment.kind() == LexedWordSegmentKind::Plain
+            && !Self::word_text_needs_parse(segment.as_str())
+            && let Some(fd_var) = Self::fd_var_from_text(
+                segment.as_str(),
+                segment.span().unwrap_or(self.current_span),
+            )
+        {
+            return Some(fd_var);
+        }
+
         let word = self.current_word_to_word()?;
         let text = self.literal_word_text(&word)?;
         Self::fd_var_from_text(&text, word.span)
@@ -727,6 +797,10 @@ impl<'a> Parser<'a> {
     }
 
     fn current_static_word(&mut self) -> Option<(String, bool)> {
+        if let Some((text, quoted)) = self.current_static_token_text() {
+            return Some((text.to_string(), quoted));
+        }
+
         let quoted = matches!(
             self.current_token_kind,
             Some(TokenKind::LiteralWord | TokenKind::QuotedWord)

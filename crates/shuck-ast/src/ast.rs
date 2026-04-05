@@ -742,6 +742,26 @@ impl Word {
         }
     }
 
+    /// Create a source-backed literal word.
+    pub fn source_literal_with_spans(span: Span, part_span: Span) -> Self {
+        Self {
+            parts: vec![WordPart::Literal(LiteralText::source())],
+            part_spans: vec![part_span],
+            quoted: false,
+            span,
+        }
+    }
+
+    /// Create a quoted source-backed literal word.
+    pub fn quoted_source_literal_with_spans(span: Span, part_span: Span) -> Self {
+        Self {
+            parts: vec![WordPart::Literal(LiteralText::source())],
+            part_spans: vec![part_span],
+            quoted: true,
+            span,
+        }
+    }
+
     /// Set the source span on an existing word.
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = span;

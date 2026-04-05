@@ -68,6 +68,100 @@ impl TokenText<'_> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LexedWordSegmentKind {
+    Plain,
+    Literal,
+    DoubleQuoted,
+    Composite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LexedWordSegment<'a> {
+    kind: LexedWordSegmentKind,
+    text: TokenText<'a>,
+    span: Option<Span>,
+}
+
+impl LexedWordSegment<'_> {
+    pub(crate) fn as_str(&self) -> &str {
+        self.text.as_str()
+    }
+
+    pub(crate) const fn kind(&self) -> LexedWordSegmentKind {
+        self.kind
+    }
+
+    pub(crate) const fn span(&self) -> Option<Span> {
+        self.span
+    }
+
+    fn into_owned<'a>(self) -> LexedWordSegment<'a> {
+        LexedWordSegment {
+            kind: self.kind,
+            text: self.text.into_owned(),
+            span: self.span,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LexedWord<'a> {
+    primary_segment: LexedWordSegment<'a>,
+    trailing_segments: Vec<LexedWordSegment<'a>>,
+    flattened: Option<TokenText<'a>>,
+}
+
+impl<'a> LexedWord<'a> {
+    fn borrowed(kind: LexedWordSegmentKind, text: &'a str, span: Option<Span>) -> Self {
+        Self {
+            primary_segment: LexedWordSegment {
+                kind,
+                text: TokenText::Borrowed(text),
+                span,
+            },
+            trailing_segments: Vec::new(),
+            flattened: None,
+        }
+    }
+
+    fn owned(kind: LexedWordSegmentKind, text: String) -> Self {
+        Self {
+            primary_segment: LexedWordSegment {
+                kind,
+                text: TokenText::Owned(text),
+                span: None,
+            },
+            trailing_segments: Vec::new(),
+            flattened: None,
+        }
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        self.flattened
+            .as_ref()
+            .map_or_else(|| self.primary_segment.as_str(), TokenText::as_str)
+    }
+
+    pub(crate) fn single_segment(&self) -> Option<&LexedWordSegment<'a>> {
+        self.trailing_segments
+            .is_empty()
+            .then_some(&self.primary_segment)
+    }
+
+    fn into_owned<'b>(self) -> LexedWord<'b> {
+        LexedWord {
+            primary_segment: self.primary_segment.into_owned(),
+            trailing_segments: self
+                .trailing_segments
+                .into_iter()
+                .map(LexedWordSegment::into_owned)
+                .collect(),
+            flattened: self.flattened.map(TokenText::into_owned),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LexerErrorKind {
     CommandSubstitution,
     BacktickSubstitution,
@@ -89,7 +183,7 @@ impl LexerErrorKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TokenPayload<'a> {
     None,
-    Text(TokenText<'a>),
+    Word(LexedWord<'a>),
     Fd(i32),
     FdPair(i32, i32),
     Error(LexerErrorKind),
@@ -104,6 +198,15 @@ pub(crate) struct LexedToken<'a> {
 }
 
 impl<'a> LexedToken<'a> {
+    fn word_segment_kind(kind: TokenKind) -> LexedWordSegmentKind {
+        match kind {
+            TokenKind::Word => LexedWordSegmentKind::Plain,
+            TokenKind::LiteralWord => LexedWordSegmentKind::Literal,
+            TokenKind::QuotedWord => LexedWordSegmentKind::DoubleQuoted,
+            _ => LexedWordSegmentKind::Composite,
+        }
+    }
+
     pub(crate) fn punctuation(kind: TokenKind) -> Self {
         Self {
             kind,
@@ -113,21 +216,34 @@ impl<'a> LexedToken<'a> {
         }
     }
 
-    fn borrowed_text(kind: TokenKind, text: &'a str) -> Self {
+    fn borrowed_word(kind: TokenKind, text: &'a str, text_span: Option<Span>) -> Self {
         Self {
             kind,
             span: Span::new(),
             flags: TokenFlags::empty(),
-            payload: TokenPayload::Text(TokenText::Borrowed(text)),
+            payload: TokenPayload::Word(LexedWord::borrowed(
+                Self::word_segment_kind(kind),
+                text,
+                text_span,
+            )),
         }
     }
 
-    fn owned_text(kind: TokenKind, text: String) -> Self {
+    fn owned_word(kind: TokenKind, text: String) -> Self {
         Self {
             kind,
             span: Span::new(),
             flags: TokenFlags::cooked_text(),
-            payload: TokenPayload::Text(TokenText::Owned(text)),
+            payload: TokenPayload::Word(LexedWord::owned(Self::word_segment_kind(kind), text)),
+        }
+    }
+
+    fn owned_composite_word(kind: TokenKind, text: String) -> Self {
+        Self {
+            kind,
+            span: Span::new(),
+            flags: TokenFlags::cooked_text(),
+            payload: TokenPayload::Word(LexedWord::owned(LexedWordSegmentKind::Composite, text)),
         }
     }
 
@@ -185,7 +301,7 @@ impl<'a> LexedToken<'a> {
     pub(crate) fn into_owned<'b>(self) -> LexedToken<'b> {
         let payload = match self.payload {
             TokenPayload::None => TokenPayload::None,
-            TokenPayload::Text(text) => TokenPayload::Text(text.into_owned()),
+            TokenPayload::Word(word) => TokenPayload::Word(word.into_owned()),
             TokenPayload::Fd(fd) => TokenPayload::Fd(fd),
             TokenPayload::FdPair(src_fd, dst_fd) => TokenPayload::FdPair(src_fd, dst_fd),
             TokenPayload::Error(kind) => TokenPayload::Error(kind),
@@ -204,9 +320,16 @@ impl<'a> LexedToken<'a> {
             .is_word_like()
             .then_some(())
             .and_then(|_| match &self.payload {
-                TokenPayload::Text(text) => Some(text.as_str()),
+                TokenPayload::Word(word) => Some(word.as_str()),
                 _ => None,
             })
+    }
+
+    pub(crate) fn word(&self) -> Option<&LexedWord<'a>> {
+        match &self.payload {
+            TokenPayload::Word(word) => Some(word),
+            _ => None,
+        }
     }
 
     pub(crate) fn fd_value(&self) -> Option<i32> {
@@ -662,7 +785,7 @@ impl<'a> Lexer<'a> {
                     // structural tokens mid-word.
                     match self.peek_char() {
                         Some(' ') | Some('\t') | Some('\n') | None => {
-                            Some(LexedToken::borrowed_text(TokenKind::Word, "["))
+                            Some(LexedToken::borrowed_word(TokenKind::Word, "[", None))
                         }
                         _ => self.read_word_starting_with("["),
                     }
@@ -674,7 +797,7 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     Some(LexedToken::punctuation(TokenKind::DoubleRightBracket))
                 } else {
-                    Some(LexedToken::borrowed_text(TokenKind::Word, "]"))
+                    Some(LexedToken::borrowed_word(TokenKind::Word, "]", None))
                 }
             }
             '\'' => self.read_single_quoted_string(),
@@ -964,11 +1087,11 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        Some(LexedToken::owned_text(TokenKind::Word, word))
+        Some(LexedToken::owned_composite_word(TokenKind::Word, word))
     }
 
     fn read_word(&mut self) -> Option<LexedToken<'a>> {
-        let start = self.position.offset;
+        let start = self.position;
 
         if self.reinject_buf.is_empty() {
             let chunk = self.cursor.eat_while(Self::is_plain_word_char);
@@ -986,9 +1109,10 @@ impl<'a> Lexer<'a> {
                 );
 
                 if !continues {
-                    return Some(LexedToken::borrowed_text(
+                    return Some(LexedToken::borrowed_word(
                         TokenKind::Word,
-                        &self.input[start..self.position.offset],
+                        &self.input[start.offset..self.position.offset],
+                        Some(Span::from_positions(start, self.position)),
                     ));
                 }
 
@@ -1387,13 +1511,13 @@ impl<'a> Lexer<'a> {
         if word.is_empty() {
             None
         } else {
-            Some(LexedToken::owned_text(TokenKind::Word, word))
+            Some(LexedToken::owned_composite_word(TokenKind::Word, word))
         }
     }
 
     fn read_single_quoted_string(&mut self) -> Option<LexedToken<'a>> {
         self.advance(); // consume opening '
-        let content_start = self.position.offset;
+        let content_start = self.position;
         let can_borrow = self.reinject_buf.is_empty();
         let mut content_end = content_start;
         let mut content = String::new();
@@ -1401,7 +1525,7 @@ impl<'a> Lexer<'a> {
 
         while let Some(ch) = self.peek_char() {
             if ch == '\'' {
-                content_end = self.position.offset;
+                content_end = self.position;
                 self.advance(); // consume closing '
                 closed = true;
                 break;
@@ -1422,14 +1546,15 @@ impl<'a> Lexer<'a> {
                 Some(ch) if Self::is_word_char(ch) || matches!(ch, '\'' | '"' | '$')
             )
         {
-            return Some(LexedToken::borrowed_text(
+            return Some(LexedToken::borrowed_word(
                 TokenKind::LiteralWord,
-                &self.input[content_start..content_end],
+                &self.input[content_start.offset..content_end.offset],
+                Some(Span::from_positions(content_start, content_end)),
             ));
         }
 
         if can_borrow {
-            content.push_str(&self.input[content_start..content_end]);
+            content.push_str(&self.input[content_start.offset..content_end.offset]);
         }
 
         // If next char is another quote or word char, concatenate (e.g., 'EOF'"2" -> EOF2).
@@ -1437,7 +1562,10 @@ impl<'a> Lexer<'a> {
         self.read_continuation_into(&mut content);
 
         // Single-quoted strings are literal - no variable expansion
-        Some(LexedToken::owned_text(TokenKind::LiteralWord, content))
+        Some(LexedToken::owned_composite_word(
+            TokenKind::LiteralWord,
+            content,
+        ))
     }
 
     /// After a closing quote, read any adjacent quoted or unquoted word chars
@@ -1628,9 +1756,10 @@ impl<'a> Lexer<'a> {
 
     fn read_double_quoted_string(&mut self) -> Option<LexedToken<'a>> {
         self.advance(); // consume opening "
-        let content_start = self.position.offset;
+        let content_start = self.position;
         let mut content_end = content_start;
         let mut simple = self.reinject_buf.is_empty();
+        let mut borrowable = self.reinject_buf.is_empty();
         let mut content = String::new();
         let mut closed = false;
 
@@ -1638,14 +1767,17 @@ impl<'a> Lexer<'a> {
             if simple {
                 match ch {
                     '"' => {
-                        content_end = self.position.offset;
+                        content_end = self.position;
                         self.advance(); // consume closing "
                         closed = true;
                         break;
                     }
                     '\\' | '$' | '`' => {
                         simple = false;
-                        content.push_str(&self.input[content_start..self.position.offset]);
+                        if matches!(ch, '\\' | '`') {
+                            borrowable = false;
+                        }
+                        content.push_str(&self.input[content_start.offset..self.position.offset]);
                     }
                     _ => {
                         self.advance();
@@ -1658,11 +1790,15 @@ impl<'a> Lexer<'a> {
 
             match ch {
                 '"' => {
+                    if borrowable {
+                        content_end = self.position;
+                    }
                     self.advance(); // consume closing "
                     closed = true;
                     break;
                 }
                 '\\' => {
+                    borrowable = false;
                     self.advance();
                     if let Some(next) = self.peek_char() {
                         // Handle escape sequences
@@ -1707,6 +1843,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '`' => {
+                    borrowable = false;
                     // Backtick command substitution inside double quotes
                     self.advance(); // consume opening `
                     content.push_str("$(");
@@ -1755,24 +1892,36 @@ impl<'a> Lexer<'a> {
                 Some(ch) if Self::is_word_char(ch) || matches!(ch, '\'' | '"' | '$')
             )
         {
-            return Some(LexedToken::borrowed_text(
+            return Some(LexedToken::borrowed_word(
                 TokenKind::QuotedWord,
-                &self.input[content_start..content_end],
+                &self.input[content_start.offset..content_end.offset],
+                Some(Span::from_positions(content_start, content_end)),
             ));
         }
 
         if simple {
-            content.push_str(&self.input[content_start..content_end]);
+            content.push_str(&self.input[content_start.offset..content_end.offset]);
         }
 
         if let Some(ch) = self.peek_char()
             && (Self::is_word_char(ch) || ch == '\'' || ch == '"' || ch == '$')
         {
             self.read_continuation_into(&mut content);
-            return Some(LexedToken::owned_text(TokenKind::Word, content));
+            return Some(LexedToken::owned_composite_word(TokenKind::Word, content));
         }
 
-        Some(LexedToken::owned_text(TokenKind::QuotedWord, content))
+        if borrowable {
+            return Some(LexedToken::borrowed_word(
+                TokenKind::QuotedWord,
+                &self.input[content_start.offset..content_end.offset],
+                Some(Span::from_positions(content_start, content_end)),
+            ));
+        }
+
+        Some(LexedToken::owned_composite_word(
+            TokenKind::QuotedWord,
+            content,
+        ))
     }
 
     /// Read command substitution content after `$(`, handling nested parens and quotes.
@@ -2185,7 +2334,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Some(LexedToken::owned_text(TokenKind::Word, word))
+        Some(LexedToken::owned_word(TokenKind::Word, word))
     }
 
     /// Read a brace expansion pattern as a word
@@ -2248,7 +2397,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Some(LexedToken::owned_text(TokenKind::Word, word))
+        Some(LexedToken::owned_word(TokenKind::Word, word))
     }
 
     /// Peek ahead (without consuming) to see if `=(` starts an associative
@@ -2466,6 +2615,21 @@ mod tests {
             Some(Token::QuotedWord("hello world".to_string()))
         );
         assert_eq!(lexer.next_token(), None);
+    }
+
+    #[test]
+    fn test_double_quoted_expansion_token_keeps_source_backing() {
+        let source = r#""$bar""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(token.word_text(), Some("$bar"));
+
+        let word = token.word().unwrap();
+        let segment = word.single_segment().unwrap();
+        assert_eq!(segment.kind(), LexedWordSegmentKind::DoubleQuoted);
+        assert_eq!(segment.span().unwrap().slice(source), "$bar");
     }
 
     #[test]

@@ -122,7 +122,7 @@ Exit criteria:
 
 ### Stage 2: Replace String-Based Word Tokens With Source-Backed Word Payloads
 
-- [ ] Introduce a dedicated source-backed word payload type, for example `LexedWord` or `WordToken`.
+- [x] Introduce a dedicated source-backed word payload type, for example `LexedWord` or `WordToken`.
 - [ ] Store enough structure in the word payload to distinguish plain, literal, and double-quoted segments.
 - [ ] Preserve quote and expansion semantics with flags or segmented spans instead of flattening into a single owned `String`.
 - [ ] Make quote concatenation produce a source-backed or segmented payload instead of eagerly flattening into a new `String`.
