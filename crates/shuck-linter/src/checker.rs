@@ -94,7 +94,11 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_call_sites(&mut self) {}
+    fn check_call_sites(&mut self) {
+        if self.is_rule_enabled(Rule::OverwrittenFunction) {
+            rules::correctness::overwritten_function::overwritten_function(self);
+        }
+    }
 
     fn check_source_refs(&mut self) {}
 

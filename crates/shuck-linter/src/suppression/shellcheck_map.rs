@@ -37,6 +37,7 @@ impl Default for ShellCheckCodeMap {
                 (2124, Rule::PipeToKill),
                 (2168, Rule::LocalTopLevel),
                 (2154, Rule::UndefinedVariable),
+                (2266, Rule::OverwrittenFunction),
             ]),
         }
     }
@@ -55,6 +56,7 @@ mod tests {
         assert_eq!(map.resolve("SC2124"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
+        assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC9999"), None);
     }
 
@@ -71,6 +73,7 @@ mod tests {
                 (2124, Rule::PipeToKill),
                 (2154, Rule::UndefinedVariable),
                 (2168, Rule::LocalTopLevel),
+                (2266, Rule::OverwrittenFunction),
             ]
         );
     }
