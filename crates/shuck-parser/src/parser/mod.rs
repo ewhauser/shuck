@@ -60,6 +60,7 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     synthetic_tokens: VecDeque<LexedToken<'a>>,
     current_token: Option<LexedToken<'a>>,
+    current_word_cache: Option<Word>,
     current_token_kind: Option<TokenKind>,
     /// Span of the current token
     current_span: Span,
@@ -153,6 +154,7 @@ impl<'a> Parser<'a> {
             lexer,
             synthetic_tokens: VecDeque::new(),
             current_token,
+            current_word_cache: None,
             current_token_kind,
             current_span,
             peeked_token: None,
@@ -352,6 +354,10 @@ impl<'a> Parser<'a> {
     }
 
     fn current_word(&mut self) -> Option<Word> {
+        if let Some(word) = self.current_word_cache.as_ref() {
+            return Some(word.clone());
+        }
+
         let span = self.current_span;
 
         if let Some(token) = self.current_token.as_ref()
@@ -363,6 +369,9 @@ impl<'a> Parser<'a> {
         let token = self.current_token.take()?;
         let word = self.decode_word_from_token(&token, span);
         self.current_token = Some(token);
+        if let Some(word) = word.as_ref() {
+            self.current_word_cache = Some(word.clone());
+        }
         word
     }
 
@@ -907,6 +916,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::HereDoc
                 | TokenKind::HereDocStrip
                 | TokenKind::RedirectBoth
+                | TokenKind::RedirectBothAppend
                 | TokenKind::DupOutput
                 | TokenKind::RedirectFd
                 | TokenKind::RedirectFdAppend
@@ -947,17 +957,20 @@ impl<'a> Parser<'a> {
         let span = token.span;
         self.current_token_kind = Some(token.kind);
         self.current_token = Some(token);
+        self.current_word_cache = None;
         self.current_span = span;
     }
 
     fn set_current_kind(&mut self, kind: TokenKind, span: Span) {
         self.current_token_kind = Some(kind);
         self.current_token = Some(LexedToken::punctuation(kind).with_span(span));
+        self.current_word_cache = None;
         self.current_span = span;
     }
 
     fn clear_current_token(&mut self) {
         self.current_token = None;
+        self.current_word_cache = None;
         self.current_token_kind = None;
     }
 
@@ -1637,6 +1650,350 @@ impl<'a> Parser<'a> {
         });
     }
 
+    fn redirect_supports_fd_var(kind: TokenKind) -> bool {
+        matches!(
+            kind,
+            TokenKind::RedirectOut
+                | TokenKind::Clobber
+                | TokenKind::RedirectAppend
+                | TokenKind::RedirectIn
+                | TokenKind::RedirectReadWrite
+                | TokenKind::HereString
+                | TokenKind::RedirectBoth
+                | TokenKind::DupOutput
+                | TokenKind::DupInput
+        )
+    }
+
+    fn maybe_expect_word(&mut self, strict: bool) -> Result<Option<Word>> {
+        if strict {
+            self.expect_word().map(Some)
+        } else {
+            Ok(self.expect_word().ok())
+        }
+    }
+
+    fn consume_non_heredoc_redirect(
+        &mut self,
+        redirects: &mut Vec<Redirect>,
+        fd_var: Option<Name>,
+        fd_var_span: Option<Span>,
+        strict: bool,
+    ) -> Result<bool> {
+        match self.current_token_kind {
+            Some(TokenKind::RedirectOut) | Some(TokenKind::Clobber) => {
+                let operator_span = self.current_span;
+                let kind = if self.at(TokenKind::Clobber) {
+                    RedirectKind::Clobber
+                } else {
+                    RedirectKind::Output
+                };
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: None,
+                        fd_var,
+                        fd_var_span,
+                        kind,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectAppend) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: None,
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::Append,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectIn) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: None,
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::Input,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectReadWrite) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: None,
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::ReadWrite,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::HereString) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: None,
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::HereString,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectBoth) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: None,
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::OutputBoth,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectBothAppend) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    Self::push_redirect_both_append(redirects, operator_span, target);
+                }
+                Ok(true)
+            }
+            Some(TokenKind::DupOutput) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: if fd_var.is_some() { None } else { Some(1) },
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::DupOutput,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectFd) => {
+                let fd = self.current_fd_value().unwrap_or_default();
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: Some(fd),
+                        fd_var: None,
+                        fd_var_span: None,
+                        kind: RedirectKind::Output,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectFdAppend) => {
+                let fd = self.current_fd_value().unwrap_or_default();
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: Some(fd),
+                        fd_var: None,
+                        fd_var_span: None,
+                        kind: RedirectKind::Append,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::RedirectFdReadWrite) => {
+                let fd = self.current_fd_value().unwrap_or_default();
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: Some(fd),
+                        fd_var: None,
+                        fd_var_span: None,
+                        kind: RedirectKind::ReadWrite,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::DupFd) => {
+                let (src_fd, dst_fd) = self.current_fd_pair().unwrap_or_default();
+                let operator_span = self.current_span;
+                self.advance();
+                redirects.push(Redirect {
+                    fd: Some(src_fd),
+                    fd_var: None,
+                    fd_var_span: None,
+                    kind: RedirectKind::DupOutput,
+                    span: operator_span,
+                    target: Word::literal(dst_fd.to_string()),
+                });
+                Ok(true)
+            }
+            Some(TokenKind::DupInput) => {
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: if fd_var.is_some() { None } else { Some(0) },
+                        fd_var,
+                        fd_var_span,
+                        kind: RedirectKind::DupInput,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            Some(TokenKind::DupFdIn) => {
+                let (src_fd, dst_fd) = self.current_fd_pair().unwrap_or_default();
+                let operator_span = self.current_span;
+                self.advance();
+                redirects.push(Redirect {
+                    fd: Some(src_fd),
+                    fd_var: None,
+                    fd_var_span: None,
+                    kind: RedirectKind::DupInput,
+                    span: operator_span,
+                    target: Word::literal(dst_fd.to_string()),
+                });
+                Ok(true)
+            }
+            Some(TokenKind::DupFdClose) => {
+                let fd = self.current_fd_value().unwrap_or_default();
+                let operator_span = self.current_span;
+                self.advance();
+                redirects.push(Redirect {
+                    fd: Some(fd),
+                    fd_var: None,
+                    fd_var_span: None,
+                    kind: RedirectKind::DupInput,
+                    span: operator_span,
+                    target: Word::literal("-"),
+                });
+                Ok(true)
+            }
+            Some(TokenKind::RedirectFdIn) => {
+                let fd = self.current_fd_value().unwrap_or_default();
+                let operator_span = self.current_span;
+                self.advance();
+                if let Some(target) = self.maybe_expect_word(strict)? {
+                    redirects.push(Redirect {
+                        fd: Some(fd),
+                        fd_var: None,
+                        fd_var_span: None,
+                        kind: RedirectKind::Input,
+                        span: Self::redirect_span(operator_span, &target),
+                        target,
+                    });
+                }
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn strip_heredoc_tabs(content: String) -> String {
+        let had_trailing_newline = content.ends_with('\n');
+        let mut stripped: String = content
+            .lines()
+            .map(|line: &str| line.trim_start_matches('\t'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if had_trailing_newline {
+            stripped.push('\n');
+        }
+        stripped
+    }
+
+    fn consume_heredoc_redirect(
+        &mut self,
+        strip_tabs: bool,
+        redirects: &mut Vec<Redirect>,
+        fd_var: Option<Name>,
+        fd_var_span: Option<Span>,
+        strict: bool,
+        collect_trailing_redirects: bool,
+    ) -> Result<bool> {
+        let operator_span = self.current_span;
+        self.advance();
+        let Some((delimiter, quoted)) = self.current_static_word() else {
+            if strict {
+                return Err(Error::parse(
+                    "expected static heredoc delimiter".to_string(),
+                ));
+            }
+            return Ok(false);
+        };
+
+        let heredoc = self.lexer.read_heredoc(&delimiter);
+        let content_span = heredoc.content_span;
+        let content = if strip_tabs {
+            Self::strip_heredoc_tabs(heredoc.content)
+        } else {
+            heredoc.content
+        };
+
+        let target = if quoted {
+            Word::quoted_literal_with_span(content, content_span)
+        } else {
+            self.decode_word_text(&content, content_span, content_span.start, false)
+        };
+
+        redirects.push(Redirect {
+            fd: None,
+            fd_var,
+            fd_var_span,
+            kind: if strip_tabs {
+                RedirectKind::HereDocStrip
+            } else {
+                RedirectKind::HereDoc
+            },
+            span: operator_span,
+            target,
+        });
+
+        // Advance so re-injected rest-of-line tokens are picked up.
+        self.advance();
+
+        if collect_trailing_redirects {
+            self.collect_trailing_redirects(redirects)?;
+        }
+
+        Ok(true)
+    }
+
     /// Parse redirections that follow a compound command (>, >>, 2>, etc.)
     fn parse_trailing_redirects(&mut self) -> Vec<Redirect> {
         let mut redirects = Vec::new();
@@ -1652,286 +2009,41 @@ impl<'a> Parser<'a> {
             }
 
             match self.current_token_kind {
-                Some(TokenKind::RedirectOut) | Some(TokenKind::Clobber) => {
-                    let operator_span = self.current_span;
-                    let kind = if self.at(TokenKind::Clobber) {
-                        RedirectKind::Clobber
-                    } else {
-                        RedirectKind::Output
-                    };
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var,
-                            fd_var_span,
-                            kind,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectAppend) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var,
-                            fd_var_span,
-                            kind: RedirectKind::Append,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectIn) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var,
-                            fd_var_span,
-                            kind: RedirectKind::Input,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectReadWrite) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var,
-                            fd_var_span,
-                            kind: RedirectKind::ReadWrite,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectBoth) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var,
-                            fd_var_span,
-                            kind: RedirectKind::OutputBoth,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectBothAppend) => {
-                    let operator_span = self.current_span;
-                    let _ = pending_fd_var.take();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        Self::push_redirect_both_append(&mut redirects, operator_span, target);
-                    }
-                }
-                Some(TokenKind::DupOutput) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: if fd_var.is_some() { None } else { Some(1) },
-                            fd_var,
-                            fd_var_span,
-                            kind: RedirectKind::DupOutput,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectFd) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(fd),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::Output,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectFdAppend) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(fd),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::Append,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::DupFd) => {
-                    let (src_fd, dst_fd) = self.current_fd_pair().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(src_fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupOutput,
-                        span: operator_span,
-                        target: Word::literal(dst_fd.to_string()),
-                    });
-                }
-                Some(TokenKind::DupInput) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: if fd_var.is_some() { None } else { Some(0) },
-                            fd_var,
-                            fd_var_span,
-                            kind: RedirectKind::DupInput,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::DupFdIn) => {
-                    let (src_fd, dst_fd) = self.current_fd_pair().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(src_fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupInput,
-                        span: operator_span,
-                        target: Word::literal(dst_fd.to_string()),
-                    });
-                }
-                Some(TokenKind::DupFdClose) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupInput,
-                        span: operator_span,
-                        target: Word::literal("-"),
-                    });
-                }
-                Some(TokenKind::RedirectFdIn) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(fd),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::Input,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::RedirectFdReadWrite) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(fd),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::ReadWrite,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                Some(TokenKind::HereString) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var,
-                            fd_var_span,
-                            kind: RedirectKind::HereString,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
                 Some(TokenKind::HereDoc) | Some(TokenKind::HereDocStrip) => {
-                    let operator_span = self.current_span;
                     let strip_tabs = self.at(TokenKind::HereDocStrip);
-                    self.advance();
-                    let Some((delimiter, quoted)) = self.current_static_word() else {
-                        break;
-                    };
                     let (fd_var, fd_var_span) = pending_fd_var.take().unzip();
-                    let heredoc = self.lexer.read_heredoc(&delimiter);
-                    let content_span = heredoc.content_span;
-                    let content = heredoc.content;
-                    let content = if strip_tabs {
-                        let had_trailing_newline = content.ends_with('\n');
-                        let mut stripped: String = content
-                            .lines()
-                            .map(|l: &str| l.trim_start_matches('\t'))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if had_trailing_newline {
-                            stripped.push('\n');
-                        }
-                        stripped
-                    } else {
-                        content
-                    };
-                    self.advance();
-                    let target = if quoted {
-                        Word::quoted_literal_with_span(content, content_span)
-                    } else {
-                        self.parse_word_with_context(&content, content_span, content_span.start)
-                    };
-                    let kind = if strip_tabs {
-                        RedirectKind::HereDocStrip
-                    } else {
-                        RedirectKind::HereDoc
-                    };
-                    redirects.push(Redirect {
-                        fd: None,
-                        fd_var,
-                        fd_var_span,
-                        kind,
-                        span: operator_span,
-                        target,
-                    });
-                    self.advance();
+                    if !self
+                        .consume_heredoc_redirect(
+                            strip_tabs,
+                            &mut redirects,
+                            fd_var,
+                            fd_var_span,
+                            false,
+                            false,
+                        )
+                        .unwrap_or(false)
+                    {
+                        break;
+                    }
                     continue;
                 }
-                _ => break,
+                Some(kind) => {
+                    let (fd_var, fd_var_span) = if Self::redirect_supports_fd_var(kind) {
+                        pending_fd_var.take().unzip()
+                    } else {
+                        let _ = pending_fd_var.take();
+                        (None, None)
+                    };
+
+                    if self
+                        .consume_non_heredoc_redirect(&mut redirects, fd_var, fd_var_span, false)
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    break;
+                }
+                None => break,
             }
         }
         redirects
@@ -4044,10 +4156,12 @@ impl<'a> Parser<'a> {
             AssignmentValue::Scalar(Word::literal_with_span("", value_span))
         } else if value_str.starts_with('"') && value_str.ends_with('"') {
             let inner = Self::strip_quotes(&value_str);
-            let mut word =
-                self.parse_word_with_context(inner, value_span, value_start.advanced_by("\""));
-            word.quoted = true;
-            AssignmentValue::Scalar(word)
+            AssignmentValue::Scalar(self.decode_word_text(
+                inner,
+                value_span,
+                value_start.advanced_by("\""),
+                true,
+            ))
         } else if value_str.starts_with('\'') && value_str.ends_with('\'') {
             let inner = Self::strip_quotes(&value_str);
             AssignmentValue::Scalar(Word::quoted_literal_with_span(
@@ -4055,10 +4169,11 @@ impl<'a> Parser<'a> {
                 value_span,
             ))
         } else {
-            AssignmentValue::Scalar(self.parse_word_with_context(
+            AssignmentValue::Scalar(self.decode_word_text(
                 &value_str,
                 value_span,
                 value_start,
+                false,
             ))
         };
 
@@ -4286,10 +4401,10 @@ impl<'a> Parser<'a> {
 
         if saved_span.start.offset <= span.end.offset && span.end.offset <= self.input.len() {
             let source = &self.input[saved_span.start.offset..span.end.offset];
-            return Some(self.parse_word_with_context(source, span, saved_span.start));
+            return Some(self.decode_word_text(source, span, saved_span.start, false));
         }
 
-        Some(self.parse_word_with_context(&compound, span, saved_span.start))
+        Some(self.decode_word_text(&compound, span, saved_span.start, false))
     }
 
     /// Parse a heredoc redirect (`<<` or `<<-`) and any trailing redirects on the same line.
@@ -4298,233 +4413,14 @@ impl<'a> Parser<'a> {
         strip_tabs: bool,
         redirects: &mut Vec<Redirect>,
     ) -> Result<()> {
-        let operator_span = self.current_span;
-        self.advance();
-        // Get the delimiter word and track if it was quoted
-        let (delimiter, quoted) = self
-            .current_static_word()
-            .ok_or_else(|| Error::parse("expected static heredoc delimiter".to_string()))?;
-
-        let heredoc = self.lexer.read_heredoc(&delimiter);
-        let content_span = heredoc.content_span;
-        let content = heredoc.content;
-
-        // Strip leading tabs for <<-
-        let content = if strip_tabs {
-            let had_trailing_newline = content.ends_with('\n');
-            let mut stripped: String = content
-                .lines()
-                .map(|l: &str| l.trim_start_matches('\t'))
-                .collect::<Vec<_>>()
-                .join("\n");
-            if had_trailing_newline {
-                stripped.push('\n');
-            }
-            stripped
-        } else {
-            content
-        };
-
-        let target = if quoted {
-            Word::quoted_literal_with_span(content, content_span)
-        } else {
-            self.parse_word_with_context(&content, content_span, content_span.start)
-        };
-
-        let kind = if strip_tabs {
-            RedirectKind::HereDocStrip
-        } else {
-            RedirectKind::HereDoc
-        };
-
-        redirects.push(Redirect {
-            fd: None,
-            fd_var: None,
-            fd_var_span: None,
-            kind,
-            span: operator_span,
-            target,
-        });
-
-        // Advance so re-injected rest-of-line tokens are picked up
-        self.advance();
-
-        // Consume any trailing redirects on the same line (e.g. `cat <<EOF > file`)
-        self.collect_trailing_redirects(redirects);
+        self.consume_heredoc_redirect(strip_tabs, redirects, None, None, true, true)?;
         Ok(())
     }
 
     /// Consume redirect tokens that follow a heredoc on the same line.
-    fn collect_trailing_redirects(&mut self, redirects: &mut Vec<Redirect>) {
-        while let Some(tok) = &self.current_token {
-            match tok.kind {
-                TokenKind::RedirectOut | TokenKind::Clobber => {
-                    let operator_span = self.current_span;
-                    let kind = if self.at(TokenKind::Clobber) {
-                        RedirectKind::Clobber
-                    } else {
-                        RedirectKind::Output
-                    };
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                TokenKind::RedirectAppend => {
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::Append,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                TokenKind::RedirectFd => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(fd),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::Output,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                TokenKind::RedirectReadWrite => {
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: None,
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::ReadWrite,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                TokenKind::RedirectBothAppend => {
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        Self::push_redirect_both_append(redirects, operator_span, target);
-                    }
-                }
-                TokenKind::DupInput => {
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(0),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::DupInput,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                TokenKind::DupFdIn => {
-                    let (src_fd, dst_fd) = self.current_fd_pair().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(src_fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupInput,
-                        span: operator_span,
-                        target: Word::literal(dst_fd.to_string()),
-                    });
-                }
-                TokenKind::DupFdClose => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupInput,
-                        span: operator_span,
-                        target: Word::literal("-"),
-                    });
-                }
-                TokenKind::RedirectFdIn => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(fd),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::Input,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                TokenKind::RedirectFdReadWrite => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    if let Ok(target) = self.expect_word() {
-                        redirects.push(Redirect {
-                            fd: Some(fd),
-                            fd_var: None,
-                            fd_var_span: None,
-                            kind: RedirectKind::ReadWrite,
-                            span: Self::redirect_span(operator_span, &target),
-                            target,
-                        });
-                    }
-                }
-                _ => break,
-            }
-        }
-    }
-
-    /// Extract fd-variable name from `{varname}` pattern in the last word.
-    /// If the last word is a single literal `{identifier}`, pop it and return the name.
-    /// Used for `exec {var}>file` / `exec {var}>&-` syntax.
-    fn pop_fd_var(&self, words: &mut Vec<Word>) -> (Option<Name>, Option<Span>) {
-        if let Some(last) = words.last()
-            && last.parts.len() == 1
-            && let WordPart::Literal(ref s) = last.parts[0]
-            && let Some(span) = last.part_span(0)
-            && let text = s.as_str(self.input, span)
-            && text.starts_with('{')
-            && text.ends_with('}')
-            && text.len() > 2
-            && text[1..text.len() - 1]
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '_')
-        {
-            let var_name = text[1..text.len() - 1].to_string();
-            let start = last.span.start.advanced_by("{");
-            let span = Span::from_positions(start, start.advanced_by(&var_name));
-            words.pop();
-            return (Some(Name::from(var_name)), Some(span));
-        }
-        (None, None)
+    fn collect_trailing_redirects(&mut self, redirects: &mut Vec<Redirect>) -> Result<()> {
+        while self.consume_non_heredoc_redirect(redirects, None, None, false)? {}
+        Ok(())
     }
 
     fn parse_simple_command(&mut self) -> Result<Option<SimpleCommand>> {
@@ -4594,232 +4490,34 @@ impl<'a> Parser<'a> {
                     }
                     self.advance();
                 }
-                Some(TokenKind::RedirectOut) | Some(TokenKind::Clobber) => {
-                    let operator_span = self.current_span;
-                    let kind = if self.at(TokenKind::Clobber) {
-                        RedirectKind::Clobber
+                Some(kind) if Self::is_redirect_kind(kind) => {
+                    if matches!(kind, TokenKind::HereDoc | TokenKind::HereDocStrip) {
+                        self.parse_heredoc_redirect(
+                            kind == TokenKind::HereDocStrip,
+                            &mut redirects,
+                        )?;
+                        continue;
+                    }
+
+                    let (fd_var, fd_var_span) = if Self::redirect_supports_fd_var(kind) {
+                        self.pop_fd_var(&mut words)
                     } else {
-                        RedirectKind::Output
+                        (None, None)
                     };
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: None,
+
+                    if self.consume_non_heredoc_redirect(
+                        &mut redirects,
                         fd_var,
                         fd_var_span,
-                        kind,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::RedirectAppend) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: None,
-                        fd_var,
-                        fd_var_span,
-                        kind: RedirectKind::Append,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::RedirectIn) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: None,
-                        fd_var,
-                        fd_var_span,
-                        kind: RedirectKind::Input,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::RedirectReadWrite) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: None,
-                        fd_var,
-                        fd_var_span,
-                        kind: RedirectKind::ReadWrite,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::HereString) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: None,
-                        fd_var,
-                        fd_var_span,
-                        kind: RedirectKind::HereString,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::HereDoc) | Some(TokenKind::HereDocStrip) => {
-                    let strip_tabs = self.at(TokenKind::HereDocStrip);
-                    self.parse_heredoc_redirect(strip_tabs, &mut redirects)?;
-                    continue;
+                        true,
+                    )? {
+                        continue;
+                    }
+                    break;
                 }
                 Some(TokenKind::ProcessSubIn) | Some(TokenKind::ProcessSubOut) => {
                     let word = self.expect_word()?;
                     words.push(word);
-                }
-                Some(TokenKind::RedirectBoth) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: None,
-                        fd_var,
-                        fd_var_span,
-                        kind: RedirectKind::OutputBoth,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::RedirectBothAppend) => {
-                    let operator_span = self.current_span;
-                    self.advance();
-                    let target = self.expect_word()?;
-                    Self::push_redirect_both_append(&mut redirects, operator_span, target);
-                }
-                Some(TokenKind::DupOutput) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: if fd_var.is_some() { None } else { Some(1) },
-                        fd_var,
-                        fd_var_span,
-                        kind: RedirectKind::DupOutput,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::RedirectFd) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: Some(fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::Output,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::RedirectFdAppend) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: Some(fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::Append,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::RedirectFdReadWrite) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: Some(fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::ReadWrite,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::DupFd) => {
-                    let (src_fd, dst_fd) = self.current_fd_pair().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(src_fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupOutput,
-                        span: operator_span,
-                        target: Word::literal(dst_fd.to_string()),
-                    });
-                }
-                Some(TokenKind::DupInput) => {
-                    let operator_span = self.current_span;
-                    let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: if fd_var.is_some() { None } else { Some(0) },
-                        fd_var,
-                        fd_var_span,
-                        kind: RedirectKind::DupInput,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
-                }
-                Some(TokenKind::DupFdIn) => {
-                    let (src_fd, dst_fd) = self.current_fd_pair().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(src_fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupInput,
-                        span: operator_span,
-                        target: Word::literal(dst_fd.to_string()),
-                    });
-                }
-                Some(TokenKind::DupFdClose) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    redirects.push(Redirect {
-                        fd: Some(fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::DupInput,
-                        span: operator_span,
-                        target: Word::literal("-"),
-                    });
-                }
-                Some(TokenKind::RedirectFdIn) => {
-                    let fd = self.current_fd_value().unwrap_or_default();
-                    let operator_span = self.current_span;
-                    self.advance();
-                    let target = self.expect_word()?;
-                    redirects.push(Redirect {
-                        fd: Some(fd),
-                        fd_var: None,
-                        fd_var_span: None,
-                        kind: RedirectKind::Input,
-                        span: Self::redirect_span(operator_span, &target),
-                        target,
-                    });
                 }
                 // { and } as arguments (not in command position) are literal words
                 Some(TokenKind::LeftBrace) | Some(TokenKind::RightBrace) if !words.is_empty() => {
@@ -4866,6 +4564,31 @@ impl<'a> Parser<'a> {
             assignments,
             span: start_span.merge(self.current_span),
         }))
+    }
+
+    /// Extract fd-variable name from `{varname}` pattern in the last word.
+    /// If the last word is a single literal `{identifier}`, pop it and return the name.
+    /// Used for `exec {var}>file` / `exec {var}>&-` syntax.
+    fn pop_fd_var(&self, words: &mut Vec<Word>) -> (Option<Name>, Option<Span>) {
+        if let Some(last) = words.last()
+            && last.parts.len() == 1
+            && let WordPart::Literal(ref s) = last.parts[0]
+            && let Some(span) = last.part_span(0)
+            && let text = s.as_str(self.input, span)
+            && text.starts_with('{')
+            && text.ends_with('}')
+            && text.len() > 2
+            && text[1..text.len() - 1]
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_')
+        {
+            let var_name = text[1..text.len() - 1].to_string();
+            let start = last.span.start.advanced_by("{");
+            let span = Span::from_positions(start, start.advanced_by(&var_name));
+            words.pop();
+            return (Some(Name::from(var_name)), Some(span));
+        }
+        (None, None)
     }
 
     /// Expect a word token and return it as a Word
@@ -5714,6 +5437,30 @@ mod tests {
     }
 
     #[test]
+    fn test_current_word_cache_tracks_token_changes() {
+        let input = "\"$foo\" bar\n";
+        let mut parser = Parser::new(input);
+
+        let first = parser.current_word().unwrap();
+        assert_eq!(first.render(input), "$foo");
+        assert!(first.quoted);
+        assert!(matches!(
+            parser.current_word_cache.as_ref().unwrap().parts.as_slice(),
+            [WordPart::Variable(_)]
+        ));
+
+        let repeated = parser.current_word().unwrap();
+        assert_eq!(repeated.span, first.span);
+
+        parser.advance();
+        assert!(parser.current_word_cache.is_none());
+
+        let next = parser.current_word().unwrap();
+        assert_eq!(next.render(input), "bar");
+        assert!(parser.current_word_cache.is_none());
+    }
+
+    #[test]
     fn test_parse_simple_command() {
         let input = "echo hello";
         let parser = Parser::new(input);
@@ -6204,6 +5951,37 @@ mod tests {
         let redirect = &command.redirects[0];
         assert_eq!(redirect.target.span.slice(input), "hello $name\n");
         assert!(redirect.target.quoted);
+    }
+
+    #[test]
+    fn test_heredoc_targets_preserve_quoted_and_unquoted_decode_behavior() {
+        let input = "cat <<EOF\nhello $name\nEOF\ncat <<'EOF'\nhello $name\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(unquoted) = &script.commands[0] else {
+            panic!("expected first simple command");
+        };
+        let unquoted_target = &unquoted.redirects[0].target;
+        assert!(!unquoted_target.quoted);
+        assert_eq!(unquoted_target.render(input), "hello $name\n");
+        let unquoted_slices: Vec<&str> = unquoted_target
+            .part_spans
+            .iter()
+            .map(|span| span.slice(input))
+            .collect();
+        assert_eq!(unquoted_slices, vec!["hello ", "$name", "\n"]);
+        assert!(matches!(unquoted_target.parts[1], WordPart::Variable(_)));
+
+        let Command::Simple(quoted) = &script.commands[1] else {
+            panic!("expected second simple command");
+        };
+        let quoted_target = &quoted.redirects[0].target;
+        assert!(quoted_target.quoted);
+        assert_eq!(quoted_target.render(input), "hello $name\n");
+        assert!(matches!(
+            quoted_target.parts.as_slice(),
+            [WordPart::Literal(LiteralText::Owned(_))]
+        ));
     }
 
     #[test]

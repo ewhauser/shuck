@@ -138,13 +138,13 @@ Exit criteria:
 
 ### Stage 3: Remove `parse_word_with_context` From The Main Parse Path
 
-- [ ] Move word decoding responsibility into the lexer or a shared low-level word decoder that runs exactly once.
-- [ ] Make `parse_simple_command` consume pre-decoded word payloads directly.
-- [ ] Make redirect targets consume pre-decoded word payloads directly.
-- [ ] Make assignment parsing consume pre-decoded word payloads directly.
-- [ ] Keep `parse_word_with_context` only for narrow fallback or standalone helper use.
-- [ ] Delete parser-side reparsing of quoted and literal token text for the normal AST build path.
-- [ ] Re-profile before moving on.
+- [x] Move word decoding responsibility into the lexer or a shared low-level word decoder that runs exactly once.
+- [x] Make `parse_simple_command` consume pre-decoded word payloads directly.
+- [x] Make redirect targets consume pre-decoded word payloads directly.
+- [x] Make assignment parsing consume pre-decoded word payloads directly.
+- [x] Keep `parse_word_with_context` only for narrow fallback or standalone helper use.
+- [x] Delete parser-side reparsing of quoted and literal token text for the normal AST build path.
+- [x] Re-profile before moving on.
 
 Exit criteria:
 
@@ -157,6 +157,8 @@ Exit criteria:
 - 2026-04-05: the temporary segment-by-segment wrapper has been replaced with a shared append-style decoder (`decode_word_parts_into`) so normal word decoding no longer constructs intermediate `Word` values just to splice their parts into another `Word`.
 - 2026-04-05: current-token word decoding and assignment-value decoding also avoid cloning `current_token` on their slower paths by temporarily taking and restoring the token around decode work.
 - 2026-04-05: warm `cargo bench -p shuck-benchmark --bench parser -- nvm --noplot` runs after these changes stayed roughly flat in the `5.21 ms` to `6.06 ms` range, so this is still intermediate Stage 3 groundwork rather than the benchmark-positive landing.
+- 2026-04-05: the strict-finish landing added a parser-local cache for decoded non-simple current words, centralized redirect parsing behind shared helpers, and removed all remaining normal-path `parse_word_with_context` call sites. The helper now remains only behind `parse_word_string*`.
+- 2026-04-05: post-landing `cargo bench -p shuck-benchmark --bench parser -- nvm --noplot` measured `3.31 ms` (`[3.2603 ms 3.3094 ms 3.3717 ms]`), slightly slower than the earlier same-day `3.09 ms` checkpoint but still far below the earlier `5.21 ms` to `6.06 ms` intermediate Stage 3 range.
 - 2026-04-05: `cargo flamegraph --profile profiling -p shuck-benchmark --bench parser -- nvm --noplot` did not produce a local profile here; on this machine it failed with `Cannot create output document ... cargo-flamegraph.trace` / exit code `8`, so hotspot confirmation still needs either a working local profiler run or an alternate profiling path.
 
 ### Stage 4: Make Nested Shell Constructs Source-Backed Too
