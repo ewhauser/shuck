@@ -1,0 +1,354 @@
+{
+  "oils/alias.test.sh::Loop split across alias in another way": {
+    "expectation": "skip",
+    "reason": "case depends on alias-driven reparsing outside the current parser model"
+  },
+  "oils/alias.test.sh::Loop split across both iterative and recursive aliases": {
+    "expectation": "skip",
+    "reason": "case depends on alias-driven reparsing outside the current parser model"
+  },
+  "oils/alias.test.sh::alias for left brace": {
+    "expectation": "skip",
+    "reason": "case depends on alias-driven reparsing outside the current parser model"
+  },
+  "oils/alias.test.sh::alias for left paren": {
+    "expectation": "skip",
+    "reason": "case depends on alias-driven reparsing outside the current parser model"
+  },
+  "oils/array-sparse.test.sh::crash dump": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/assign.test.sh::Env binding not allowed before compound command": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/ble-idioms.test.sh::Issue #1069 [53] - LHS array parsing a[1 + 2]=3 (see spec/array-assign for more)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/bool-parse.test.sh::Not allowed: [[ ) ]] and [[ ( ]]": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/bugs.test.sh::First word like foo$x() and foo$[1+2] (regression)": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/bugs.test.sh::for loop (issue #1446)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/bugs.test.sh::for loop 2 (issue #1446)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/builtin-echo.test.sh::echo builtin should disallow typed args - literal": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/builtin-eval-source.test.sh::eval YSH block with 'break continue return error'": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/builtin-trap-err.test.sh::trap ERR with YSH proc": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/builtin-trap.test.sh::trap EXIT with PARSE error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/builtin-trap.test.sh::trap EXIT with PARSE error and explicit exit": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/case_.test.sh::case \\n bug regression": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/command-sub.test.sh::Here doc with pipeline": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/command-sub.test.sh::Making keyword out of command sub should NOT work": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/command-sub.test.sh::case in subshell": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/dbracket.test.sh::Argument that looks like a real operator": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ '(' foo ]] is syntax error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ && ]] is syntax error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ -z '>' a ]] is syntax error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ -z ]] is syntax error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ ]] is syntax error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ a 3< b ]] doesn't work (bug regression)": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ at runtime doesn't work": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/dbracket.test.sh::[[ with op variable (compare with test-builtin.test.sh)": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/divergence.test.sh::builtin cat crashes a subshell (#2530)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/empty-bodies.test.sh::Empty do/done": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/empty-bodies.test.sh::Empty then/fi": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/errexit-osh.test.sh::Regression": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/errexit-osh.test.sh::command_sub_errexit stops at first error": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/errexit-osh.test.sh::strict_errexit and errexit disabled": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/for-expr.test.sh::Accepts { } syntax too": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/func-parsing.test.sh::subshell function": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/glob.test.sh::Glob of unescaped [[] and []]": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/here-doc.test.sh::Function def and execution with here doc": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/here-doc.test.sh::Here doc and < redirect -- last one wins": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/here-doc.test.sh::Here doc as command prefix": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/here-doc.test.sh::Redirect after here doc": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/here-doc.test.sh::Two here docs -- first is ignored; second ones wins!": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/known-differences.test.sh::nested function declaration - xcb-util-renderutil": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/paren-ambiguity.test.sh::(( closed with ) ) after multiple lines is command - #2337": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/paren-ambiguity.test.sh::((test example - liblo package - #2337": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/parse-errors.test.sh::Incomplete for": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::Incomplete if": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::Incomplete while": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::array literal in case": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::array literal inside array is a parse error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::array literal inside loop is a parse error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::do unexpected": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::empty clause in [[": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::incomplete backticks": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::incomplete command sub": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::misplaced ;;": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/parse-errors.test.sh::} is a parse error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/pipeline.test.sh::|&": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/posix.test.sh::Bare semi-colon not allowed": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/posix.test.sh::Empty action for case is syntax error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/print-source-code.test.sh::non-{ } function bodies can be serialized (rare)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect-command.test.sh::>$file touches a file": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect-command.test.sh::< file in pipeline and subshell doesn't work": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect-command.test.sh::Prefix redirect for loop -- not allowed": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/redirect-command.test.sh::Redirect in function body": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect-command.test.sh::Redirect in function body AND function call": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect-command.test.sh::Redirect in function body is evaluated multiple times": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect-multi.test.sh::Redirect to $empty (in function body)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect.test.sh::&>> appends stdout and stderr": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect.test.sh::2>&1 with no command": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect.test.sh::<> for read/write": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect.test.sh::<> for read/write named pipes": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect.test.sh::Named read-write file descriptor": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/redirect.test.sh::noclobber can still write to non-regular files like /dev/null": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/regex.test.sh::Malformed regex": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/regex.test.sh::Multiple adjacent () groups": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/regex.test.sh::Quoted { and +": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/regex.test.sh::Unquoted { is a regex parse error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/sh-func.test.sh::Subshell function": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/strict-options.test.sh::Control flow must be static in YSH (strict_control_flow)": {
+    "expectation": "skip",
+    "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/toysh.test.sh::char class / extglob": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/toysh.test.sh::{abc}<<< - http://landley.net/notes-2019.html#09-12-2019": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/var-op-strip.test.sh::Strip Right Brace (#702)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/var-sub-quote.test.sh::Right Brace as argument (similar to #702)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/var-sub.test.sh::Braced block inside ${}": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/var-sub.test.sh::Here doc with bad \"$@\" delimiter": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  },
+  "oils/vars-special.test.sh::$LINENO in \"bare\" redirect arg (bug regression)": {
+    "expectation": "skip",
+    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  }
+}

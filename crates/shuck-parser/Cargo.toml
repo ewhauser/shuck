@@ -17,3 +17,5 @@ shuck-ast = { path = "../shuck-ast" }
 memchr.workspace = true
 
 [dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
