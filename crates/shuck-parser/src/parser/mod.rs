@@ -2482,6 +2482,18 @@ impl<'a> Parser<'a> {
                     composite = true;
                     self.advance();
                 }
+                Some(Token::DoubleLeftParen) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal(LiteralText::owned("((")));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    paren_depth += 2;
+                    composite = true;
+                    self.advance();
+                }
                 Some(Token::RightParen) => {
                     if paren_depth == 0 {
                         break;
@@ -2493,7 +2505,19 @@ impl<'a> Parser<'a> {
                     parts.push(WordPart::Literal(LiteralText::owned(")")));
                     part_spans.push(self.current_span);
                     previous_end = Some(self.current_span.end);
-                    paren_depth -= 1;
+                    paren_depth = paren_depth.saturating_sub(1);
+                    composite = true;
+                    self.advance();
+                }
+                Some(Token::DoubleRightParen) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPart::Literal(LiteralText::owned("))")));
+                    part_spans.push(self.current_span);
+                    previous_end = Some(self.current_span.end);
+                    paren_depth = paren_depth.saturating_sub(2);
                     composite = true;
                     self.advance();
                 }
@@ -5319,6 +5343,27 @@ coproc worker { true; }
     }
 
     #[test]
+    fn test_parse_conditional_regex_rhs_with_double_left_paren_groups() {
+        let input = "[[ x =~ ^\\\"\\-1[[:blank:]]((\\?[luds])+).* ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
+        else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Binary(binary) = &command.expression else {
+            panic!("expected binary conditional");
+        };
+        assert_eq!(binary.op, ConditionalBinaryOp::RegexMatch);
+
+        let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
+            panic!("expected regex rhs");
+        };
+        assert_eq!(word.render(input), "^\"-1[[:blank:]]((?[luds])+).*");
+    }
+
+    #[test]
     fn test_command_substitution_spans_are_absolute() {
         let script = Parser::new("out=$(\n  printf '%s\\n' $x\n)\n")
             .parse()
@@ -5342,6 +5387,11 @@ coproc worker { true; }
         assert_eq!(inner.name.span.start.column, 3);
         assert_eq!(inner.args[0].span.start.line, 2);
         assert_eq!(inner.args[1].span.start.column, 17);
+    }
+
+    #[test]
+    fn test_parse_command_substitution_with_open_paren_inside_double_quotes() {
+        Parser::new("x=$(echo \"(\")\n").parse().unwrap();
     }
 
     #[test]

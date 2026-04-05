@@ -679,14 +679,24 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     // Handle $(...) inside double-quoted word segments
-                    // to preserve single-quoted strings within command substitutions
+                    // and ${...} parameter expansion inside double-quoted word
+                    // segments so nested quotes don't terminate the outer string.
                     if c == '$' && quote_char == '"' {
                         word.push(c);
                         self.advance();
                         if self.peek_char() == Some('(') {
                             word.push('(');
                             self.advance();
-                            self.read_command_subst_into(&mut word);
+                            if !self.read_command_subst_into(&mut word) {
+                                return Some(Token::Error(
+                                    "unterminated command substitution".to_string(),
+                                ));
+                            }
+                            continue;
+                        } else if self.peek_char() == Some('{') {
+                            word.push('{');
+                            self.advance();
+                            self.read_param_expansion_into(&mut word);
                             continue;
                         }
                         continue;
@@ -821,44 +831,7 @@ impl<'a> Lexer<'a> {
                             }
                         }
                     } else {
-                        // Track substitution nesting depth to
-                        // enforce max_subst_depth consistently in both quoted
-                        // and unquoted contexts (issue #996).
-                        let mut depth = 1;
-                        let mut subst_depth = 1usize;
-                        while let Some(c) = self.peek_char() {
-                            word.push(c);
-                            self.advance();
-                            if c == '$' && self.peek_char() == Some('(') {
-                                subst_depth += 1;
-                                if subst_depth > self.max_subst_depth {
-                                    // Depth limit exceeded — consume remaining
-                                    // parens and stop nesting deeper.
-                                    while let Some(ic) = self.peek_char() {
-                                        word.push(ic);
-                                        self.advance();
-                                        if ic == '(' {
-                                            depth += 1;
-                                        } else if ic == ')' {
-                                            depth -= 1;
-                                            if depth == 0 {
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                            if c == '(' {
-                                depth += 1;
-                            } else if c == ')' {
-                                depth -= 1;
-                                if depth == 0 {
-                                    break;
-                                }
-                            }
-                        }
-                        if depth > 0 {
+                        if !self.read_command_subst_into(&mut word) {
                             return Some(Token::Error(
                                 "unterminated command substitution".to_string(),
                             ));
@@ -869,22 +842,7 @@ impl<'a> Lexer<'a> {
                     // doesn't stop at the inner }.
                     word.push('{');
                     self.advance();
-                    let mut brace_depth = 1i32;
-                    while let Some(c) = self.peek_char() {
-                        word.push(c);
-                        self.advance();
-                        if c == '$' && self.peek_char() == Some('{') {
-                            // Nested ${...}
-                            word.push('{');
-                            self.advance();
-                            brace_depth += 1;
-                        } else if c == '}' {
-                            brace_depth -= 1;
-                            if brace_depth == 0 {
-                                break;
-                            }
-                        }
-                    }
+                    self.read_param_expansion_into(&mut word);
                 } else {
                     // Check for special single-character variables ($?, $#, $@, $*, $!, $$, $-, $0-$9)
                     if let Some(c) = self.peek_char() {
@@ -1395,11 +1353,11 @@ impl<'a> Lexer<'a> {
     /// Read command substitution content after `$(`, handling nested parens and quotes.
     /// Appends chars to `content` and adds the closing `)`.
     /// `subst_depth` tracks nesting to prevent stack overflow.
-    fn read_command_subst_into(&mut self, content: &mut String) {
-        self.read_command_subst_into_depth(content, 0);
+    fn read_command_subst_into(&mut self, content: &mut String) -> bool {
+        self.read_command_subst_into_depth(content, 0)
     }
 
-    fn read_command_subst_into_depth(&mut self, content: &mut String, subst_depth: usize) {
+    fn read_command_subst_into_depth(&mut self, content: &mut String, subst_depth: usize) -> bool {
         if subst_depth >= self.max_subst_depth {
             // Depth limit exceeded — consume until matching ')' and emit error token
             let mut depth = 1;
@@ -1411,13 +1369,13 @@ impl<'a> Lexer<'a> {
                         depth -= 1;
                         if depth == 0 {
                             content.push(')');
-                            return;
+                            return true;
                         }
                     }
                     _ => {}
                 }
             }
-            return;
+            return false;
         }
 
         let mut depth = 1;
@@ -1433,7 +1391,7 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     if depth == 0 {
                         content.push(')');
-                        break;
+                        return true;
                     }
                     content.push(c);
                 }
@@ -1462,7 +1420,10 @@ impl<'a> Lexer<'a> {
                                 if self.peek_char() == Some('(') {
                                     content.push('(');
                                     self.advance();
-                                    self.read_command_subst_into_depth(content, subst_depth + 1);
+                                    if !self.read_command_subst_into_depth(content, subst_depth + 1)
+                                    {
+                                        return false;
+                                    }
                                 }
                             }
                             _ => {
@@ -1498,6 +1459,8 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
+
+        false
     }
 
     /// Read parameter expansion content after `${`, handling nested braces and quotes.
@@ -1998,6 +1961,51 @@ mod tests {
             Some(Token::QuotedWord("hello world".to_string()))
         );
         assert_eq!(lexer.next_token(), None);
+    }
+
+    #[test]
+    fn test_parameter_expansion_replacing_double_quote_stays_on_one_line() {
+        let source = r#"out_line="${out_line//'"'/'\"'}"
+"#;
+        let mut lexer = Lexer::new(source);
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token::Word(r#"out_line=${out_line//'"'/'"'}"#.to_string()))
+        );
+        assert_eq!(lexer.next_token(), Some(Token::Newline));
+        assert_eq!(lexer.next_token(), None);
+    }
+
+    #[test]
+    fn test_parameter_expansion_replacing_double_quote_does_not_swallow_following_commands() {
+        let source = r#"out_line="${out_line//'"'/'\"'}"
+echo "Error: Missing python3!"
+cat << 'EOF' > "${pywrapper}"
+import os
+EOF
+"#;
+        let mut lexer = Lexer::new(source);
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token::Word(r#"out_line=${out_line//'"'/'"'}"#.to_string()))
+        );
+        assert_eq!(lexer.next_token(), Some(Token::Newline));
+        assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token::QuotedWord("Error: Missing python3!".to_string()))
+        );
+        assert_eq!(lexer.next_token(), Some(Token::Newline));
+        assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::HereDoc));
+        assert_eq!(lexer.next_token(), Some(Token::LiteralWord("EOF".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token::QuotedWord("${pywrapper}".to_string()))
+        );
     }
 
     #[test]
