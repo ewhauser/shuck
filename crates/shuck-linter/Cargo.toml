@@ -14,3 +14,8 @@ shuck-ast = { path = "../shuck-ast" }
 shuck-indexer = { path = "../shuck-indexer" }
 shuck-semantic = { path = "../shuck-semantic" }
 shuck-parser = { path = "../shuck-parser" }
+
+[dev-dependencies]
+insta = { workspace = true }
+test-case = { workspace = true }
+anyhow = { workspace = true }

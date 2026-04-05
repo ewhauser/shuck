@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn parses_shuck_directives_and_strips_reasons() {
-        let directives = directives("# shuck: disable=C001,S001 # legacy code\n");
+        let directives = directives("# shuck: disable=C002,S001 # legacy code\n");
 
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].action, SuppressionAction::Disable);

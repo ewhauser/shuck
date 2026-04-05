@@ -35,6 +35,8 @@ serde_json = "1"
 # Testing
 tempfile = "3"
 memchr = "2"
+insta = "1.42"
+test-case = "3"
 
 [profile.release]
 lto = "thin"

@@ -71,7 +71,11 @@ impl<'a> Checker<'a> {
         self.diagnostics
     }
 
-    fn check_bindings(&mut self) {}
+    fn check_bindings(&mut self) {
+        if self.is_rule_enabled(Rule::UnusedAssignment) {
+            rules::correctness::unused_assignment::unused_assignment(self);
+        }
+    }
 
     fn check_references(&mut self) {}
 

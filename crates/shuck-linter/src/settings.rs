@@ -18,6 +18,20 @@ impl Default for LinterSettings {
 }
 
 impl LinterSettings {
+    pub fn for_rule(rule: Rule) -> Self {
+        Self {
+            rules: RuleSet::from_iter([rule]),
+            ..Self::default()
+        }
+    }
+
+    pub fn for_rules(rules: impl IntoIterator<Item = Rule>) -> Self {
+        Self {
+            rules: rules.into_iter().collect(),
+            ..Self::default()
+        }
+    }
+
     pub fn default_rules() -> RuleSet {
         Rule::iter()
             .filter(|rule| matches!(rule.category(), Category::Correctness | Category::Security))

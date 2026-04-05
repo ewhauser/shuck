@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn applies_disable_file_directives_to_the_entire_file() {
-        let source = "echo $foo # shuck: disable-file=C001\n";
+        let source = "echo $foo # shuck: disable-file=C002\n";
         let index = suppression_index(source);
 
         assert!(index.is_suppressed(Rule::UndefinedVariable, 1));
@@ -466,9 +466,9 @@ mod tests {
     fn applies_region_disable_until_a_matching_enable() {
         let source = "\
 echo $foo
-# shuck: disable=C001
+# shuck: disable=C002
 echo $foo
-# shuck: enable=C001
+# shuck: enable=C002
 echo $foo
 ";
         let index = suppression_index(source);

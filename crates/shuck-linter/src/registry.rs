@@ -88,8 +88,8 @@ macro_rules! declare_rules {
 }
 
 declare_rules! {
-    ("C001", Category::Correctness, Severity::Error, UndefinedVariable),
-    ("C002", Category::Correctness, Severity::Error, UnusedAssignment),
+    ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
+    ("C002", Category::Correctness, Severity::Error, UndefinedVariable),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("C999", Category::Correctness, Severity::Warning, NoopPlaceholder),
 }

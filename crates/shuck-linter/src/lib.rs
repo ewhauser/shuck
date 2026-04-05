@@ -8,6 +8,9 @@ mod settings;
 mod suppression;
 mod violation;
 
+#[cfg(test)]
+pub mod test;
+
 pub use checker::Checker;
 pub use diagnostic::{Diagnostic, Severity};
 pub use registry::{Category, Rule, code_to_rule};
@@ -197,5 +200,69 @@ echo $bar
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "second");
+    }
+
+    #[test]
+    fn unused_assignment_flags_unread_variable() {
+        let diagnostics = lint("#!/bin/sh\nfoo=1\n", &LinterSettings::default());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert!(diagnostics[0].message.contains("foo"));
+    }
+
+    #[test]
+    fn used_variable_produces_no_diagnostic() {
+        let diagnostics = lint(
+            "#!/bin/sh\nfoo=1\necho \"$foo\"\n",
+            &LinterSettings::default(),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn exported_variable_not_flagged() {
+        let diagnostics = lint("#!/bin/sh\nexport FOO=1\n", &LinterSettings::default());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_respects_disabled_rule() {
+        let diagnostics = lint(
+            "#!/bin/sh\nfoo=1\n",
+            &LinterSettings {
+                rules: RuleSet::EMPTY,
+                ..LinterSettings::default()
+            },
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC2034
+foo=1
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.script,
+            first_statement_line(&output.script).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.script,
+            source,
+            &indexer,
+            &LinterSettings::default(),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
     }
 }

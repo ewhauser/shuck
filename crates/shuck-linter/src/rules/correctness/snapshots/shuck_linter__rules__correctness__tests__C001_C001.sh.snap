@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C001 variable `unused` is assigned but never used
+ --> <source>:4:1
+  |
+4 | unused=1
+  |
