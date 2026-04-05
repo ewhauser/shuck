@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C021 this `case` statement switches on a fixed literal
+ --> <source>:4:6
+  |
+4 | case x in
+  |

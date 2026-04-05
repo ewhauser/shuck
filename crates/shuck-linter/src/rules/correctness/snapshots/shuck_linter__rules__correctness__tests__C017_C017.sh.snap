@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C017 this comparison only checks fixed literals
+ --> <source>:4:1
+  |
+4 | [ 1 = 1 ]
+  |
+
+C017 this comparison only checks fixed literals
+ --> <source>:7:1
+  |
+7 | test foo != bar
+  |
+
+C017 this comparison only checks fixed literals
+  --> <source>:10:1
+   |
+10 | [[ left == right ]]
+   |

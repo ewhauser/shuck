@@ -106,11 +106,41 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::NoopPlaceholder) {
             rules::correctness::noop::noop(self);
         }
+        if self.is_rule_enabled(Rule::TrapStringExpansion) {
+            rules::correctness::trap_string_expansion::trap_string_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::QuotedBashRegex) {
+            rules::correctness::quoted_bash_regex::quoted_bash_regex(self);
+        }
         if self.is_rule_enabled(Rule::FindOutputToXargs) {
             rules::correctness::find_output_to_xargs::find_output_to_xargs(self);
         }
+        if self.is_rule_enabled(Rule::FindOutputLoop) {
+            rules::correctness::find_output_loop::find_output_loop(self);
+        }
         if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
             rules::correctness::single_quoted_literal::single_quoted_literal(self);
+        }
+        if self.is_rule_enabled(Rule::SudoRedirectionOrder) {
+            rules::correctness::sudo_redirection_order::sudo_redirection_order(self);
+        }
+        if self.is_rule_enabled(Rule::ConstantComparisonTest) {
+            rules::correctness::constant_comparison_test::constant_comparison_test(self);
+        }
+        if self.is_rule_enabled(Rule::LoopControlOutsideLoop) {
+            rules::correctness::loop_control_outside_loop::loop_control_outside_loop(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralUnaryStringTest) {
+            rules::correctness::literal_unary_string_test::literal_unary_string_test(self);
+        }
+        if self.is_rule_enabled(Rule::TruthyLiteralTest) {
+            rules::correctness::truthy_literal_test::truthy_literal_test(self);
+        }
+        if self.is_rule_enabled(Rule::ConstantCaseSubject) {
+            rules::correctness::constant_case_subject::constant_case_subject(self);
+        }
+        if self.is_rule_enabled(Rule::EmptyTest) {
+            rules::correctness::empty_test::empty_test(self);
         }
         if self.is_rule_enabled(Rule::PipeToKill) {
             rules::correctness::pipe_to_kill::pipe_to_kill(self);

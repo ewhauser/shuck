@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C009 quoting the right-hand side of `=~` forces a literal string match
+ --> <source>:6:14
+  |
+6 | [[ $value =~ "$re" ]]
+  |
+
+C009 quoting the right-hand side of `=~` forces a literal string match
+ --> <source>:9:11
+  |
+9 | [[ foo =~ "a+" ]]
+  |

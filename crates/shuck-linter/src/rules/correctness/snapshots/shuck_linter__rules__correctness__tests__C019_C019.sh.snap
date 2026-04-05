@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C019 this string test checks a fixed literal
+ --> <source>:4:1
+  |
+4 | [ -z foo ]
+  |
+
+C019 this string test checks a fixed literal
+ --> <source>:5:1
+  |
+5 | test -n bar
+  |
+
+C019 this string test checks a fixed literal
+ --> <source>:6:1
+  |
+6 | [[ -z baz ]]
+  |

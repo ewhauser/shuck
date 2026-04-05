@@ -92,7 +92,17 @@ declare_rules! {
     ("C002", Category::Correctness, Severity::Error, UndefinedVariable),
     ("C005", Category::Correctness, Severity::Warning, SingleQuotedLiteral),
     ("C007", Category::Correctness, Severity::Warning, FindOutputToXargs),
+    ("C008", Category::Correctness, Severity::Warning, TrapStringExpansion),
+    ("C009", Category::Correctness, Severity::Warning, QuotedBashRegex),
+    ("C013", Category::Correctness, Severity::Warning, FindOutputLoop),
     ("C014", Category::Correctness, Severity::Error, LocalTopLevel),
+    ("C015", Category::Correctness, Severity::Warning, SudoRedirectionOrder),
+    ("C017", Category::Correctness, Severity::Warning, ConstantComparisonTest),
+    ("C018", Category::Correctness, Severity::Error, LoopControlOutsideLoop),
+    ("C019", Category::Correctness, Severity::Warning, LiteralUnaryStringTest),
+    ("C020", Category::Correctness, Severity::Warning, TruthyLiteralTest),
+    ("C021", Category::Correctness, Severity::Warning, ConstantCaseSubject),
+    ("C022", Category::Correctness, Severity::Error, EmptyTest),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
@@ -104,11 +114,21 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-001" => Some(Rule::UnquotedExpansion),
         "SH-003" => Some(Rule::UnusedAssignment),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
+        "SH-039" => Some(Rule::UndefinedVariable),
         "SH-041" => Some(Rule::FindOutputToXargs),
+        "SH-042" => Some(Rule::TrapStringExpansion),
+        "SH-043" => Some(Rule::QuotedBashRegex),
+        "SH-049" => Some(Rule::FindOutputLoop),
         "SH-052" => Some(Rule::LocalTopLevel),
+        "SH-060" => Some(Rule::SudoRedirectionOrder),
+        "SH-069" => Some(Rule::ConstantComparisonTest),
+        "SH-070" => Some(Rule::LoopControlOutsideLoop),
+        "SH-072" => Some(Rule::LiteralUnaryStringTest),
+        "SH-073" => Some(Rule::TruthyLiteralTest),
+        "SH-074" => Some(Rule::ConstantCaseSubject),
+        "SH-075" => Some(Rule::EmptyTest),
         "SH-134" => Some(Rule::PipeToKill),
         "SH-171" => Some(Rule::OverwrittenFunction),
-        "SH-039" => Some(Rule::UndefinedVariable),
         _ => None,
     })
 }
@@ -129,10 +149,20 @@ mod tests {
         assert_eq!(code_to_rule("SH-001"), Some(Rule::UnquotedExpansion));
         assert_eq!(code_to_rule("SH-003"), Some(Rule::UnusedAssignment));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
+        assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
+        assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));
+        assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));
+        assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
+        assert_eq!(code_to_rule("SH-060"), Some(Rule::SudoRedirectionOrder));
+        assert_eq!(code_to_rule("SH-069"), Some(Rule::ConstantComparisonTest));
+        assert_eq!(code_to_rule("SH-070"), Some(Rule::LoopControlOutsideLoop));
+        assert_eq!(code_to_rule("SH-072"), Some(Rule::LiteralUnaryStringTest));
+        assert_eq!(code_to_rule("SH-073"), Some(Rule::TruthyLiteralTest));
+        assert_eq!(code_to_rule("SH-074"), Some(Rule::ConstantCaseSubject));
+        assert_eq!(code_to_rule("SH-075"), Some(Rule::EmptyTest));
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));
         assert_eq!(code_to_rule("SH-171"), Some(Rule::OverwrittenFunction));
-        assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
     }
 }

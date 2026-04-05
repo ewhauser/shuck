@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C022 test expression is empty
+ --> <source>:4:1
+  |
+4 | [ ]
+  |
+
+C022 test expression is empty
+ --> <source>:5:1
+  |
+5 | test
+  |

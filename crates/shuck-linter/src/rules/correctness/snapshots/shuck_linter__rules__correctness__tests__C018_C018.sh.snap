@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C018 `break` is only valid inside a loop
+ --> <source>:4:1
+  |
+4 | break
+  |
+
+C018 `continue` is only valid inside a loop
+ --> <source>:5:1
+  |
+5 | continue 2
+  |

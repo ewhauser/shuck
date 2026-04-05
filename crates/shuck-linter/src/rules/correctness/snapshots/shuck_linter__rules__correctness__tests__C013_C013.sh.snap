@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C013 expanding `find` output in a `for` loop splits paths on whitespace
+ --> <source>:4:13
+  |
+4 | for file in $(find . -name '*.txt'); do
+  |
