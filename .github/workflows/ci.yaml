@@ -24,6 +24,22 @@ env:
   RUSTUP_MAX_RETRIES: 10
 
 jobs:
+  nix-flake-check:
+    name: "nix flake check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: DeterminateSystems/flakehub-cache-action@main
+      - uses: DeterminateSystems/nix-flake-checker-action@main
+      - run: nix flake check
+
   cargo-fmt:
     name: "cargo fmt"
     runs-on: ubuntu-latest
@@ -98,6 +114,9 @@ jobs:
     name: "large corpus"
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -107,12 +126,13 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: "Install Nix"
         uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: "Download large corpus cache"
         run: |
-          curl -L --fail --retry 3 \
-            -o /tmp/shuck-cache.tar.zst \
-            https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-cache.tar.zst
+          gh release download v0.0.0-test-files -R ewhauser/shuck -p 'shuck-cache.tar.zst' -D /tmp
           echo "28e37f8d3e77fc5d0c6d10f02612a2444d1f211157ba252dbd887d9e6285305f  /tmp/shuck-cache.tar.zst" | sha256sum -c -
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: "Extract large corpus cache"
         run: tar --zstd -xf /tmp/shuck-cache.tar.zst -C "$GITHUB_WORKSPACE"
       - name: "Run large corpus tests"
