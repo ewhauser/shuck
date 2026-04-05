@@ -2141,17 +2141,6 @@ impl<'a> Printer<'a> {
         self.encode_subscript(if at { "@" } else { "*" }, span.start)
     }
 
-    fn encode_pattern_literal(&self, pattern: &str) -> EncodedNode {
-        self.encode_pattern_text(pattern, None)
-    }
-
-    fn encode_pattern_literal_in_span(&self, pattern: &str, span: Span) -> EncodedNode {
-        let pattern_span = self
-            .rfind_in_span(span, pattern)
-            .map(|start| Span::from_positions(start, start.advanced_by(pattern)));
-        self.encode_pattern_text(pattern, pattern_span)
-    }
-
     fn encode_pattern_word(&self, word: &Word, fallback_span: Option<Span>) -> EncodedNode {
         let span = if self.is_valid_pos(word.span.start) && self.is_valid_pos(word.span.end) {
             Some(word.span)
@@ -2278,10 +2267,6 @@ impl<'a> Printer<'a> {
             .map(|start| Span::from_positions(start, start.advanced_by(value)))
             .unwrap_or_else(Span::new);
         self.synthetic_literal_word_node(value, word_span)
-    }
-
-    fn expression_word_in_span(&self, value: &str, span: Span) -> EncodedNode {
-        self.literal_word_in_span(value, span)
     }
 
     fn synthetic_expression_word(&self, value: &str, span: Span) -> EncodedNode {
