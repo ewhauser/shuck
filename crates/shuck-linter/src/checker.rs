@@ -106,6 +106,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::NoopPlaceholder) {
             rules::correctness::noop::noop(self);
         }
+        if self.is_rule_enabled(Rule::FindOutputToXargs) {
+            rules::correctness::find_output_to_xargs::find_output_to_xargs(self);
+        }
         if self.is_rule_enabled(Rule::PipeToKill) {
             rules::correctness::pipe_to_kill::pipe_to_kill(self);
         }

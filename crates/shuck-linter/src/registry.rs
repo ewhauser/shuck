@@ -90,6 +90,7 @@ macro_rules! declare_rules {
 declare_rules! {
     ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
     ("C002", Category::Correctness, Severity::Error, UndefinedVariable),
+    ("C007", Category::Correctness, Severity::Warning, FindOutputToXargs),
     ("C014", Category::Correctness, Severity::Error, LocalTopLevel),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
@@ -101,6 +102,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
     canonical_code_to_rule(code).or(match code {
         "SH-001" => Some(Rule::UnquotedExpansion),
         "SH-003" => Some(Rule::UnusedAssignment),
+        "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-052" => Some(Rule::LocalTopLevel),
         "SH-134" => Some(Rule::PipeToKill),
         "SH-171" => Some(Rule::OverwrittenFunction),
@@ -124,6 +126,7 @@ mod tests {
     fn resolves_legacy_shuck_aliases() {
         assert_eq!(code_to_rule("SH-001"), Some(Rule::UnquotedExpansion));
         assert_eq!(code_to_rule("SH-003"), Some(Rule::UnusedAssignment));
+        assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));
         assert_eq!(code_to_rule("SH-171"), Some(Rule::OverwrittenFunction));

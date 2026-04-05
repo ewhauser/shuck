@@ -1,3 +1,4 @@
+pub mod find_output_to_xargs;
 pub mod noop;
 pub mod overwritten_function;
 pub mod pipe_to_kill;
@@ -14,6 +15,7 @@ mod tests {
     use crate::{LinterSettings, Rule, assert_diagnostics};
 
     #[test_case(Rule::UnusedAssignment, Path::new("C001.sh"))]
+    #[test_case(Rule::FindOutputToXargs, Path::new("C007.sh"))]
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]

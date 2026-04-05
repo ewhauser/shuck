@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C007 raw `find` output piped to `xargs` can break on whitespace
+ --> <source>:4:1
+  |
+4 | find . -name '*.txt' | xargs rm
+  |
+
+C007 raw `find` output piped to `xargs` can break on whitespace
+ --> <source>:7:1
+  |
+7 | find . -type f | xargs -0 wc -l
+  |
+
+C007 raw `find` output piped to `xargs` can break on whitespace
+  --> <source>:10:11
+   |
+10 | summary=$(find . -type f | xargs wc -l)
+   |

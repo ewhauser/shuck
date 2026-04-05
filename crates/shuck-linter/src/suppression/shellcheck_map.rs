@@ -33,6 +33,7 @@ impl Default for ShellCheckCodeMap {
         Self {
             map: FxHashMap::from_iter([
                 (2034, Rule::UnusedAssignment),
+                (2038, Rule::FindOutputToXargs),
                 (2086, Rule::UnquotedExpansion),
                 (2124, Rule::PipeToKill),
                 (2168, Rule::LocalTopLevel),
@@ -52,6 +53,7 @@ mod tests {
         let map = ShellCheckCodeMap::default();
 
         assert_eq!(map.resolve("SC2034"), Some(Rule::UnusedAssignment));
+        assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
         assert_eq!(map.resolve("SC2124"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
@@ -69,6 +71,7 @@ mod tests {
             mappings,
             vec![
                 (2034, Rule::UnusedAssignment),
+                (2038, Rule::FindOutputToXargs),
                 (2086, Rule::UnquotedExpansion),
                 (2124, Rule::PipeToKill),
                 (2154, Rule::UndefinedVariable),
