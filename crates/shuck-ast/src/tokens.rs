@@ -145,6 +145,7 @@ pub enum Token {
 }
 
 /// Cheap token classification for parser dispatch.
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     Word,

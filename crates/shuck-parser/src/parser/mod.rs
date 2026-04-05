@@ -64,6 +64,7 @@ pub struct Parser<'a> {
     current_token: Option<LexedToken<'a>>,
     current_word_cache: Option<Word>,
     current_token_kind: Option<TokenKind>,
+    current_keyword: Option<Keyword>,
     /// Span of the current token
     current_span: Span,
     /// Lookahead token for function parsing
@@ -155,6 +156,117 @@ enum FlowControlBuiltinKind {
     Exit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TokenSet(u64);
+
+impl TokenSet {
+    const fn contains(self, kind: TokenKind) -> bool {
+        self.0 & (1u64 << kind as u8) != 0
+    }
+}
+
+macro_rules! token_set {
+    ($($kind:path),+ $(,)?) => {
+        TokenSet(0 $(| (1u64 << ($kind as u8)))+)
+    };
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Keyword {
+    If,
+    For,
+    While,
+    Until,
+    Case,
+    Select,
+    Time,
+    Coproc,
+    Function,
+    Then,
+    Else,
+    Elif,
+    Fi,
+    Do,
+    Done,
+    Esac,
+    In,
+}
+
+impl Keyword {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::If => "if",
+            Self::For => "for",
+            Self::While => "while",
+            Self::Until => "until",
+            Self::Case => "case",
+            Self::Select => "select",
+            Self::Time => "time",
+            Self::Coproc => "coproc",
+            Self::Function => "function",
+            Self::Then => "then",
+            Self::Else => "else",
+            Self::Elif => "elif",
+            Self::Fi => "fi",
+            Self::Do => "do",
+            Self::Done => "done",
+            Self::Esac => "esac",
+            Self::In => "in",
+        }
+    }
+}
+
+impl std::fmt::Display for Keyword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KeywordSet(u32);
+
+impl KeywordSet {
+    const fn single(keyword: Keyword) -> Self {
+        Self(1u32 << keyword as u8)
+    }
+
+    const fn contains(self, keyword: Keyword) -> bool {
+        self.0 & (1u32 << keyword as u8) != 0
+    }
+}
+
+macro_rules! keyword_set {
+    ($($keyword:ident),+ $(,)?) => {
+        KeywordSet(0 $(| (1u32 << (Keyword::$keyword as u8)))+)
+    };
+}
+
+const PIPE_OPERATOR_TOKENS: TokenSet = token_set![TokenKind::Pipe, TokenKind::PipeBoth];
+const REDIRECT_TOKENS: TokenSet = token_set![
+    TokenKind::RedirectOut,
+    TokenKind::Clobber,
+    TokenKind::RedirectAppend,
+    TokenKind::RedirectIn,
+    TokenKind::RedirectReadWrite,
+    TokenKind::HereString,
+    TokenKind::HereDoc,
+    TokenKind::HereDocStrip,
+    TokenKind::RedirectBoth,
+    TokenKind::RedirectBothAppend,
+    TokenKind::DupOutput,
+    TokenKind::RedirectFd,
+    TokenKind::RedirectFdAppend,
+    TokenKind::DupFd,
+    TokenKind::DupInput,
+    TokenKind::DupFdIn,
+    TokenKind::DupFdClose,
+    TokenKind::RedirectFdIn,
+    TokenKind::RedirectFdReadWrite,
+];
+const NON_COMMAND_KEYWORDS: KeywordSet = keyword_set![Then, Else, Elif, Fi, Do, Done, Esac, In];
+const IF_BODY_TERMINATORS: KeywordSet = keyword_set![Elif, Else, Fi];
+
 impl<'a> Parser<'a> {
     /// Create a new parser for the given input.
     pub fn new(input: &'a str) -> Self {
@@ -179,15 +291,22 @@ impl<'a> Parser<'a> {
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
         let mut comments = Vec::new();
-        let (current_token, current_token_kind, current_span) = loop {
+        let (current_token, current_token_kind, current_keyword, current_span) = loop {
             match lexer.next_lexed_token_with_comments() {
                 Some(st) if st.kind == TokenKind::Comment => {
                     comments.push(Comment {
                         range: st.span.to_range(),
                     });
                 }
-                Some(st) => break (Some(st.clone()), Some(st.kind), st.span),
-                None => break (None, None, Span::new()),
+                Some(st) => {
+                    break (
+                        Some(st.clone()),
+                        Some(st.kind),
+                        Self::keyword_from_token(&st),
+                        st.span,
+                    );
+                }
+                None => break (None, None, None, Span::new()),
             }
         };
         Self {
@@ -198,6 +317,7 @@ impl<'a> Parser<'a> {
             current_token,
             current_word_cache: None,
             current_token_kind,
+            current_keyword,
             current_span,
             peeked_token: None,
             max_depth: max_depth.min(HARD_MAX_AST_DEPTH),
@@ -443,6 +563,13 @@ impl<'a> Parser<'a> {
             .filter(|kind| kind.is_word_like())
             .and(self.current_token.as_ref())
             .and_then(|token| self.token_source_like_word_text(token))
+    }
+
+    fn keyword_from_token(token: &LexedToken<'_>) -> Option<Keyword> {
+        (token.kind == TokenKind::Word)
+            .then(|| token.word_text())
+            .flatten()
+            .and_then(Self::classify_keyword)
     }
 
     fn current_conditional_literal_word(&self) -> Option<Word> {
@@ -961,28 +1088,7 @@ impl<'a> Parser<'a> {
     }
 
     fn is_redirect_kind(kind: TokenKind) -> bool {
-        matches!(
-            kind,
-            TokenKind::RedirectOut
-                | TokenKind::Clobber
-                | TokenKind::RedirectAppend
-                | TokenKind::RedirectIn
-                | TokenKind::RedirectReadWrite
-                | TokenKind::HereString
-                | TokenKind::HereDoc
-                | TokenKind::HereDocStrip
-                | TokenKind::RedirectBoth
-                | TokenKind::RedirectBothAppend
-                | TokenKind::DupOutput
-                | TokenKind::RedirectFd
-                | TokenKind::RedirectFdAppend
-                | TokenKind::DupFd
-                | TokenKind::DupInput
-                | TokenKind::DupFdIn
-                | TokenKind::DupFdClose
-                | TokenKind::RedirectFdIn
-                | TokenKind::RedirectFdReadWrite
-        )
+        REDIRECT_TOKENS.contains(kind)
     }
 
     fn current_static_word(&mut self) -> Option<(String, bool)> {
@@ -1012,6 +1118,7 @@ impl<'a> Parser<'a> {
     fn set_current_spanned(&mut self, token: LexedToken<'a>) {
         let span = token.span;
         self.current_token_kind = Some(token.kind);
+        self.current_keyword = Self::keyword_from_token(&token);
         self.current_token = Some(token);
         self.current_word_cache = None;
         self.current_span = span;
@@ -1019,6 +1126,7 @@ impl<'a> Parser<'a> {
 
     fn set_current_kind(&mut self, kind: TokenKind, span: Span) {
         self.current_token_kind = Some(kind);
+        self.current_keyword = None;
         self.current_token = Some(LexedToken::punctuation(kind).with_span(span));
         self.current_word_cache = None;
         self.current_span = span;
@@ -1028,6 +1136,7 @@ impl<'a> Parser<'a> {
         self.current_token = None;
         self.current_word_cache = None;
         self.current_token_kind = None;
+        self.current_keyword = None;
     }
 
     fn next_pending_token(&mut self) -> Option<LexedToken<'a>> {
@@ -1518,8 +1627,17 @@ impl<'a> Parser<'a> {
         self.peeked_token.as_ref().map(|st| st.kind)
     }
 
+    fn peek_next_is(&mut self, kind: TokenKind) -> bool {
+        self.peek_next_kind() == Some(kind)
+    }
+
     fn at(&self, kind: TokenKind) -> bool {
         self.current_token_kind == Some(kind)
+    }
+
+    fn at_in_set(&self, set: TokenSet) -> bool {
+        self.current_token_kind
+            .is_some_and(|kind| set.contains(kind))
     }
 
     fn at_word_like(&self) -> bool {
@@ -1533,11 +1651,31 @@ impl<'a> Parser<'a> {
             .and_then(LexedToken::word_text)
     }
 
-    fn current_word_text(&self) -> Option<String> {
-        self.current_token_kind
-            .filter(|kind| kind.is_word_like())
-            .and(self.current_token.as_ref())
-            .and_then(LexedToken::word_string)
+    fn classify_keyword(word: &str) -> Option<Keyword> {
+        match word.as_bytes() {
+            b"if" => Some(Keyword::If),
+            b"for" => Some(Keyword::For),
+            b"while" => Some(Keyword::While),
+            b"until" => Some(Keyword::Until),
+            b"case" => Some(Keyword::Case),
+            b"select" => Some(Keyword::Select),
+            b"time" => Some(Keyword::Time),
+            b"coproc" => Some(Keyword::Coproc),
+            b"function" => Some(Keyword::Function),
+            b"then" => Some(Keyword::Then),
+            b"else" => Some(Keyword::Else),
+            b"elif" => Some(Keyword::Elif),
+            b"fi" => Some(Keyword::Fi),
+            b"do" => Some(Keyword::Do),
+            b"done" => Some(Keyword::Done),
+            b"esac" => Some(Keyword::Esac),
+            b"in" => Some(Keyword::In),
+            _ => None,
+        }
+    }
+
+    fn current_keyword(&self) -> Option<Keyword> {
+        self.current_keyword
     }
 
     fn skip_newlines(&mut self) -> Result<()> {
@@ -1557,51 +1695,34 @@ impl<'a> Parser<'a> {
             None => return Ok(None),
         };
 
-        let mut rest = Vec::new();
+        let mut rest = Vec::with_capacity(1);
 
         loop {
-            let op = match self.current_token_kind {
-                Some(TokenKind::And) => {
-                    self.advance();
-                    ListOperator::And
-                }
-                Some(TokenKind::Or) => {
-                    self.advance();
-                    ListOperator::Or
-                }
-                Some(TokenKind::Semicolon) => {
-                    self.advance();
-                    self.skip_newlines()?;
-                    // Check if there's more to parse
-                    if self.current_token.is_none() || self.at(TokenKind::Newline) {
-                        break;
-                    }
-                    ListOperator::Semicolon
-                }
-                Some(TokenKind::Background) => {
-                    self.advance();
-                    self.skip_newlines()?;
-                    // Check if there's more to parse after &
-                    if self.current_token.is_none() || self.at(TokenKind::Newline) {
-                        // Just & at end - return as background
-                        rest.push((
-                            ListOperator::Background,
-                            Command::Simple(SimpleCommand {
-                                name: Word::literal(""),
-                                args: vec![],
-                                redirects: vec![],
-                                assignments: vec![],
-                                span: self.current_span,
-                            }),
-                        ));
-                        break;
-                    }
-                    ListOperator::Background
-                }
+            let (op, allow_empty_tail) = match self.current_token_kind {
+                Some(TokenKind::And) => (ListOperator::And, false),
+                Some(TokenKind::Or) => (ListOperator::Or, false),
+                Some(TokenKind::Semicolon) => (ListOperator::Semicolon, true),
+                Some(TokenKind::Background) => (ListOperator::Background, true),
                 _ => break,
             };
+            self.advance();
 
             self.skip_newlines()?;
+            if allow_empty_tail && self.current_token.is_none() {
+                if matches!(op, ListOperator::Background) {
+                    rest.push((
+                        ListOperator::Background,
+                        Command::Simple(SimpleCommand {
+                            name: Word::literal(""),
+                            args: vec![],
+                            redirects: vec![],
+                            assignments: vec![],
+                            span: self.current_span,
+                        }),
+                    ));
+                }
+                break;
+            }
 
             if let Some(cmd) = self.parse_pipeline()? {
                 rest.push((op, cmd));
@@ -1628,8 +1749,7 @@ impl<'a> Parser<'a> {
         let start_span = self.current_span;
 
         // Check for pipeline negation: `! command`
-        let negated = self.current_token_kind == Some(TokenKind::Word)
-            && self.current_word_str() == Some("!");
+        let negated = self.at(TokenKind::Word) && self.current_word_str() == Some("!");
         if negated {
             self.advance();
         }
@@ -1644,12 +1764,10 @@ impl<'a> Parser<'a> {
             }
         };
 
-        let mut commands = vec![first];
+        let mut commands = Vec::with_capacity(2);
+        commands.push(first);
 
-        while matches!(
-            self.current_token_kind,
-            Some(TokenKind::Pipe | TokenKind::PipeBoth)
-        ) {
+        while self.at_in_set(PIPE_OPERATOR_TOKENS) {
             let pipe_both = self.at(TokenKind::PipeBoth);
             let operator_span = self.current_span;
             self.advance();
@@ -2322,31 +2440,34 @@ impl<'a> Parser<'a> {
         self.check_error_token()?;
 
         // Check for compound commands and function keyword
-        if self.at(TokenKind::Word)
-            && let Some(word) = self.current_word_str()
-        {
-            let word = word.to_string();
-            match word.as_str() {
-                "if" => return self.parse_compound_with_redirects(|s| s.parse_if()),
-                "for" => return self.parse_compound_with_redirects(|s| s.parse_for()),
-                "while" => return self.parse_compound_with_redirects(|s| s.parse_while()),
-                "until" => return self.parse_compound_with_redirects(|s| s.parse_until()),
-                "case" => return self.parse_compound_with_redirects(|s| s.parse_case()),
-                "select" => return self.parse_compound_with_redirects(|s| s.parse_select()),
-                "time" => return self.parse_compound_with_redirects(|s| s.parse_time()),
-                "coproc" => return self.parse_compound_with_redirects(|s| s.parse_coproc()),
-                "function" => return self.parse_function_keyword().map(Some),
-                _ => {}
+        match self.current_keyword() {
+            Some(Keyword::If) => return self.parse_compound_with_redirects(|s| s.parse_if()),
+            Some(Keyword::For) => return self.parse_compound_with_redirects(|s| s.parse_for()),
+            Some(Keyword::While) => {
+                return self.parse_compound_with_redirects(|s| s.parse_while());
             }
+            Some(Keyword::Until) => {
+                return self.parse_compound_with_redirects(|s| s.parse_until());
+            }
+            Some(Keyword::Case) => return self.parse_compound_with_redirects(|s| s.parse_case()),
+            Some(Keyword::Select) => {
+                return self.parse_compound_with_redirects(|s| s.parse_select());
+            }
+            Some(Keyword::Time) => return self.parse_compound_with_redirects(|s| s.parse_time()),
+            Some(Keyword::Coproc) => {
+                return self.parse_compound_with_redirects(|s| s.parse_coproc());
+            }
+            Some(Keyword::Function) => return self.parse_function_keyword().map(Some),
+            _ => {}
         }
 
         if self.at(TokenKind::Word)
-            && let Some(word) = self.current_word_text()
+            && let Some(word) = self.current_source_like_word_text()
             // Check for POSIX-style function: name() { body }
             // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
             && !word.contains('=')
             && !word.contains('[')
-            && self.peek_next_kind() == Some(TokenKind::LeftParen)
+            && self.peek_next_is(TokenKind::LeftParen)
         {
             return self.parse_function_posix().map(Some);
         }
@@ -2399,14 +2520,14 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse condition
-        let condition = self.parse_compound_list("then")?;
+        let condition = self.parse_compound_list(Keyword::Then)?;
 
         // Expect 'then'
-        self.expect_keyword("then")?;
+        self.expect_keyword(Keyword::Then)?;
         self.skip_newlines()?;
 
         // Parse then branch
-        let then_branch = self.parse_compound_list_until(&["elif", "else", "fi"])?;
+        let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
 
         // Bash requires at least one command in then branch
         if then_branch.is_empty() {
@@ -2416,15 +2537,15 @@ impl<'a> Parser<'a> {
 
         // Parse elif branches
         let mut elif_branches = Vec::new();
-        while self.is_keyword("elif") {
+        while self.is_keyword(Keyword::Elif) {
             self.advance(); // consume 'elif'
             self.skip_newlines()?;
 
-            let elif_condition = self.parse_compound_list("then")?;
-            self.expect_keyword("then")?;
+            let elif_condition = self.parse_compound_list(Keyword::Then)?;
+            self.expect_keyword(Keyword::Then)?;
             self.skip_newlines()?;
 
-            let elif_body = self.parse_compound_list_until(&["elif", "else", "fi"])?;
+            let elif_body = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
 
             // Bash requires at least one command in elif branch
             if elif_body.is_empty() {
@@ -2436,10 +2557,10 @@ impl<'a> Parser<'a> {
         }
 
         // Parse else branch
-        let else_branch = if self.is_keyword("else") {
+        let else_branch = if self.is_keyword(Keyword::Else) {
             self.advance(); // consume 'else'
             self.skip_newlines()?;
-            let branch = self.parse_compound_list("fi")?;
+            let branch = self.parse_compound_list(Keyword::Fi)?;
 
             // Bash requires at least one command in else branch
             if branch.is_empty() {
@@ -2453,7 +2574,7 @@ impl<'a> Parser<'a> {
         };
 
         // Expect 'fi'
-        self.expect_keyword("fi")?;
+        self.expect_keyword(Keyword::Fi)?;
 
         self.pop_depth();
         Ok(CompoundCommand::If(IfCommand {
@@ -2492,14 +2613,14 @@ impl<'a> Parser<'a> {
         self.advance();
 
         // Check for 'in' keyword
-        let words = if self.is_keyword("in") {
+        let words = if self.is_keyword(Keyword::In) {
             self.advance(); // consume 'in'
 
             // Parse word list until do/newline/;
             let mut words = Vec::new();
             loop {
                 match self.current_token_kind {
-                    Some(TokenKind::Word) if self.current_word_str() == Some("do") => break,
+                    _ if self.current_keyword() == Some(Keyword::Do) => break,
                     Some(kind) if kind.is_word_like() => {
                         if let Some(word) = self.current_word() {
                             words.push(word);
@@ -2526,11 +2647,11 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Expect 'do'
-        self.expect_keyword("do")?;
+        self.expect_keyword(Keyword::Do)?;
         self.skip_newlines()?;
 
         // Parse body
-        let body = self.parse_compound_list("done")?;
+        let body = self.parse_compound_list(Keyword::Done)?;
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
@@ -2539,7 +2660,7 @@ impl<'a> Parser<'a> {
         }
 
         // Expect 'done'
-        self.expect_keyword("done")?;
+        self.expect_keyword(Keyword::Done)?;
 
         self.pop_depth();
         Ok(CompoundCommand::For(ForCommand {
@@ -2569,7 +2690,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         // Expect 'in' keyword
-        if !self.is_keyword("in") {
+        if !self.is_keyword(Keyword::In) {
             self.pop_depth();
             return Err(Error::parse("expected 'in' in select".to_string()));
         }
@@ -2579,7 +2700,7 @@ impl<'a> Parser<'a> {
         let mut words = Vec::new();
         loop {
             match self.current_token_kind {
-                Some(TokenKind::Word) if self.current_word_str() == Some("do") => break,
+                _ if self.current_keyword() == Some(Keyword::Do) => break,
                 Some(kind) if kind.is_word_like() => {
                     if let Some(word) = self.current_word() {
                         words.push(word);
@@ -2597,11 +2718,11 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Expect 'do'
-        self.expect_keyword("do")?;
+        self.expect_keyword(Keyword::Do)?;
         self.skip_newlines()?;
 
         // Parse body
-        let body = self.parse_compound_list("done")?;
+        let body = self.parse_compound_list(Keyword::Done)?;
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
@@ -2610,7 +2731,7 @@ impl<'a> Parser<'a> {
         }
 
         // Expect 'done'
-        self.expect_keyword("done")?;
+        self.expect_keyword(Keyword::Done)?;
 
         self.pop_depth();
         Ok(CompoundCommand::Select(SelectCommand {
@@ -2725,11 +2846,11 @@ impl<'a> Parser<'a> {
             (vec![Command::Compound(body, Vec::new())], self.current_span)
         } else {
             // Expect 'do'
-            self.expect_keyword("do")?;
+            self.expect_keyword(Keyword::Do)?;
             self.skip_newlines()?;
 
             // Parse body
-            let body = self.parse_compound_list("done")?;
+            let body = self.parse_compound_list(Keyword::Done)?;
 
             // Bash requires at least one command in loop body
             if body.is_empty() {
@@ -2737,7 +2858,7 @@ impl<'a> Parser<'a> {
             }
 
             // Expect 'done'
-            if !self.is_keyword("done") {
+            if !self.is_keyword(Keyword::Done) {
                 return Err(self.error("expected 'done'"));
             }
             let done_span = self.current_span;
@@ -2766,14 +2887,14 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse condition
-        let condition = self.parse_compound_list("do")?;
+        let condition = self.parse_compound_list(Keyword::Do)?;
 
         // Expect 'do'
-        self.expect_keyword("do")?;
+        self.expect_keyword(Keyword::Do)?;
         self.skip_newlines()?;
 
         // Parse body
-        let body = self.parse_compound_list("done")?;
+        let body = self.parse_compound_list(Keyword::Done)?;
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
@@ -2782,7 +2903,7 @@ impl<'a> Parser<'a> {
         }
 
         // Expect 'done'
-        self.expect_keyword("done")?;
+        self.expect_keyword(Keyword::Done)?;
 
         self.pop_depth();
         Ok(CompoundCommand::While(WhileCommand {
@@ -2800,14 +2921,14 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse condition
-        let condition = self.parse_compound_list("do")?;
+        let condition = self.parse_compound_list(Keyword::Do)?;
 
         // Expect 'do'
-        self.expect_keyword("do")?;
+        self.expect_keyword(Keyword::Do)?;
         self.skip_newlines()?;
 
         // Parse body
-        let body = self.parse_compound_list("done")?;
+        let body = self.parse_compound_list(Keyword::Done)?;
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
@@ -2816,7 +2937,7 @@ impl<'a> Parser<'a> {
         }
 
         // Expect 'done'
-        self.expect_keyword("done")?;
+        self.expect_keyword(Keyword::Done)?;
 
         self.pop_depth();
         Ok(CompoundCommand::Until(UntilCommand {
@@ -2838,14 +2959,14 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Expect 'in'
-        self.expect_keyword("in")?;
+        self.expect_keyword(Keyword::In)?;
         self.skip_newlines()?;
 
         // Parse case items
         let mut cases = Vec::new();
-        while !self.is_keyword("esac") && self.current_token.is_some() {
+        while !self.is_keyword(Keyword::Esac) && self.current_token.is_some() {
             self.skip_newlines()?;
-            if self.is_keyword("esac") {
+            if self.is_keyword(Keyword::Esac) {
                 break;
             }
 
@@ -2881,7 +3002,7 @@ impl<'a> Parser<'a> {
             // Parse commands until ;; or esac
             let mut commands = Vec::new();
             while !self.is_case_terminator()
-                && !self.is_keyword("esac")
+                && !self.is_keyword(Keyword::Esac)
                 && self.current_token.is_some()
             {
                 commands.push(self.parse_command_list_required()?);
@@ -2898,7 +3019,7 @@ impl<'a> Parser<'a> {
         }
 
         // Expect 'esac'
-        self.expect_keyword("esac")?;
+        self.expect_keyword(Keyword::Esac)?;
 
         self.pop_depth();
         Ok(CompoundCommand::Case(CaseCommand {
@@ -3594,12 +3715,12 @@ impl<'a> Parser<'a> {
         // Get function name
         let Some(name_text) = self
             .at(TokenKind::Word)
-            .then(|| self.current_word_text())
+            .then(|| self.current_source_like_word_text())
             .flatten()
         else {
             return Err(self.error("expected function name"));
         };
-        let (name, name_span) = (Name::from(name_text), self.current_span);
+        let (name, name_span) = (Name::from(name_text.as_ref()), self.current_span);
         self.advance();
         self.skip_newlines()?;
 
@@ -3631,12 +3752,12 @@ impl<'a> Parser<'a> {
         // Get function name
         let Some(name_text) = self
             .at(TokenKind::Word)
-            .then(|| self.current_word_text())
+            .then(|| self.current_source_like_word_text())
             .flatten()
         else {
             return Err(self.error("expected function name"));
         };
-        let (name, name_span) = (Name::from(name_text), self.current_span);
+        let (name, name_span) = (Name::from(name_text.as_ref()), self.current_span);
         self.advance();
 
         // Consume ()
@@ -3662,21 +3783,21 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse commands until a terminating keyword
-    fn parse_compound_list(&mut self, terminator: &str) -> Result<Vec<Command>> {
-        self.parse_compound_list_until(&[terminator])
+    fn parse_compound_list(&mut self, terminator: Keyword) -> Result<Vec<Command>> {
+        self.parse_compound_list_until(KeywordSet::single(terminator))
     }
 
     /// Parse commands until one of the terminating keywords
-    fn parse_compound_list_until(&mut self, terminators: &[&str]) -> Result<Vec<Command>> {
-        let mut commands = Vec::new();
+    fn parse_compound_list_until(&mut self, terminators: KeywordSet) -> Result<Vec<Command>> {
+        let mut commands = Vec::with_capacity(4);
 
         loop {
             self.skip_newlines()?;
 
             // Check for terminators
-            if self.at(TokenKind::Word)
-                && let Some(word) = self.current_word_str()
-                && terminators.contains(&word)
+            if self
+                .current_keyword()
+                .is_some_and(|keyword| terminators.contains(keyword))
             {
                 break;
             }
@@ -3695,21 +3816,18 @@ impl<'a> Parser<'a> {
 
     /// Reserved words that cannot start a simple command.
     /// These words are only special in command position, not as arguments.
-    const NON_COMMAND_WORDS: &'static [&'static str] =
-        &["then", "else", "elif", "fi", "do", "done", "esac", "in"];
-
     /// Check if a word cannot start a command
-    fn is_non_command_word(word: &str) -> bool {
-        Self::NON_COMMAND_WORDS.contains(&word)
+    fn is_non_command_keyword(keyword: Keyword) -> bool {
+        NON_COMMAND_KEYWORDS.contains(keyword)
     }
 
     /// Check if current token is a specific keyword
-    fn is_keyword(&self, keyword: &str) -> bool {
-        self.at(TokenKind::Word) && self.current_word_str() == Some(keyword)
+    fn is_keyword(&self, keyword: Keyword) -> bool {
+        self.current_keyword() == Some(keyword)
     }
 
     /// Expect a specific keyword
-    fn expect_keyword(&mut self, keyword: &str) -> Result<()> {
+    fn expect_keyword(&mut self, keyword: Keyword) -> Result<()> {
         if self.is_keyword(keyword) {
             self.advance();
             Ok(())
@@ -4512,9 +4630,9 @@ impl<'a> Parser<'a> {
         self.check_error_token()?;
         let start_span = self.current_span;
 
-        let mut assignments = Vec::new();
-        let mut words = Vec::new();
-        let mut redirects = Vec::new();
+        let mut assignments = Vec::with_capacity(1);
+        let mut words = Vec::with_capacity(4);
+        let mut redirects = Vec::with_capacity(1);
 
         loop {
             self.check_error_token()?;
@@ -4524,7 +4642,11 @@ impl<'a> Parser<'a> {
                     let word_text = self.current_source_like_word_text().unwrap();
 
                     // Stop if this word cannot start a command (like 'then', 'fi', etc.)
-                    if words.is_empty() && Self::is_non_command_word(word_text.as_ref()) {
+                    if words.is_empty()
+                        && self
+                            .current_keyword()
+                            .is_some_and(Self::is_non_command_keyword)
+                    {
                         break;
                     }
 

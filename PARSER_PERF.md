@@ -252,16 +252,24 @@ Exit criteria:
 
 ### Stage 8: Tighten Parser Hot Paths
 
-- [ ] Introduce `TokenSet`-style bitsets for high-frequency parser membership checks.
-- [ ] Replace repeated string comparisons for reserved words and terminators with cheaper classification.
-- [ ] Fold repeated newline skipping into list parsers where possible instead of scattering `skip_newlines()` calls.
-- [ ] Reduce unnecessary peeking and current-token reconstruction.
-- [ ] Keep recovery bookkeeping out of the main parse fast path when not in recovery mode.
-- [ ] Re-profile before moving on.
+- [x] Introduce `TokenSet`-style bitsets for high-frequency parser membership checks.
+- [x] Replace repeated string comparisons for reserved words and terminators with cheaper classification.
+- [x] Fold repeated newline skipping into list parsers where possible instead of scattering `skip_newlines()` calls.
+- [x] Reduce unnecessary peeking and current-token reconstruction.
+- [x] Keep recovery bookkeeping out of the main parse fast path when not in recovery mode.
+- [x] Re-profile before moving on.
 
 Exit criteria:
 
 - Parser dispatch cost drops measurably in `parse_command`, `parse_simple_command`, and compound-list parsing.
+
+#### Stage 8 Notes
+
+- 2026-04-05: the parser now uses compact `TokenSet` bitsets for high-frequency token membership checks like redirect and pipe operators, and it caches the current reserved-word classification on parser state so keyword-heavy control-flow parsing no longer repeatedly reclassifies the same token text.
+- 2026-04-05: compound-list terminators and non-command reserved words are now driven by `KeywordSet` bitsets instead of repeated `&str` array scans, and the command-list separator loop now skips trailing newlines once per operator instead of bouncing through redundant `skip_newlines()` calls.
+- 2026-04-05: the function-definition fast paths now read source-like token text directly instead of rebuilding owned strings for ordinary function names, and a small allocation pass pre-sized the parser's common short-lived vectors for list, pipeline, simple-command, and compound-list parsing.
+- 2026-04-05: `cargo test -p shuck-parser` still passed after the parser-dispatch refactor, including the Oils corpus expectations.
+- 2026-04-05: repeated focused reruns on this worktree ranged from `parser/nvm` `3.1184 ms` (`[3.0994 ms 3.1184 ms 3.1406 ms]`) to `3.6100 ms` (`[3.5055 ms 3.6100 ms 3.8158 ms]`), while `lexer/nvm` stayed healthy at `1.0280 ms` (`[1.0227 ms 1.0280 ms 1.0382 ms]`). On this machine the parser result is still noisy enough that Stage 8 should be treated as a parser-dispatch cleanup plus a probable win, but it still needs a fresh profiler pass before choosing the next hotspot to attack.
 
 ### Stage 9: Delete Legacy Paths
 
