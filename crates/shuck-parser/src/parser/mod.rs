@@ -1291,9 +1291,15 @@ impl<'a> Parser<'a> {
 
         let mut commands = vec![first];
 
-        while matches!(self.current_token, Some(Token::Pipe)) {
+        while matches!(self.current_token, Some(Token::Pipe) | Some(Token::PipeBoth)) {
+            let pipe_both = matches!(self.current_token, Some(Token::PipeBoth));
+            let operator_span = self.current_span;
             self.advance();
             self.skip_newlines()?;
+
+            if pipe_both {
+                Self::append_pipe_both_redirect(commands.last_mut().unwrap(), operator_span);
+            }
 
             if let Some(cmd) = self.parse_command()? {
                 commands.push(cmd);
@@ -1310,6 +1316,31 @@ impl<'a> Parser<'a> {
                 commands,
                 span: start_span.merge(self.current_span),
             })))
+        }
+    }
+
+    fn append_pipe_both_redirect(command: &mut Command, span: Span) {
+        let redirect = Redirect {
+            fd: Some(2),
+            fd_var: None,
+            fd_var_span: None,
+            kind: RedirectKind::DupOutput,
+            span,
+            target: Word::literal("1"),
+        };
+
+        match command {
+            Command::Simple(simple) => simple.redirects.push(redirect),
+            Command::Builtin(BuiltinCommand::Break(command)) => command.redirects.push(redirect),
+            Command::Builtin(BuiltinCommand::Continue(command)) => command.redirects.push(redirect),
+            Command::Builtin(BuiltinCommand::Return(command)) => command.redirects.push(redirect),
+            Command::Builtin(BuiltinCommand::Exit(command)) => command.redirects.push(redirect),
+            Command::Decl(decl) => decl.redirects.push(redirect),
+            Command::Compound(_, redirects) => redirects.push(redirect),
+            Command::Function(function) => {
+                Self::append_pipe_both_redirect(function.body.as_mut(), span);
+            }
+            Command::Pipeline(_) | Command::List(_) => {}
         }
     }
 
@@ -5092,6 +5123,25 @@ mod tests {
         if let Command::Pipeline(pipeline) = &script.commands[0] {
             assert_eq!(pipeline.commands.len(), 2);
         }
+    }
+
+    #[test]
+    fn test_parse_pipe_both_pipeline() {
+        let input = "echo hello |& cat";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Pipeline(pipeline) = &script.commands[0] else {
+            panic!("expected pipeline");
+        };
+        assert_eq!(pipeline.commands.len(), 2);
+
+        let Command::Simple(first) = &pipeline.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(first.redirects.len(), 1);
+        assert_eq!(first.redirects[0].fd, Some(2));
+        assert_eq!(first.redirects[0].kind, RedirectKind::DupOutput);
+        assert_eq!(first.redirects[0].target.render(input), "1");
     }
 
     #[test]

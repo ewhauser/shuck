@@ -38,6 +38,9 @@ pub enum Token {
     /// Pipe (|)
     Pipe,
 
+    /// Pipe stdout and stderr (|&)
+    PipeBoth,
+
     /// And (&&)
     And,
 

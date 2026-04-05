@@ -240,6 +240,9 @@ impl<'a> Lexer<'a> {
                 if self.peek_char() == Some('|') {
                     self.advance();
                     Some(Token::Or)
+                } else if self.peek_char() == Some('&') {
+                    self.advance();
+                    Some(Token::PipeBoth)
                 } else {
                     Some(Token::Pipe)
                 }
@@ -2013,17 +2016,19 @@ EOF
 
     #[test]
     fn test_operators() {
-        let mut lexer = Lexer::new("a | b && c || d; e &");
+        let mut lexer = Lexer::new("a |& b | c && d || e; f &");
 
         assert_eq!(lexer.next_token(), Some(Token::Word("a".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Pipe));
+        assert_eq!(lexer.next_token(), Some(Token::PipeBoth));
         assert_eq!(lexer.next_token(), Some(Token::Word("b".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::And));
+        assert_eq!(lexer.next_token(), Some(Token::Pipe));
         assert_eq!(lexer.next_token(), Some(Token::Word("c".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Or));
+        assert_eq!(lexer.next_token(), Some(Token::And));
         assert_eq!(lexer.next_token(), Some(Token::Word("d".to_string())));
-        assert_eq!(lexer.next_token(), Some(Token::Semicolon));
+        assert_eq!(lexer.next_token(), Some(Token::Or));
         assert_eq!(lexer.next_token(), Some(Token::Word("e".to_string())));
+        assert_eq!(lexer.next_token(), Some(Token::Semicolon));
+        assert_eq!(lexer.next_token(), Some(Token::Word("f".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::Background));
         assert_eq!(lexer.next_token(), None);
     }
