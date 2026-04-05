@@ -629,7 +629,7 @@ fn run_shellcheck(
 }
 
 fn decode_shellcheck_diagnostics(data: &[u8]) -> Result<Vec<ShellCheckDiagnostic>, String> {
-    let data = data.iter().copied().collect::<Vec<_>>();
+    let data = data.to_vec();
     let trimmed = String::from_utf8_lossy(&data);
     let trimmed = trimmed.trim();
 
@@ -699,32 +699,32 @@ fn parse_shellcheck_supported_shells(help: &str) -> HashMap<&'static str, ()> {
         if !line.contains("--shell=") {
             continue;
         }
-        if let Some(start) = line.find('(') {
-            if let Some(end) = line[start + 1..].find(')') {
-                let shells = &line[start + 1..start + 1 + end];
-                for shell in shells.split(',') {
-                    let shell = shell.trim();
-                    match shell {
-                        "sh" => {
-                            supported.insert("sh", ());
-                        }
-                        "bash" => {
-                            supported.insert("bash", ());
-                        }
-                        "dash" => {
-                            supported.insert("dash", ());
-                        }
-                        "ksh" => {
-                            supported.insert("ksh", ());
-                        }
-                        "zsh" => {
-                            supported.insert("zsh", ());
-                        }
-                        "busybox" => {
-                            supported.insert("busybox", ());
-                        }
-                        _ => {}
+        if let Some(start) = line.find('(')
+            && let Some(end) = line[start + 1..].find(')')
+        {
+            let shells = &line[start + 1..start + 1 + end];
+            for shell in shells.split(',') {
+                let shell = shell.trim();
+                match shell {
+                    "sh" => {
+                        supported.insert("sh", ());
                     }
+                    "bash" => {
+                        supported.insert("bash", ());
+                    }
+                    "dash" => {
+                        supported.insert("dash", ());
+                    }
+                    "ksh" => {
+                        supported.insert("ksh", ());
+                    }
+                    "zsh" => {
+                        supported.insert("zsh", ());
+                    }
+                    "busybox" => {
+                        supported.insert("busybox", ());
+                    }
+                    _ => {}
                 }
             }
         }

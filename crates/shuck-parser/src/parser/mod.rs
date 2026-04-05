@@ -4706,7 +4706,7 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
-    fn expect_compound<'a>(command: &'a Command) -> (&'a CompoundCommand, &'a [Redirect]) {
+    fn expect_compound(command: &Command) -> (&CompoundCommand, &[Redirect]) {
         let Command::Compound(compound, redirects) = command else {
             panic!("expected compound command");
         };
