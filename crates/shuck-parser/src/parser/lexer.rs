@@ -24,15 +24,44 @@ pub struct HeredocRead {
 /// Prevents stack overflow from deeply nested $() patterns.
 const DEFAULT_MAX_SUBST_DEPTH: usize = 50;
 
+#[derive(Clone, Debug)]
+struct Cursor<'a> {
+    rest: &'a str,
+}
+
+impl<'a> Cursor<'a> {
+    fn new(source: &'a str) -> Self {
+        Self { rest: source }
+    }
+
+    fn first(&self) -> Option<char> {
+        self.rest.chars().next()
+    }
+
+    fn bump(&mut self) -> Option<char> {
+        let ch = self.first()?;
+        self.rest = &self.rest[ch.len_utf8()..];
+        Some(ch)
+    }
+
+    fn rest(&self) -> &'a str {
+        self.rest
+    }
+
+    fn skip_bytes(&mut self, count: usize) {
+        self.rest = &self.rest[count..];
+    }
+}
+
 /// Lexer for bash scripts.
 pub struct Lexer<'a> {
     #[allow(dead_code)] // Stored for error reporting in future
     input: &'a str,
     /// Current position in the input
     position: Position,
-    chars: std::iter::Peekable<std::str::Chars<'a>>,
+    cursor: Cursor<'a>,
     /// Buffer for re-injected characters (e.g., rest-of-line after heredoc delimiter).
-    /// Consumed before `chars`.
+    /// Consumed before `cursor`.
     reinject_buf: VecDeque<char>,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
@@ -50,7 +79,7 @@ impl<'a> Lexer<'a> {
         Self {
             input,
             position: Position::new(),
-            chars: input.chars().peekable(),
+            cursor: Cursor::new(input),
             reinject_buf: VecDeque::new(),
             max_subst_depth: max_depth,
         }
@@ -77,7 +106,7 @@ impl<'a> Lexer<'a> {
         if let Some(&ch) = self.reinject_buf.front() {
             Some(ch)
         } else {
-            self.chars.peek().copied()
+            self.cursor.first()
         }
     }
 
@@ -85,12 +114,32 @@ impl<'a> Lexer<'a> {
         let ch = if !self.reinject_buf.is_empty() {
             self.reinject_buf.pop_front()
         } else {
-            self.chars.next()
+            self.cursor.bump()
         };
         if let Some(c) = ch {
             self.position.advance(c);
         }
         ch
+    }
+
+    fn lookahead_chars(&self) -> impl Iterator<Item = char> + '_ {
+        self.reinject_buf
+            .iter()
+            .copied()
+            .chain(self.cursor.rest().chars())
+    }
+
+    fn peek_nth_char(&self, n: usize) -> Option<char> {
+        self.lookahead_chars().nth(n)
+    }
+
+    fn advance_source_bytes_without_newline(&mut self, byte_len: usize) {
+        debug_assert!(self.reinject_buf.is_empty());
+        debug_assert!(!self.cursor.rest()[..byte_len].contains('\n'));
+
+        self.position.offset += byte_len;
+        self.position.column += self.cursor.rest()[..byte_len].chars().count();
+        self.cursor.skip_bytes(byte_len);
     }
 
     /// Get the next token with its source span.
@@ -299,9 +348,7 @@ impl<'a> Lexer<'a> {
                 self.advance();
             } else if ch == '\\' {
                 // Check for backslash-newline (line continuation) between tokens
-                let mut lookahead = self.chars.clone();
-                lookahead.next(); // skip backslash
-                if lookahead.next() == Some('\n') {
+                if self.peek_nth_char(1) == Some('\n') {
                     self.advance(); // consume backslash
                     self.advance(); // consume newline
                 } else {
@@ -314,6 +361,18 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_comment(&mut self) {
+        if self.reinject_buf.is_empty() {
+            let end = self
+                .cursor
+                .rest()
+                .as_bytes()
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(self.cursor.rest().len());
+            self.advance_source_bytes_without_newline(end);
+            return;
+        }
+
         while let Some(ch) = self.peek_char() {
             if ch == '\n' {
                 break;
@@ -324,6 +383,18 @@ impl<'a> Lexer<'a> {
 
     fn read_comment(&mut self) -> String {
         debug_assert_eq!(self.peek_char(), Some('#'));
+
+        if self.reinject_buf.is_empty() {
+            let rest = self.cursor.rest();
+            let end = rest
+                .as_bytes()
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(rest.len());
+            let comment = rest[1..end].to_string();
+            self.advance_source_bytes_without_newline(end);
+            return comment;
+        }
 
         let mut comment = String::new();
         self.advance(); // consume '#'
@@ -342,97 +413,74 @@ impl<'a> Lexer<'a> {
     /// Check if this is a file descriptor redirect (e.g., 2>, 2>>, 2>&1)
     /// or just a regular word starting with a digit
     fn read_word_or_fd_redirect(&mut self) -> Option<Token> {
-        // We need to look ahead to see if this is a fd redirect pattern
-        // Collect the leading digits
-        let mut fd_str = String::new();
+        if let Some(first_digit) = self.peek_char().filter(|ch| ch.is_ascii_digit()) {
+            let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
 
-        // Peek at the first digit - we know it's a digit from the match
-        if let Some(ch) = self.peek_char()
-            && ch.is_ascii_digit()
-        {
-            fd_str.push(ch);
-        }
-
-        // Check if it's a single digit followed by > or <
-        // We need to peek further without consuming
-        let input_remaining: String = self.chars.clone().collect();
-
-        // Check patterns: "N>" "N>>" "N>&" "N<" "N<&"
-        if fd_str.len() == 1
-            && let Some(first_digit) = fd_str.chars().next()
-        {
-            let rest = input_remaining.get(1..).unwrap_or(""); // Skip the digit we already matched
-
-            if rest.starts_with(">>") {
-                // N>> - append redirect with fd
-                let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
-                self.advance(); // consume digit
-                self.advance(); // consume >
-                self.advance(); // consume >
-                return Some(Token::RedirectFdAppend(fd));
-            } else if rest.starts_with(">&") {
-                // N>&M - duplicate fd
-                let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
-                self.advance(); // consume digit
-                self.advance(); // consume >
-                self.advance(); // consume &
-
-                // Read the target fd number
-                let mut target_str = String::new();
-                while let Some(c) = self.peek_char() {
-                    if c.is_ascii_digit() {
-                        target_str.push(c);
-                        self.advance();
-                    } else {
-                        break;
-                    }
+            match (self.peek_nth_char(1), self.peek_nth_char(2)) {
+                (Some('>'), Some('>')) => {
+                    self.advance(); // consume digit
+                    self.advance(); // consume >
+                    self.advance(); // consume >
+                    return Some(Token::RedirectFdAppend(fd));
                 }
+                (Some('>'), Some('&')) => {
+                    self.advance(); // consume digit
+                    self.advance(); // consume >
+                    self.advance(); // consume &
 
-                if target_str.is_empty() {
-                    // Just N>& without target - treat as DupOutput with fd
-                    return Some(Token::RedirectFd(fd));
-                }
-
-                let target_fd: i32 = target_str.parse().unwrap_or(1);
-                return Some(Token::DupFd(fd, target_fd));
-            } else if rest.starts_with('>') {
-                // N> - redirect with fd
-                let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
-                self.advance(); // consume digit
-                self.advance(); // consume >
-                return Some(Token::RedirectFd(fd));
-            } else if rest.starts_with("<&") {
-                // N<&M or N<&- - duplicate input fd
-                let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
-                self.advance(); // consume digit
-                self.advance(); // consume <
-                self.advance(); // consume &
-
-                // Read the target fd number or '-'
-                let mut target_str = String::new();
-                while let Some(c) = self.peek_char() {
-                    if c.is_ascii_digit() || c == '-' {
-                        target_str.push(c);
-                        self.advance();
-                        if c == '-' {
+                    let mut target_str = String::new();
+                    while let Some(c) = self.peek_char() {
+                        if c.is_ascii_digit() {
+                            target_str.push(c);
+                            self.advance();
+                        } else {
                             break;
                         }
-                    } else {
-                        break;
                     }
-                }
 
-                if target_str == "-" {
-                    return Some(Token::DupFdClose(fd));
+                    if target_str.is_empty() {
+                        return Some(Token::RedirectFd(fd));
+                    }
+
+                    let target_fd: i32 = target_str.parse().unwrap_or(1);
+                    return Some(Token::DupFd(fd, target_fd));
                 }
-                let target_fd: i32 = target_str.parse().unwrap_or(0);
-                return Some(Token::DupFdIn(fd, target_fd));
-            } else if rest.starts_with('<') && !rest.starts_with("<<") {
-                // N< - input redirect with fd
-                let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
-                self.advance(); // consume digit
-                self.advance(); // consume <
-                return Some(Token::RedirectFdIn(fd));
+                (Some('>'), _) => {
+                    self.advance(); // consume digit
+                    self.advance(); // consume >
+                    return Some(Token::RedirectFd(fd));
+                }
+                (Some('<'), Some('&')) => {
+                    self.advance(); // consume digit
+                    self.advance(); // consume <
+                    self.advance(); // consume &
+
+                    let mut target_str = String::new();
+                    while let Some(c) = self.peek_char() {
+                        if c.is_ascii_digit() || c == '-' {
+                            target_str.push(c);
+                            self.advance();
+                            if c == '-' {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if target_str == "-" {
+                        return Some(Token::DupFdClose(fd));
+                    }
+                    let target_fd: i32 = target_str.parse().unwrap_or(0);
+                    return Some(Token::DupFdIn(fd, target_fd));
+                }
+                (Some('<'), Some('<')) => {}
+                (Some('<'), _) => {
+                    self.advance(); // consume digit
+                    self.advance(); // consume <
+                    return Some(Token::RedirectFdIn(fd));
+                }
+                _ => {}
             }
         }
 
@@ -1047,9 +1095,7 @@ impl<'a> Lexer<'a> {
                 }
                 Some('$') => {
                     // Check for $'...' ANSI-C quoting in continuation
-                    let mut lookahead = self.chars.clone();
-                    lookahead.next(); // skip $
-                    if lookahead.next() == Some('\'') {
+                    if self.peek_nth_char(1) == Some('\'') {
                         self.advance(); // consume $
                         self.advance(); // consume opening '
                         content.push_str(&self.read_dollar_single_quoted_content());
@@ -1484,8 +1530,7 @@ impl<'a> Lexer<'a> {
     fn looks_like_brace_expansion(&self) -> bool {
         const MAX_LOOKAHEAD: usize = 10_000;
 
-        // Clone the iterator to peek ahead without consuming
-        let mut chars = self.chars.clone();
+        let mut chars = self.lookahead_chars();
 
         // Skip the opening {
         if chars.next() != Some('{') {
@@ -1526,7 +1571,7 @@ impl<'a> Lexer<'a> {
 
     /// Check if { is followed by whitespace (brace group start)
     fn is_brace_group_start(&self) -> bool {
-        let mut chars = self.chars.clone();
+        let mut chars = self.lookahead_chars();
         // Skip the opening {
         if chars.next() != Some('{') {
             return false;
@@ -1671,7 +1716,7 @@ impl<'a> Lexer<'a> {
     /// compound assignment like `([key]=val ...)`.  Returns true when the
     /// first non-whitespace char after `(` is `[`.
     fn looks_like_assoc_assign(&self) -> bool {
-        let mut chars = self.chars.clone();
+        let mut chars = self.lookahead_chars();
         // Skip the `(` we haven't consumed yet
         if chars.next() != Some('(') {
             return false;
