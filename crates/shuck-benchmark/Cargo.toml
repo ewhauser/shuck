@@ -1,0 +1,35 @@
+[package]
+name = "shuck-benchmark"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Benchmark fixtures and harnesses for shuck"
+publish = false
+
+[dependencies]
+shuck-indexer = { path = "../shuck-indexer" }
+shuck-linter = { path = "../shuck-linter" }
+shuck-parser = { path = "../shuck-parser" }
+shuck-semantic = { path = "../shuck-semantic" }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+tikv-jemallocator = "0.6"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "lexer"
+harness = false
+
+[[bench]]
+name = "parser"
+harness = false
+
+[[bench]]
+name = "linter"
+harness = false

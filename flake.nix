@@ -14,6 +14,8 @@
       {
         devShells.default = pkgs.mkShell {
           packages = [
+            pkgs.hyperfine
+            pkgs.samply
             pkgs.shellcheck
           ];
         };

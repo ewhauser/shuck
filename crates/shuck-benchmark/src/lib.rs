@@ -1,0 +1,232 @@
+use std::path::{Path, PathBuf};
+
+use shuck_parser::parser::{ParseOutput, Parser};
+
+/// Categorize fixtures by expected runtime so Criterion can spend
+/// more time where it is useful without making the slowest cases drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestCaseSpeed {
+    Fast,
+    Normal,
+    Slow,
+}
+
+impl TestCaseSpeed {
+    pub fn sample_size(self) -> usize {
+        match self {
+            Self::Fast => 100,
+            Self::Normal => 20,
+            // Criterion enforces a minimum sample size of 10.
+            Self::Slow => 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TestFile {
+    pub name: &'static str,
+    pub source: &'static str,
+    pub speed: TestCaseSpeed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TestCase {
+    pub name: &'static str,
+    pub files: &'static [TestFile],
+    pub speed: TestCaseSpeed,
+}
+
+impl TestCase {
+    pub fn total_bytes(self) -> u64 {
+        self.files.iter().map(|file| file.source.len() as u64).sum()
+    }
+}
+
+pub static TEST_FILES: &[TestFile] = &[
+    TestFile {
+        name: "fzf-install",
+        source: include_str!("../resources/files/fzf-install.sh"),
+        speed: TestCaseSpeed::Fast,
+    },
+    TestFile {
+        name: "homebrew-install",
+        source: include_str!("../resources/files/homebrew-install.sh"),
+        speed: TestCaseSpeed::Fast,
+    },
+    TestFile {
+        name: "ruby-build",
+        source: include_str!("../resources/files/ruby-build.sh"),
+        speed: TestCaseSpeed::Normal,
+    },
+    TestFile {
+        name: "pyenv-python-build",
+        source: include_str!("../resources/files/pyenv-python-build.sh"),
+        speed: TestCaseSpeed::Normal,
+    },
+    TestFile {
+        name: "nvm",
+        source: include_str!("../resources/files/nvm.sh"),
+        speed: TestCaseSpeed::Slow,
+    },
+];
+
+pub fn benchmark_cases() -> Vec<TestCase> {
+    let mut cases = TEST_FILES
+        .iter()
+        .map(|file| TestCase {
+            name: file.name,
+            files: std::slice::from_ref(file),
+            speed: file.speed,
+        })
+        .collect::<Vec<_>>();
+
+    cases.push(TestCase {
+        name: "all",
+        files: TEST_FILES,
+        speed: TestCaseSpeed::Slow,
+    });
+
+    cases
+}
+
+pub fn resources_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")
+}
+
+pub fn parse_fixture(source: &str) -> ParseOutput {
+    match Parser::new(source).parse() {
+        Ok(output) => output,
+        Err(_) => {
+            let recovered = Parser::new(source).parse_recovered();
+            ParseOutput {
+                script: recovered.script,
+                // Recovered parses are sufficient for throughput benchmarking, but the
+                // current recovered comment spans are not always safe to feed into the
+                // indexer on partially parsed real-world scripts.
+                comments: Vec::new(),
+            }
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! configure_benchmark_allocator {
+    () => {
+        #[cfg(not(target_os = "windows"))]
+        #[global_allocator]
+        static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+    use shuck_indexer::Indexer;
+    use shuck_linter::{
+        LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
+        parse_directives,
+    };
+    use shuck_semantic::SemanticModel;
+
+    use super::{TEST_FILES, benchmark_cases, parse_fixture, resources_dir};
+
+    #[derive(Debug, Deserialize)]
+    struct Manifest {
+        fixtures: Vec<Fixture>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Fixture {
+        local_filename: String,
+        byte_size: usize,
+    }
+
+    #[test]
+    fn fixture_sources_match_manifest_sizes() {
+        let manifest = serde_json::from_str::<Manifest>(include_str!("../resources/manifest.json"))
+            .expect("benchmark fixture manifest should parse");
+
+        assert_eq!(manifest.fixtures.len(), TEST_FILES.len());
+
+        let fixture_sizes = manifest
+            .fixtures
+            .iter()
+            .map(|fixture| (fixture.local_filename.as_str(), fixture.byte_size))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        for test_file in TEST_FILES {
+            let local_filename = format!("files/{}.sh", test_file.name);
+            assert_eq!(
+                fixture_sizes.get(local_filename.as_str()).copied(),
+                Some(test_file.source.len()),
+                "{}",
+                test_file.name
+            );
+            assert!(!test_file.source.is_empty(), "{}", test_file.name);
+        }
+    }
+
+    #[test]
+    fn benchmark_cases_include_per_file_and_aggregate_cases() {
+        let cases = benchmark_cases();
+
+        assert_eq!(cases.len(), TEST_FILES.len() + 1);
+        assert_eq!(cases.last().map(|case| case.name), Some("all"));
+        assert_eq!(
+            cases.last().map(|case| case.total_bytes()),
+            Some(TEST_FILES.iter().map(|file| file.source.len() as u64).sum())
+        );
+    }
+
+    #[test]
+    fn resources_directory_exists() {
+        assert!(resources_dir().is_dir());
+    }
+
+    #[test]
+    fn benchmark_corpus_parses_in_best_effort_mode() {
+        for file in TEST_FILES {
+            let output = parse_fixture(file.source);
+            assert!(
+                !output.script.commands.is_empty(),
+                "{} should produce some parsed commands",
+                file.name
+            );
+        }
+    }
+
+    #[test]
+    fn benchmark_corpus_survives_lint_pipeline() {
+        let settings = LinterSettings::default();
+        let shellcheck_map = ShellCheckCodeMap::default();
+
+        for file in TEST_FILES {
+            let output = parse_fixture(file.source);
+            let indexer = Indexer::new(file.source, &output);
+            let directives =
+                parse_directives(file.source, indexer.comment_index(), &shellcheck_map);
+            let suppression_index = (!directives.is_empty()).then(|| {
+                SuppressionIndex::new(
+                    &directives,
+                    &output.script,
+                    first_statement_line(&output.script).unwrap_or(u32::MAX),
+                )
+            });
+            let semantic = SemanticModel::build(&output.script, file.source, &indexer);
+            let diagnostics = lint_file(
+                &output.script,
+                file.source,
+                &semantic,
+                &indexer,
+                &settings,
+                suppression_index.as_ref(),
+            );
+
+            assert!(
+                diagnostics.len() < usize::MAX,
+                "{} should produce a finite diagnostic set",
+                file.name
+            );
+        }
+    }
+}

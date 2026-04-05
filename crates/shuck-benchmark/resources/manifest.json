@@ -1,0 +1,54 @@
+{
+  "fixtures": [
+    {
+      "local_filename": "files/homebrew-install.sh",
+      "upstream_repo": "Homebrew/install",
+      "upstream_path": "install.sh",
+      "commit": "6d5e2670d07961e7985d2079a2f0a484420f3c38",
+      "source_url": "https://raw.githubusercontent.com/Homebrew/install/6d5e2670d07961e7985d2079a2f0a484420f3c38/install.sh",
+      "spdx_license_id": "BSD-2-Clause",
+      "license_filename": "licenses/homebrew-install-LICENSE.txt",
+      "byte_size": 33212
+    },
+    {
+      "local_filename": "files/nvm.sh",
+      "upstream_repo": "nvm-sh/nvm",
+      "upstream_path": "nvm.sh",
+      "commit": "977563e97ddc66facf3a8e31c6cff01d236f09bd",
+      "source_url": "https://raw.githubusercontent.com/nvm-sh/nvm/977563e97ddc66facf3a8e31c6cff01d236f09bd/nvm.sh",
+      "spdx_license_id": "MIT",
+      "license_filename": "licenses/nvm-LICENSE.md",
+      "byte_size": 150227
+    },
+    {
+      "local_filename": "files/pyenv-python-build.sh",
+      "upstream_repo": "pyenv/pyenv",
+      "upstream_path": "plugins/python-build/bin/python-build",
+      "commit": "8397a19c6467d11509dbd741cf0528f9a68a5541",
+      "source_url": "https://raw.githubusercontent.com/pyenv/pyenv/8397a19c6467d11509dbd741cf0528f9a68a5541/plugins/python-build/bin/python-build",
+      "spdx_license_id": "MIT",
+      "license_filename": "licenses/pyenv-LICENSE",
+      "byte_size": 81725
+    },
+    {
+      "local_filename": "files/ruby-build.sh",
+      "upstream_repo": "rbenv/ruby-build",
+      "upstream_path": "bin/ruby-build",
+      "commit": "d099da05144d9f703c27cadd7b710f35f15dfadb",
+      "source_url": "https://raw.githubusercontent.com/rbenv/ruby-build/d099da05144d9f703c27cadd7b710f35f15dfadb/bin/ruby-build",
+      "spdx_license_id": "MIT",
+      "license_filename": "licenses/ruby-build-LICENSE",
+      "byte_size": 47738
+    },
+    {
+      "local_filename": "files/fzf-install.sh",
+      "upstream_repo": "junegunn/fzf",
+      "upstream_path": "install",
+      "commit": "55d5b153e627784fa43982fa3c01d0ab86ef0224",
+      "source_url": "https://raw.githubusercontent.com/junegunn/fzf/55d5b153e627784fa43982fa3c01d0ab86ef0224/install",
+      "spdx_license_id": "MIT",
+      "license_filename": "licenses/fzf-LICENSE",
+      "byte_size": 12760
+    }
+  ]
+}
