@@ -69,14 +69,11 @@ pub fn analyze_file_at_path(
     source_path: Option<&Path>,
 ) -> AnalysisResult {
     let mut observer = LintTraversalObserver::default();
-    let mut semantic = if source_path.is_some() {
+    let semantic = if source_path.is_some() {
         build_with_observer_at_path(script, source, indexer, &mut observer, source_path)
     } else {
         build_with_observer(script, source, indexer, &mut observer)
     };
-    if settings.rules.contains(Rule::UnusedAssignment) {
-        let _ = semantic.dataflow();
-    }
     let shell = if settings.shell == ShellDialect::Unknown {
         ShellDialect::infer(source, None)
     } else {
