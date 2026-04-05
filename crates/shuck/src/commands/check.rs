@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, parse_directives,
+    LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex, first_statement_line,
+    parse_directives,
 };
 use shuck_parser::{Error as ParseError, parser::Parser};
 
@@ -172,7 +173,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
     }
 
     let settings = EffectiveCheckSettings::default();
-    let linter_settings = LinterSettings::default();
+    let base_linter_settings = LinterSettings::default();
     let shellcheck_map = ShellCheckCodeMap::default();
 
     let mut report = CheckReport::default();
@@ -229,6 +230,9 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                             first_statement_line(&output.script).unwrap_or(u32::MAX),
                         )
                     });
+                    let linter_settings = base_linter_settings
+                        .clone()
+                        .with_shell(ShellDialect::infer(&source, Some(&file.absolute_path)));
                     let diagnostics = shuck_linter::lint_file(
                         &output.script,
                         &source,
@@ -392,5 +396,25 @@ mod tests {
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
         assert!(!tempdir.path().join(".shuck_cache").exists());
+    }
+
+    #[test]
+    fn infers_shell_from_extension_for_local_rule() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("posix.sh"), "local foo=bar\n").unwrap();
+        fs::write(tempdir.path().join("bashy.bash"), "local foo=bar\n").unwrap();
+
+        let report = run_check_with_cwd(&check_args(true), tempdir.path()).unwrap();
+        let c014 = report
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| match &diagnostic.kind {
+                DisplayedDiagnosticKind::Lint { code, .. } if code == "C014" => Some(diagnostic),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(c014.len(), 1);
+        assert_eq!(c014[0].path, PathBuf::from("bashy.bash"));
     }
 }

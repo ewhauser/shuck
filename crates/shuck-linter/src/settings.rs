@@ -1,11 +1,12 @@
 use rustc_hash::FxHashMap;
 
-use crate::{Category, Rule, RuleSelector, RuleSet, Severity};
+use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinterSettings {
     pub rules: RuleSet,
     pub severity_overrides: FxHashMap<Rule, Severity>,
+    pub shell: ShellDialect,
 }
 
 impl Default for LinterSettings {
@@ -13,6 +14,7 @@ impl Default for LinterSettings {
         Self {
             rules: Self::default_rules(),
             severity_overrides: FxHashMap::default(),
+            shell: ShellDialect::Unknown,
         }
     }
 }
@@ -51,5 +53,10 @@ impl LinterSettings {
             rules,
             ..Self::default()
         }
+    }
+
+    pub fn with_shell(mut self, shell: ShellDialect) -> Self {
+        self.shell = shell;
+        self
     }
 }

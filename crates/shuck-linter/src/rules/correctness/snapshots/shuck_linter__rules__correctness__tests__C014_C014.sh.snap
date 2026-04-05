@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C014 `local` is only valid inside a function body
+ --> <source>:4:1
+  |
+4 | local top_level=bar
+  |

@@ -5,6 +5,7 @@ mod rule_selector;
 mod rule_set;
 pub mod rules;
 mod settings;
+mod shell;
 mod suppression;
 mod violation;
 
@@ -17,6 +18,7 @@ pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;
 pub use settings::LinterSettings;
+pub use shell::ShellDialect;
 pub use suppression::{
     ShellCheckCodeMap, SuppressionAction, SuppressionDirective, SuppressionIndex,
     SuppressionSource, first_statement_line, parse_directives,
@@ -57,7 +59,12 @@ pub fn analyze_file(
     if settings.rules.contains(Rule::UnusedAssignment) {
         let _ = semantic.dataflow();
     }
-    let checker = Checker::new(script, source, &semantic, indexer, &settings.rules);
+    let shell = if settings.shell == ShellDialect::Unknown {
+        ShellDialect::infer(source, None)
+    } else {
+        settings.shell
+    };
+    let checker = Checker::new(script, source, &semantic, indexer, &settings.rules, shell);
     let mut diagnostics = observer.into_diagnostics();
     diagnostics.extend(checker.check());
     for diagnostic in &mut diagnostics {
@@ -223,6 +230,41 @@ echo $bar
     }
 
     #[test]
+    fn local_at_script_scope_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/bash\nlocal foo=bar\nprintf '%s\\n' \"$foo\"\n",
+            &LinterSettings::default(),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LocalTopLevel);
+    }
+
+    #[test]
+    fn local_at_script_scope_in_sh_is_not_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nlocal foo=bar\nprintf '%s\\n' \"$foo\"\n",
+            &LinterSettings::default(),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn local_inside_function_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+f() {
+  local foo=bar
+  printf '%s\\n' \"$foo\"
+}
+f
+",
+            &LinterSettings::default(),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn exported_variable_not_flagged() {
         let diagnostics = lint("#!/bin/sh\nexport FOO=1\n", &LinterSettings::default());
         assert!(diagnostics.is_empty());
@@ -341,6 +383,36 @@ print_red
 #!/bin/sh
 # shellcheck disable=SC2034
 foo=1
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.script,
+            first_statement_line(&output.script).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.script,
+            source,
+            &indexer,
+            &LinterSettings::default(),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn local_top_level_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/bash
+# shellcheck disable=SC2168
+local foo=bar
+printf '%s\\n' \"$foo\"
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);

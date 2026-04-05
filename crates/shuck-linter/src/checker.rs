@@ -2,7 +2,7 @@ use shuck_ast::{Script, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
 
-use crate::{Diagnostic, Rule, RuleSet, Violation, rules};
+use crate::{Diagnostic, Rule, RuleSet, ShellDialect, Violation, rules};
 
 pub struct Checker<'a> {
     semantic: &'a SemanticModel,
@@ -10,6 +10,7 @@ pub struct Checker<'a> {
     script: &'a Script,
     source: &'a str,
     rules: &'a RuleSet,
+    shell: ShellDialect,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -20,6 +21,7 @@ impl<'a> Checker<'a> {
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
         rules: &'a RuleSet,
+        shell: ShellDialect,
     ) -> Self {
         Self {
             semantic,
@@ -27,6 +29,7 @@ impl<'a> Checker<'a> {
             script,
             source,
             rules,
+            shell,
             diagnostics: Vec::new(),
         }
     }
@@ -49,6 +52,10 @@ impl<'a> Checker<'a> {
 
     pub fn is_rule_enabled(&self, rule: Rule) -> bool {
         self.rules.contains(rule)
+    }
+
+    pub fn shell(&self) -> ShellDialect {
+        self.shell
     }
 
     pub fn report<V: Violation>(&mut self, violation: V, span: Span) {
@@ -81,7 +88,11 @@ impl<'a> Checker<'a> {
 
     fn check_scopes(&mut self) {}
 
-    fn check_declarations(&mut self) {}
+    fn check_declarations(&mut self) {
+        if self.is_rule_enabled(Rule::LocalTopLevel) {
+            rules::correctness::script_scope_local::local_top_level(self);
+        }
+    }
 
     fn check_call_sites(&mut self) {}
 

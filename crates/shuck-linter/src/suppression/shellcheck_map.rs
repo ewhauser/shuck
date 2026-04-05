@@ -34,6 +34,7 @@ impl Default for ShellCheckCodeMap {
             map: FxHashMap::from_iter([
                 (2034, Rule::UnusedAssignment),
                 (2086, Rule::UnquotedExpansion),
+                (2168, Rule::LocalTopLevel),
                 (2154, Rule::UndefinedVariable),
             ]),
         }
@@ -50,6 +51,7 @@ mod tests {
 
         assert_eq!(map.resolve("SC2034"), Some(Rule::UnusedAssignment));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
+        assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC9999"), None);
     }
@@ -65,6 +67,7 @@ mod tests {
                 (2034, Rule::UnusedAssignment),
                 (2086, Rule::UnquotedExpansion),
                 (2154, Rule::UndefinedVariable),
+                (2168, Rule::LocalTopLevel),
             ]
         );
     }
