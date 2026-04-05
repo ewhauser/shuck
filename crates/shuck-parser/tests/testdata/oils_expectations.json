@@ -191,13 +191,9 @@
     "expectation": "skip",
     "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
   },
-  "oils/var-op-strip.test.sh::Strip Right Brace (#702)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
-  },
-  "oils/var-sub-quote.test.sh::Right Brace as argument (similar to #702)": {
-    "expectation": "skip",
-    "reason": "current parser does not yet support this valid or option-dependent syntax form"
+  "oils/var-sub-quote.test.sh::Syntax error for single quote in double quote": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
   },
   "oils/var-sub.test.sh::Here doc with bad \"$@\" delimiter": {
     "expectation": "parse_err",

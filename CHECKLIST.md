@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 2 actionable `skip` entries remain in scope.
-- 41 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
+- 0 actionable `skip` entries remain in scope.
+- 43 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 - 1 formerly skipped case now intentionally fails parsing and has been reclassified as `parse_err`.
 
 ## Expectation Cleanup (Already Parses)
@@ -88,5 +88,5 @@ Shared work: lexer needs command-position awareness so tokens like `[[` and `{` 
 
 Shared work: both lexer-side `${...}` scanning and parser-side brace-operand reading need quote-aware, escape-aware brace tracking. A literal `}` inside `\}`, `'}` or `"}` must not close the expansion early. AST change: none.
 
-- [ ] `oils/var-op-strip.test.sh::Strip Right Brace (#702)` - fix `${var#...}` operand scanning so quoted or escaped `}` stays inside the pattern.
-- [ ] `oils/var-sub-quote.test.sh::Right Brace as argument (similar to #702)` - same fix for `${var-...}` operands inside quotes.
+- [x] `oils/var-op-strip.test.sh::Strip Right Brace (#702)` - `${var#...}` operand scanning now keeps escaped and quoted `}` inside the pattern instead of terminating the expansion early.
+- [x] `oils/var-sub-quote.test.sh::Right Brace as argument (similar to #702)` - the same quote-aware brace scanning now keeps `${var-...}` operands intact inside double-quoted expansions.

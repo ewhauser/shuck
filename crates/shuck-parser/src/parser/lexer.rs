@@ -1572,14 +1572,25 @@ impl<'a> Lexer<'a> {
     /// outer double-quoted string. Appends chars including closing `}` to `content`.
     fn read_param_expansion_into(&mut self, content: &mut String) {
         let mut depth = 1;
+        let mut in_single = false;
+        let mut in_double = false;
         while let Some(c) = self.peek_char() {
+            if in_single {
+                content.push(c);
+                self.advance();
+                if c == '\'' {
+                    in_single = false;
+                }
+                continue;
+            }
+
             match c {
-                '{' => {
+                '{' if !in_double => {
                     depth += 1;
                     content.push(c);
                     self.advance();
                 }
-                '}' => {
+                '}' if !in_double => {
                     depth -= 1;
                     self.advance();
                     content.push('}');
@@ -1591,10 +1602,14 @@ impl<'a> Lexer<'a> {
                     // Quotes inside ${...} are part of the expansion, not string delimiters
                     content.push('"');
                     self.advance();
+                    in_double = !in_double;
                 }
                 '\'' => {
                     content.push('\'');
                     self.advance();
+                    if !in_double {
+                        in_single = true;
+                    }
                 }
                 '\\' => {
                     // Inside ${...} within double quotes, same escape rules apply:

@@ -5171,20 +5171,45 @@ impl<'a> Parser<'a> {
         let start = *cursor;
         let mut operand = String::new();
         let mut depth = 1;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
         while let Some(&c) = chars.peek() {
-            if c == '{' {
-                depth += 1;
+            if escaped {
                 operand.push(Self::next_word_char_unwrap(chars, cursor));
-            } else if c == '}' {
-                depth -= 1;
-                if depth == 0 {
-                    let end = *cursor;
-                    Self::next_word_char_unwrap(chars, cursor);
-                    return self.source_text(operand, start, end);
+                escaped = false;
+                continue;
+            }
+
+            match c {
+                '\\' if !in_single => {
+                    escaped = true;
+                    operand.push(Self::next_word_char_unwrap(chars, cursor));
                 }
-                operand.push(Self::next_word_char_unwrap(chars, cursor));
-            } else {
-                operand.push(Self::next_word_char_unwrap(chars, cursor));
+                '\'' if !in_double => {
+                    in_single = !in_single;
+                    operand.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '"' if !in_single => {
+                    in_double = !in_double;
+                    operand.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '{' if !in_single && !in_double => {
+                    depth += 1;
+                    operand.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '}' if !in_single && !in_double => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let end = *cursor;
+                        Self::next_word_char_unwrap(chars, cursor);
+                        return self.source_text(operand, start, end);
+                    }
+                    operand.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                _ => {
+                    operand.push(Self::next_word_char_unwrap(chars, cursor));
+                }
             }
         }
         self.source_text(operand, start, *cursor)
@@ -6409,6 +6434,20 @@ coproc worker { true; }
         assert_eq!(command.args.len(), 2);
         assert_eq!(command.args[0].span.slice(input), "[[z]");
         assert_eq!(command.args[1].span.slice(input), "[]z]");
+    }
+
+    #[test]
+    fn test_parse_parameter_expansion_operands_allow_quoted_and_escaped_right_brace() {
+        let input = r###"echo "${var#\}}"
+echo "${var#'}'}"
+echo "${var#"}"}"
+echo "${var-\}}"
+echo "${var-'}'}"
+echo "${var-"}"}"
+"###;
+
+        let script = Parser::new(input).parse().unwrap().script;
+        assert_eq!(script.commands.len(), 6);
     }
 
     #[test]
