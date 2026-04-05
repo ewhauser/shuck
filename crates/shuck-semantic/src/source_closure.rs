@@ -52,23 +52,58 @@ fn collect_source_closure_reads_with_cache(
             call_args_by_scope.get(&scope).map(Vec::as_slice),
         );
 
-        for candidate in candidates {
-            for resolved_path in resolve_helper_paths(source_path, &candidate) {
-                let reads = summarize_helper(&resolved_path, summaries, active);
-                for name in reads {
-                    if seen.insert((scope, source_ref.span.start.offset, name.clone())) {
-                        synthetic_reads.push(SyntheticRead {
-                            scope,
-                            span: source_ref.span,
-                            name,
-                        });
-                    }
+        extend_synthetic_reads_for_candidates(
+            &mut synthetic_reads,
+            &mut seen,
+            scope,
+            source_ref.span,
+            source_path,
+            candidates,
+            summaries,
+            active,
+        );
+    }
+
+    for call in &facts.calls {
+        let Some(candidate) = local_helper_command_candidate(&call.name) else {
+            continue;
+        };
+        extend_synthetic_reads_for_candidates(
+            &mut synthetic_reads,
+            &mut seen,
+            call.scope,
+            call.span,
+            source_path,
+            [candidate],
+            summaries,
+            active,
+        );
+    }
+
+    synthetic_reads
+}
+
+#[allow(clippy::too_many_arguments)]
+fn extend_synthetic_reads_for_candidates(
+    synthetic_reads: &mut Vec<SyntheticRead>,
+    seen: &mut FxHashSet<(ScopeId, usize, Name)>,
+    scope: ScopeId,
+    span: Span,
+    source_path: &Path,
+    candidates: impl IntoIterator<Item = String>,
+    summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
+    active: &mut FxHashSet<PathBuf>,
+) {
+    for candidate in candidates {
+        for resolved_path in resolve_helper_paths(source_path, &candidate) {
+            let reads = summarize_helper(&resolved_path, summaries, active);
+            for name in reads {
+                if seen.insert((scope, span.start.offset, name.clone())) {
+                    synthetic_reads.push(SyntheticRead { scope, span, name });
                 }
             }
         }
     }
-
-    synthetic_reads
 }
 
 #[derive(Debug, Clone)]
@@ -462,6 +497,19 @@ fn source_candidates_from_template(
             }
         }
     }
+}
+
+fn local_helper_command_candidate(name: &Name) -> Option<String> {
+    let name = name.as_str();
+    // Treat sibling shell-script invocations like helper reads so globals used
+    // across a script suite stay live, matching the large-corpus compatibility
+    // expectation for module-style shell projects.
+    (!matches!(name, "source" | ".") && looks_like_local_helper_command(name))
+        .then(|| name.to_owned())
+}
+
+fn looks_like_local_helper_command(name: &str) -> bool {
+    name.contains('/') || name.ends_with(".sh")
 }
 
 fn uses_positional_args(parts: &[TemplatePart]) -> bool {

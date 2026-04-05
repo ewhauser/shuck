@@ -2068,6 +2068,25 @@ mod tests {
                 && entry.reason
                     == "config value is consumed by rc.bluez-alsa after sourcing the file"
         }));
+        assert!(allowlist.iter().any(|entry| {
+            entry.path_suffix == "233boy__v2ray__install.sh"
+                && entry.line == 424
+                && entry.end_line == 424
+                && entry.column == 5
+                && entry.end_column == 19
+                && entry.reason
+                    == "install mode flag is consumed by the dynamically sourced core.sh helper"
+        }));
+        assert!(allowlist.iter().any(|entry| {
+            entry.path_suffix
+                == "GameServerManagers__LinuxGSM__lgsm__modules__command_details.sh"
+                && entry.line == 19
+                && entry.end_line == 19
+                && entry.column == 2
+                && entry.end_column == 5
+                && entry.reason
+                    == "loop variable is consumed by the sibling query_gamedig.sh helper invoked in the loop"
+        }));
     }
 
     #[test]

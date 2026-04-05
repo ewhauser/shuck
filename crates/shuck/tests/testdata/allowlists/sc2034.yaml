@@ -8,3 +8,15 @@ entries:
     column: 1
     end_column: 14
     reason: "config value is consumed by rc.bluez-alsa after sourcing the file"
+  - path_suffix: "233boy__v2ray__install.sh"
+    line: 424
+    end_line: 424
+    column: 5
+    end_column: 19
+    reason: "install mode flag is consumed by the dynamically sourced core.sh helper"
+  - path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_details.sh"
+    line: 19
+    end_line: 19
+    column: 2
+    end_column: 5
+    reason: "loop variable is consumed by the sibling query_gamedig.sh helper invoked in the loop"

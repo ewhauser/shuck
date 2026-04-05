@@ -302,6 +302,21 @@ done
     }
 
     #[test]
+    fn read_header_bindings_used_in_loop_body_are_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+printf '%s\n' 'service safe ok yes' | while read UNIT EXPOSURE PREDICATE HAPPY; do
+  printf '%s %s %s %s\n' \"$UNIT\" \"$EXPOSURE\" \"$PREDICATE\" \"$HAPPY\"
+done
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn command_prefix_environment_assignment_is_not_flagged() {
         let diagnostics = lint(
             "\
@@ -576,6 +591,24 @@ f
     }
 
     #[test]
+    fn unread_name_only_declarations_are_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+f() {
+  local foo
+  declare bar
+  typeset baz
+}
+f
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn initialized_local_declaration_is_flagged_when_unused() {
         let diagnostics = lint(
             "\
@@ -669,6 +702,48 @@ flag=1
         let diagnostics = lint_path(&main, &LinterSettings::default());
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn executed_helper_reads_keep_loop_variable_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+for queryip in 127.0.0.1; do
+  helper.sh
+done
+",
+        )
+        .unwrap();
+        fs::write(&helper, "printf '%s\\n' \"$queryip\"\n").unwrap();
+
+        let diagnostics = lint_path(&main, &LinterSettings::default());
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn executed_helper_without_read_still_flags_unused_assignment() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "\
+#!/bin/sh
+unused=1
+helper.sh
+";
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "printf '%s\\n' ok\n").unwrap();
+
+        let diagnostics = lint_path(&main, &LinterSettings::default());
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
     }
 
     #[test]

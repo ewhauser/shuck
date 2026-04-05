@@ -859,6 +859,25 @@ getopts 'ab' getopts_target
     }
 
     #[test]
+    fn read_header_bindings_consumed_in_loop_body_are_live() {
+        let source = "\
+printf '%s\n' 'service safe ok yes' | while read UNIT EXPOSURE PREDICATE HAPPY; do
+  printf '%s %s %s %s\n' \"$UNIT\" \"$EXPOSURE\" \"$PREDICATE\" \"$HAPPY\"
+done
+";
+        let mut model = model(source);
+        let unused = reportable_unused_names(&mut model);
+
+        for name in ["UNIT", "EXPOSURE", "PREDICATE", "HAPPY"] {
+            assert!(
+                !unused.contains(&Name::from(name)),
+                "unused bindings: {:?}",
+                unused
+            );
+        }
+    }
+
+    #[test]
     fn command_prefix_assignments_do_not_create_shell_bindings() {
         let source = "\
 base_flags=1
@@ -1101,6 +1120,67 @@ flag=1
         );
         let unused = reportable_unused_names(&mut model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn executed_helper_reads_keep_loop_variable_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+for queryip in 127.0.0.1; do
+  helper.sh
+done
+",
+        )
+        .unwrap();
+        fs::write(&helper, "printf '%s\\n' \"$queryip\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model
+                .synthetic_reads
+                .iter()
+                .any(|read| read.name == "queryip"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(
+            !unused.contains(&Name::from("queryip")),
+            "unused: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn executed_helper_without_read_does_not_keep_unrelated_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+unused=1
+helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "printf '%s\\n' ok\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        let unused = reportable_unused_names(&mut model);
+        assert!(
+            unused.contains(&Name::from("unused")),
+            "unused: {:?}",
+            unused
+        );
     }
 
     #[test]
