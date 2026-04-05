@@ -6,6 +6,7 @@ mod dataflow;
 mod declaration;
 mod reference;
 mod scope;
+mod source_closure;
 mod source_ref;
 
 pub use binding::{Binding, BindingAttributes, BindingId, BindingKind};
@@ -23,6 +24,7 @@ pub use source_ref::{SourceRef, SourceRefKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, Name, Script, Span};
 use shuck_indexer::Indexer;
+use std::path::Path;
 
 use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
@@ -61,6 +63,13 @@ pub(crate) enum IndirectTargetHint {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SyntheticRead {
+    pub(crate) scope: ScopeId,
+    pub(crate) span: Span,
+    pub(crate) name: Name,
+}
+
 #[doc(hidden)]
 pub trait TraversalObserver {
     fn enter_command(&mut self, _command: &Command, _scope: ScopeId, _flow: FlowContext) {}
@@ -92,6 +101,7 @@ pub struct SemanticModel {
     declarations: Vec<Declaration>,
     indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_expansion_refs: FxHashSet<ReferenceId>,
+    synthetic_reads: Vec<SyntheticRead>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
@@ -122,6 +132,7 @@ impl SemanticModel {
             declarations: built.declarations,
             indirect_target_hints: built.indirect_target_hints,
             indirect_expansion_refs: built.indirect_expansion_refs,
+            synthetic_reads: Vec::new(),
             flow_contexts: built.flow_contexts,
             recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
@@ -301,11 +312,17 @@ impl SemanticModel {
                     &self.call_sites,
                     &self.indirect_target_hints,
                     &self.indirect_expansion_refs,
+                    &self.synthetic_reads,
                 )
             };
             self.dataflow = Some(result);
         }
         self.dataflow.as_ref().unwrap()
+    }
+
+    pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {
+        self.synthetic_reads = synthetic_reads;
+        self.dataflow = None;
     }
 
     pub fn is_reachable(&mut self, span: &Span) -> bool {
@@ -327,8 +344,25 @@ pub fn build_with_observer(
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
 ) -> SemanticModel {
+    build_with_observer_at_path(script, source, indexer, observer, None)
+}
+
+#[doc(hidden)]
+pub fn build_with_observer_at_path(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    source_path: Option<&Path>,
+) -> SemanticModel {
     let built = SemanticModelBuilder::build(script, source, indexer, observer);
-    SemanticModel::from_build_output(built)
+    let mut model = SemanticModel::from_build_output(built);
+    if let Some(source_path) = source_path {
+        let synthetic_reads =
+            source_closure::collect_source_closure_reads(&model, script, source, source_path);
+        model.set_synthetic_reads(synthetic_reads);
+    }
+    model
 }
 
 fn contains_offset(span: Span, offset: usize) -> bool {
@@ -346,11 +380,46 @@ mod tests {
     use shuck_ast::{Command, CompoundCommand};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::tempdir;
 
     fn model(source: &str) -> SemanticModel {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         SemanticModel::build(&output.script, source, &indexer)
+    }
+
+    fn model_at_path(path: &Path) -> SemanticModel {
+        let source = fs::read_to_string(path).unwrap();
+        let output = Parser::new(&source).parse().unwrap();
+        let indexer = Indexer::new(&source, &output);
+        let mut observer = NoopTraversalObserver;
+        build_with_observer_at_path(&output.script, &source, &indexer, &mut observer, Some(path))
+    }
+
+    fn reportable_unused_names(model: &mut SemanticModel) -> Vec<Name> {
+        let _ = model.dataflow();
+        model
+            .unused_assignments()
+            .iter()
+            .filter_map(|binding| {
+                let binding = model.binding(*binding);
+                matches!(
+                    binding.kind,
+                    BindingKind::Assignment
+                        | BindingKind::AppendAssignment
+                        | BindingKind::ArrayAssignment
+                        | BindingKind::LoopVariable
+                        | BindingKind::ReadTarget
+                        | BindingKind::MapfileTarget
+                        | BindingKind::PrintfTarget
+                        | BindingKind::GetoptsTarget
+                        | BindingKind::ArithmeticAssignment
+                )
+                .then_some(binding.name.clone())
+            })
+            .collect()
     }
 
     #[test]
@@ -995,6 +1064,74 @@ outer
     }
 
     #[test]
+    fn top_level_assignment_read_by_later_function_call_is_live() {
+        let source = "\
+show() { echo \"$flag\"; }
+flag=1
+show
+";
+        let mut model = model(source);
+
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn sourced_helper_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+flag=1
+. ./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn loader_function_source_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+load() { . \"$ROOT/$1\"; }
+flag=1
+load helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
     fn recorded_program_cfg_and_dataflow_match_legacy_conversion() {
         let source = "\
 f() { echo $X; }
@@ -1056,6 +1193,7 @@ echo $(printf '%s' \"$X\")
             &model.call_sites,
             &model.indirect_target_hints,
             &model.indirect_expansion_refs,
+            &model.synthetic_reads,
         );
         let legacy_dataflow = crate::dataflow::analyze(
             &legacy_cfg,
@@ -1066,6 +1204,7 @@ echo $(printf '%s' \"$X\")
             &model.call_sites,
             &model.indirect_target_hints,
             &model.indirect_expansion_refs,
+            &model.synthetic_reads,
         );
         assert_eq!(new_dataflow, legacy_dataflow);
     }

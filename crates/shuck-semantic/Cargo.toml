@@ -13,3 +13,6 @@ rustc-hash = "2"
 shuck-ast = { path = "../shuck-ast" }
 shuck-indexer = { path = "../shuck-indexer" }
 shuck-parser = { path = "../shuck-parser" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

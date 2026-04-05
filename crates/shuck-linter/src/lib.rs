@@ -27,7 +27,10 @@ pub use violation::Violation;
 
 use shuck_ast::{Script, TextSize};
 use shuck_indexer::Indexer;
-use shuck_semantic::{SemanticModel, TraversalObserver, build_with_observer};
+use shuck_semantic::{
+    SemanticModel, TraversalObserver, build_with_observer, build_with_observer_at_path,
+};
+use std::path::Path;
 
 pub struct AnalysisResult {
     pub semantic: SemanticModel,
@@ -54,8 +57,23 @@ pub fn analyze_file(
     settings: &LinterSettings,
     suppression_index: Option<&SuppressionIndex>,
 ) -> AnalysisResult {
+    analyze_file_at_path(script, source, indexer, settings, suppression_index, None)
+}
+
+pub fn analyze_file_at_path(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+) -> AnalysisResult {
     let mut observer = LintTraversalObserver::default();
-    let mut semantic = build_with_observer(script, source, indexer, &mut observer);
+    let mut semantic = if source_path.is_some() {
+        build_with_observer_at_path(script, source, indexer, &mut observer, source_path)
+    } else {
+        build_with_observer(script, source, indexer, &mut observer)
+    };
     if settings.rules.contains(Rule::UnusedAssignment) {
         let _ = semantic.dataflow();
     }
@@ -92,7 +110,26 @@ pub fn lint_file(
     settings: &LinterSettings,
     suppression_index: Option<&SuppressionIndex>,
 ) -> Vec<Diagnostic> {
-    analyze_file(script, source, indexer, settings, suppression_index).diagnostics
+    lint_file_at_path(script, source, indexer, settings, suppression_index, None)
+}
+
+pub fn lint_file_at_path(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+) -> Vec<Diagnostic> {
+    analyze_file_at_path(
+        script,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+    )
+    .diagnostics
 }
 
 fn filter_suppressed_diagnostics(
@@ -117,11 +154,28 @@ mod tests {
     use super::*;
     use shuck_ast::Command;
     use shuck_parser::parser::Parser;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::tempdir;
 
     fn lint(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         lint_file(&output.script, source, &indexer, settings, None)
+    }
+
+    fn lint_path(path: &Path, settings: &LinterSettings) -> Vec<Diagnostic> {
+        let source = fs::read_to_string(path).unwrap();
+        let output = Parser::new(&source).parse().unwrap();
+        let indexer = Indexer::new(&source, &output);
+        lint_file_at_path(
+            &output.script,
+            &source,
+            &indexer,
+            settings,
+            None,
+            Some(path),
+        )
     }
 
     #[test]
@@ -577,6 +631,64 @@ print_red
 ",
             &LinterSettings::default(),
         );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn top_level_assignment_read_by_later_function_call_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+show() { echo \"$flag\"; }
+flag=1
+show
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn sourced_helper_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+flag=1
+. ./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path(&main, &LinterSettings::default());
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn loader_function_source_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+load() { . \"$ROOT/$1\"; }
+flag=1
+load helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path(&main, &LinterSettings::default());
 
         assert!(diagnostics.is_empty());
     }

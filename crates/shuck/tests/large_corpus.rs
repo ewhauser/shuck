@@ -709,7 +709,14 @@ fn process_parse_only_fixture(
     let linter_settings = linter_settings
         .clone()
         .with_shell(shuck_linter::ShellDialect::from_name(&fixture.shell));
-    let _ = shuck_linter::lint_file(&output.script, &source, &indexer, &linter_settings, None);
+    let _ = shuck_linter::lint_file_at_path(
+        &output.script,
+        &source,
+        &indexer,
+        &linter_settings,
+        None,
+        Some(&fixture.path),
+    );
 
     ParseOnlyStats {
         parse_successes: 1,
@@ -1097,8 +1104,14 @@ fn run_shuck(
     let linter_settings = linter_settings
         .clone()
         .with_shell(shuck_linter::ShellDialect::from_name(&fixture.shell));
-    let diagnostics =
-        shuck_linter::lint_file(&output.script, &source, &indexer, &linter_settings, None);
+    let diagnostics = shuck_linter::lint_file_at_path(
+        &output.script,
+        &source,
+        &indexer,
+        &linter_settings,
+        None,
+        Some(&fixture.path),
+    );
 
     let shellcheck_index = build_shellcheck_index();
     let locations = count_codes(&shuck_compatibility_locations(

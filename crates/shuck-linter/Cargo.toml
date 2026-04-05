@@ -19,3 +19,4 @@ shuck-parser = { path = "../shuck-parser" }
 insta = { workspace = true }
 test-case = { workspace = true }
 anyhow = { workspace = true }
+tempfile = { workspace = true }

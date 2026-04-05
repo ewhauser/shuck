@@ -4,7 +4,8 @@ use shuck_ast::Span;
 
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ControlFlowGraph,
-    IndirectTargetHint, Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind,
+    IndirectTargetHint, Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey,
+    SyntheticRead,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +69,7 @@ pub(crate) fn analyze(
     call_sites: &FxHashMap<Name, Vec<CallSite>>,
     indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
     indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    synthetic_reads: &[SyntheticRead],
 ) -> DataflowResult {
     let block_ids = cfg
         .blocks()
@@ -127,8 +129,11 @@ pub(crate) fn analyze(
 
     let reference_blocks = reference_blocks(cfg);
     let binding_blocks = binding_blocks(cfg);
+    let command_blocks = command_blocks(cfg);
     let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
     let scope_components = scope_components(cfg, &reaching_definitions);
+    let interprocedural_reads =
+        interprocedural_reads(scopes, bindings, references, synthetic_reads, call_sites);
 
     let maybe_defined = block_ids
         .iter()
@@ -276,8 +281,36 @@ pub(crate) fn analyze(
             }
         }
     }
+    for synthetic_read in synthetic_reads {
+        let Some(block_id) = command_blocks
+            .get(&SpanKey::new(synthetic_read.span))
+            .copied()
+        else {
+            continue;
+        };
+        if unreachable.contains(&block_id) {
+            continue;
+        }
+        if let Some(incoming) = reaching_definitions.reaching_in.get(&block_id) {
+            for binding in incoming {
+                if bindings[binding.index()].name == synthetic_read.name {
+                    used_bindings.insert(*binding);
+                }
+            }
+        }
+    }
+    mark_callsite_reads_used(
+        &mut used_bindings,
+        bindings,
+        &reaching_definitions,
+        &command_blocks,
+        &unreachable,
+        &interprocedural_reads,
+    );
     used_bindings.extend(interprocedural_function_uses(
-        scopes, bindings, references, call_sites,
+        scopes,
+        bindings,
+        &interprocedural_reads,
     ));
 
     let mut unused_assignments = Vec::new();
@@ -332,6 +365,7 @@ pub(crate) fn analyze(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ResolvedCallSite {
     offset: usize,
+    span: Span,
     callee_scope: ScopeId,
 }
 
@@ -345,6 +379,14 @@ struct ScopedName {
 struct ScopeComponent {
     blocks: FxHashSet<BlockId>,
     exit_defs: FxHashSet<BindingId>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct InterproceduralReads {
+    calls_by_scope: FxHashMap<ScopeId, Vec<ResolvedCallSite>>,
+    refs_by_scope: FxHashMap<ScopeId, Vec<ScopedName>>,
+    transitive_reads: FxHashMap<ScopeId, FxHashSet<Name>>,
+    escape_reads: FxHashMap<ScopeId, FxHashSet<Name>>,
 }
 
 fn gen_set(
@@ -419,6 +461,50 @@ fn binding_blocks(cfg: &ControlFlowGraph) -> FxHashMap<BindingId, BlockId> {
         }
     }
     map
+}
+
+fn command_blocks(cfg: &ControlFlowGraph) -> FxHashMap<SpanKey, BlockId> {
+    let mut map = FxHashMap::default();
+    for block in cfg.blocks() {
+        for command in &block.commands {
+            map.insert(SpanKey::new(*command), block.id);
+        }
+    }
+    map
+}
+
+fn mark_callsite_reads_used(
+    used_bindings: &mut FxHashSet<BindingId>,
+    bindings: &[Binding],
+    reaching_definitions: &ReachingDefinitions,
+    command_blocks: &FxHashMap<SpanKey, BlockId>,
+    unreachable: &FxHashSet<BlockId>,
+    interprocedural_reads: &InterproceduralReads,
+) {
+    for calls in interprocedural_reads.calls_by_scope.values() {
+        for call in calls {
+            let Some(block_id) = command_blocks.get(&SpanKey::new(call.span)).copied() else {
+                continue;
+            };
+            if unreachable.contains(&block_id) {
+                continue;
+            }
+            let Some(reads) = interprocedural_reads
+                .transitive_reads
+                .get(&call.callee_scope)
+            else {
+                continue;
+            };
+            let Some(incoming) = reaching_definitions.reaching_in.get(&block_id) else {
+                continue;
+            };
+            for binding in incoming {
+                if reads.contains(&bindings[binding.index()].name) {
+                    used_bindings.insert(*binding);
+                }
+            }
+        }
+    }
 }
 
 fn scope_components(
@@ -516,15 +602,16 @@ fn is_array_like_binding(binding: &Binding) -> bool {
         || matches!(binding.kind, BindingKind::ArrayAssignment)
 }
 
-fn interprocedural_function_uses(
+fn interprocedural_reads(
     scopes: &[Scope],
     bindings: &[Binding],
     references: &[Reference],
+    synthetic_reads: &[SyntheticRead],
     call_sites: &FxHashMap<Name, Vec<CallSite>>,
-) -> FxHashSet<BindingId> {
+) -> InterproceduralReads {
     let function_scopes = function_scopes_by_binding(scopes, bindings);
     let calls_by_scope = resolved_calls_by_scope(scopes, bindings, call_sites, &function_scopes);
-    let refs_by_scope = references_by_scope(references);
+    let refs_by_scope = references_by_scope(references, synthetic_reads);
     let scope_ids = scopes.iter().map(|scope| scope.id).collect::<Vec<_>>();
 
     let mut transitive_reads = FxHashMap::default();
@@ -591,6 +678,19 @@ fn interprocedural_function_uses(
         }
     }
 
+    InterproceduralReads {
+        calls_by_scope,
+        refs_by_scope,
+        transitive_reads,
+        escape_reads,
+    }
+}
+
+fn interprocedural_function_uses(
+    scopes: &[Scope],
+    bindings: &[Binding],
+    interprocedural_reads: &InterproceduralReads,
+) -> FxHashSet<BindingId> {
     bindings
         .iter()
         .filter(|binding| is_function_escape_candidate(binding, scopes))
@@ -599,10 +699,10 @@ fn interprocedural_function_uses(
                 scopes,
                 binding.scope,
                 binding.span.start.offset,
-                &refs_by_scope,
-                &calls_by_scope,
-                &transitive_reads,
-                &escape_reads,
+                &interprocedural_reads.refs_by_scope,
+                &interprocedural_reads.calls_by_scope,
+                &interprocedural_reads.transitive_reads,
+                &interprocedural_reads.escape_reads,
             )
             .contains(&binding.name)
         })
@@ -682,6 +782,7 @@ fn resolved_calls_by_scope(
                 .or_default()
                 .push(ResolvedCallSite {
                     offset: site.span.start.offset,
+                    span: site.span,
                     callee_scope,
                 });
         }
@@ -715,7 +816,10 @@ fn visible_function_binding(
     None
 }
 
-fn references_by_scope(references: &[Reference]) -> FxHashMap<ScopeId, Vec<ScopedName>> {
+fn references_by_scope(
+    references: &[Reference],
+    synthetic_reads: &[SyntheticRead],
+) -> FxHashMap<ScopeId, Vec<ScopedName>> {
     let mut refs_by_scope: FxHashMap<ScopeId, Vec<ScopedName>> = FxHashMap::default();
     for reference in references {
         refs_by_scope
@@ -724,6 +828,15 @@ fn references_by_scope(references: &[Reference]) -> FxHashMap<ScopeId, Vec<Scope
             .push(ScopedName {
                 offset: reference.span.start.offset,
                 name: reference.name.clone(),
+            });
+    }
+    for synthetic_read in synthetic_reads {
+        refs_by_scope
+            .entry(synthetic_read.scope)
+            .or_default()
+            .push(ScopedName {
+                offset: synthetic_read.span.start.offset,
+                name: synthetic_read.name.clone(),
             });
     }
     for references in refs_by_scope.values_mut() {

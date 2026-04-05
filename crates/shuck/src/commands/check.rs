@@ -233,12 +233,13 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                     let linter_settings = base_linter_settings
                         .clone()
                         .with_shell(ShellDialect::infer(&source, Some(&file.absolute_path)));
-                    let diagnostics = shuck_linter::lint_file(
+                    let diagnostics = shuck_linter::lint_file_at_path(
                         &output.script,
                         &source,
                         &indexer,
                         &linter_settings,
                         suppression_index.as_ref(),
+                        Some(&file.absolute_path),
                     );
 
                     for diagnostic in &diagnostics {
