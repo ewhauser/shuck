@@ -6,7 +6,7 @@ Proposed
 
 ## Summary
 
-A benchmarking setup for shuck-rs that measures parse and lint throughput on real-world shell scripts and compares end-to-end CLI performance against shellcheck. The design follows ruff's two-tier approach: **Criterion.rs micro-benchmarks** in a dedicated `shuck-benchmark` crate for measuring individual components (lexer, parser, linter), and **hyperfine macro-benchmarks** via shell scripts for CLI-vs-shellcheck wall-time comparison. Both tiers operate on the same 5 vendored benchmark fixtures used by the Go frontend (`shuck`), copied directly from `shuck/testdata/benchmarks/`.
+A benchmarking setup for shuck-rs that measures parse, semantic, and lint throughput on real-world shell scripts and compares end-to-end CLI performance against shellcheck. The design follows ruff's two-tier approach: **Criterion.rs micro-benchmarks** in a dedicated `shuck-benchmark` crate for measuring individual components (lexer, parser, semantic analysis, linter), and **hyperfine macro-benchmarks** via shell scripts for CLI-vs-shellcheck wall-time comparison. Both tiers operate on the same 5 vendored benchmark fixtures used by the Go frontend (`shuck`), copied directly from `shuck/testdata/benchmarks/`.
 
 ## Motivation
 
@@ -48,6 +48,7 @@ crates/shuck-benchmark/
 ├── benches/
 │   ├── lexer.rs          # Criterion: lex throughput per file
 │   ├── parser.rs         # Criterion: parse throughput per file
+│   ├── semantic.rs       # Criterion: semantic-model throughput per file
 │   └── linter.rs         # Criterion: full lint pipeline per file
 ├── src/
 │   └── lib.rs            # TestCase, TestFile, load helpers
@@ -94,11 +95,13 @@ name = "parser"
 harness = false
 
 [[bench]]
+name = "semantic"
+harness = false
+
+[[bench]]
 name = "linter"
 harness = false
 ```
-
-The `linter` bench target is gated behind `shuck-linter` being available. It can be added once spec 005 is implemented; the crate structure supports it from day one.
 
 #### src/lib.rs — Test Case Infrastructure
 
@@ -196,7 +199,7 @@ criterion_group!(benches, bench_parse);
 criterion_main!(benches);
 ```
 
-The lexer and linter benches follow the same structure, benchmarking `Lexer::new(source).collect::<Vec<_>>()` and the full `lint_file()` pipeline respectively.
+The lexer, semantic, and linter benches follow the same structure, benchmarking `Lexer::new(source).collect::<Vec<_>>()`, `SemanticModel::build(...)`, and the full `lint_file()` pipeline respectively.
 
 #### Memory Allocator
 
@@ -339,7 +342,8 @@ This enables `cargo flamegraph` and `samply` on benchmark binaries without losin
 |------|------|------|--------|
 | Micro | Criterion | Lex each fixture | throughput (bytes/s), time (mean ± σ) |
 | Micro | Criterion | Parse each fixture | throughput (bytes/s), time (mean ± σ) |
-| Micro | Criterion | Lint each fixture (future) | throughput (bytes/s), time (mean ± σ) |
+| Micro | Criterion | Build semantics for each fixture | throughput (bytes/s), time (mean ± σ) |
+| Micro | Criterion | Lint each fixture | throughput (bytes/s), time (mean ± σ) |
 | Macro | Hyperfine | `shuck check` per fixture | wall time (mean ± σ), vs shellcheck (2 variants) |
 | Macro | Hyperfine | `shuck check` all fixtures | wall time (mean ± σ), vs shellcheck (2 variants) |
 

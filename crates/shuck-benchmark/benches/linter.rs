@@ -5,7 +5,6 @@ use shuck_linter::{
     LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
     parse_directives,
 };
-use shuck_semantic::SemanticModel;
 
 configure_benchmark_allocator!();
 
@@ -24,11 +23,9 @@ fn lint_source(
             first_statement_line(&output.script).unwrap_or(u32::MAX),
         )
     });
-    let semantic = SemanticModel::build(&output.script, source, &indexer);
     let diagnostics = lint_file(
         &output.script,
         source,
-        &semantic,
         &indexer,
         settings,
         suppression_index.as_ref(),

@@ -289,15 +289,7 @@ fn run_parse_only(fixtures: &[LargeCorpusFixture]) {
 
         // Run the full pipeline to catch panics in the indexer/semantic/linter.
         let indexer = shuck_indexer::Indexer::new(&source, &output);
-        let semantic = shuck_semantic::SemanticModel::build(&output.script, &source, &indexer);
-        let _ = shuck_linter::lint_file(
-            &output.script,
-            &source,
-            &semantic,
-            &indexer,
-            &linter_settings,
-            None,
-        );
+        let _ = shuck_linter::lint_file(&output.script, &source, &indexer, &linter_settings, None);
 
         parse_successes += 1;
     }
@@ -526,15 +518,8 @@ fn run_shuck(
     };
 
     let indexer = shuck_indexer::Indexer::new(&source, &output);
-    let semantic = shuck_semantic::SemanticModel::build(&output.script, &source, &indexer);
-    let diagnostics = shuck_linter::lint_file(
-        &output.script,
-        &source,
-        &semantic,
-        &indexer,
-        linter_settings,
-        None,
-    );
+    let diagnostics =
+        shuck_linter::lint_file(&output.script, &source, &indexer, linter_settings, None);
 
     let shellcheck_index = build_shellcheck_index();
     let locations = count_codes(&shuck_compatibility_locations(

@@ -11,7 +11,6 @@ use shuck_linter::{
     LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, parse_directives,
 };
 use shuck_parser::{Error as ParseError, parser::Parser};
-use shuck_semantic::SemanticModel;
 
 use crate::ExitStatus;
 use crate::args::CheckCommand;
@@ -230,11 +229,9 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                             first_statement_line(&output.script).unwrap_or(u32::MAX),
                         )
                     });
-                    let semantic = SemanticModel::build(&output.script, &source, &indexer);
                     let diagnostics = shuck_linter::lint_file(
                         &output.script,
                         &source,
-                        &semantic,
                         &indexer,
                         &linter_settings,
                         suppression_index.as_ref(),

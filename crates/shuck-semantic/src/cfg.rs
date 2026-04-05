@@ -1,11 +1,17 @@
 use rustc_hash::FxHashMap;
+use shuck_ast::{CaseTerminator, ListOperator, Span};
+
+#[cfg(test)]
 use shuck_ast::{
-    Assignment, BuiltinCommand, CaseItem, CaseTerminator, Command, CommandList, CompoundCommand,
-    ConditionalExpr, ContinueCommand, FunctionDef, ListOperator, Redirect, Script, SelectCommand,
-    SimpleCommand, Span, WhileCommand, Word, WordPart,
+    Assignment, BuiltinCommand, CaseItem, Command, CommandList, CompoundCommand, ConditionalExpr,
+    ContinueCommand, FunctionDef, Redirect, Script, SelectCommand, SimpleCommand, WhileCommand,
+    Word, WordPart,
 };
 
-use crate::{BindingId, ReferenceId, Scope, ScopeId, SpanKey};
+use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
+
+#[cfg(test)]
+use crate::Scope;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub(crate) u32);
@@ -183,6 +189,7 @@ pub(crate) struct RecordedPipelineSegment {
 }
 
 impl RecordedProgram {
+    #[cfg(test)]
     pub(crate) fn from_script(script: &Script, scopes: &[Scope]) -> Self {
         let mut function_bodies = FxHashMap::default();
         let file_commands = convert_commands(&script.commands, scopes, &mut function_bodies);
@@ -193,6 +200,7 @@ impl RecordedProgram {
     }
 }
 
+#[cfg(test)]
 fn convert_commands(
     commands: &[Command],
     scopes: &[Scope],
@@ -204,6 +212,7 @@ fn convert_commands(
         .collect()
 }
 
+#[cfg(test)]
 fn convert_command(
     command: &Command,
     scopes: &[Scope],
@@ -475,6 +484,7 @@ fn convert_command(
     }
 }
 
+#[cfg(test)]
 fn function_body_commands(
     body: &Command,
     scopes: &[Scope],
@@ -488,6 +498,7 @@ fn function_body_commands(
     }
 }
 
+#[cfg(test)]
 fn collect_regions_from_command(
     command: &Command,
     scopes: &[Scope],
@@ -702,6 +713,7 @@ fn collect_regions_from_command(
     }
 }
 
+#[cfg(test)]
 fn collect_regions_from_simple(
     command: &SimpleCommand,
     scopes: &[Scope],
@@ -726,6 +738,7 @@ fn collect_regions_from_simple(
     regions
 }
 
+#[cfg(test)]
 fn collect_regions_from_decl(
     command: &shuck_ast::DeclClause,
     scopes: &[Scope],
@@ -755,6 +768,7 @@ fn collect_regions_from_decl(
     regions
 }
 
+#[cfg(test)]
 fn collect_regions_from_builtin(
     command: &impl BuiltinRegionSource,
     scopes: &[Scope],
@@ -778,6 +792,7 @@ fn collect_regions_from_builtin(
     regions
 }
 
+#[cfg(test)]
 trait BuiltinRegionSource {
     fn assignments(&self) -> &[Assignment];
     fn redirects(&self) -> &[Redirect];
@@ -785,6 +800,7 @@ trait BuiltinRegionSource {
     fn extra_words(&self) -> &[Word];
 }
 
+#[cfg(test)]
 impl BuiltinRegionSource for shuck_ast::BreakCommand {
     fn assignments(&self) -> &[Assignment] {
         &self.assignments
@@ -800,6 +816,7 @@ impl BuiltinRegionSource for shuck_ast::BreakCommand {
     }
 }
 
+#[cfg(test)]
 impl BuiltinRegionSource for ContinueCommand {
     fn assignments(&self) -> &[Assignment] {
         &self.assignments
@@ -815,6 +832,7 @@ impl BuiltinRegionSource for ContinueCommand {
     }
 }
 
+#[cfg(test)]
 impl BuiltinRegionSource for shuck_ast::ReturnCommand {
     fn assignments(&self) -> &[Assignment] {
         &self.assignments
@@ -830,6 +848,7 @@ impl BuiltinRegionSource for shuck_ast::ReturnCommand {
     }
 }
 
+#[cfg(test)]
 impl BuiltinRegionSource for shuck_ast::ExitCommand {
     fn assignments(&self) -> &[Assignment] {
         &self.assignments
@@ -845,6 +864,7 @@ impl BuiltinRegionSource for shuck_ast::ExitCommand {
     }
 }
 
+#[cfg(test)]
 fn collect_regions_from_for(
     command: &shuck_ast::ForCommand,
     redirects: &[Redirect],
@@ -864,6 +884,7 @@ fn collect_regions_from_for(
     regions
 }
 
+#[cfg(test)]
 fn collect_regions_from_assignments(
     assignments: &[Assignment],
     scopes: &[Scope],
@@ -883,6 +904,7 @@ fn collect_regions_from_assignments(
     regions
 }
 
+#[cfg(test)]
 fn collect_regions_from_redirects(
     redirects: &[Redirect],
     scopes: &[Scope],
@@ -894,6 +916,7 @@ fn collect_regions_from_redirects(
         .collect()
 }
 
+#[cfg(test)]
 fn collect_regions_from_words(
     words: &[Word],
     scopes: &[Scope],
@@ -905,6 +928,7 @@ fn collect_regions_from_words(
         .collect()
 }
 
+#[cfg(test)]
 fn collect_regions_from_conditional(
     expression: &ConditionalExpr,
     scopes: &[Scope],
@@ -932,6 +956,7 @@ fn collect_regions_from_conditional(
     }
 }
 
+#[cfg(test)]
 fn collect_regions_from_word(
     word: &Word,
     scopes: &[Scope],
@@ -953,6 +978,7 @@ fn collect_regions_from_word(
     regions
 }
 
+#[cfg(test)]
 fn scope_for_span(scopes: &[Scope], span: Span) -> ScopeId {
     scopes
         .iter()
@@ -964,6 +990,7 @@ fn scope_for_span(scopes: &[Scope], span: Span) -> ScopeId {
         .unwrap_or(ScopeId(0))
 }
 
+#[cfg(test)]
 fn depth_from_word(word: Option<&Word>) -> usize {
     word.and_then(single_literal_word)
         .and_then(|value| value.parse::<usize>().ok())
@@ -971,6 +998,7 @@ fn depth_from_word(word: Option<&Word>) -> usize {
         .unwrap_or(1)
 }
 
+#[cfg(test)]
 fn single_literal_word(word: &Word) -> Option<&str> {
     match word.parts.as_slice() {
         [WordPart::Literal(shuck_ast::LiteralText::Owned(text))] => Some(text.as_ref()),
@@ -978,6 +1006,7 @@ fn single_literal_word(word: &Word) -> Option<&str> {
     }
 }
 
+#[cfg(test)]
 fn command_span(command: &Command) -> Span {
     match command {
         Command::Simple(command) => command.span,
@@ -993,6 +1022,7 @@ fn command_span(command: &Command) -> Span {
     }
 }
 
+#[cfg(test)]
 fn body_span(command: &Command) -> Span {
     match command {
         Command::Compound(CompoundCommand::BraceGroup(commands), _) => commands
@@ -1005,6 +1035,7 @@ fn body_span(command: &Command) -> Span {
     }
 }
 
+#[cfg(test)]
 fn command_span_from_compound(command: &CompoundCommand) -> Span {
     match command {
         CompoundCommand::If(command) => command.span,

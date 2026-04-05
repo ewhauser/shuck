@@ -22,19 +22,38 @@ pub use violation::Violation;
 
 use shuck_ast::{Script, TextSize};
 use shuck_indexer::Indexer;
-use shuck_semantic::SemanticModel;
+use shuck_semantic::{SemanticModel, TraversalObserver, build_with_observer};
 
-pub fn lint_file(
+pub struct AnalysisResult {
+    pub semantic: SemanticModel,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Default)]
+struct LintTraversalObserver {
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl LintTraversalObserver {
+    fn into_diagnostics(self) -> Vec<Diagnostic> {
+        self.diagnostics
+    }
+}
+
+impl TraversalObserver for LintTraversalObserver {}
+
+pub fn analyze_file(
     script: &Script,
     source: &str,
-    semantic: &SemanticModel,
     indexer: &Indexer,
     settings: &LinterSettings,
     suppression_index: Option<&SuppressionIndex>,
-) -> Vec<Diagnostic> {
-    let checker = Checker::new(script, source, semantic, indexer, &settings.rules);
-    let mut diagnostics = checker.check();
-
+) -> AnalysisResult {
+    let mut observer = LintTraversalObserver::default();
+    let semantic = build_with_observer(script, source, indexer, &mut observer);
+    let checker = Checker::new(script, source, &semantic, indexer, &settings.rules);
+    let mut diagnostics = observer.into_diagnostics();
+    diagnostics.extend(checker.check());
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
             diagnostic.severity = severity;
@@ -47,7 +66,20 @@ pub fn lint_file(
 
     diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-    diagnostics
+    AnalysisResult {
+        semantic,
+        diagnostics,
+    }
+}
+
+pub fn lint_file(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+) -> Vec<Diagnostic> {
+    analyze_file(script, source, indexer, settings, suppression_index).diagnostics
 }
 
 fn filter_suppressed_diagnostics(
@@ -76,14 +108,31 @@ mod tests {
     fn lint(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.script, source, &indexer);
-        lint_file(&output.script, source, &semantic, &indexer, settings, None)
+        lint_file(&output.script, source, &indexer, settings, None)
     }
 
     #[test]
     fn default_settings_run_without_emitting_noop_diagnostics() {
         let diagnostics = lint("#!/bin/bash\necho ok\n", &LinterSettings::default());
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn analyze_file_returns_semantic_model_and_diagnostics() {
+        let source = "#!/bin/bash\nvalue=ok\necho \"$value\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let result = analyze_file(
+            &output.script,
+            source,
+            &indexer,
+            &LinterSettings::default(),
+            None,
+        );
+
+        assert!(result.diagnostics.is_empty());
+        assert!(!result.semantic.scopes().is_empty());
+        assert!(!result.semantic.bindings().is_empty());
     }
 
     #[test]

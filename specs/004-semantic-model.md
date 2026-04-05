@@ -6,7 +6,7 @@ Proposed
 
 ## Summary
 
-A new `shuck-semantic` library crate that builds a semantic model from a parsed shell script, enabling lint rules to query variable definitions and uses, function declarations and calls, scoping boundaries, declaration builtin classification, and source/import resolution — without walking the AST themselves. Modeled after ruff's `ruff_python_semantic` crate, adapted for shell-specific scoping rules (subshells, command substitutions, `local`/`export`/`declare` builtins, pipeline isolation).
+A new `shuck-semantic` library crate that builds a semantic model from a parsed shell script, enabling lint rules to query variable definitions and uses, function declarations and calls, scoping boundaries, declaration builtin classification, and source/import resolution. The model is built by a single evaluation-order traversal that also records the lazy CFG input, with function bodies deferred until their enclosing scope has finished executing. The design is modeled after ruff's `ruff_python_semantic` crate, adapted for shell-specific scoping rules (subshells, command substitutions, `local`/`export`/`declare` builtins, pipeline isolation).
 
 The semantic model is the bridge between low-level positional indexing (`shuck-indexer`) and high-level rule execution. It answers questions like "is this variable defined before this use?", "what scope does this assignment belong to?", "is this function called before it's overwritten?", and "what does this `source` command import?".
 
@@ -40,7 +40,7 @@ crates/shuck-semantic/
     ├── call_graph.rs       # Function call graph
     ├── cfg.rs              # Control flow graph types and construction
     ├── dataflow.rs         # Reaching definitions, unused/unset variable analysis
-    └── builder.rs          # Single-pass AST visitor that builds the model
+    └── builder.rs          # Single evaluation-order traversal that builds the model and recorded program
 ```
 
 **Dependencies:** `shuck-ast` (AST types, `Name`, `Span`), `shuck-indexer` (region queries)
@@ -375,7 +375,7 @@ pub struct FlowContext {
 
 ### Control Flow Graph
 
-The CFG models execution paths through a script or function body. It is built from the AST after the initial semantic pass and is consumed by dataflow analyses.
+The CFG models execution paths through a script or function body. It is built from the recorded program captured during the semantic traversal and is consumed by dataflow analyses.
 
 #### Basic Blocks
 
@@ -566,30 +566,33 @@ impl SemanticModel {
 }
 ```
 
-Construction is a single recursive AST walk performed by `SemanticModelBuilder` (in `builder.rs`). The builder maintains a scope stack and processes nodes in source order:
+Construction is a single recursive AST walk performed by `SemanticModelBuilder` (in `builder.rs`). The builder maintains a scope stack, a deferred-function queue, and the lazy CFG recording state:
 
-1. **Enter scope** — When visiting a function definition, subshell, command substitution, or pipeline, push a new scope onto the stack.
+The public entrypoint remains `SemanticModel::build(...) -> SemanticModel`. A non-stable internal traversal API is layered on top of the same builder so `shuck-linter` can attach traversal-time observers without forking the semantic walk.
+
+1. **Enter scope** — When visiting a subshell, command substitution, or pipeline, push a new scope onto the stack immediately. When visiting a function definition, bind the function name, allocate the function scope, and defer the body instead of traversing it inline.
 2. **Collect bindings** — When visiting an assignment, declaration builtin, `for`/`select` loop, `read` command, or function definition, create a `Binding` in the current scope.
-3. **Collect references** — When visiting a `WordPart::Variable`, `WordPart::ParameterExpansion`, or arithmetic variable use, create a `Reference` in the current scope.
+3. **Collect references and resolve immediately** — When visiting a `WordPart::Variable`, `WordPart::ParameterExpansion`, or arithmetic variable use, create a `Reference`, walk ancestor scopes immediately, and update `resolved`, `unresolved`, and `binding.references` at insertion time.
 4. **Classify declarations** — When visiting a `SimpleCommand` whose name matches a declaration builtin, parse operands into `Declaration`.
 5. **Classify source refs** — When visiting a `SimpleCommand` whose name is `source` or `.`, classify the path argument.
 6. **Record call sites** — When visiting a `SimpleCommand` whose name could be a function call, record a `CallSite`.
-7. **Record flow context** — Track loop depth, function membership, and subshell nesting as the walker descends.
-8. **Exit scope** — When leaving a scope boundary, pop the scope stack.
+7. **Record flow context and CFG input** — Track loop depth, function membership, and subshell nesting as the walker descends, while emitting `RecordedCommand` trees for lazy CFG/dataflow.
+8. **Complete scopes** — When leaving a non-deferred scope boundary, pop the scope stack and mark that scope complete so later deferred traversals can resolve against its final bindings.
+9. **Drain deferred function bodies** — After file scope finishes, visit queued function bodies in encounter order. Each deferred body reconstructs its scope stack from the queued scope's parent chain before traversal.
 
 After the walk:
 
-9. **Resolve references** — For each reference, walk the scope chain upward to find the nearest visible binding with that name. Unresolved references are collected separately.
 10. **Build call graph** — From top-level call sites, compute reachable functions. Identify uncalled and overwritten functions.
+11. **Derive heuristic unused assignments** — Compute the cheap pre-dataflow unused-assignment approximation from the finalized binding/reference facts.
 
 On demand (when a dataflow-phase rule is enabled):
 
-11. **Build CFG** — Walk the AST a second time to construct basic blocks and edges. Each scope (file, function body) gets its own CFG. Subshell regions are modeled as isolated sub-graphs.
-12. **Run dataflow** — Compute reaching definitions via iterative worklist. Derive unused assignments, uninitialized references, and dead code from the reaching definitions and CFG reachability.
+12. **Build CFG** — Build basic blocks and edges from the recorded program captured during semantic traversal. Each scope (file, function body) gets its own CFG. Subshell regions are modeled as isolated sub-graphs.
+13. **Run dataflow** — Compute reaching definitions via iterative worklist. Derive unused assignments, uninitialized references, and dead code from the reaching definitions and CFG reachability.
 
 ### Query API
 
-The semantic model exposes a query-first API for rule authors. Rules never walk the AST — they query the model.
+The semantic model exposes a query-first API for rule authors. Most rules query the finalized model; traversal-time consumers use an internal observer seam rather than ad hoc AST walks.
 
 #### Variable Queries
 
@@ -748,9 +751,9 @@ Rejected because: the indexer is deliberately limited to positional/structural d
 
 ### Visitor trait instead of direct AST walk
 
-We could define a `trait Visitor` with `visit_command`, `visit_word`, etc., and have the builder implement it. This is how ruff's `Checker` works.
+We could define a fully public `trait Visitor` with `visit_command`, `visit_word`, etc., and have the builder implement it.
 
-Deferred because: a single builder module with explicit `match` arms on `Command` variants is simpler for the initial implementation and easier to follow. A visitor trait adds value when multiple consumers need to walk the AST with different logic (rule execution, type checking, etc.) — we can extract the trait later when the second consumer appears. The builder's internal structure doesn't affect the public API.
+Rejected for the public API because: the builder still works best as one internal module with explicit `match` arms on `Command` variants. However, once the linter needed traversal-time hooks, we did add a narrow internal observer seam so multiple consumers can share the same evaluation-order walk without exposing a stable visitor surface.
 
 ### Separate CFG crate
 

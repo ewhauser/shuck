@@ -126,7 +126,6 @@ mod tests {
         LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
         parse_directives,
     };
-    use shuck_semantic::SemanticModel;
 
     use super::{TEST_FILES, benchmark_cases, parse_fixture, resources_dir};
 
@@ -212,11 +211,9 @@ mod tests {
                     first_statement_line(&output.script).unwrap_or(u32::MAX),
                 )
             });
-            let semantic = SemanticModel::build(&output.script, file.source, &indexer);
             let diagnostics = lint_file(
                 &output.script,
                 file.source,
-                &semantic,
                 &indexer,
                 &settings,
                 suppression_index.as_ref(),

@@ -21,7 +21,7 @@ pub use scope::{Scope, ScopeId, ScopeKind};
 pub use source_ref::{SourceRef, SourceRefKind};
 
 use rustc_hash::FxHashMap;
-use shuck_ast::{Name, Script, Span};
+use shuck_ast::{Command, Name, Script, Span};
 use shuck_indexer::Indexer;
 
 use crate::builder::SemanticModelBuilder;
@@ -48,6 +48,22 @@ pub(crate) struct SourceDirectiveOverride {
     pub(crate) own_line: bool,
 }
 
+#[doc(hidden)]
+pub trait TraversalObserver {
+    fn enter_command(&mut self, _command: &Command, _scope: ScopeId, _flow: FlowContext) {}
+
+    fn exit_command(&mut self, _command: &Command, _scope: ScopeId) {}
+
+    fn record_binding(&mut self, _binding: &Binding) {}
+
+    fn record_reference(&mut self, _reference: &Reference, _resolved: Option<&Binding>) {}
+}
+
+#[doc(hidden)]
+pub struct NoopTraversalObserver;
+
+impl TraversalObserver for NoopTraversalObserver {}
+
 #[derive(Debug, Clone)]
 pub struct SemanticModel {
     scopes: Vec<Scope>,
@@ -72,8 +88,11 @@ pub struct SemanticModel {
 
 impl SemanticModel {
     pub fn build(script: &Script, source: &str, indexer: &Indexer) -> Self {
-        let built = SemanticModelBuilder::build(script, source, indexer);
-        let recorded_program = RecordedProgram::from_script(script, &built.scopes);
+        let mut observer = NoopTraversalObserver;
+        build_with_observer(script, source, indexer, &mut observer)
+    }
+
+    fn from_build_output(built: builder::BuildOutput) -> Self {
         Self {
             scopes: built.scopes,
             bindings: built.bindings,
@@ -87,7 +106,7 @@ impl SemanticModel {
             source_refs: built.source_refs,
             declarations: built.declarations,
             flow_contexts: built.flow_contexts,
-            recorded_program,
+            recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
             command_references: built.command_references,
             cfg: None,
@@ -275,6 +294,17 @@ impl SemanticModel {
     }
 }
 
+#[doc(hidden)]
+pub fn build_with_observer(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+) -> SemanticModel {
+    let built = SemanticModelBuilder::build(script, source, indexer, observer);
+    SemanticModel::from_build_output(built)
+}
+
 fn contains_offset(span: Span, offset: usize) -> bool {
     span.start.offset <= offset && offset <= span.end.offset
 }
@@ -286,6 +316,7 @@ fn contains_span(outer: Span, inner: Span) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cfg::{RecordedProgram, build_control_flow_graph};
     use shuck_ast::{Command, CompoundCommand};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
@@ -465,5 +496,117 @@ done
             "echo dead"
         );
         assert_eq!(dead_code[0].cause.slice(source).trim_end(), "exit 0");
+    }
+
+    #[test]
+    fn deferred_function_bodies_resolve_later_file_scope_bindings() {
+        let source = "f() { echo $X; }\nX=1\nf\n";
+        let model = model(source);
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "X")
+            .unwrap();
+        let binding = model.resolved_binding(reference.id).unwrap();
+        assert_eq!(binding.span.slice(source), "X=1");
+    }
+
+    #[test]
+    fn top_level_reads_remain_source_order_sensitive() {
+        let source = "echo $X\nX=1\n";
+        let model = model(source);
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "X")
+            .unwrap();
+        assert!(model.resolved_binding(reference.id).is_none());
+        assert_eq!(model.unresolved_references(), &[reference.id]);
+    }
+
+    #[test]
+    fn deferred_nested_function_bodies_resolve_later_outer_bindings() {
+        let source = "\
+outer() {
+  inner() { echo $X; }
+  X=1
+  inner
+}
+outer
+";
+        let model = model(source);
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "X")
+            .unwrap();
+        let binding = model.resolved_binding(reference.id).unwrap();
+        assert_eq!(binding.span.slice(source).trim(), "X=1");
+        assert!(matches!(
+            model.scope_kind(binding.scope),
+            ScopeKind::Function(name) if name == "outer"
+        ));
+    }
+
+    #[test]
+    fn recorded_program_cfg_and_dataflow_match_legacy_conversion() {
+        let source = "\
+f() { echo $X; }
+if cond; then
+  X=1
+else
+  X=2
+fi
+while cond; do
+  X=3
+  break
+done
+echo $X
+( Y=1 )
+echo $(printf '%s' \"$X\")
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.script, source, &indexer);
+
+        let new_cfg = build_control_flow_graph(
+            &model.recorded_program,
+            &model.command_bindings,
+            &model.command_references,
+        );
+        let legacy_program = RecordedProgram::from_script(&output.script, model.scopes());
+        let legacy_cfg = build_control_flow_graph(
+            &legacy_program,
+            &model.command_bindings,
+            &model.command_references,
+        );
+
+        assert_eq!(new_cfg.blocks(), legacy_cfg.blocks());
+        assert_eq!(new_cfg.entry(), legacy_cfg.entry());
+        assert_eq!(new_cfg.exits(), legacy_cfg.exits());
+        assert_eq!(new_cfg.unreachable(), legacy_cfg.unreachable());
+
+        for block in new_cfg.blocks() {
+            assert_eq!(
+                new_cfg.successors(block.id),
+                legacy_cfg.successors(block.id),
+                "successors differed for block {:?}",
+                block.id
+            );
+            assert_eq!(
+                new_cfg.predecessors(block.id),
+                legacy_cfg.predecessors(block.id),
+                "predecessors differed for block {:?}",
+                block.id
+            );
+        }
+
+        let new_dataflow = crate::dataflow::analyze(&new_cfg, &model.bindings, &model.references);
+        let legacy_dataflow =
+            crate::dataflow::analyze(&legacy_cfg, &model.bindings, &model.references);
+        assert_eq!(new_dataflow, legacy_dataflow);
     }
 }

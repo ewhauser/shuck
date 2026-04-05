@@ -6,7 +6,7 @@ Proposed
 
 ## Summary
 
-A new `shuck-linter` library crate that implements rule dispatch and diagnostic reporting for shell script linting. Rules are organized into categories with prefix-based codes, dispatched primarily through the semantic model rather than AST walking, and produce structured diagnostics with severity levels and rule codes. Modeled after ruff's `ruff_linter` architecture, adapted for shell-specific concerns and a semantic-first dispatch model.
+A new `shuck-linter` library crate that implements rule dispatch and diagnostic reporting for shell script linting. Rules are organized into categories with prefix-based codes and dispatched through a hybrid model: inline traversal hooks share the semantic builder for node-local and evaluation-order-sensitive checks, while post-traversal phases query the finalized semantic model for whole-file facts. The design is modeled after ruff's `ruff_linter` architecture, adapted for shell-specific concerns and shell semantics.
 
 Suppressions and auto-fixes are explicitly out of scope. Output formatters are out of scope.
 
@@ -15,10 +15,10 @@ Suppressions and auto-fixes are explicitly out of scope. Output formatters are o
 Today `shuck check` only reports parse errors. The Go frontend defines 332 lint rules across semantic, dataflow, and project phases. To ship any of these rules, we need:
 
 - **A rule registry** — A way to define rules with codes, categories, severity levels, and metadata. Rules must be selectable by prefix (`C`, `C0`, `C001`).
-- **A dispatch mechanism** — A way to invoke rules against analyzed files. Since we're building the semantic model (spec 004), rules should query semantic entities (bindings, references, scopes, call sites) rather than walk the AST independently. The semantic model exists precisely so rules don't each reimplement tree traversal.
+- **A dispatch mechanism** — A way to invoke rules against analyzed files. Most rules should query semantic entities (bindings, references, scopes, call sites) after the walk finishes, but some checks need evaluation-order hook points while the semantic traversal is happening.
 - **Structured diagnostics** — A diagnostic type that carries severity, rule code, message, and source location. The CLI can format these for output; the linter produces them.
 
-Ruff solves this for Python with a `Checker` that visits AST nodes, dispatching to rule functions gated by `is_rule_enabled()`. We adapt this pattern: instead of dispatching per AST node, we dispatch per semantic entity — the semantic model is the primary iteration target, with AST access available when rules need structural context.
+Ruff solves this for Python with a `Checker` that visits AST nodes while building semantics, then runs follow-on analyses over the collected model. We adapt that pattern to shell: the semantic traversal exposes internal observer hooks for inline checks, while the public rule-authoring model remains semantic-first and query-based for most rules.
 
 ## Design
 
@@ -51,7 +51,7 @@ This gives each category 999 rule slots — more than enough. The scheme is exte
 crates/shuck-linter/
 ├── Cargo.toml
 └── src/
-    ├── lib.rs              # Public API: lint_file(), LinterSettings
+    ├── lib.rs              # Public API: analyze_file(), lint_file(), LinterSettings
     ├── registry.rs         # Rule enum, Category enum, code→rule mapping
     ├── rule_set.rs         # Bitset of enabled rules
     ├── rule_selector.rs    # Parsing user selections ("SHC", "SHC001")
@@ -400,7 +400,7 @@ pub fn useless_cat(checker: &mut Checker) {
 
 ### Checker and Dispatch
 
-The `Checker` is the central orchestrator. Unlike ruff's visitor-based Checker, ours is **query-based** — it iterates semantic entities and dispatches matching rules.
+The `Checker` is the central orchestrator. Unlike the original query-only design, the updated architecture is **hybrid**: an internal traversal observer handles inline checks during semantic construction, and the post-traversal `Checker` iterates semantic entities for rules that need the completed model.
 
 ```rust
 pub struct Checker<'a> {
@@ -529,7 +529,7 @@ impl<'a> Checker<'a> {
 }
 ```
 
-The phase ordering is intentional: semantic entity iteration (phases 1–6) runs first and handles the majority of rules without AST traversal. Structural rules (phase 7) and dataflow rules (phase 8) run last and only when needed.
+The phase ordering is intentional: inline traversal hooks run during semantic construction, while semantic entity iteration (phases 1–6) handles the majority of rules after the model is complete. Structural rules (phase 7) and dataflow rules (phase 8) still run last and only when needed.
 
 ### Settings
 
@@ -617,12 +617,12 @@ How the linter fits into `shuck check`:
 Source text
     → shuck-parser::Parser::parse()       → ParseOutput (Script + Comments)
     → shuck-indexer::Indexer::new()        → Indexer
-    → shuck-semantic::SemanticModel::new() → SemanticModel
-    → shuck-linter::lint_file()           → Vec<Diagnostic>
+    → shuck-linter::analyze_file()         → AnalysisResult { semantic, diagnostics }
+    → shuck-linter::lint_file()            → Vec<Diagnostic> (wrapper)
     → CLI formats and prints diagnostics
 ```
 
-The CLI owns the pipeline. The linter is a pure function: `(AST, source, semantic, indexer, settings) → diagnostics`. No I/O, no caching, no output formatting.
+The CLI owns the pipeline. The linter is a pure function: `(AST, source, indexer, settings) → AnalysisResult`, with `lint_file` as the diagnostics-only convenience wrapper. No I/O, no caching, no output formatting.
 
 ## Alternatives Considered
 
@@ -630,13 +630,13 @@ The CLI owns the pipeline. The linter is a pure function: `(AST, source, semanti
 
 Walk the AST with a `Visitor` trait, dispatching rules at each node type via `match` arms. This is ruff's primary pattern.
 
-**Rejected because:** Shell lint rules predominantly need semantic information (scoping, use-def chains, declaration classification) rather than raw AST structure. With the semantic model providing pre-computed answers, walking the AST would mean re-traversing what the model already indexed. The semantic model exists to decouple rules from tree structure. Structural rules that genuinely need AST access can still get it through `checker.ast()`, but they're the minority.
+**Rejected as the public rule-authoring model:** Shell lint rules predominantly need semantic information (scoping, use-def chains, declaration classification) rather than raw AST structure. With the semantic model providing pre-computed answers, making every rule visitor-driven would over-couple rules to tree structure. Structural rules that genuinely need AST access can still get it through `checker.ast()`, and inline traversal hooks exist only as an internal seam.
 
 ### Alternative B: Event-Based Dispatch
 
 Rules register interest in semantic events (e.g., "on binding created", "on reference resolved") and the semantic model builder fires callbacks during construction.
 
-**Rejected because:** This couples rule dispatch to semantic model construction, making the model harder to test independently. It also means rules run during model building, before the full model is available — a rule checking "is this variable used anywhere?" can't run until all references are collected. The query-based approach lets rules see the complete model.
+**Adopted in a limited internal form:** We do expose a non-stable observer seam so the linter can share the semantic traversal for inline checks that depend on evaluation order. The seam remains intentionally narrow and internal; whole-file checks still run after traversal over the completed `SemanticModel`, which preserves testability and keeps most rules query-based.
 
 ### Alternative C: Single Flat Numbering (SH-NNN)
 
