@@ -6,30 +6,40 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
-use shuck_syntax::{Dialect, ParseError, ParseMode, ParseOptions};
+use shuck_indexer::Indexer;
+use shuck_linter::LinterSettings;
+use shuck_parser::{Error as ParseError, parser::Parser};
+use shuck_semantic::SemanticModel;
 
 use crate::ExitStatus;
 use crate::args::CheckCommand;
 use crate::discover::{DiscoveredFile, ProjectRoot, discover_files};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct DisplayedParseFailure {
+struct DisplayedDiagnostic {
     path: PathBuf,
     line: usize,
     column: usize,
     message: String,
+    kind: DisplayedDiagnosticKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DisplayedDiagnosticKind {
+    ParseError,
+    Lint { code: String, severity: String },
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct CheckReport {
-    failures: Vec<DisplayedParseFailure>,
+    diagnostics: Vec<DisplayedDiagnostic>,
     cache_hits: usize,
     cache_misses: usize,
 }
 
 impl CheckReport {
     fn exit_status(&self) -> ExitStatus {
-        if self.failures.is_empty() {
+        if self.diagnostics.is_empty() {
             ExitStatus::Success
         } else {
             ExitStatus::Failure
@@ -37,26 +47,28 @@ impl CheckReport {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct EffectiveCheckSettings {
-    dialect: Dialect,
-    mode: ParseMode,
+    enabled_rules: Vec<String>,
 }
 
 impl Default for EffectiveCheckSettings {
     fn default() -> Self {
-        Self {
-            dialect: Dialect::Bash,
-            mode: ParseMode::Strict,
-        }
+        let mut enabled_rules = LinterSettings::default()
+            .rules
+            .iter()
+            .map(|rule| rule.code().to_owned())
+            .collect::<Vec<_>>();
+        enabled_rules.sort();
+
+        Self { enabled_rules }
     }
 }
 
 impl CacheKey for EffectiveCheckSettings {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         state.write_tag(b"effective-check-settings");
-        state.write_str(self.dialect.as_str());
-        state.write_str(self.mode.as_str());
+        self.enabled_rules.cache_key(state);
     }
 }
 
@@ -75,9 +87,9 @@ impl CacheKey for ProjectCacheKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-enum ParseCacheData {
-    Success,
-    Error(ParseCacheFailure),
+enum CheckCacheData {
+    Success(Vec<CachedLintDiagnostic>),
+    ParseError(ParseCacheFailure),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +97,27 @@ struct ParseCacheFailure {
     message: String,
     line: usize,
     column: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct CachedLintDiagnostic {
+    line: usize,
+    column: usize,
+    code: String,
+    severity: String,
+    message: String,
+}
+
+impl CachedLintDiagnostic {
+    fn from_diagnostic(diagnostic: &shuck_linter::Diagnostic) -> Self {
+        Self {
+            line: diagnostic.span.start.line,
+            column: diagnostic.span.start.column,
+            code: diagnostic.code().to_owned(),
+            severity: diagnostic.severity.as_str().to_owned(),
+            message: diagnostic.message.clone(),
+        }
+    }
 }
 
 pub(crate) fn check(args: CheckCommand) -> Result<ExitStatus> {
@@ -96,15 +129,27 @@ pub(crate) fn check(args: CheckCommand) -> Result<ExitStatus> {
 
 fn print_report(report: &CheckReport) -> Result<()> {
     let mut stdout = BufWriter::new(io::stdout().lock());
-    for failure in &report.failures {
-        writeln!(
-            stdout,
-            "{}:{}:{}: parse error {}",
-            failure.path.display(),
-            failure.line,
-            failure.column,
-            failure.message
-        )?;
+    for diagnostic in &report.diagnostics {
+        match &diagnostic.kind {
+            DisplayedDiagnosticKind::ParseError => writeln!(
+                stdout,
+                "{}:{}:{}: parse error {}",
+                diagnostic.path.display(),
+                diagnostic.line,
+                diagnostic.column,
+                diagnostic.message
+            )?,
+            DisplayedDiagnosticKind::Lint { code, severity } => writeln!(
+                stdout,
+                "{}:{}:{}: {}[{}] {}",
+                diagnostic.path.display(),
+                diagnostic.line,
+                diagnostic.column,
+                severity,
+                code,
+                diagnostic.message
+            )?,
+        }
     }
     Ok(())
 }
@@ -126,22 +171,19 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
     }
 
     let settings = EffectiveCheckSettings::default();
-    let parse_options = ParseOptions {
-        dialect: settings.dialect,
-        mode: settings.mode,
-    };
+    let linter_settings = LinterSettings::default();
 
     let mut report = CheckReport::default();
 
     for (project_root, files) in groups {
         let cache_key = ProjectCacheKey {
             canonical_project_root: project_root.canonical_root.clone(),
-            settings,
+            settings: settings.clone(),
         };
         let mut cache = if args.no_cache {
             None
         } else {
-            Some(PackageCache::<ParseCacheData>::open(
+            Some(PackageCache::<CheckCacheData>::open(
                 &project_root.storage_root,
                 project_root.canonical_root.clone(),
                 env!("CARGO_PKG_VERSION"),
@@ -155,42 +197,74 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                 && let Some(cached) = cache.get(&file.relative_path, &file_key)
             {
                 report.cache_hits += 1;
-                if let ParseCacheData::Error(error) = cached {
-                    report.failures.push(DisplayedParseFailure {
-                        path: file.display_path,
-                        line: error.line,
-                        column: error.column,
-                        message: error.message,
-                    });
+                match cached {
+                    CheckCacheData::Success(diagnostics) => {
+                        push_cached_lint_diagnostics(&mut report, &file.display_path, &diagnostics);
+                    }
+                    CheckCacheData::ParseError(error) => {
+                        report.diagnostics.push(DisplayedDiagnostic {
+                            path: file.display_path,
+                            line: error.line,
+                            column: error.column,
+                            message: error.message,
+                            kind: DisplayedDiagnosticKind::ParseError,
+                        });
+                    }
                 }
                 continue;
             }
 
             let source = fs::read_to_string(&file.absolute_path)?;
-            let cached = match shuck_syntax::parse(&source, parse_options) {
-                Ok(_) => ParseCacheData::Success,
+            let cached = match Parser::new(&source).parse() {
+                Ok(output) => {
+                    let indexer = Indexer::new(&source, &output);
+                    let semantic = SemanticModel::build(&output.script, &source, &indexer);
+                    let diagnostics = shuck_linter::lint_file(
+                        &output.script,
+                        &source,
+                        &semantic,
+                        &indexer,
+                        &linter_settings,
+                    );
+
+                    for diagnostic in &diagnostics {
+                        report.diagnostics.push(DisplayedDiagnostic {
+                            path: file.display_path.clone(),
+                            line: diagnostic.span.start.line,
+                            column: diagnostic.span.start.column,
+                            message: diagnostic.message.clone(),
+                            kind: DisplayedDiagnosticKind::Lint {
+                                code: diagnostic.code().to_owned(),
+                                severity: diagnostic.severity.as_str().to_owned(),
+                            },
+                        });
+                    }
+
+                    CheckCacheData::Success(
+                        diagnostics
+                            .iter()
+                            .map(CachedLintDiagnostic::from_diagnostic)
+                            .collect(),
+                    )
+                }
                 Err(ParseError::Parse {
                     message,
                     line,
                     column,
                 }) => {
-                    report.failures.push(DisplayedParseFailure {
+                    report.diagnostics.push(DisplayedDiagnostic {
                         path: file.display_path,
                         line,
                         column,
                         message: message.clone(),
+                        kind: DisplayedDiagnosticKind::ParseError,
                     });
-                    ParseCacheData::Error(ParseCacheFailure {
+
+                    CheckCacheData::ParseError(ParseCacheFailure {
                         message,
                         line,
                         column,
                     })
-                }
-                Err(other) => {
-                    return Err(anyhow!(
-                        "failed to parse {}: {other}",
-                        file.display_path.display()
-                    ));
                 }
             };
 
@@ -205,14 +279,34 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
         }
     }
 
-    report.failures.sort_by(|left, right| {
+    report.diagnostics.sort_by(|left, right| {
         left.path
             .cmp(&right.path)
             .then(left.line.cmp(&right.line))
             .then(left.column.cmp(&right.column))
+            .then(left.message.cmp(&right.message))
     });
 
     Ok(report)
+}
+
+fn push_cached_lint_diagnostics(
+    report: &mut CheckReport,
+    path: &Path,
+    diagnostics: &[CachedLintDiagnostic],
+) {
+    for diagnostic in diagnostics {
+        report.diagnostics.push(DisplayedDiagnostic {
+            path: path.to_path_buf(),
+            line: diagnostic.line,
+            column: diagnostic.column,
+            message: diagnostic.message.clone(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: diagnostic.code.clone(),
+                severity: diagnostic.severity.clone(),
+            },
+        });
+    }
 }
 
 #[cfg(test)]
@@ -240,7 +334,7 @@ mod tests {
         let report = run_check_with_cwd(&check_args(false), tempdir.path()).unwrap();
 
         assert_eq!(report.exit_status(), ExitStatus::Failure);
-        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
     }
@@ -275,7 +369,7 @@ mod tests {
         let second = run_check_with_cwd(&check_args(false), tempdir.path()).unwrap();
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
-        assert_eq!(second.failures.len(), 1);
+        assert_eq!(second.diagnostics.len(), 1);
     }
 
     #[test]

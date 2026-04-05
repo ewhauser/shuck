@@ -12,6 +12,10 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 shuck-cache = { path = "../shuck-cache" }
+shuck-indexer = { path = "../shuck-indexer" }
+shuck-linter = { path = "../shuck-linter" }
+shuck-parser = { path = "../shuck-parser" }
+shuck-semantic = { path = "../shuck-semantic" }
 walkdir = "2"
 
 [dev-dependencies]

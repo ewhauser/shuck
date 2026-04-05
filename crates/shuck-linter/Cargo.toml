@@ -1,0 +1,16 @@
+[package]
+name = "shuck-linter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Rule registry and checker for shuck shell linting"
+
+[dependencies]
+rustc-hash = "2"
+thiserror = { workspace = true }
+shuck-ast = { path = "../shuck-ast" }
+shuck-indexer = { path = "../shuck-indexer" }
+shuck-semantic = { path = "../shuck-semantic" }
+shuck-parser = { path = "../shuck-parser" }
