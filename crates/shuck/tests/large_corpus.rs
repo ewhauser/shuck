@@ -21,6 +21,7 @@ const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
 const LARGE_CORPUS_TIMEOUT_ENV: &str = "SHUCK_LARGE_CORPUS_TIMEOUT_SECS";
 const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
 const LARGE_CORPUS_SHARDS_ENV: &str = "TEST_TOTAL_SHARDS";
+const LARGE_CORPUS_SAMPLE_PERCENT_ENV: &str = "SHUCK_LARGE_CORPUS_SAMPLE_PERCENT";
 const LARGE_CORPUS_MAPPED_ONLY_ENV: &str = "SHUCK_LARGE_CORPUS_MAPPED_ONLY";
 const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
 
@@ -43,6 +44,7 @@ struct LargeCorpusConfig {
     timeout: Duration,
     shard_index: usize,
     total_shards: usize,
+    sample_percent: usize,
     mapped_only: bool,
     keep_going: bool,
 }
@@ -788,6 +790,7 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
             );
             let total_shards = positive_env_int(LARGE_CORPUS_SHARDS_ENV, 1);
             let shard_index = non_negative_env_int(LARGE_CORPUS_SHARD_ENV, 0);
+            let sample_percent = percentage_env_int(LARGE_CORPUS_SAMPLE_PERCENT_ENV, 100);
 
             assert!(
                 shard_index < total_shards,
@@ -800,6 +803,7 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
                 timeout: Duration::from_secs(timeout_secs as u64),
                 shard_index,
                 total_shards,
+                sample_percent,
                 mapped_only: env_truthy(LARGE_CORPUS_MAPPED_ONLY_ENV, false),
                 keep_going: env_truthy(LARGE_CORPUS_KEEP_GOING_ENV, false),
             });
@@ -931,6 +935,7 @@ fn update_hash_component(hasher: &mut Sha256, value: &str) {
 fn load_fixtures(cfg: &LargeCorpusConfig) -> Vec<LargeCorpusFixture> {
     let mut fixtures = collect_fixtures(&cfg.corpus_dir);
     fixtures = shard_fixtures(fixtures, cfg.shard_index, cfg.total_shards);
+    fixtures = sample_fixtures(fixtures, cfg.sample_percent);
     fixtures
 }
 
@@ -989,6 +994,36 @@ fn shard_fixtures(
     let start = shard_index * fixtures.len() / total_shards;
     let end = (shard_index + 1) * fixtures.len() / total_shards;
     fixtures[start..end].to_vec()
+}
+
+fn sample_fixtures(
+    fixtures: Vec<LargeCorpusFixture>,
+    sample_percent: usize,
+) -> Vec<LargeCorpusFixture> {
+    if fixtures.is_empty() || sample_percent >= 100 {
+        return fixtures;
+    }
+
+    fixtures
+        .into_iter()
+        .filter(|fixture| fixture_selected_for_sample(fixture, sample_percent))
+        .collect()
+}
+
+fn fixture_selected_for_sample(fixture: &LargeCorpusFixture, sample_percent: usize) -> bool {
+    if sample_percent >= 100 {
+        return true;
+    }
+
+    let mut hasher = Sha256::new();
+    update_hash_component(&mut hasher, "large-corpus-sample-v1");
+    update_hash_component(&mut hasher, &fixture.cache_rel_path_key());
+
+    let digest = hasher.finalize();
+    let sample_value = u64::from_be_bytes(digest[..8].try_into().expect("slice has 8 bytes"));
+    let threshold = ((u64::MAX as u128) + 1) * sample_percent as u128 / 100;
+
+    (sample_value as u128) < threshold
 }
 
 fn resolve_shell(path: &Path, src: &[u8]) -> String {
@@ -1653,6 +1688,22 @@ fn positive_env_int(key: &str, default: usize) -> usize {
     }
 }
 
+fn percentage_env_int(key: &str, default: usize) -> usize {
+    match env::var(key).ok().filter(|s| !s.is_empty()) {
+        None => default,
+        Some(v) => {
+            let parsed: usize = v
+                .parse()
+                .unwrap_or_else(|_| panic!("{key}={v:?}, want integer percentage in [1,100]"));
+            assert!(
+                (1..=100).contains(&parsed),
+                "{key}={v:?}, want integer percentage in [1,100]"
+            );
+            parsed
+        }
+    }
+}
+
 fn non_negative_env_int(key: &str, default: usize) -> usize {
     match env::var(key).ok().filter(|s| !s.is_empty()) {
         None => default,
@@ -1728,6 +1779,67 @@ mod tests {
         let shard3 = shard_fixtures(fixtures, 3, 4);
         assert_eq!(shard3.len(), 25);
         assert_eq!(shard3[0].path, PathBuf::from("script-075.sh"));
+    }
+
+    #[test]
+    fn sample_fixtures_full_percentage_keeps_everything() {
+        let fixtures: Vec<LargeCorpusFixture> = (0..10)
+            .map(|i| fixture(&format!("script-{i:03}.sh")))
+            .collect();
+
+        let sampled = sample_fixtures(fixtures.clone(), 100);
+
+        assert_eq!(sampled.len(), fixtures.len());
+        assert_eq!(
+            sampled
+                .iter()
+                .map(|fixture| &fixture.path)
+                .collect::<Vec<_>>(),
+            fixtures
+                .iter()
+                .map(|fixture| &fixture.path)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn sample_fixtures_uses_cache_relative_path_for_stability() {
+        let left = fixture_at(
+            Path::new("/tmp/worktree-a/.cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let right = fixture_at(
+            Path::new("/tmp/worktree-b/.cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+
+        assert_eq!(
+            fixture_selected_for_sample(&left, 17),
+            fixture_selected_for_sample(&right, 17)
+        );
+    }
+
+    #[test]
+    fn sample_fixtures_membership_is_order_independent() {
+        let fixtures: Vec<LargeCorpusFixture> = (0..200)
+            .map(|i| fixture(&format!("script-{i:03}.sh")))
+            .collect();
+        let mut reversed = fixtures.clone();
+        reversed.reverse();
+
+        let mut forward = sample_fixtures(fixtures, 10)
+            .into_iter()
+            .map(|fixture| fixture.cache_rel_path)
+            .collect::<Vec<_>>();
+        let mut backward = sample_fixtures(reversed, 10)
+            .into_iter()
+            .map(|fixture| fixture.cache_rel_path)
+            .collect::<Vec<_>>();
+
+        forward.sort();
+        backward.sort();
+
+        assert_eq!(forward, backward);
     }
 
     #[test]
