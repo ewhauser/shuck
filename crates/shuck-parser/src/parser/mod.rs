@@ -198,16 +198,16 @@ impl<'a> Parser<'a> {
             return Some(word);
         }
 
-        let text = token.word_text()?;
+        let text = token.word_string()?;
         match token.kind {
-            TokenKind::Word => Some(self.parse_word_with_context(text, span, span.start)),
+            TokenKind::Word => Some(self.parse_word_with_context(&text, span, span.start)),
             TokenKind::QuotedWord => {
                 let mut word =
-                    self.parse_word_with_context(text, span, span.start.advanced_by("\""));
+                    self.parse_word_with_context(&text, span, span.start.advanced_by("\""));
                 word.quoted = true;
                 Some(word)
             }
-            TokenKind::LiteralWord => Some(Word::quoted_literal_with_span(text.to_string(), span)),
+            TokenKind::LiteralWord => Some(Word::quoted_literal_with_span(text, span)),
             _ => None,
         }
     }
@@ -275,14 +275,14 @@ impl<'a> Parser<'a> {
             .map(|word| (Name::from(word), self.current_span))
     }
 
-    fn current_static_token_text(&self) -> Option<(&str, bool)> {
+    fn current_static_token_text(&self) -> Option<(String, bool)> {
         let token = self.current_token.as_ref()?;
-        let text = token.word_text()?;
+        let text = token.word_string()?;
 
         match token.kind {
             TokenKind::LiteralWord => Some((text, true)),
-            TokenKind::QuotedWord if !Self::word_text_needs_parse(text) => Some((text, true)),
-            TokenKind::Word if !Self::word_text_needs_parse(text) => Some((text, false)),
+            TokenKind::QuotedWord if !Self::word_text_needs_parse(&text) => Some((text, true)),
+            TokenKind::Word if !Self::word_text_needs_parse(&text) => Some((text, false)),
             _ => None,
         }
     }
@@ -798,7 +798,7 @@ impl<'a> Parser<'a> {
 
     fn current_static_word(&mut self) -> Option<(String, bool)> {
         if let Some((text, quoted)) = self.current_static_token_text() {
-            return Some((text.to_string(), quoted));
+            return Some((text, quoted));
         }
 
         let quoted = matches!(
@@ -1324,6 +1324,13 @@ impl<'a> Parser<'a> {
             .filter(|kind| kind.is_word_like())
             .and(self.current_token.as_ref())
             .and_then(LexedToken::word_text)
+    }
+
+    fn current_word_text(&self) -> Option<String> {
+        self.current_token_kind
+            .filter(|kind| kind.is_word_like())
+            .and(self.current_token.as_ref())
+            .and_then(LexedToken::word_string)
     }
 
     fn skip_newlines(&mut self) -> Result<()> {
@@ -1917,7 +1924,7 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::LiteralWord | TokenKind::QuotedWord => true,
             TokenKind::Word => token
-                .word_text()
+                .word_string()
                 .is_some_and(|text| !text.chars().all(|ch| ch.is_ascii_punctuation())),
             _ => false,
         }
@@ -2014,17 +2021,19 @@ impl<'a> Parser<'a> {
                 "time" => return self.parse_compound_with_redirects(|s| s.parse_time()),
                 "coproc" => return self.parse_compound_with_redirects(|s| s.parse_coproc()),
                 "function" => return self.parse_function_keyword().map(Some),
-                _ => {
-                    // Check for POSIX-style function: name() { body }
-                    // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
-                    if !word.contains('=')
-                        && !word.contains('[')
-                        && self.peek_next_kind() == Some(TokenKind::LeftParen)
-                    {
-                        return self.parse_function_posix().map(Some);
-                    }
-                }
+                _ => {}
             }
+        }
+
+        if self.at(TokenKind::Word)
+            && let Some(word) = self.current_word_text()
+            // Check for POSIX-style function: name() { body }
+            // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
+            && !word.contains('=')
+            && !word.contains('[')
+            && self.peek_next_kind() == Some(TokenKind::LeftParen)
+        {
+            return self.parse_function_posix().map(Some);
         }
 
         // Check for conditional expression [[ ... ]]
@@ -2533,8 +2542,9 @@ impl<'a> Parser<'a> {
 
             let mut patterns = Vec::new();
             while self.at_word_like() {
-                let w = self.current_word_str().unwrap().to_string();
-                patterns.push(self.parse_word(&w));
+                if let Some(word) = self.current_word_to_word() {
+                    patterns.push(word);
+                }
                 self.advance();
 
                 // Check for | between patterns
@@ -3269,7 +3279,7 @@ impl<'a> Parser<'a> {
         // Get function name
         let Some(name_text) = self
             .at(TokenKind::Word)
-            .then(|| self.current_word_str())
+            .then(|| self.current_word_text())
             .flatten()
         else {
             return Err(self.error("expected function name"));
@@ -3306,7 +3316,7 @@ impl<'a> Parser<'a> {
         // Get function name
         let Some(name_text) = self
             .at(TokenKind::Word)
-            .then(|| self.current_word_str())
+            .then(|| self.current_word_text())
             .flatten()
         else {
             return Err(self.error("expected function name"));
@@ -3569,8 +3579,8 @@ impl<'a> Parser<'a> {
         if !self.at(TokenKind::Word) {
             return None;
         }
-        let word = self.current_word_str()?;
-        if !word.contains('[') || Self::is_assignment(word).is_some() {
+        let word = self.current_word_text()?;
+        if !word.contains('[') || Self::is_assignment(&word).is_some() {
             return None;
         }
 
@@ -3874,9 +3884,9 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Some(kind) if kind.is_word_like() => {
-                    let elem = self.current_word_str().unwrap();
+                    let elem = self.current_word_text().unwrap();
                     compound.push(' ');
-                    compound.push_str(elem);
+                    compound.push_str(&elem);
                     self.advance();
                 }
                 None => break,
@@ -4151,7 +4161,7 @@ impl<'a> Parser<'a> {
                 Some(kind) if kind.is_word_like() => {
                     let is_literal = kind == TokenKind::LiteralWord;
                     // Clone early to release borrow on self.current_token
-                    let w = self.current_word_str().unwrap().to_string();
+                    let w = self.current_word_text().unwrap();
 
                     // Stop if this word cannot start a command (like 'then', 'fi', etc.)
                     if words.is_empty() && Self::is_non_command_word(&w) {
@@ -4531,11 +4541,6 @@ impl<'a> Parser<'a> {
             }
             _ => Err(self.error("expected word")),
         }
-    }
-
-    /// Parse a word string into a Word with proper parts (variables, literals)
-    fn parse_word(&mut self, s: &str) -> Word {
-        self.parse_word_with_context(s, Span::new(), Position::new())
     }
 
     fn parse_word_with_context(&mut self, s: &str, span: Span, base: Position) -> Word {
