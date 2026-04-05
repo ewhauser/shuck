@@ -3,17 +3,23 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 default_corpus_dir="$repo_root/.cache/large-corpus"
+archive_url="https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-cache.tar.zst"
+sha256="28e37f8d3e77fc5d0c6d10f02612a2444d1f211157ba252dbd887d9e6285305f"
+tmp_file="/tmp/shuck-cache.tar.zst"
 
 usage() {
-  echo "Usage: $0 [-l] [corpus-dir]"
-  echo "  -l  List repos only (dry run)"
+  echo "Usage: $0 [-c] [-l] [corpus-dir]"
+  echo "  -c  Clone repos from GitHub instead of downloading pre-built archive"
+  echo "  -l  List repos only (dry run, only with -c)"
   echo "  corpus-dir defaults to $default_corpus_dir"
   exit 1
 }
 
+clone_mode=false
 dry_run=false
-while getopts "lh" opt; do
+while getopts "clh" opt; do
   case "$opt" in
+    c) clone_mode=true ;;
     l) dry_run=true ;;
     h) usage ;;
     *) usage ;;
@@ -26,6 +32,49 @@ if [ "$#" -gt 1 ]; then
 fi
 
 corpus_dir=${1:-$default_corpus_dir}
+
+# ---------------------------------------------------------------------------
+# Default mode: download pre-built archive
+# ---------------------------------------------------------------------------
+if [ "$clone_mode" = false ]; then
+  if [ "$dry_run" = true ]; then
+    echo "Dry-run mode (-l) only applies with clone mode (-c)"
+    exit 1
+  fi
+
+  scripts_dir="$corpus_dir/scripts"
+  if [ -d "$scripts_dir" ]; then
+    count=$(find "$scripts_dir" -type f | wc -l | tr -d ' ')
+    echo "Large corpus already exists ($count scripts in $scripts_dir)"
+    echo "To re-download, remove $corpus_dir and re-run."
+    exit 0
+  fi
+
+  echo "Downloading large corpus archive..."
+  curl -L --fail --retry 3 -o "$tmp_file" "$archive_url"
+
+  echo "Verifying checksum..."
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "$sha256  $tmp_file" | sha256sum -c -
+  elif command -v shasum >/dev/null 2>&1; then
+    echo "$sha256  $tmp_file" | shasum -a 256 -c -
+  else
+    echo "WARNING: no sha256sum or shasum found, skipping checksum verification"
+  fi
+
+  echo "Extracting to $repo_root..."
+  tar --zstd -xf "$tmp_file" -C "$repo_root"
+  rm -f "$tmp_file"
+
+  count=$(find "$scripts_dir" -type f | wc -l | tr -d ' ')
+  echo "Done. $count scripts in $scripts_dir"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Clone mode (-c): shallow-clone repos and extract shell scripts
+# ---------------------------------------------------------------------------
+
 scripts_dir="$corpus_dir/scripts"
 clones_dir="$corpus_dir/clones"
 manifest="$corpus_dir/manifest.yaml"
