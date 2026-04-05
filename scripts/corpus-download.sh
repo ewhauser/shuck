@@ -4,7 +4,7 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 default_corpus_dir="$repo_root/.cache/large-corpus"
 archive_url="https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-cache.tar.zst"
-sha256="28e37f8d3e77fc5d0c6d10f02612a2444d1f211157ba252dbd887d9e6285305f"
+sha256="d82829eed9a0ba09d5dc5fc30f29f7cb445c5fb82cfaf5d98917ac98b278ab09"
 tmp_file="/tmp/shuck-cache.tar.zst"
 
 usage() {

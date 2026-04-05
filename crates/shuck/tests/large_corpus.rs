@@ -30,6 +30,7 @@ const LARGE_CORPUS_WORKER_COUNT: usize = 4;
 const SHELLCHECK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
+const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -53,8 +54,15 @@ struct LargeCorpusConfig {
 #[derive(Debug, Clone)]
 struct LargeCorpusFixture {
     path: PathBuf,
+    cache_rel_path: PathBuf,
     shell: String,
     source_hash: String,
+}
+
+impl LargeCorpusFixture {
+    fn cache_rel_path_key(&self) -> String {
+        normalize_cache_rel_path(&self.cache_rel_path)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +88,12 @@ struct ShellCheckDiagnostic {
 struct ShellCheckRun {
     diagnostics: Vec<ShellCheckDiagnostic>,
     parse_aborted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShellCheckProbe {
+    command: String,
+    version_text: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -112,16 +126,61 @@ struct ShellCheckCacheEntry {
 
 struct ShellCheckCache {
     dir: PathBuf,
-    invocation_hash: String,
+    version_text: String,
+    legacy_invocation_hash: String,
 }
 
 impl ShellCheckCache {
-    fn new(cache_root: &Path, shellcheck_path: &str) -> Self {
-        let invocation_hash = shellcheck_invocation_hash(shellcheck_path);
+    fn new(cache_root: &Path, probe: &ShellCheckProbe) -> Self {
         Self {
             dir: cache_root.join("shellcheck"),
-            invocation_hash,
+            version_text: probe.version_text.clone(),
+            legacy_invocation_hash: legacy_shellcheck_invocation_hash(&probe.command),
         }
+    }
+
+    fn prepare(&self, fixtures: &[LargeCorpusFixture], worktree_roots: &[PathBuf]) {
+        if fixtures.is_empty() {
+            return;
+        }
+
+        let _ = fs::create_dir_all(&self.dir);
+
+        let sentinel = self.migration_sentinel_path(fixtures);
+        if sentinel.is_file() {
+            return;
+        }
+
+        for fixture in fixtures {
+            let stable_path = self.cache_path(fixture);
+            let mut stable_exists = stable_path.is_file();
+
+            for legacy_path in self.legacy_cache_paths(fixture, worktree_roots) {
+                if !legacy_path.is_file() {
+                    continue;
+                }
+
+                if stable_exists {
+                    let _ = fs::remove_file(&legacy_path);
+                    continue;
+                }
+
+                if let Some(parent) = stable_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+
+                match fs::rename(&legacy_path, &stable_path) {
+                    Ok(()) => stable_exists = true,
+                    Err(_) if stable_path.is_file() => {
+                        stable_exists = true;
+                        let _ = fs::remove_file(&legacy_path);
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+
+        let _ = fs::write(&sentinel, shellcheck_cache_migration_fingerprint(fixtures));
     }
 
     fn run_fixture(
@@ -142,13 +201,61 @@ impl ShellCheckCache {
     fn cache_path(&self, fixture: &LargeCorpusFixture) -> PathBuf {
         let key_data = serde_json::json!({
             "schema": SHELLCHECK_CACHE_SCHEMA,
-            "path": fixture.path.to_string_lossy(),
+            "path": fixture.cache_rel_path_key(),
             "shell": fixture.shell,
             "sourceHash": fixture.source_hash,
-            "invocationHash": self.invocation_hash,
+            "versionText": self.version_text,
         });
         let key = hash_bytes(key_data.to_string().as_bytes());
         self.dir.join(format!("{key}.json"))
+    }
+
+    fn legacy_cache_paths(
+        &self,
+        fixture: &LargeCorpusFixture,
+        worktree_roots: &[PathBuf],
+    ) -> Vec<PathBuf> {
+        let mut legacy_paths = Vec::new();
+        let mut seen = HashSet::new();
+
+        let direct = self.legacy_cache_path_for_absolute_path(fixture, &fixture.path);
+        if seen.insert(direct.clone()) {
+            legacy_paths.push(direct);
+        }
+
+        for absolute_path in
+            projected_worktree_fixture_paths(&fixture.cache_rel_path, worktree_roots)
+        {
+            let legacy = self.legacy_cache_path_for_absolute_path(fixture, &absolute_path);
+            if seen.insert(legacy.clone()) {
+                legacy_paths.push(legacy);
+            }
+        }
+
+        legacy_paths
+    }
+
+    fn legacy_cache_path_for_absolute_path(
+        &self,
+        fixture: &LargeCorpusFixture,
+        absolute_path: &Path,
+    ) -> PathBuf {
+        let key_data = serde_json::json!({
+            "schema": SHELLCHECK_CACHE_SCHEMA,
+            "path": absolute_path.to_string_lossy(),
+            "shell": fixture.shell,
+            "sourceHash": fixture.source_hash,
+            "invocationHash": self.legacy_invocation_hash,
+        });
+        let key = hash_bytes(key_data.to_string().as_bytes());
+        self.dir.join(format!("{key}.json"))
+    }
+
+    fn migration_sentinel_path(&self, fixtures: &[LargeCorpusFixture]) -> PathBuf {
+        let fingerprint = shellcheck_cache_migration_fingerprint(fixtures);
+        self.dir.join(format!(
+            ".migration-v{SHELLCHECK_CACHE_MIGRATION_VERSION}-{fingerprint}.done"
+        ))
     }
 
     fn read_cache(&self, fixture: &LargeCorpusFixture) -> Option<ShellCheckRun> {
@@ -213,15 +320,16 @@ fn large_corpus_conforms_with_shellcheck() {
         );
     }
 
-    let shellcheck_path = find_shellcheck()
+    let shellcheck = probe_shellcheck()
         .expect("shellcheck not found on PATH; install it to run the large corpus test");
 
-    let supported_shells = shellcheck_supported_shells(&shellcheck_path);
+    let supported_shells = shellcheck_supported_shells(&shellcheck.command);
     let shellcheck_index = build_shellcheck_index();
     let sc2034_allowlist =
         load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
     let mapped_shellcheck_codes = cfg.mapped_only.then(build_mapped_shellcheck_codes);
-    let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck_path);
+    let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
+    shellcheck_cache.prepare(&fixtures, &discover_worktree_roots());
     let linter_settings = shuck_linter::LinterSettings::default();
     let supported_fixtures: Vec<_> = fixtures
         .iter()
@@ -233,7 +341,7 @@ fn large_corpus_conforms_with_shellcheck() {
         evaluate_fixture_compatibility(
             fixture,
             &shellcheck_cache,
-            &shellcheck_path,
+            &shellcheck.command,
             cfg.timeout,
             &linter_settings,
             &shellcheck_index,
@@ -735,6 +843,87 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+fn discover_worktree_roots() -> Vec<PathBuf> {
+    let repo_root = repo_root();
+    let output = Command::new("git")
+        .current_dir(&repo_root)
+        .args(["worktree", "list", "--porcelain"])
+        .output();
+
+    let mut roots = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Ok(output) = output
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let Some(path) = line.strip_prefix("worktree ") else {
+                continue;
+            };
+            let root = PathBuf::from(path);
+            if seen.insert(root.clone()) {
+                roots.push(root);
+            }
+        }
+    }
+
+    if seen.insert(repo_root.clone()) {
+        roots.push(repo_root);
+    }
+
+    roots
+}
+
+fn normalize_cache_rel_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn projected_worktree_fixture_paths(
+    cache_rel_path: &Path,
+    worktree_roots: &[PathBuf],
+) -> Vec<PathBuf> {
+    let mut absolute_paths = Vec::new();
+    let mut seen = HashSet::new();
+
+    for root in worktree_roots {
+        for projected in [
+            root.join(LARGE_CORPUS_CACHE_DIR_NAME)
+                .join("scripts")
+                .join(cache_rel_path),
+            root.join(LARGE_CORPUS_CACHE_DIR_NAME)
+                .join("corpus")
+                .join("scripts")
+                .join(cache_rel_path),
+        ] {
+            if seen.insert(projected.clone()) {
+                absolute_paths.push(projected);
+            }
+        }
+    }
+
+    absolute_paths
+}
+
+fn shellcheck_cache_migration_fingerprint(fixtures: &[LargeCorpusFixture]) -> String {
+    let mut hasher = Sha256::new();
+    update_hash_component(&mut hasher, &SHELLCHECK_CACHE_MIGRATION_VERSION.to_string());
+
+    for fixture in fixtures {
+        update_hash_component(&mut hasher, &fixture.cache_rel_path_key());
+        update_hash_component(&mut hasher, &fixture.shell);
+        update_hash_component(&mut hasher, &fixture.source_hash);
+    }
+
+    let result = hasher.finalize();
+    result.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn update_hash_component(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_le_bytes());
+    hasher.update(value.as_bytes());
+}
+
 // ---------------------------------------------------------------------------
 // Fixture loading
 // ---------------------------------------------------------------------------
@@ -765,6 +954,10 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
         }
 
         let path = entry.path().to_path_buf();
+        let cache_rel_path = path
+            .strip_prefix(&scripts_dir)
+            .unwrap_or(path.as_path())
+            .to_path_buf();
         let src = match fs::read(&path) {
             Ok(s) => s,
             Err(_) => continue,
@@ -775,6 +968,7 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
 
         fixtures.push(LargeCorpusFixture {
             path,
+            cache_rel_path,
             shell,
             source_hash,
         });
@@ -925,13 +1119,21 @@ fn shuck_compatibility_locations(
 // ShellCheck runner
 // ---------------------------------------------------------------------------
 
-fn find_shellcheck() -> Option<String> {
-    Command::new("shellcheck")
-        .arg("--version")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|_| "shellcheck".into())
+fn probe_shellcheck() -> Option<ShellCheckProbe> {
+    let output = Command::new("shellcheck").arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let version_text = normalize_shellcheck_version_text(&output.stdout);
+    if version_text.is_empty() {
+        return None;
+    }
+
+    Some(ShellCheckProbe {
+        command: "shellcheck".into(),
+        version_text,
+    })
 }
 
 fn run_shellcheck(
@@ -1075,7 +1277,18 @@ fn parse_shellcheck_supported_shells(help: &str) -> HashMap<&'static str, ()> {
     supported
 }
 
-fn shellcheck_invocation_hash(shellcheck_path: &str) -> String {
+fn normalize_shellcheck_version_text(output: &[u8]) -> String {
+    let normalized = String::from_utf8_lossy(output).replace("\r\n", "\n");
+    normalized
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
+}
+
+fn legacy_shellcheck_invocation_hash(shellcheck_path: &str) -> String {
     let meta = fs::metadata(shellcheck_path).ok();
     let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
     let key = format!("{}:{}:shellcheck", shellcheck_path, size);
@@ -1498,6 +1711,7 @@ mod tests {
         let fixtures: Vec<LargeCorpusFixture> = (0..100)
             .map(|i| LargeCorpusFixture {
                 path: PathBuf::from(format!("script-{i:03}.sh")),
+                cache_rel_path: PathBuf::from(format!("script-{i:03}.sh")),
                 shell: "sh".into(),
                 source_hash: String::new(),
             })
@@ -1553,6 +1767,7 @@ mod tests {
     fn zsh_paths_are_skipped_even_when_resolved_shell_is_sh() {
         let fixture = LargeCorpusFixture {
             path: PathBuf::from("example.zsh"),
+            cache_rel_path: PathBuf::from("example.zsh"),
             shell: "sh".into(),
             source_hash: String::new(),
         };
@@ -1565,6 +1780,7 @@ mod tests {
     fn flattened_repo_git_entries_are_skipped() {
         let fixture = LargeCorpusFixture {
             path: PathBuf::from("repo__.git__hooks__pre-commit.sample"),
+            cache_rel_path: PathBuf::from("repo__.git__hooks__pre-commit.sample"),
             shell: "sh".into(),
             source_hash: String::new(),
         };
@@ -1836,9 +2052,143 @@ mod tests {
         assert_eq!(format_range(1, 2, 3, 4), "1:2-3:4");
     }
 
+    #[test]
+    fn shellcheck_cache_key_is_stable_across_worktree_paths() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let left = fixture_at(
+            Path::new("/tmp/worktree-a/.cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let right = fixture_at(
+            Path::new("/tmp/worktree-b/.cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+
+        assert_eq!(cache.cache_path(&left), cache.cache_path(&right));
+    }
+
+    #[test]
+    fn shellcheck_cache_key_changes_with_shellcheck_version_text() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture = fixture_at(
+            Path::new("/tmp/worktree/.cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let first = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let second = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.1"));
+
+        assert_ne!(first.cache_path(&fixture), second.cache_path(&fixture));
+    }
+
+    #[test]
+    fn shellcheck_cache_prepare_renames_legacy_current_worktree_files() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path().join("worktree");
+        let fixture = fixture_at(
+            &root.join(".cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let stable_path = cache.cache_path(&fixture);
+        let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
+
+        write_cache_file(&legacy_path, "legacy-current");
+
+        cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
+
+        assert!(stable_path.is_file());
+        assert!(!legacy_path.exists());
+        assert_eq!(
+            fs::read_to_string(&stable_path).unwrap(),
+            cache_file_data("legacy-current")
+        );
+    }
+
+    #[test]
+    fn shellcheck_cache_prepare_renames_legacy_alternate_worktree_files() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let current_root = tempdir.path().join("current");
+        let alternate_root = tempdir.path().join("alternate");
+        let fixture = fixture_at(
+            &current_root.join(".cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let stable_path = cache.cache_path(&fixture);
+        let alternate_legacy_path = cache.legacy_cache_path_for_absolute_path(
+            &fixture,
+            &alternate_root.join(".cache/large-corpus/corpus/scripts/example.sh"),
+        );
+
+        write_cache_file(&alternate_legacy_path, "legacy-alternate");
+
+        cache.prepare(
+            std::slice::from_ref(&fixture),
+            &[current_root.clone(), alternate_root.clone()],
+        );
+
+        assert!(stable_path.is_file());
+        assert!(!alternate_legacy_path.exists());
+        assert_eq!(
+            fs::read_to_string(&stable_path).unwrap(),
+            cache_file_data("legacy-alternate")
+        );
+    }
+
+    #[test]
+    fn shellcheck_cache_prepare_is_idempotent() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path().join("worktree");
+        let fixture = fixture_at(
+            &root.join(".cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let stable_path = cache.cache_path(&fixture);
+        let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
+
+        write_cache_file(&legacy_path, "legacy-current");
+        cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
+        cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
+
+        assert!(stable_path.is_file());
+        assert!(!legacy_path.exists());
+        assert_eq!(
+            fs::read_to_string(&stable_path).unwrap(),
+            cache_file_data("legacy-current")
+        );
+    }
+
+    #[test]
+    fn shellcheck_cache_prepare_keeps_existing_stable_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path().join("worktree");
+        let fixture = fixture_at(
+            &root.join(".cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let stable_path = cache.cache_path(&fixture);
+        let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
+
+        write_cache_file(&stable_path, "stable");
+        write_cache_file(&legacy_path, "legacy-current");
+
+        cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
+
+        assert!(stable_path.is_file());
+        assert!(!legacy_path.exists());
+        assert_eq!(
+            fs::read_to_string(&stable_path).unwrap(),
+            cache_file_data("stable")
+        );
+    }
+
     fn fixture(path: &str) -> LargeCorpusFixture {
         LargeCorpusFixture {
             path: PathBuf::from(path),
+            cache_rel_path: PathBuf::from(path),
             shell: "sh".into(),
             source_hash: String::new(),
         }
@@ -1855,5 +2205,46 @@ mod tests {
             level: "error".into(),
             message: format!("diagnostic {code}"),
         }
+    }
+
+    fn fixture_at(path: &Path, cache_rel_path: &Path) -> LargeCorpusFixture {
+        LargeCorpusFixture {
+            path: path.to_path_buf(),
+            cache_rel_path: cache_rel_path.to_path_buf(),
+            shell: "sh".into(),
+            source_hash: "source-hash".into(),
+        }
+    }
+
+    fn probe(version_text: &str) -> ShellCheckProbe {
+        ShellCheckProbe {
+            command: "shellcheck".into(),
+            version_text: version_text.into(),
+        }
+    }
+
+    fn write_cache_file(path: &Path, label: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, cache_file_data(label)).unwrap();
+    }
+
+    fn cache_file_data(label: &str) -> String {
+        serde_json::to_string(&ShellCheckCacheEntry {
+            schema: SHELLCHECK_CACHE_SCHEMA,
+            diagnostics: vec![ShellCheckDiagnostic {
+                file: String::new(),
+                code: 2034,
+                line: 1,
+                end_line: 1,
+                column: 1,
+                end_column: 1,
+                level: "warning".into(),
+                message: label.into(),
+            }],
+            parse_aborted: false,
+        })
+        .unwrap()
     }
 }
