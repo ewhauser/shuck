@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -10,6 +10,9 @@ PROFILE_RATE ?= 1000
 PROFILE_ITERATIONS ?= 1
 SHUCK_LARGE_CORPUS_MAPPED_ONLY ?= 1
 SHUCK_LARGE_CORPUS_KEEP_GOING ?= 1
+
+setup-hooks:
+	git config core.hooksPath .githooks
 
 build:
 	cargo build
