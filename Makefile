@@ -1,4 +1,4 @@
-.PHONY: build test run check corpus-download corpus-extract test-corpus
+.PHONY: build test run check corpus-download corpus-extract test-corpus setup-large-corpus test-large-corpus
 
 ARGS ?= --help
 CORPUS_TAG ?= v0.0.0-test-files
@@ -30,6 +30,12 @@ corpus-extract: corpus-download
 
 test-corpus: corpus-extract
 	SHUCK_AST_CORPUS_DIR="$$(pwd)/$(CORPUS_DIR)" cargo test -p shuck-ast-printer --test corpus -- --ignored
+
+setup-large-corpus:
+	./scripts/corpus-download.sh
+
+test-large-corpus:
+	SHUCK_TEST_LARGE_CORPUS=1 cargo test -p shuck --test large_corpus -- --ignored
 
 run:
 	cargo run -p shuck -- $(ARGS)
