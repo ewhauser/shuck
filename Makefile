@@ -1,11 +1,6 @@
-.PHONY: build test run check corpus-download corpus-extract test-corpus setup-large-corpus test-large-corpus bench bench-save bench-compare bench-parser bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
+.PHONY: build test run check setup-large-corpus test-large-corpus bench bench-save bench-compare bench-parser bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
 
 ARGS ?= --help
-CORPUS_TAG ?= v0.0.0-test-files
-CORPUS_REPO ?= ewhauser/shuck-rs
-CORPUS_URL ?= https://github.com/ewhauser/shuck-rs/releases/download/$(CORPUS_TAG)/corpus.tar.gz
-CORPUS_DIR ?= .cache/scripts
-CORPUS_ARCHIVE ?= $(CORPUS_DIR)/corpus.tar.gz
 BENCH_FILE ?=
 NIX_DEVELOP ?= nix --extra-experimental-features 'nix-command flakes' develop --command
 PROFILE_CASE ?= nvm
@@ -19,24 +14,6 @@ build:
 
 test:
 	cargo test
-
-corpus-download:
-	mkdir -p $(CORPUS_DIR)
-	if [ ! -f "$(CORPUS_ARCHIVE)" ]; then \
-		if command -v gh >/dev/null 2>&1; then \
-			gh release download $(CORPUS_TAG) --repo $(CORPUS_REPO) --pattern corpus.tar.gz --dir $(CORPUS_DIR); \
-		else \
-			curl -L --fail --show-error --silent "$(CORPUS_URL)" -o "$(CORPUS_ARCHIVE)"; \
-		fi; \
-	fi
-
-corpus-extract: corpus-download
-	if [ -z "$$(find "$(CORPUS_DIR)" -maxdepth 1 -type f -name '*.json' -print -quit)" ]; then \
-		tar -xzf "$(CORPUS_ARCHIVE)" -C "$(CORPUS_DIR)"; \
-	fi
-
-test-corpus: corpus-extract
-	SHUCK_AST_CORPUS_DIR="$$(pwd)/$(CORPUS_DIR)" cargo test -p shuck-ast-printer --test corpus -- --ignored
 
 setup-large-corpus:
 	./scripts/corpus-download.sh
