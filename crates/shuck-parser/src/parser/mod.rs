@@ -8,6 +8,8 @@
 
 mod lexer;
 
+use std::collections::{HashMap, HashSet, VecDeque};
+
 pub use lexer::{HeredocRead, Lexer, SpannedToken};
 
 use shuck_ast::{
@@ -51,6 +53,7 @@ pub struct ParseOutput {
 pub struct Parser<'a> {
     input: &'a str,
     lexer: Lexer<'a>,
+    synthetic_tokens: VecDeque<SpannedToken>,
     current_token: Option<Token>,
     /// Span of the current token
     current_span: Span,
@@ -66,6 +69,13 @@ pub struct Parser<'a> {
     max_fuel: usize,
     /// Comments collected during parsing.
     comments: Vec<Comment>,
+    /// Known aliases declared earlier in the current parse stream.
+    aliases: HashMap<String, AliasDefinition>,
+    /// Whether alias expansion is currently enabled.
+    expand_aliases: bool,
+    /// Whether the next fetched word is eligible for alias expansion because
+    /// the previous alias expansion ended with trailing whitespace.
+    expand_next_word: bool,
 }
 
 /// A parser diagnostic emitted while recovering from invalid input.
@@ -81,6 +91,12 @@ pub struct RecoveredParse {
     pub script: Script,
     pub comments: Vec<Comment>,
     pub diagnostics: Vec<ParseDiagnostic>,
+}
+
+#[derive(Debug, Clone)]
+struct AliasDefinition {
+    value: String,
+    expands_next_word: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -129,6 +145,7 @@ impl<'a> Parser<'a> {
         Self {
             input,
             lexer,
+            synthetic_tokens: VecDeque::new(),
             current_token,
             current_span,
             peeked_token: None,
@@ -137,6 +154,9 @@ impl<'a> Parser<'a> {
             fuel: max_fuel,
             max_fuel,
             comments,
+            aliases: HashMap::new(),
+            expand_aliases: false,
+            expand_next_word: false,
         }
     }
 
@@ -629,6 +649,148 @@ impl<'a> Parser<'a> {
         Some(text.as_str(self.input, word.part_span(0)?))
     }
 
+    fn literal_word_text(&self, word: &Word) -> Option<String> {
+        let mut text = String::new();
+
+        for (part, span) in word.parts_with_spans() {
+            let WordPart::Literal(literal) = part else {
+                return None;
+            };
+            text.push_str(literal.as_str(self.input, span));
+        }
+
+        Some(text)
+    }
+
+    fn next_spanned_token_with_comments(&mut self) -> Option<SpannedToken> {
+        self.synthetic_tokens
+            .pop_front()
+            .or_else(|| self.lexer.next_spanned_token_with_comments())
+    }
+
+    fn queue_synthetic_tokens(&mut self, source: &str, base: Position) {
+        let mut lexer = Lexer::with_max_subst_depth(source, self.max_depth);
+        let mut queued = Vec::new();
+
+        while let Some(token) = lexer.next_spanned_token_with_comments() {
+            queued.push(SpannedToken {
+                token: token.token,
+                span: token.span.rebased(base),
+            });
+        }
+
+        for token in queued.into_iter().rev() {
+            self.synthetic_tokens.push_front(token);
+        }
+    }
+
+    fn maybe_expand_current_alias_chain(&mut self) {
+        if !self.expand_aliases {
+            self.expand_next_word = false;
+            return;
+        }
+
+        let mut seen = HashSet::new();
+        let mut expands_next_word = false;
+
+        loop {
+            let Some(Token::Word(name)) = &self.current_token else {
+                break;
+            };
+            let Some(alias) = self.aliases.get(name).cloned() else {
+                break;
+            };
+            if !seen.insert(name.clone()) {
+                break;
+            }
+
+            expands_next_word = alias.expands_next_word;
+            self.peeked_token = None;
+            self.queue_synthetic_tokens(&alias.value, self.current_span.start);
+            self.advance_raw();
+        }
+
+        self.expand_next_word = expands_next_word;
+    }
+
+    fn apply_simple_command_effects(&mut self, command: &SimpleCommand) {
+        let Some(name) = self.literal_word_text(&command.name) else {
+            return;
+        };
+
+        match name.as_str() {
+            "shopt" => {
+                let mut toggle = None;
+                for arg in &command.args {
+                    let Some(arg) = self.literal_word_text(arg) else {
+                        continue;
+                    };
+                    match arg.as_str() {
+                        "-s" => toggle = Some(true),
+                        "-u" => toggle = Some(false),
+                        "expand_aliases" => {
+                            if let Some(toggle) = toggle {
+                                self.expand_aliases = toggle;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "alias" => {
+                for arg in &command.args {
+                    let Some(arg) = self.literal_word_text(arg) else {
+                        continue;
+                    };
+                    if arg == "--" {
+                        continue;
+                    }
+                    let Some((alias_name, value)) = arg.split_once('=') else {
+                        continue;
+                    };
+                    self.aliases.insert(
+                        alias_name.to_string(),
+                        AliasDefinition {
+                            value: value.to_string(),
+                            expands_next_word: value
+                                .chars()
+                                .last()
+                                .is_some_and(char::is_whitespace),
+                        },
+                    );
+                }
+            }
+            "unalias" => {
+                for arg in &command.args {
+                    let Some(arg) = self.literal_word_text(arg) else {
+                        continue;
+                    };
+                    match arg.as_str() {
+                        "--" => {}
+                        "-a" => self.aliases.clear(),
+                        _ => {
+                            self.aliases.remove(arg.as_str());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_command_effects(&mut self, command: &Command) {
+        match command {
+            Command::Simple(simple) => self.apply_simple_command_effects(simple),
+            Command::List(list) => {
+                self.apply_command_effects(&list.first);
+                for (_, command) in &list.rest {
+                    self.apply_command_effects(command);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn next_word_char(
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
         cursor: &mut Position,
@@ -840,7 +1002,9 @@ impl<'a> Parser<'a> {
             if self.current_token.is_none() {
                 break;
             }
-            commands.push(self.parse_command_list_required()?);
+            let command = self.parse_command_list_required()?;
+            self.apply_command_effects(&command);
+            commands.push(command);
         }
 
         let end_span = self.current_span;
@@ -883,7 +1047,10 @@ impl<'a> Parser<'a> {
 
             let command_start = self.current_span.start.offset;
             match self.parse_command_list_required() {
-                Ok(command) => commands.push(command),
+                Ok(command) => {
+                    self.apply_command_effects(&command);
+                    commands.push(command);
+                }
                 Err(error) => {
                     diagnostics.push(self.parse_diagnostic_from_error(error));
                     if !self.recover_to_command_boundary(command_start) {
@@ -904,13 +1071,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn advance(&mut self) {
+    fn advance_raw(&mut self) {
         if let Some(peeked) = self.peeked_token.take() {
             self.current_token = Some(peeked.token);
             self.current_span = peeked.span;
         } else {
             loop {
-                match self.lexer.next_spanned_token_with_comments() {
+                match self.next_spanned_token_with_comments() {
                     Some(st) if matches!(st.token, Token::Comment(_)) => {
                         self.comments.push(Comment {
                             range: st.span.to_range(),
@@ -931,11 +1098,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn advance(&mut self) {
+        let should_expand = std::mem::take(&mut self.expand_next_word);
+        self.advance_raw();
+        if should_expand {
+            self.maybe_expand_current_alias_chain();
+        }
+    }
+
     /// Peek at the next token without consuming the current one
     fn peek_next(&mut self) -> Option<&Token> {
         if self.peeked_token.is_none() {
             loop {
-                match self.lexer.next_spanned_token_with_comments() {
+                match self.next_spanned_token_with_comments() {
                     Some(st) if matches!(st.token, Token::Comment(_)) => {
                         self.comments.push(Comment {
                             range: st.span.to_range(),
@@ -1444,6 +1619,8 @@ impl<'a> Parser<'a> {
     /// Parse a single command (simple or compound)
     fn parse_command(&mut self) -> Result<Option<Command>> {
         self.skip_newlines()?;
+        self.check_error_token()?;
+        self.maybe_expand_current_alias_chain();
         self.check_error_token()?;
 
         // Check for compound commands and function keyword
@@ -2772,7 +2949,9 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            commands.push(self.parse_command_list_required()?);
+            let command = self.parse_command_list_required()?;
+            self.apply_command_effects(&command);
+            commands.push(command);
         }
 
         Ok(commands)
@@ -3403,6 +3582,7 @@ impl<'a> Parser<'a> {
         let mut redirects = Vec::new();
 
         loop {
+            self.check_error_token()?;
             match &self.current_token {
                 Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
                     let is_literal = matches!(&self.current_token, Some(Token::LiteralWord(_)));
@@ -5509,6 +5689,62 @@ coproc worker { true; }
             panic!("expected bare name operand");
         };
         assert_eq!(name.name, "other");
+    }
+
+    #[test]
+    fn test_alias_expansion_can_form_a_for_loop_header() {
+        let input = "\
+shopt -s expand_aliases
+alias FOR1='for '
+alias FOR2='FOR1 '
+alias eye1='i '
+alias eye2='eye1 '
+alias IN='in '
+alias onetwo='1 2 '
+FOR2 eye2 IN onetwo 3; do echo $i; done
+";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Some(Command::Compound(CompoundCommand::For(command), _)) = script.commands.last()
+        else {
+            panic!("expected final command to be a for loop");
+        };
+        assert_eq!(command.variable, "i");
+        assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
+    }
+
+    #[test]
+    fn test_alias_expansion_can_open_a_brace_group() {
+        let input = "\
+shopt -s expand_aliases
+alias LEFT='{'
+LEFT echo one; echo two; }
+";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Some(Command::Compound(CompoundCommand::BraceGroup(commands), _)) =
+            script.commands.last()
+        else {
+            panic!("expected final command to be a brace group");
+        };
+        assert!(matches!(commands.as_slice(), [Command::List(_)]));
+    }
+
+    #[test]
+    fn test_alias_expansion_can_open_a_subshell() {
+        let input = "\
+shopt -s expand_aliases
+alias LEFT='('
+LEFT echo one; echo two )
+";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Some(Command::Compound(CompoundCommand::Subshell(commands), _)) =
+            script.commands.last()
+        else {
+            panic!("expected final command to be a subshell");
+        };
+        assert!(matches!(commands.as_slice(), [Command::List(_)]));
     }
 
     // -----------------------------------------------------------------------

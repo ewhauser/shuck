@@ -1,23 +1,15 @@
 {
-  "oils/alias.test.sh::Loop split across alias in another way": {
-    "expectation": "skip",
-    "reason": "case depends on alias-driven reparsing outside the current parser model"
-  },
-  "oils/alias.test.sh::Loop split across both iterative and recursive aliases": {
-    "expectation": "skip",
-    "reason": "case depends on alias-driven reparsing outside the current parser model"
-  },
-  "oils/alias.test.sh::alias for left brace": {
-    "expectation": "skip",
-    "reason": "case depends on alias-driven reparsing outside the current parser model"
-  },
-  "oils/alias.test.sh::alias for left paren": {
-    "expectation": "skip",
-    "reason": "case depends on alias-driven reparsing outside the current parser model"
-  },
   "oils/array-sparse.test.sh::crash dump": {
     "expectation": "skip",
     "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
+  },
+  "oils/alias.test.sh::Alias with a quote in the middle is a syntax error": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
+  "oils/alias.test.sh::Syntax error after expansion": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
   },
   "oils/assign.test.sh::Env binding not allowed before compound command": {
     "expectation": "parse_err",

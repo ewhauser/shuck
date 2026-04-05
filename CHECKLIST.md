@@ -3,8 +3,8 @@
 Analyzed `crates/shuck-parser/tests/testdata/oils_expectations.json` on 2026-04-04, ignoring entries whose reason is `case uses YSH/OILS-only syntax or option modes outside the current Bash parser`.
 
 Summary:
-- 42 actionable `skip` entries remain in scope.
-- 2 formerly skipped cases already parsed and have now been removed from `oils_expectations.json`.
+- 38 actionable `skip` entries remain in scope.
+- 6 formerly skipped cases already parse and have now been removed from `oils_expectations.json`.
 
 ## Expectation Cleanup (Already Parses)
 
@@ -17,10 +17,10 @@ Shared work: expectations/tests only. No lexer, AST, or parser changes needed.
 
 Shared work: add a Bash-like alias expansion and token reinjection phase at the lexer/preparse boundary, then reparse alias-expanded text so injected `for`, `{`, `(`, `do`, and `)` are seen as structural tokens. AST change: none.
 
-- [ ] `oils/alias.test.sh::Loop split across alias in another way` - alias expansion must be able to inject loop syntax across token boundaries.
-- [ ] `oils/alias.test.sh::Loop split across both iterative and recursive aliases` - same alias-expansion machinery, including recursive alias chains and reparsing after expansion.
-- [ ] `oils/alias.test.sh::alias for left brace` - alias expansion must allow an alias to become a brace-group opener.
-- [ ] `oils/alias.test.sh::alias for left paren` - alias expansion must allow an alias to become a subshell opener.
+- [x] `oils/alias.test.sh::Loop split across alias in another way` - added parser-side alias expansion with synthetic token injection so alias values can complete a `for ... do ... done` header.
+- [x] `oils/alias.test.sh::Loop split across both iterative and recursive aliases` - recursive alias chains now expand through the parser’s synthetic token queue, including trailing-space re-expansion of subsequent words.
+- [x] `oils/alias.test.sh::alias for left brace` - alias expansion now allows an alias to produce `{` so brace groups parse as compound commands.
+- [x] `oils/alias.test.sh::alias for left paren` - alias expansion now allows an alias to produce `(` so subshells parse as compound commands.
 
 ## Indexed Assignment and Arithmetic Header Lexing
 
