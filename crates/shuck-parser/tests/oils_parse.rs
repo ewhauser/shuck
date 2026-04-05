@@ -60,13 +60,14 @@ fn oils_corpus_matches_parser_expectations() {
                 continue;
             }
 
-            let outcome = panic::catch_unwind(AssertUnwindSafe(|| Parser::new(&spec_case.script).parse()));
+            let outcome =
+                panic::catch_unwind(AssertUnwindSafe(|| Parser::new(&spec_case.script).parse()));
             match (expectation, outcome) {
                 (Expectation::ParseOk, Ok(Ok(_))) => {}
                 (Expectation::ParseErr, Ok(Err(_))) => {}
-                (Expectation::ParseOk, Ok(Err(err))) => failures.push(format!(
-                    "{case_key}: unexpected parse error: {err}"
-                )),
+                (Expectation::ParseOk, Ok(Err(err))) => {
+                    failures.push(format!("{case_key}: unexpected parse error: {err}"))
+                }
                 (Expectation::ParseErr, Ok(Ok(_))) => {
                     failures.push(format!("{case_key}: unexpected parse success"))
                 }
@@ -93,7 +94,11 @@ fn manifest_dir() -> PathBuf {
 fn load_spec_files(oils_dir: &Path) -> Vec<SpecFile> {
     let mut paths = fs::read_dir(oils_dir)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", oils_dir.display()))
-        .map(|entry| entry.expect("fixture directory entry should be readable").path())
+        .map(|entry| {
+            entry
+                .expect("fixture directory entry should be readable")
+                .path()
+        })
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sh"))
         .collect::<Vec<_>>();
     paths.sort();
@@ -104,7 +109,8 @@ fn load_spec_files(oils_dir: &Path) -> Vec<SpecFile> {
         oils_dir.display()
     );
 
-    paths.into_iter()
+    paths
+        .into_iter()
         .map(|path| {
             let source = fs::read_to_string(&path)
                 .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
@@ -192,8 +198,8 @@ fn is_directive_block_header(line: &str) -> bool {
 }
 
 fn load_expectations(path: &Path) -> HashMap<String, ExpectationEntry> {
-    let contents =
-        fs::read_to_string(path).unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+    let contents = fs::read_to_string(path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
     serde_json::from_str(&contents)
         .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()))
 }

@@ -114,10 +114,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn sync_position_to_cursor(&mut self) {
-        if self.reinject_buf.is_empty() {
-            if let Some(position) = self.reinject_resume_position.take() {
-                self.position = position;
-            }
+        if self.reinject_buf.is_empty()
+            && let Some(position) = self.reinject_resume_position.take()
+        {
+            self.position = position;
         }
     }
 
@@ -2000,7 +2000,10 @@ EOF
         assert_eq!(lexer.next_token(), Some(Token::Newline));
         assert_eq!(lexer.next_token(), Some(Token::Word("cat".to_string())));
         assert_eq!(lexer.next_token(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token(), Some(Token::LiteralWord("EOF".to_string())));
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token::LiteralWord("EOF".to_string()))
+        );
         assert_eq!(lexer.next_token(), Some(Token::RedirectOut));
         assert_eq!(
             lexer.next_token(),
@@ -2209,10 +2212,7 @@ EOF
         let mut lexer = Lexer::new(source);
 
         let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(
-            comment.token,
-            Token::Comment(" café résumé".to_string())
-        );
+        assert_eq!(comment.token, Token::Comment(" café résumé".to_string()));
         // Span should cover exactly the comment bytes (including #)
         let start = comment.span.start.offset;
         let end = comment.span.end.offset;
@@ -2221,10 +2221,7 @@ EOF
         assert!(source.is_char_boundary(start));
         assert!(source.is_char_boundary(end));
 
-        assert_eq!(
-            lexer.next_token_with_comments(),
-            Some(Token::Newline)
-        );
+        assert_eq!(lexer.next_token_with_comments(), Some(Token::Newline));
         assert_eq!(
             lexer.next_token_with_comments(),
             Some(Token::Word("echo".to_string()))
@@ -2238,10 +2235,7 @@ EOF
         let mut lexer = Lexer::new(source);
 
         let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(
-            comment.token,
-            Token::Comment(" 你好世界".to_string())
-        );
+        assert_eq!(comment.token, Token::Comment(" 你好世界".to_string()));
         let start = comment.span.start.offset;
         let end = comment.span.end.offset;
         assert_eq!(&source[start..end], "# 你好世界");
@@ -2255,19 +2249,22 @@ EOF
         let source = "cat <<EOF\n# not a comment\nreal line\nEOF\n# real comment\n";
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("cat".to_string())));
+        assert_eq!(
+            lexer.next_token_with_comments(),
+            Some(Token::Word("cat".to_string()))
+        );
         assert_eq!(lexer.next_token_with_comments(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("EOF".to_string())));
+        assert_eq!(
+            lexer.next_token_with_comments(),
+            Some(Token::Word("EOF".to_string()))
+        );
 
         let heredoc = lexer.read_heredoc("EOF");
         assert_eq!(heredoc.content, "# not a comment\nreal line\n");
 
         // After heredoc, the next token should be the real comment
         let comment = lexer.next_spanned_token_with_comments().unwrap();
-        assert_eq!(
-            comment.token,
-            Token::Comment(" real comment".to_string())
-        );
+        assert_eq!(comment.token, Token::Comment(" real comment".to_string()));
     }
 
     #[test]
@@ -2276,9 +2273,15 @@ EOF
         let source = "cat <<EOF\nval=${x#prefix}\nEOF\n";
         let mut lexer = Lexer::new(source);
 
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("cat".to_string())));
+        assert_eq!(
+            lexer.next_token_with_comments(),
+            Some(Token::Word("cat".to_string()))
+        );
         assert_eq!(lexer.next_token_with_comments(), Some(Token::HereDoc));
-        assert_eq!(lexer.next_token_with_comments(), Some(Token::Word("EOF".to_string())));
+        assert_eq!(
+            lexer.next_token_with_comments(),
+            Some(Token::Word("EOF".to_string()))
+        );
 
         let heredoc = lexer.read_heredoc("EOF");
         assert_eq!(heredoc.content, "val=${x#prefix}\n");
@@ -2298,7 +2301,11 @@ EOF
         let heredoc = lexer.read_heredoc("EOF");
         let start = heredoc.content_span.start.offset;
         let end = heredoc.content_span.end.offset;
-        assert!(end <= source.len(), "heredoc span end ({end}) exceeds source length ({})", source.len());
+        assert!(
+            end <= source.len(),
+            "heredoc span end ({end}) exceeds source length ({})",
+            source.len()
+        );
         assert_eq!(&source[start..end], "hello\nworld\n");
 
         // Tokens after heredoc should still parse correctly
@@ -2320,8 +2327,14 @@ EOF
         assert_eq!(heredoc.content, "# 你好\ncafé\n");
         let start = heredoc.content_span.start.offset;
         let end = heredoc.content_span.end.offset;
-        assert!(source.is_char_boundary(start), "heredoc span start ({start}) not on char boundary");
-        assert!(source.is_char_boundary(end), "heredoc span end ({end}) not on char boundary");
+        assert!(
+            source.is_char_boundary(start),
+            "heredoc span start ({start}) not on char boundary"
+        );
+        assert!(
+            source.is_char_boundary(end),
+            "heredoc span end ({end}) not on char boundary"
+        );
         assert_eq!(&source[start..end], "# 你好\ncafé\n");
     }
 

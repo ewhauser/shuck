@@ -90,8 +90,8 @@ impl<'a> Checker<'a> {
     }
 
     fn check_flow(&mut self) {
-        if !self.rules_need_dataflow() {
-            return;
+        if self.rules_need_dataflow() {
+            // TODO: run dataflow-dependent rules
         }
     }
 

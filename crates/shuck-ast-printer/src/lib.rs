@@ -99,19 +99,14 @@ impl<'a> Printer<'a> {
         operator: &str,
     ) -> Vec<Value> {
         let mut stmts = self.encode_stmts(commands);
-        if let Some((stmt, command)) = stmts.last_mut().zip(commands.last()) {
-            if let Value::Object(map) = &mut stmt.value {
-                if !map.contains_key("Semicolon") {
-                    if let Some(separator) = self.find_operator_after_span(
-                        self.command_span(command),
-                        before.offset,
-                        operator,
-                    ) {
-                        self.insert_pos(map, "Semicolon", separator);
-                        self.insert_pos(map, "End", separator.advanced_by(operator));
-                    }
-                }
-            }
+        if let Some((stmt, command)) = stmts.last_mut().zip(commands.last())
+            && let Value::Object(map) = &mut stmt.value
+            && !map.contains_key("Semicolon")
+            && let Some(separator) =
+                self.find_operator_after_span(self.command_span(command), before.offset, operator)
+        {
+            self.insert_pos(map, "Semicolon", separator);
+            self.insert_pos(map, "End", separator.advanced_by(operator));
         }
         stmts.into_iter().map(|stmt| stmt.value).collect()
     }
@@ -640,6 +635,7 @@ impl<'a> Printer<'a> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn encode_if_clause_chain(
         &self,
         typed: bool,
@@ -977,17 +973,15 @@ impl<'a> Printer<'a> {
     fn encode_block(&self, commands: &[Command]) -> EncodedNode {
         let start = commands
             .first()
-            .map(|command| {
+            .and_then(|command| {
                 self.search_backward_for_token(self.command_span(command).start.offset, "{")
             })
-            .flatten()
             .unwrap_or_default();
         let end = commands
             .last()
-            .map(|command| {
+            .and_then(|command| {
                 self.search_forward_for_token(self.command_span(command).end.offset, "}")
             })
-            .flatten()
             .map(|pos| pos.advanced_by("}"))
             .unwrap_or_default();
 
@@ -1011,17 +1005,15 @@ impl<'a> Printer<'a> {
     fn encode_subshell(&self, commands: &[Command]) -> EncodedNode {
         let start = commands
             .first()
-            .map(|command| {
+            .and_then(|command| {
                 self.search_backward_for_token(self.command_span(command).start.offset, "(")
             })
-            .flatten()
             .unwrap_or_default();
         let end = commands
             .last()
-            .map(|command| {
+            .and_then(|command| {
                 self.search_forward_for_token(self.command_span(command).end.offset, ")")
             })
-            .flatten()
             .map(|pos| pos.advanced_by(")"))
             .unwrap_or_default();
 
@@ -2265,7 +2257,7 @@ impl<'a> Printer<'a> {
         let word_span = self
             .rfind_in_span(span, value)
             .map(|start| Span::from_positions(start, start.advanced_by(value)))
-            .unwrap_or_else(Span::new);
+            .unwrap_or_default();
         self.synthetic_literal_word_node(value, word_span)
     }
 
@@ -2279,6 +2271,7 @@ impl<'a> Printer<'a> {
         self.typed_word_node(&word)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn wrap_stmt(
         &self,
         position: Position,
@@ -2647,17 +2640,17 @@ impl<'a> Printer<'a> {
                 continue;
             }
 
-            if let Some(byte) = self.source.as_bytes().get(cursor).copied() {
-                if matches!(byte, b'*' | b'?') {
-                    let pos = self.pos_at(cursor);
-                    values.push(match byte {
-                        b'*' => self.pattern_any_node(pos, pos.advanced_by("*")).value,
-                        b'?' => self.pattern_single_node(pos, pos.advanced_by("?")).value,
-                        _ => unreachable!(),
-                    });
-                    cursor += 1;
-                    continue;
-                }
+            if let Some(byte) = self.source.as_bytes().get(cursor).copied()
+                && matches!(byte, b'*' | b'?')
+            {
+                let pos = self.pos_at(cursor);
+                values.push(match byte {
+                    b'*' => self.pattern_any_node(pos, pos.advanced_by("*")).value,
+                    b'?' => self.pattern_single_node(pos, pos.advanced_by("?")).value,
+                    _ => unreachable!(),
+                });
+                cursor += 1;
+                continue;
             }
 
             if let Some((part, part_span)) = valid_parts.get(part_index) {
@@ -3217,10 +3210,10 @@ impl<'a> Printer<'a> {
     }
 
     fn insert_value(&self, map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
-        if let Some(value) = value {
-            if !value.is_null() {
-                map.insert(key.into(), value);
-            }
+        if let Some(value) = value
+            && !value.is_null()
+        {
+            map.insert(key.into(), value);
         }
     }
 

@@ -146,6 +146,7 @@ pub struct Script {
 
 /// A single command in the script.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     /// A simple command (e.g., `echo hello`)
     Simple(SimpleCommand),

@@ -2611,20 +2611,19 @@ impl<'a> Parser<'a> {
                 _ => {}
             }
 
-            if let Some(prev_end) = previous_end {
-                if prev_end.offset < self.current_span.start.offset {
-                    let gap_span = Span::from_positions(prev_end, self.current_span.start);
-                    let gap =
-                        self.input[prev_end.offset..self.current_span.start.offset].to_string();
-                    if !gap.is_empty() {
-                        parts.push(WordPart::Literal(self.literal_text(
-                            gap,
-                            gap_span.start,
-                            gap_span.end,
-                        )));
-                        part_spans.push(gap_span);
-                        composite = true;
-                    }
+            if let Some(prev_end) = previous_end
+                && prev_end.offset < self.current_span.start.offset
+            {
+                let gap_span = Span::from_positions(prev_end, self.current_span.start);
+                let gap = self.input[prev_end.offset..self.current_span.start.offset].to_string();
+                if !gap.is_empty() {
+                    parts.push(WordPart::Literal(self.literal_text(
+                        gap,
+                        gap_span.start,
+                        gap_span.end,
+                    )));
+                    part_spans.push(gap_span);
+                    composite = true;
                 }
             }
 
@@ -2779,10 +2778,8 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !composite {
-            if let Some(word) = first_word {
-                return Ok(word);
-            }
+        if !composite && let Some(word) = first_word {
+            return Ok(word);
         }
 
         let (start, end) = match (start, end) {
@@ -4709,6 +4706,13 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
+    fn expect_compound<'a>(command: &'a Command) -> (&'a CompoundCommand, &'a [Redirect]) {
+        let Command::Compound(compound, redirects) = command else {
+            panic!("expected compound command");
+        };
+        (compound, redirects.as_slice())
+    }
+
     #[test]
     fn test_parse_simple_command() {
         let input = "echo hello";
@@ -4954,18 +4958,15 @@ mod tests {
         let parser = Parser::new(input);
         let script = parser.parse().unwrap().script;
         assert_eq!(script.commands.len(), 1);
-        if let Command::Compound(comp, _) = &script.commands[0] {
-            if let CompoundCommand::While(w) = comp {
-                assert!(
-                    !w.condition.is_empty(),
-                    "while condition should be non-empty"
-                );
-                assert!(!w.body.is_empty(), "while body should be non-empty");
-            } else {
-                panic!("expected While compound command");
-            }
+        let (compound, _) = expect_compound(&script.commands[0]);
+        if let CompoundCommand::While(w) = compound {
+            assert!(
+                !w.condition.is_empty(),
+                "while condition should be non-empty"
+            );
+            assert!(!w.body.is_empty(), "while body should be non-empty");
         } else {
-            panic!("expected Compound command");
+            panic!("expected While compound command");
         }
     }
 
@@ -5229,9 +5230,8 @@ mod tests {
         let input = "(( 1 +\n 2 <= 3 ))\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
             panic!("expected arithmetic compound command");
         };
 
@@ -5246,9 +5246,8 @@ mod tests {
         let input = "(( (previous_pipe_index > 0) && (previous_pipe_index == ($# - 1)) ))\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
             panic!("expected arithmetic compound command");
         };
 
@@ -5266,9 +5265,8 @@ mod tests {
         let input = "(($(date -u) > DATE))\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
             panic!("expected arithmetic compound command");
         };
 
@@ -5283,9 +5281,8 @@ mod tests {
         let input = "(( a <= (1 || 2)))\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
             panic!("expected arithmetic compound command");
         };
 
@@ -5300,9 +5297,8 @@ mod tests {
         let input = "for (( i = 0 ; i < 10 ; i += 2 )); do echo \"$i\"; done\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
             panic!("expected arithmetic for compound command");
         };
 
@@ -5321,9 +5317,8 @@ mod tests {
         let input = "for ((i=0;i<10;i++)) do echo \"$i\"; done\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
             panic!("expected arithmetic for compound command");
         };
 
@@ -5342,9 +5337,8 @@ mod tests {
         let input = "for ((;;)); do foo; done\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
             panic!("expected arithmetic for compound command");
         };
 
@@ -5363,9 +5357,8 @@ mod tests {
         let input = "for ((i = 0;;)); do foo; done\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
             panic!("expected arithmetic for compound command");
         };
 
@@ -5384,9 +5377,8 @@ mod tests {
         let input = "for (( i = 0 ; i < 10 ; i += ($# - 1))); do echo \"$i\"; done\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::ArithmeticFor(command), redirects) =
-            &script.commands[0]
-        else {
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
             panic!("expected arithmetic for compound command");
         };
 
@@ -5417,12 +5409,14 @@ coproc worker { true; }
         };
         assert_eq!(function.name_span.slice(input), "my_fn");
 
-        let Command::Compound(CompoundCommand::For(command), _) = &script.commands[1] else {
+        let (compound, _) = expect_compound(&script.commands[1]);
+        let CompoundCommand::For(command) = compound else {
             panic!("expected for loop");
         };
         assert_eq!(command.variable_span.slice(input), "item");
 
-        let Command::Compound(CompoundCommand::Select(command), _) = &script.commands[2] else {
+        let (compound, _) = expect_compound(&script.commands[2]);
+        let CompoundCommand::Select(command) = compound else {
             panic!("expected select loop");
         };
         assert_eq!(command.variable_span.slice(input), "choice");
@@ -5444,7 +5438,8 @@ coproc worker { true; }
             "myfd"
         );
 
-        let Command::Compound(CompoundCommand::Coproc(command), _) = &script.commands[5] else {
+        let (compound, _) = expect_compound(&script.commands[5]);
+        let CompoundCommand::Coproc(command) = compound else {
             panic!("expected coproc command");
         };
         assert_eq!(command.name_span.unwrap().slice(input), "worker");
@@ -5457,8 +5452,8 @@ coproc worker { true; }
             .unwrap()
             .script;
 
-        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
-        else {
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
             panic!("expected conditional compound command");
         };
 
@@ -5485,8 +5480,8 @@ coproc worker { true; }
         let input = "[[ foo == (bar|baz)* ]]\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
-        else {
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
             panic!("expected conditional compound command");
         };
 
@@ -5506,8 +5501,8 @@ coproc worker { true; }
         let input = "[[ foo =~ [ab](c|d) ]]\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
-        else {
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
             panic!("expected conditional compound command");
         };
 
@@ -5527,8 +5522,8 @@ coproc worker { true; }
         let input = "[[ x =~ ^\\\"\\-1[[:blank:]]((\\?[luds])+).* ]]\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Compound(CompoundCommand::Conditional(command), _) = &script.commands[0]
-        else {
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
             panic!("expected conditional compound command");
         };
 
@@ -5705,8 +5700,11 @@ FOR2 eye2 IN onetwo 3; do echo $i; done
 ";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Some(Command::Compound(CompoundCommand::For(command), _)) = script.commands.last()
-        else {
+        let Some(command) = script.commands.last() else {
+            panic!("expected final command to be a for loop");
+        };
+        let (compound, _) = expect_compound(command);
+        let CompoundCommand::For(command) = compound else {
             panic!("expected final command to be a for loop");
         };
         assert_eq!(command.variable, "i");
@@ -5722,9 +5720,11 @@ LEFT echo one; echo two; }
 ";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Some(Command::Compound(CompoundCommand::BraceGroup(commands), _)) =
-            script.commands.last()
-        else {
+        let Some(command) = script.commands.last() else {
+            panic!("expected final command to be a brace group");
+        };
+        let (compound, _) = expect_compound(command);
+        let CompoundCommand::BraceGroup(commands) = compound else {
             panic!("expected final command to be a brace group");
         };
         assert!(matches!(commands.as_slice(), [Command::List(_)]));
@@ -5739,9 +5739,11 @@ LEFT echo one; echo two )
 ";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Some(Command::Compound(CompoundCommand::Subshell(commands), _)) =
-            script.commands.last()
-        else {
+        let Some(command) = script.commands.last() else {
+            panic!("expected final command to be a subshell");
+        };
+        let (compound, _) = expect_compound(command);
+        let CompoundCommand::Subshell(commands) = compound else {
             panic!("expected final command to be a subshell");
         };
         assert!(matches!(commands.as_slice(), [Command::List(_)]));

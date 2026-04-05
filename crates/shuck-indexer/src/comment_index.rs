@@ -43,10 +43,8 @@ impl CommentIndex {
                     &source[usize::from(line_range.start())..usize::from(comment.range.start())];
                 // A comment may span past the line end (e.g. parser bug or
                 // multi-line heredoc comment). Clamp to avoid panicking.
-                let after_end = usize::from(comment.range.end())
-                    .min(usize::from(line_range.end()));
-                let after_comment =
-                    &source[after_end..usize::from(line_range.end())];
+                let after_end = usize::from(comment.range.end()).min(usize::from(line_range.end()));
+                let after_comment = &source[after_end..usize::from(line_range.end())];
 
                 IndexedComment {
                     range: comment.range,

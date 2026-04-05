@@ -289,8 +289,7 @@ fn run_parse_only(fixtures: &[LargeCorpusFixture]) {
 
         // Run the full pipeline to catch panics in the indexer/semantic/linter.
         let indexer = shuck_indexer::Indexer::new(&source, &output);
-        let semantic =
-            shuck_semantic::SemanticModel::build(&output.script, &source, &indexer);
+        let semantic = shuck_semantic::SemanticModel::build(&output.script, &source, &indexer);
         let _ = shuck_linter::lint_file(
             &output.script,
             &source,

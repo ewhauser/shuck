@@ -28,10 +28,7 @@ fn main() {
         if token.span.start.line >= start_line && token.span.start.line <= end_line {
             println!(
                 "{:>6}:{:<4} {:<30?} {:?}",
-                token.span.start.line,
-                token.span.start.column,
-                token.span,
-                token.token
+                token.span.start.line, token.span.start.column, token.span, token.token
             );
         }
     }
