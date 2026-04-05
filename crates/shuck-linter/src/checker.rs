@@ -109,6 +109,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FindOutputToXargs) {
             rules::correctness::find_output_to_xargs::find_output_to_xargs(self);
         }
+        if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
+            rules::correctness::single_quoted_literal::single_quoted_literal(self);
+        }
         if self.is_rule_enabled(Rule::PipeToKill) {
             rules::correctness::pipe_to_kill::pipe_to_kill(self);
         }

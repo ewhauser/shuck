@@ -3,6 +3,7 @@ pub mod noop;
 pub mod overwritten_function;
 pub mod pipe_to_kill;
 pub mod script_scope_local;
+pub mod single_quoted_literal;
 pub mod unused_assignment;
 
 #[cfg(test)]
@@ -15,6 +16,7 @@ mod tests {
     use crate::{LinterSettings, Rule, assert_diagnostics};
 
     #[test_case(Rule::UnusedAssignment, Path::new("C001.sh"))]
+    #[test_case(Rule::SingleQuotedLiteral, Path::new("C005.sh"))]
     #[test_case(Rule::FindOutputToXargs, Path::new("C007.sh"))]
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]

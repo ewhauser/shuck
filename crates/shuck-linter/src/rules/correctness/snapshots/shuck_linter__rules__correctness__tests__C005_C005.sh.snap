@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C005 shell expansion inside single quotes stays literal
+ --> <source>:4:7
+  |
+4 | echo '$HOME'
+  |
+
+C005 shell expansion inside single quotes stays literal
+ --> <source>:7:16
+  |
+7 | printf '%s\n' '${value:-fallback}'
+  |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:10:6
+   |
+10 | msg='$(pwd)'
+   |
