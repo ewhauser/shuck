@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
         let mut parser = Parser::new(input);
         let start = Position::new();
         parser.parse_word_with_context(
-            input.to_string(),
+            input,
             Span::from_positions(start, start.advanced_by(input)),
             start,
         )
@@ -163,7 +163,7 @@ impl<'a> Parser<'a> {
         let mut parser = Parser::with_limits(input, max_depth, max_fuel);
         let start = Position::new();
         parser.parse_word_with_context(
-            input.to_string(),
+            input,
             Span::from_positions(start, start.advanced_by(input)),
             start,
         )
@@ -171,10 +171,9 @@ impl<'a> Parser<'a> {
 
     fn word_from_token(&mut self, token: &Token, span: Span) -> Option<Word> {
         match token {
-            Token::Word(w) => Some(self.parse_word_with_context(w.clone(), span, span.start)),
+            Token::Word(w) => Some(self.parse_word_with_context(w, span, span.start)),
             Token::QuotedWord(w) => {
-                let mut word =
-                    self.parse_word_with_context(w.clone(), span, span.start.advanced_by("\""));
+                let mut word = self.parse_word_with_context(w, span, span.start.advanced_by("\""));
                 word.quoted = true;
                 Some(word)
             }
@@ -184,14 +183,16 @@ impl<'a> Parser<'a> {
     }
 
     fn current_word_to_word(&mut self) -> Option<Word> {
-        let token = self.current_token.clone()?;
-        self.word_from_token(&token, self.current_span)
+        let token = self.current_token.take()?;
+        let word = self.word_from_token(&token, self.current_span);
+        self.current_token = Some(token);
+        word
     }
 
     fn current_name_token(&self) -> Option<(Name, Span)> {
         match &self.current_token {
             Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                Some((Name::from(w), self.current_span))
+                Some((Name::from(w.as_str()), self.current_span))
             }
             _ => None,
         }
@@ -1257,7 +1258,7 @@ impl<'a> Parser<'a> {
                     let target = if quoted {
                         Word::quoted_literal_with_span(content, content_span)
                     } else {
-                        self.parse_word_with_context(content, content_span, content_span.start)
+                        self.parse_word_with_context(&content, content_span, content_span.start)
                     };
                     let kind = if strip_tabs {
                         RedirectKind::HereDocStrip
@@ -1893,7 +1894,7 @@ impl<'a> Parser<'a> {
                     | Some(Token::QuotedWord(w)) => w.clone(),
                     _ => unreachable!(),
                 };
-                patterns.push(self.parse_word(w));
+                patterns.push(self.parse_word(&w));
                 self.advance();
 
                 // Check for | between patterns
@@ -2853,11 +2854,8 @@ impl<'a> Parser<'a> {
             AssignmentValue::Scalar(Word::literal_with_span("", value_span))
         } else if value_str.starts_with('"') && value_str.ends_with('"') {
             let inner = Self::strip_quotes(&value_str);
-            let mut word = self.parse_word_with_context(
-                inner.to_string(),
-                value_span,
-                value_start.advanced_by("\""),
-            );
+            let mut word =
+                self.parse_word_with_context(inner, value_span, value_start.advanced_by("\""));
             word.quoted = true;
             AssignmentValue::Scalar(word)
         } else if value_str.starts_with('\'') && value_str.ends_with('\'') {
@@ -2868,7 +2866,7 @@ impl<'a> Parser<'a> {
             ))
         } else {
             AssignmentValue::Scalar(self.parse_word_with_context(
-                value_str,
+                &value_str,
                 value_span,
                 value_start,
             ))
@@ -3089,10 +3087,10 @@ impl<'a> Parser<'a> {
 
         if saved_span.start.offset <= span.end.offset && span.end.offset <= self.input.len() {
             let source = &self.input[saved_span.start.offset..span.end.offset];
-            return Some(self.parse_word_with_context(source.to_string(), span, saved_span.start));
+            return Some(self.parse_word_with_context(source, span, saved_span.start));
         }
 
-        Some(self.parse_word_with_context(compound, span, saved_span.start))
+        Some(self.parse_word_with_context(&compound, span, saved_span.start))
     }
 
     /// Parse a heredoc redirect (`<<` or `<<-`) and any trailing redirects on the same line.
@@ -3134,7 +3132,7 @@ impl<'a> Parser<'a> {
         let target = if quoted {
             Word::quoted_literal_with_span(content, content_span)
         } else {
-            self.parse_word_with_context(content, content_span, content_span.start)
+            self.parse_word_with_context(&content, content_span, content_span.start)
         };
 
         let kind = if strip_tabs {
@@ -3667,21 +3665,21 @@ impl<'a> Parser<'a> {
 
     #[allow(dead_code)]
     /// Get the string content if current token is a word
-    fn current_word_str(&self) -> Option<String> {
+    fn current_word_str(&self) -> Option<&str> {
         match &self.current_token {
             Some(Token::Word(w)) | Some(Token::LiteralWord(w)) | Some(Token::QuotedWord(w)) => {
-                Some(w.clone())
+                Some(w.as_str())
             }
             _ => None,
         }
     }
 
     /// Parse a word string into a Word with proper parts (variables, literals)
-    fn parse_word(&mut self, s: String) -> Word {
+    fn parse_word(&mut self, s: &str) -> Word {
         self.parse_word_with_context(s, Span::new(), Position::new())
     }
 
-    fn parse_word_with_context(&mut self, s: String, span: Span, base: Position) -> Word {
+    fn parse_word_with_context(&mut self, s: &str, span: Span, base: Position) -> Word {
         let mut parts = Vec::new();
         let mut part_spans = Vec::new();
         let mut chars = s.chars().peekable();

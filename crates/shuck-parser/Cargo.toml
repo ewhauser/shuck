@@ -14,5 +14,6 @@ readme = "../../README.md"
 
 [dependencies]
 shuck-ast = { path = "../shuck-ast" }
+memchr.workspace = true
 
 [dev-dependencies]

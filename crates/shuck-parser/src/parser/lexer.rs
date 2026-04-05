@@ -4,6 +4,7 @@
 
 use std::collections::VecDeque;
 
+use memchr::memchr;
 use shuck_ast::{Position, Span, Token};
 
 /// A token with its source location span.
@@ -44,12 +45,31 @@ impl<'a> Cursor<'a> {
         Some(ch)
     }
 
+    fn eat_while(&mut self, mut predicate: impl FnMut(char) -> bool) -> &'a str {
+        let start = self.rest;
+        let mut end = 0;
+
+        for ch in start.chars() {
+            if !predicate(ch) {
+                break;
+            }
+            end += ch.len_utf8();
+        }
+
+        self.rest = &start[end..];
+        &start[..end]
+    }
+
     fn rest(&self) -> &'a str {
         self.rest
     }
 
     fn skip_bytes(&mut self, count: usize) {
         self.rest = &self.rest[count..];
+    }
+
+    fn find_byte(&self, byte: u8) -> Option<usize> {
+        memchr(byte, self.rest.as_bytes())
     }
 }
 
@@ -133,12 +153,21 @@ impl<'a> Lexer<'a> {
         self.lookahead_chars().nth(n)
     }
 
-    fn advance_source_bytes_without_newline(&mut self, byte_len: usize) {
-        debug_assert!(self.reinject_buf.is_empty());
-        debug_assert!(!self.cursor.rest()[..byte_len].contains('\n'));
+    fn advance_position_without_newline(&mut self, text: &str) {
+        debug_assert!(!text.contains('\n'));
 
-        self.position.offset += byte_len;
-        self.position.column += self.cursor.rest()[..byte_len].chars().count();
+        self.position.offset += text.len();
+        self.position.column += if text.is_ascii() {
+            text.len()
+        } else {
+            text.chars().count()
+        };
+    }
+
+    fn consume_source_bytes_without_newline(&mut self, byte_len: usize) {
+        debug_assert!(self.reinject_buf.is_empty());
+        let text = &self.cursor.rest()[..byte_len];
+        self.advance_position_without_newline(text);
         self.cursor.skip_bytes(byte_len);
     }
 
@@ -348,7 +377,10 @@ impl<'a> Lexer<'a> {
                 self.advance();
             } else if ch == '\\' {
                 // Check for backslash-newline (line continuation) between tokens
-                if self.peek_nth_char(1) == Some('\n') {
+                if self.reinject_buf.is_empty() && self.cursor.rest().starts_with("\\\n") {
+                    self.consume_source_bytes_without_newline(1);
+                    self.advance(); // consume newline
+                } else if self.peek_nth_char(1) == Some('\n') {
                     self.advance(); // consume backslash
                     self.advance(); // consume newline
                 } else {
@@ -364,12 +396,9 @@ impl<'a> Lexer<'a> {
         if self.reinject_buf.is_empty() {
             let end = self
                 .cursor
-                .rest()
-                .as_bytes()
-                .iter()
-                .position(|&b| b == b'\n')
+                .find_byte(b'\n')
                 .unwrap_or(self.cursor.rest().len());
-            self.advance_source_bytes_without_newline(end);
+            self.consume_source_bytes_without_newline(end);
             return;
         }
 
@@ -386,13 +415,9 @@ impl<'a> Lexer<'a> {
 
         if self.reinject_buf.is_empty() {
             let rest = self.cursor.rest();
-            let end = rest
-                .as_bytes()
-                .iter()
-                .position(|&b| b == b'\n')
-                .unwrap_or(rest.len());
+            let end = self.cursor.find_byte(b'\n').unwrap_or(rest.len());
             let comment = rest[1..end].to_string();
-            self.advance_source_bytes_without_newline(end);
+            self.consume_source_bytes_without_newline(end);
             return comment;
         }
 
@@ -573,9 +598,17 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 continue;
-            } else if self.is_word_char(ch) || ch == ']' {
-                word.push(ch);
-                self.advance();
+            } else if Self::is_plain_word_char(ch) || ch == ']' {
+                if self.reinject_buf.is_empty() {
+                    let chunk = self
+                        .cursor
+                        .eat_while(|c| Self::is_plain_word_char(c) || c == ']');
+                    word.push_str(chunk);
+                    self.advance_position_without_newline(chunk);
+                } else {
+                    word.push(ch);
+                    self.advance();
+                }
             } else {
                 break;
             }
@@ -1002,9 +1035,15 @@ impl<'a> Lexer<'a> {
                         _ => {}
                     }
                 }
-            } else if self.is_word_char(ch) {
-                word.push(ch);
-                self.advance();
+            } else if Self::is_plain_word_char(ch) {
+                if self.reinject_buf.is_empty() {
+                    let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+                    word.push_str(chunk);
+                    self.advance_position_without_newline(chunk);
+                } else {
+                    word.push(ch);
+                    self.advance();
+                }
             } else {
                 break;
             }
@@ -1104,9 +1143,15 @@ impl<'a> Lexer<'a> {
                         self.advance();
                     }
                 }
-                Some(ch) if self.is_word_char(ch) => {
-                    content.push(ch);
-                    self.advance();
+                Some(ch) if Self::is_plain_word_char(ch) => {
+                    if self.reinject_buf.is_empty() {
+                        let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+                        content.push_str(chunk);
+                        self.advance_position_without_newline(chunk);
+                    } else {
+                        content.push(ch);
+                        self.advance();
+                    }
                 }
                 _ => break,
             }
@@ -1324,7 +1369,7 @@ impl<'a> Lexer<'a> {
         // concatenate and return as Word (not QuotedWord) so glob expansion works
         // on the unquoted portion.
         if let Some(ch) = self.peek_char()
-            && (self.is_word_char(ch) || ch == '\'' || ch == '"' || ch == '$')
+            && (Self::is_word_char(ch) || ch == '\'' || ch == '"' || ch == '$')
         {
             self.read_continuation_into(&mut content);
             return Some(Token::Word(content));
@@ -1611,9 +1656,15 @@ impl<'a> Lexer<'a> {
 
         // Continue reading any suffix
         while let Some(ch) = self.peek_char() {
-            if self.is_word_char(ch) {
-                word.push(ch);
-                self.advance();
+            if Self::is_word_char(ch) {
+                if self.reinject_buf.is_empty() {
+                    let chunk = self.cursor.eat_while(Self::is_word_char);
+                    word.push_str(chunk);
+                    self.advance_position_without_newline(chunk);
+                } else {
+                    word.push(ch);
+                    self.advance();
+                }
             } else {
                 break;
             }
@@ -1653,7 +1704,7 @@ impl<'a> Lexer<'a> {
 
         // Continue reading any suffix after the brace pattern
         while let Some(ch) = self.peek_char() {
-            if self.is_word_char(ch) || ch == '{' {
+            if Self::is_word_char(ch) || ch == '{' {
                 if ch == '{' {
                     // Another brace pattern - include it
                     word.push(ch);
@@ -1701,9 +1752,15 @@ impl<'a> Lexer<'a> {
 
         // Continue reading any remaining word characters (e.g., [abc]def)
         while let Some(ch) = self.peek_char() {
-            if self.is_word_char(ch) {
-                word.push(ch);
-                self.advance();
+            if Self::is_word_char(ch) {
+                if self.reinject_buf.is_empty() {
+                    let chunk = self.cursor.eat_while(Self::is_word_char);
+                    word.push_str(chunk);
+                    self.advance_position_without_newline(chunk);
+                } else {
+                    word.push(ch);
+                    self.advance();
+                }
             } else {
                 break;
             }
@@ -1732,11 +1789,15 @@ impl<'a> Lexer<'a> {
         false
     }
 
-    fn is_word_char(&self, ch: char) -> bool {
+    fn is_word_char(ch: char) -> bool {
         !matches!(
             ch,
             ' ' | '\t' | '\n' | ';' | '|' | '&' | '>' | '<' | '(' | ')' | '{' | '}' | '\'' | '"'
         )
+    }
+
+    fn is_plain_word_char(ch: char) -> bool {
+        Self::is_word_char(ch) && !matches!(ch, '$' | '{' | '`' | '\\')
     }
 
     /// Read here document content until the delimiter line is found
@@ -1780,6 +1841,40 @@ impl<'a> Lexer<'a> {
 
         // Read lines until we find the delimiter
         loop {
+            if self.reinject_buf.is_empty() {
+                let rest = self.cursor.rest();
+                if rest.is_empty() {
+                    content_end = self.position;
+                    break;
+                }
+
+                let line_len = self.cursor.find_byte(b'\n').unwrap_or(rest.len());
+                let line = &rest[..line_len];
+                let has_newline = line_len < rest.len();
+
+                if line.trim() == delimiter {
+                    content_end = current_line_start;
+                    self.consume_source_bytes_without_newline(line_len);
+                    if has_newline {
+                        self.advance();
+                    }
+                    break;
+                }
+
+                content.push_str(line);
+                self.consume_source_bytes_without_newline(line_len);
+
+                if has_newline {
+                    self.advance();
+                    content.push('\n');
+                    current_line_start = self.position;
+                    continue;
+                }
+
+                content_end = self.position;
+                break;
+            }
+
             match self.peek_char() {
                 Some('\n') => {
                     self.advance();
@@ -2083,5 +2178,22 @@ mod tests {
         let mut lexer = Lexer::new("${foo}");
         assert_eq!(lexer.next_token(), Some(Token::Word("${foo}".to_string())));
         assert_eq!(lexer.next_token(), None);
+    }
+
+    #[test]
+    fn test_nvm_fixture_lexes_without_stalling() {
+        let input = include_str!("../../../shuck-benchmark/resources/files/nvm.sh");
+        let mut lexer = Lexer::new(input);
+        let mut tokens = 0usize;
+
+        while lexer.next_token().is_some() {
+            tokens += 1;
+            assert!(
+                tokens < 100_000,
+                "lexer should continue making progress on the nvm fixture"
+            );
+        }
+
+        assert!(tokens > 0, "nvm fixture should produce at least one token");
     }
 }
