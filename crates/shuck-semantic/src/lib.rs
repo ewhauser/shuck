@@ -13,7 +13,7 @@ pub use binding::{Binding, BindingAttributes, BindingId, BindingKind};
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext};
 pub use dataflow::{
-    DataflowResult, DeadCode, ReachingDefinitions, UninitializedCertainty, UninitializedReference,
+    DeadCode, ReachingDefinitions, UninitializedCertainty, UninitializedReference,
     UnusedAssignment, UnusedReason,
 };
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
@@ -28,6 +28,7 @@ use std::path::Path;
 
 use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
+use crate::dataflow::DataflowResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SpanKey {
@@ -292,7 +293,7 @@ impl SemanticModel {
         self.cfg.as_ref().unwrap()
     }
 
-    pub fn dataflow(&mut self) -> &DataflowResult {
+    fn dataflow(&mut self) -> &DataflowResult {
         if self.dataflow.is_none() {
             if self.cfg.is_none() {
                 self.cfg = Some(build_control_flow_graph(
