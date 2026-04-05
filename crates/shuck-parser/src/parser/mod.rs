@@ -5504,10 +5504,7 @@ mod tests {
             panic!("expected simple command");
         };
         assert_eq!(cmd.redirects.len(), 1);
-        assert_eq!(
-            cmd.redirects[0].fd_var.as_deref().map(|name| name.as_ref()),
-            Some("rw")
-        );
+        assert_eq!(cmd.redirects[0].fd_var.as_deref(), Some("rw"));
         assert_eq!(cmd.redirects[0].kind, RedirectKind::ReadWrite);
         assert_eq!(cmd.redirects[0].target.render(input), "/tmp/rw");
     }
