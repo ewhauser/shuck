@@ -248,6 +248,20 @@ done
     }
 
     #[test]
+    fn command_prefix_environment_assignment_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+CFLAGS=\"$SLKCFLAGS\" make
+DESTDIR=\"$pkgdir\" install
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn used_variable_produces_no_diagnostic() {
         let diagnostics = lint(
             "#!/bin/sh\nfoo=1\necho \"$foo\"\n",
@@ -313,6 +327,97 @@ ${code_command} --version
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn case_branch_assignments_used_in_function_body_are_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+case \"$arch\" in
+amd64 | x86_64)
+  jq_arch=amd64
+  core_arch=64
+  ;;
+arm64 | aarch64)
+  jq_arch=arm64
+  core_arch=arm64-v8a
+  ;;
+esac
+download() {
+  echo \"$jq_arch\"
+  echo \"$core_arch\"
+}
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_global_assignments_read_later_by_caller_are_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+pass_args() {
+  local_install=1
+  proxy=$1
+}
+main() {
+  pass_args \"$@\"
+  printf '%s %s\\n' \"$local_install\" \"$proxy\"
+}
+main \"$@\"
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn recursive_function_state_assignment_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+check_status() {
+  if [[ $is_wget ]]; then
+    printf '%s\\n' ok
+  else
+    is_wget=1
+    check_status
+  fi
+}
+check_status
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_function_global_assignment_is_still_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+f() {
+  foo=1
+}
+f
+",
+            &LinterSettings::default(),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(
+            diagnostics[0]
+                .span
+                .slice("#!/bin/sh\nf() {\n  foo=1\n}\nf\n"),
+            "foo"
+        );
     }
 
     #[test]

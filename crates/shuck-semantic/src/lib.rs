@@ -275,7 +275,14 @@ impl SemanticModel {
             }
             let result = {
                 let cfg = self.cfg.as_ref().unwrap();
-                dataflow::analyze(cfg, &self.bindings, &self.references)
+                dataflow::analyze(
+                    cfg,
+                    &self.scopes,
+                    &self.bindings,
+                    &self.references,
+                    &self.resolved,
+                    &self.call_sites,
+                )
             };
             self.dataflow = Some(result);
         }
@@ -502,6 +509,149 @@ ${code_command} --version
     }
 
     #[test]
+    fn branch_join_defs_used_in_later_function_body_are_all_live() {
+        let source = "\
+if command -v code >/dev/null 2>&1; then
+  code_command=\"code\"
+else
+  code_command=\"flatpak run com.visualstudio.code\"
+fi
+show_version() { ${code_command} --version; }
+";
+        let mut model = model(source);
+        let unused_bindings = model
+            .dataflow()
+            .unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect::<Vec<_>>();
+        let unused_names = unused_bindings
+            .into_iter()
+            .map(|binding| model.binding(binding).name.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(!unused_names.contains(&"code_command".to_string()));
+    }
+
+    #[test]
+    fn elif_branch_join_defs_used_in_later_function_body_are_all_live() {
+        let source = "\
+if [ \"$arch\" = amd64 ]; then
+  jq_arch=amd64
+elif [ \"$arch\" = arm64 ]; then
+  jq_arch=arm64
+else
+  jq_arch=unknown
+fi
+download() { echo \"$jq_arch\"; }
+";
+        let mut model = model(source);
+        let unused_bindings = model
+            .dataflow()
+            .unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect::<Vec<_>>();
+        let unused_names = unused_bindings
+            .into_iter()
+            .map(|binding| model.binding(binding).name.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(!unused_names.contains(&"jq_arch".to_string()));
+    }
+
+    #[test]
+    fn case_branch_join_defs_used_in_later_function_body_are_all_live() {
+        let source = "\
+case \"$arch\" in
+amd64 | x86_64)
+  jq_arch=amd64
+  core_arch=64
+  ;;
+arm64 | aarch64)
+  jq_arch=arm64
+  core_arch=arm64-v8a
+  ;;
+esac
+download() {
+  echo \"$jq_arch\"
+  echo \"$core_arch\"
+}
+";
+        let mut model = model(source);
+        let unused_bindings = model
+            .dataflow()
+            .unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect::<Vec<_>>();
+        let unused_names = unused_bindings
+            .into_iter()
+            .map(|binding| model.binding(binding).name.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(!unused_names.contains(&"jq_arch".to_string()));
+        assert!(!unused_names.contains(&"core_arch".to_string()));
+    }
+
+    #[test]
+    fn function_global_assignments_read_later_by_caller_are_live() {
+        let source = "\
+pass_args() {
+  local_install=1
+  proxy=$1
+}
+main() {
+  pass_args \"$@\"
+  printf '%s %s\\n' \"$local_install\" \"$proxy\"
+}
+main \"$@\"
+";
+        let mut model = model(source);
+        let unused_bindings = model
+            .dataflow()
+            .unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect::<Vec<_>>();
+        let unused_names = unused_bindings
+            .into_iter()
+            .map(|binding| model.binding(binding).name.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(!unused_names.contains(&"local_install".to_string()));
+        assert!(!unused_names.contains(&"proxy".to_string()));
+    }
+
+    #[test]
+    fn recursive_function_reads_keep_later_global_write_live() {
+        let source = "\
+check_status() {
+  if [[ $is_wget ]]; then
+    printf '%s\\n' ok
+  else
+    is_wget=1
+    check_status
+  fi
+}
+check_status
+";
+        let mut model = model(source);
+        let unused_bindings = model
+            .dataflow()
+            .unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect::<Vec<_>>();
+        let unused_names = unused_bindings
+            .into_iter()
+            .map(|binding| model.binding(binding).name.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(!unused_names.contains(&"is_wget".to_string()));
+    }
+
+    #[test]
     fn name_only_export_consumes_existing_binding() {
         let source = "foo=1\nexport foo\n";
         let model = model(source);
@@ -618,6 +768,33 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(getopts_target.span.slice(source), "getopts_target");
+    }
+
+    #[test]
+    fn command_prefix_assignments_do_not_create_shell_bindings() {
+        let source = "\
+base_flags=1
+CFLAGS=\"$base_flags\" make
+echo \"$CFLAGS\"
+";
+        let model = model(source);
+
+        assert!(
+            model
+                .bindings()
+                .iter()
+                .all(|binding| binding.name != "CFLAGS")
+        );
+
+        let cflags_reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::Expansion && reference.name == "CFLAGS"
+            })
+            .unwrap();
+        assert!(model.resolved_binding(cflags_reference.id).is_none());
+        assert!(model.unresolved_references().contains(&cflags_reference.id));
     }
 
     #[test]
@@ -739,9 +916,22 @@ echo $(printf '%s' \"$X\")
             );
         }
 
-        let new_dataflow = crate::dataflow::analyze(&new_cfg, &model.bindings, &model.references);
-        let legacy_dataflow =
-            crate::dataflow::analyze(&legacy_cfg, &model.bindings, &model.references);
+        let new_dataflow = crate::dataflow::analyze(
+            &new_cfg,
+            &model.scopes,
+            &model.bindings,
+            &model.references,
+            &model.resolved,
+            &model.call_sites,
+        );
+        let legacy_dataflow = crate::dataflow::analyze(
+            &legacy_cfg,
+            &model.scopes,
+            &model.bindings,
+            &model.references,
+            &model.resolved,
+            &model.call_sites,
+        );
         assert_eq!(new_dataflow, legacy_dataflow);
     }
 }

@@ -206,20 +206,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
     ) -> RecordedCommand {
         let mut nested_regions = Vec::new();
+        let command_has_name = simple_command_has_name(command, self.source);
         for assignment in &command.assignments {
-            nested_regions.extend(self.visit_assignment(
-                assignment,
-                None,
-                BindingAttributes::empty(),
-                flow,
-            ));
+            nested_regions.extend(if command_has_name {
+                self.visit_assignment_value(assignment, flow)
+            } else {
+                self.visit_assignment(assignment, None, BindingAttributes::empty(), flow)
+            });
         }
 
         nested_regions.extend(self.visit_word(&command.name, WordVisitKind::Expansion, flow));
         nested_regions.extend(self.visit_words(&command.args, WordVisitKind::Expansion, flow));
         nested_regions.extend(self.visit_redirects(&command.redirects, flow));
 
-        if let Some(name) = static_word_text(&command.name, self.source) {
+        if let Some(name) = static_word_text(&command.name, self.source)
+            && !name.is_empty()
+        {
             let callee = Name::from(name.as_str());
             let scope = self.current_scope();
             self.call_sites
@@ -753,16 +755,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         attributes: BindingAttributes,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
-        let mut nested_regions = Vec::new();
-        match &assignment.value {
-            AssignmentValue::Scalar(word) => {
-                nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
-            }
-            AssignmentValue::Array(words) => {
-                nested_regions.extend(self.visit_words(words, WordVisitKind::Expansion, flow));
-            }
-        }
-
+        let nested_regions = self.visit_assignment_value(assignment, flow);
         let (kind, scope) = declaration_kind.unwrap_or_else(|| {
             let kind = if assignment.append {
                 BindingKind::AppendAssignment
@@ -783,6 +776,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             assignment.name_span,
             attributes,
         );
+        nested_regions
+    }
+
+    fn visit_assignment_value(
+        &mut self,
+        assignment: &'a Assignment,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = Vec::new();
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => {
+                nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
+            }
+            AssignmentValue::Array(words) => {
+                nested_regions.extend(self.visit_words(words, WordVisitKind::Expansion, flow));
+            }
+        }
         nested_regions
     }
 
@@ -1545,6 +1555,10 @@ fn printf_v_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
 
 fn getopts_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
     args.get(1).and_then(|word| named_target_word(word, source))
+}
+
+fn simple_command_has_name(command: &shuck_ast::SimpleCommand, source: &str) -> bool {
+    !matches!(static_word_text(&command.name, source).as_deref(), Some(""))
 }
 
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
