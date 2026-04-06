@@ -21,6 +21,7 @@ const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
 const LARGE_CORPUS_TIMEOUT_ENV: &str = "SHUCK_LARGE_CORPUS_TIMEOUT_SECS";
 const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
 const LARGE_CORPUS_SHARDS_ENV: &str = "TEST_TOTAL_SHARDS";
+const LARGE_CORPUS_RULES_ENV: &str = "SHUCK_LARGE_CORPUS_RULES";
 const LARGE_CORPUS_SAMPLE_PERCENT_ENV: &str = "SHUCK_LARGE_CORPUS_SAMPLE_PERCENT";
 const LARGE_CORPUS_MAPPED_ONLY_ENV: &str = "SHUCK_LARGE_CORPUS_MAPPED_ONLY";
 const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
@@ -44,6 +45,7 @@ struct LargeCorpusConfig {
     timeout: Duration,
     shard_index: usize,
     total_shards: usize,
+    selected_rules: Option<shuck_linter::RuleSet>,
     sample_percent: usize,
     mapped_only: bool,
     keep_going: bool,
@@ -329,10 +331,11 @@ fn large_corpus_conforms_with_shellcheck() {
     let shellcheck_index = build_shellcheck_index();
     let sc2034_allowlist =
         load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
-    let mapped_shellcheck_codes = cfg.mapped_only.then(build_mapped_shellcheck_codes);
+    let shellcheck_filter_codes =
+        build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
     shellcheck_cache.prepare(&fixtures, &discover_worktree_roots());
-    let linter_settings = shuck_linter::LinterSettings::default();
+    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules);
     let supported_fixtures: Vec<_> = fixtures
         .iter()
         .filter(|fixture| fixture_supported_for_large_corpus(fixture, Some(&supported_shells)))
@@ -348,7 +351,7 @@ fn large_corpus_conforms_with_shellcheck() {
             &linter_settings,
             &shellcheck_index,
             &sc2034_allowlist,
-            mapped_shellcheck_codes.as_ref(),
+            shellcheck_filter_codes.as_ref(),
         )
     });
 
@@ -469,7 +472,7 @@ fn evaluate_fixture_compatibility(
     linter_settings: &shuck_linter::LinterSettings,
     shellcheck_index: &HashMap<String, String>,
     sc2034_allowlist: &[ShellCheckRuleAllowlistEntry],
-    mapped_shellcheck_codes: Option<&HashSet<u32>>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
 ) -> Option<String> {
     let mut issues: Vec<String> = Vec::new();
 
@@ -484,7 +487,7 @@ fn evaluate_fixture_compatibility(
                 sc2034_allowlist,
                 2034,
                 fixture,
-                filter_shellcheck_run(sc_run, mapped_shellcheck_codes),
+                filter_shellcheck_run(sc_run, shellcheck_filter_codes),
             );
             if shuck_run.parse_error.is_none() {
                 let sc_locations =
@@ -516,14 +519,14 @@ fn evaluate_fixture_compatibility(
 
 fn filter_shellcheck_run(
     mut run: ShellCheckRun,
-    mapped_shellcheck_codes: Option<&HashSet<u32>>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
 ) -> ShellCheckRun {
-    let Some(mapped_shellcheck_codes) = mapped_shellcheck_codes else {
+    let Some(shellcheck_filter_codes) = shellcheck_filter_codes else {
         return run;
     };
 
     run.diagnostics
-        .retain(|diag| mapped_shellcheck_codes.contains(&diag.code));
+        .retain(|diag| shellcheck_filter_codes.contains(&diag.code));
     run.parse_aborted = shellcheck_parse_aborted(&run.diagnostics);
     run
 }
@@ -797,6 +800,7 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
             );
             let total_shards = positive_env_int(LARGE_CORPUS_SHARDS_ENV, 1);
             let shard_index = non_negative_env_int(LARGE_CORPUS_SHARD_ENV, 0);
+            let selected_rules = parse_large_corpus_rule_filter_env(LARGE_CORPUS_RULES_ENV);
             let sample_percent = percentage_env_int(LARGE_CORPUS_SAMPLE_PERCENT_ENV, 100);
 
             assert!(
@@ -810,6 +814,7 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
                 timeout: Duration::from_secs(timeout_secs as u64),
                 shard_index,
                 total_shards,
+                selected_rules,
                 sample_percent,
                 mapped_only: env_truthy(LARGE_CORPUS_MAPPED_ONLY_ENV, false),
                 keep_going: env_truthy(LARGE_CORPUS_KEEP_GOING_ENV, false),
@@ -1133,10 +1138,34 @@ fn build_shellcheck_index() -> HashMap<String, String> {
         .collect()
 }
 
+fn build_large_corpus_linter_settings(
+    selected_rules: Option<shuck_linter::RuleSet>,
+) -> shuck_linter::LinterSettings {
+    selected_rules.map_or_else(shuck_linter::LinterSettings::default, |rules| {
+        shuck_linter::LinterSettings::for_rules(rules.iter())
+    })
+}
+
+fn build_shellcheck_filter_codes(
+    selected_rules: Option<shuck_linter::RuleSet>,
+    mapped_only: bool,
+) -> Option<HashSet<u32>> {
+    selected_rules
+        .map(|rules| build_selected_shellcheck_codes(&rules))
+        .or_else(|| mapped_only.then(build_mapped_shellcheck_codes))
+}
+
 fn build_mapped_shellcheck_codes() -> HashSet<u32> {
     shuck_linter::ShellCheckCodeMap::default()
         .mappings()
         .map(|(sc_code, _)| sc_code)
+        .collect()
+}
+
+fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
+    shuck_linter::ShellCheckCodeMap::default()
+        .mappings()
+        .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
         .collect()
 }
 
@@ -1701,6 +1730,38 @@ fn positive_env_int(key: &str, default: usize) -> usize {
     }
 }
 
+fn parse_large_corpus_rule_filter_env(key: &str) -> Option<shuck_linter::RuleSet> {
+    let value = env::var(key).ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(
+        parse_large_corpus_rule_set(trimmed)
+            .unwrap_or_else(|err| panic!("{key}={trimmed:?}, {err}")),
+    )
+}
+
+fn parse_large_corpus_rule_set(value: &str) -> Result<shuck_linter::RuleSet, String> {
+    let selectors: Vec<shuck_linter::RuleSelector> = value
+        .split(',')
+        .map(str::trim)
+        .filter(|selector| !selector.is_empty())
+        .map(|selector| {
+            selector
+                .parse::<shuck_linter::RuleSelector>()
+                .map_err(|err| err.to_string())
+        })
+        .collect::<Result<_, _>>()?;
+
+    if selectors.is_empty() {
+        return Err("want at least one comma-separated rule selector".into());
+    }
+
+    Ok(shuck_linter::LinterSettings::from_selectors(&selectors, &[]).rules)
+}
+
 fn percentage_env_int(key: &str, default: usize) -> usize {
     match env::var(key).ok().filter(|s| !s.is_empty()) {
         None => default,
@@ -1981,6 +2042,58 @@ mod tests {
         assert_eq!(index.get("S001").map(String::as_str), Some("SC2086"));
         assert_eq!(index.get("C006").map(String::as_str), Some("SC2154"));
         assert_eq!(index.get("C124").map(String::as_str), Some("SC2365"));
+    }
+
+    #[test]
+    fn parse_large_corpus_rule_set_accepts_csv_and_prefix_selectors() {
+        let rules = parse_large_corpus_rule_set(" C001, S001 , C02 ").unwrap();
+
+        assert!(rules.contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(rules.contains(shuck_linter::Rule::UnquotedExpansion));
+        assert!(rules.contains(shuck_linter::Rule::TruthyLiteralTest));
+        assert!(rules.contains(shuck_linter::Rule::ConstantCaseSubject));
+        assert!(rules.contains(shuck_linter::Rule::EmptyTest));
+        assert!(!rules.contains(shuck_linter::Rule::UndefinedVariable));
+    }
+
+    #[test]
+    fn parse_large_corpus_rule_set_rejects_unknown_selectors() {
+        let err = parse_large_corpus_rule_set("C001,NOPE").unwrap_err();
+
+        assert_eq!(err, "unknown rule selector `NOPE`");
+    }
+
+    #[test]
+    fn selected_rule_filter_builds_matching_shellcheck_codes() {
+        let rules = parse_large_corpus_rule_set("C001,S001").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([2034, 2086]));
+    }
+
+    #[test]
+    fn selected_rule_filter_limits_shellcheck_codes_even_when_mapped_only_is_enabled() {
+        let rules = parse_large_corpus_rule_set("C001").unwrap();
+        let codes = build_shellcheck_filter_codes(Some(rules), true).unwrap();
+
+        assert_eq!(codes, HashSet::from([2034]));
+    }
+
+    #[test]
+    fn selected_rule_filter_builds_matching_linter_settings() {
+        let rules = parse_large_corpus_rule_set("S001").unwrap();
+        let settings = build_large_corpus_linter_settings(Some(rules));
+
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::UnquotedExpansion)
+        );
+        assert!(
+            !settings
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
     }
 
     #[test]
