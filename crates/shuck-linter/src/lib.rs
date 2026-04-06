@@ -427,6 +427,13 @@ printf '%s\\n' \"${arr[@]}\"
     }
 
     #[test]
+    fn unused_append_assignment_is_not_flagged() {
+        let diagnostics = lint_for_rule("#!/bin/bash\nfoo+=bar\n", Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn later_defined_helper_assignment_to_caller_local_is_not_flagged() {
         let diagnostics = lint(
             "\

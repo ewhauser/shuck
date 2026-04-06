@@ -625,7 +625,6 @@ mod tests {
                 matches!(
                     binding.kind,
                     BindingKind::Assignment
-                        | BindingKind::AppendAssignment
                         | BindingKind::ArrayAssignment
                         | BindingKind::LoopVariable
                         | BindingKind::ReadTarget

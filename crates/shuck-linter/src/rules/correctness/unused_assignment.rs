@@ -47,7 +47,6 @@ pub fn unused_assignment(checker: &mut Checker) {
 fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
     match kind {
         BindingKind::Assignment
-        | BindingKind::AppendAssignment
         | BindingKind::ArrayAssignment
         | BindingKind::LoopVariable
         | BindingKind::ReadTarget
@@ -55,6 +54,7 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
+        BindingKind::AppendAssignment => false,
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
         }
