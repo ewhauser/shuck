@@ -1,6 +1,6 @@
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Redirect, Span, Word, WordPart,
+    ConditionalExpr, DeclOperand, FunctionDef, Redirect, RedirectKind, Span, Word, WordPart,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -31,6 +31,14 @@ pub struct NestedCommandSubstitution<'a> {
     pub commands: &'a [Command],
     pub span: Span,
     pub kind: CommandSubstitutionKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExpansionWordKind {
+    CommandArgument,
+    RedirectTarget(RedirectKind),
+    ForList,
+    SelectList,
 }
 
 pub fn walk_commands(
@@ -136,6 +144,101 @@ pub fn iter_command_substitutions<'a>(
 pub fn visit_command_words(command: &Command, visitor: &mut impl FnMut(&Word)) {
     for word in iter_command_words(command) {
         visitor(word);
+    }
+}
+
+pub fn visit_argument_words(command: &Command, visitor: &mut impl FnMut(&Word)) {
+    match command {
+        Command::Simple(command) => {
+            for word in &command.args {
+                visitor(word);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+        },
+        _ => {}
+    }
+}
+
+pub fn visit_expansion_words(
+    command: &Command,
+    visitor: &mut impl FnMut(&Word, ExpansionWordKind),
+) {
+    visit_argument_words(command, &mut |word| {
+        visitor(word, ExpansionWordKind::CommandArgument)
+    });
+
+    match command {
+        Command::Compound(command, _) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    for word in words {
+                        visitor(word, ExpansionWordKind::ForList);
+                    }
+                }
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    visitor(word, ExpansionWordKind::SelectList);
+                }
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Case(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Time(_) => {}
+        },
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Pipeline(_)
+        | Command::List(_)
+        | Command::Function(_) => {}
+    }
+
+    for redirect in command_redirects(command) {
+        if matches!(redirect.kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip) {
+            continue;
+        }
+        visitor(&redirect.target, ExpansionWordKind::RedirectTarget(redirect.kind));
     }
 }
 
@@ -991,13 +1094,13 @@ fn collect_conditional_words<'a>(expression: &'a ConditionalExpr, words: &mut Ve
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Command, Word, WordPart};
+    use shuck_ast::{Command, RedirectKind, Word, WordPart};
     use shuck_parser::parser::Parser;
 
     use super::{
-        CommandSubstitutionKind, CommandWalkOptions, command_assignments, command_redirects,
-        declaration_operands, iter_command_substitutions, iter_command_words, iter_commands,
-        iter_word_command_substitutions,
+        CommandSubstitutionKind, CommandWalkOptions, ExpansionWordKind, command_assignments,
+        command_redirects, declaration_operands, iter_command_substitutions, iter_command_words,
+        iter_commands, iter_word_command_substitutions, visit_expansion_words,
     };
 
     fn parse_commands(source: &str) -> Vec<Command> {
@@ -1274,6 +1377,45 @@ for item in \"$(printf loop)\"; do :; done\n";
         assert_eq!(
             wrapper_word_substitutions,
             vec![CommandSubstitutionKind::Command]
+        );
+    }
+
+    #[test]
+    fn visit_expansion_words_covers_args_loop_lists_and_non_heredoc_redirects() {
+        let source = "\
+printf '%s\\n' $arg >$out <<EOF
+body
+EOF
+for item in $first \"$second\"; do :; done
+select item in $choice; do :; done
+cat <<< $here
+";
+        let commands = parse_commands(source);
+        let mut seen = Vec::new();
+
+        for command in &commands {
+            visit_expansion_words(command, &mut |word, kind| {
+                seen.push((kind, word.span.slice(source).to_owned()));
+            });
+        }
+
+        assert_eq!(
+            seen,
+            vec![
+                (ExpansionWordKind::CommandArgument, "'%s\\n'".to_owned()),
+                (ExpansionWordKind::CommandArgument, "$arg".to_owned()),
+                (
+                    ExpansionWordKind::RedirectTarget(RedirectKind::Output),
+                    "$out".to_owned(),
+                ),
+                (ExpansionWordKind::ForList, "$first".to_owned()),
+                (ExpansionWordKind::ForList, "\"$second\"".to_owned()),
+                (ExpansionWordKind::SelectList, "$choice".to_owned()),
+                (
+                    ExpansionWordKind::RedirectTarget(RedirectKind::HereString),
+                    "$here".to_owned(),
+                ),
+            ]
         );
     }
 }

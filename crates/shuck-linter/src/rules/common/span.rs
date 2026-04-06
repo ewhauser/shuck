@@ -1,7 +1,7 @@
 use shuck_ast::{
     Assignment, CommandListItem, Position, Redirect, Span, TextRange, TextSize, Word, WordPart,
 };
-use shuck_indexer::Indexer;
+use shuck_indexer::{Indexer, RegionKind};
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
     assignment.name_span
@@ -54,6 +54,29 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
             | WordPart::PrefixMatch(_)
             | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. } => Some(span),
+        })
+        .collect()
+}
+
+pub fn scalar_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+    word.parts_with_spans()
+        .filter_map(|(part, span)| match part {
+            WordPart::Literal(_)
+            | WordPart::CommandSubstitution(_)
+            | WordPart::ProcessSubstitution { .. } => None,
+            WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::Substring { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch(_)
+            | WordPart::Transformation { .. } => Some(span),
+            WordPart::ArrayAccess { index, .. } => {
+                (!matches!(index.slice(source), "@" | "*")).then_some(span)
+            }
+            WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => None,
         })
         .collect()
 }
@@ -122,6 +145,15 @@ pub fn text_range_span(indexer: &Indexer, range: TextRange) -> Span {
     )
 }
 
+pub fn is_quoted_span(indexer: &Indexer, span: Span) -> bool {
+    matches!(
+        indexer
+            .region_index()
+            .region_at(TextSize::new(span.start.offset as u32)),
+        Some(RegionKind::SingleQuoted | RegionKind::DoubleQuoted)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_ast::{Position, Span, Word};
@@ -129,6 +161,7 @@ mod tests {
 
     use super::{
         array_expansion_part_spans, backtick_fragment_spans, command_substitution_part_spans,
+        scalar_expansion_part_spans,
     };
 
     #[test]
@@ -157,6 +190,39 @@ mod tests {
         let spans = array_expansion_part_spans(&command.args[1], source);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].slice(source), "${arr[@]}");
+    }
+
+    #[test]
+    fn scalar_expansion_spans_ignore_array_splats_and_command_substitutions() {
+        let source = "printf '%s\\n' prefix${name}suffix ${arr[@]} ${arr[0]} $(date)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.script.commands[0];
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            scalar_expansion_part_spans(&command.args[1], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${name}"]
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[2], source).is_empty(),
+            "array splats should be left to S008"
+        );
+        assert_eq!(
+            scalar_expansion_part_spans(&command.args[3], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[0]}"]
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[4], source).is_empty(),
+            "command substitutions should be left to S004"
+        );
     }
 
     #[test]
