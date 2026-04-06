@@ -647,6 +647,36 @@ printf '%s %s %s\\n' \"$1\" \"$@\" \"$#\"
     }
 
     #[test]
+    fn undefined_variable_ignores_bash_runtime_vars_in_bash_scripts() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn undefined_variable_still_reports_bash_runtime_vars_in_sh_scripts() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert_eq!(diagnostics.len(), 4);
+        assert!(diagnostics[0].message.contains("LINENO"));
+        assert!(diagnostics[1].message.contains("FUNCNAME"));
+        assert!(diagnostics[2].message.contains("BASH_SOURCE"));
+        assert!(diagnostics[3].message.contains("BASH_LINENO"));
+    }
+
+    #[test]
     fn unread_name_only_declarations_are_not_flagged() {
         let diagnostics = lint(
             "\

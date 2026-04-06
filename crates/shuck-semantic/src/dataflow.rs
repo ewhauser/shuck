@@ -100,6 +100,7 @@ pub(crate) fn analyze_uninitialized_references(
     cfg: &ControlFlowGraph,
     bindings: &[Binding],
     references: &[Reference],
+    predefined_runtime_refs: &FxHashSet<ReferenceId>,
 ) -> Vec<UninitializedReference> {
     let names = build_uninitialized_name_table(bindings, references);
     let binding_data = build_dense_binding_data_for_scope_count(
@@ -116,6 +117,7 @@ pub(crate) fn analyze_uninitialized_references(
         cfg,
         bindings,
         references,
+        predefined_runtime_refs,
         &names,
         &binding_data,
         &reaching_definitions,
@@ -132,6 +134,7 @@ pub(crate) fn analyze(
     scopes: &[Scope],
     bindings: &[Binding],
     references: &[Reference],
+    predefined_runtime_refs: &FxHashSet<ReferenceId>,
     resolved: &FxHashMap<ReferenceId, BindingId>,
     call_sites: &FxHashMap<Name, Vec<CallSite>>,
     indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
@@ -160,6 +163,7 @@ pub(crate) fn analyze(
         cfg,
         bindings,
         references,
+        predefined_runtime_refs,
         &names,
         &dense_binding_data,
         &dense_reaching_definitions,
@@ -179,6 +183,7 @@ fn analyze_uninitialized_references_dense(
     cfg: &ControlFlowGraph,
     bindings: &[Binding],
     references: &[Reference],
+    predefined_runtime_refs: &FxHashSet<ReferenceId>,
     names: &NameTable,
     binding_data: &DenseBindingData,
     reaching_definitions: &DenseReachingDefinitions,
@@ -218,7 +223,8 @@ fn analyze_uninitialized_references_dense(
         if matches!(
             reference.kind,
             ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
-        ) {
+        ) || predefined_runtime_refs.contains(&reference.id)
+        {
             continue;
         }
         let Some(block_id) = reference_blocks[reference.id.index()] else {

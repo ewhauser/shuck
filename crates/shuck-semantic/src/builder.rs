@@ -24,6 +24,7 @@ pub(crate) struct BuildOutput {
     pub(crate) scopes: Vec<Scope>,
     pub(crate) bindings: Vec<Binding>,
     pub(crate) references: Vec<Reference>,
+    pub(crate) predefined_runtime_refs: FxHashSet<ReferenceId>,
     pub(crate) binding_index: FxHashMap<Name, Vec<BindingId>>,
     pub(crate) resolved: FxHashMap<ReferenceId, BindingId>,
     pub(crate) unresolved: Vec<ReferenceId>,
@@ -31,6 +32,7 @@ pub(crate) struct BuildOutput {
     pub(crate) call_sites: FxHashMap<Name, Vec<CallSite>>,
     pub(crate) call_graph: CallGraph,
     pub(crate) source_refs: Vec<SourceRef>,
+    pub(crate) bash_runtime_vars_enabled: bool,
     pub(crate) declarations: Vec<Declaration>,
     pub(crate) indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     pub(crate) indirect_expansion_refs: FxHashSet<ReferenceId>,
@@ -47,6 +49,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
+    predefined_runtime_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, Vec<BindingId>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -61,6 +64,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
     source_directives: FxHashMap<usize, SourceDirectiveOverride>,
+    bash_runtime_vars_enabled: bool,
     completed_scopes: FxHashSet<ScopeId>,
     deferred_functions: Vec<DeferredFunction<'a>>,
     scope_stack: Vec<ScopeId>,
@@ -103,6 +107,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         source: &'a str,
         indexer: &'a Indexer,
         observer: &'observer mut dyn TraversalObserver,
+        bash_runtime_vars_enabled: bool,
     ) -> BuildOutput {
         let file_scope = Scope {
             id: ScopeId(0),
@@ -117,6 +122,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scopes: vec![file_scope],
             bindings: Vec::new(),
             references: Vec::new(),
+            predefined_runtime_refs: FxHashSet::default(),
             binding_index: FxHashMap::default(),
             resolved: FxHashMap::default(),
             unresolved: Vec::new(),
@@ -131,6 +137,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_bindings: FxHashMap::default(),
             command_references: FxHashMap::default(),
             source_directives: parse_source_directives(source, indexer),
+            bash_runtime_vars_enabled,
             completed_scopes: FxHashSet::default(),
             deferred_functions: Vec::new(),
             scope_stack: vec![ScopeId(0)],
@@ -147,6 +154,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scopes: builder.scopes,
             bindings: builder.bindings,
             references: builder.references,
+            predefined_runtime_refs: builder.predefined_runtime_refs,
             binding_index: builder.binding_index,
             resolved: builder.resolved,
             unresolved: builder.unresolved,
@@ -154,6 +162,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             call_sites: builder.call_sites,
             call_graph,
             source_refs: builder.source_refs,
+            bash_runtime_vars_enabled: builder.bash_runtime_vars_enabled,
             declarations: builder.declarations,
             indirect_target_hints: builder.indirect_target_hints,
             indirect_expansion_refs: builder.indirect_expansion_refs,
@@ -1221,6 +1230,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let id = ReferenceId(self.references.len() as u32);
         let scope = self.current_scope();
         let resolved = self.resolve_reference(&name, scope, span.start.offset);
+        let predefined_runtime = resolved.is_none() && self.is_predefined_runtime_var(&name);
 
         self.references.push(Reference {
             id,
@@ -1239,6 +1249,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if let Some(binding) = resolved {
             self.resolved.insert(id, binding);
             self.bindings[binding.index()].references.push(id);
+        } else if predefined_runtime {
+            self.predefined_runtime_refs.insert(id);
         } else {
             self.unresolved.push(id);
         }
@@ -1247,6 +1259,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let resolved_binding = resolved.map(|binding| &self.bindings[binding.index()]);
         self.observer.record_reference(reference, resolved_binding);
         id
+    }
+
+    fn is_predefined_runtime_var(&self, name: &Name) -> bool {
+        self.bash_runtime_vars_enabled
+            && matches!(
+                name.as_str(),
+                "BASH_SOURCE" | "FUNCNAME" | "BASH_LINENO" | "LINENO"
+            )
     }
 
     fn add_reference_if_bound(&mut self, name: Name, kind: ReferenceKind, span: Span) {

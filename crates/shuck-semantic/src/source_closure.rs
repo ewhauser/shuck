@@ -50,6 +50,7 @@ fn collect_source_closure_reads_with_cache(
             &source_ref.kind,
             facts.source_templates.get(&SpanKey::new(source_ref.span)),
             call_args_by_scope.get(&scope).map(Vec::as_slice),
+            source_path,
         );
 
         extend_synthetic_reads_for_candidates(
@@ -122,13 +123,15 @@ struct CallInfo {
 
 #[derive(Debug, Clone)]
 enum SourcePathTemplate {
-    RelativeSuffix(Vec<TemplatePart>),
+    Interpolated(Vec<TemplatePart>),
 }
 
 #[derive(Debug, Clone)]
 enum TemplatePart {
     Literal(String),
     Arg(usize),
+    SourceDir,
+    SourceFile,
 }
 
 fn collect_ast_facts(script: &Script, model: &SemanticModel, source: &str) -> AstFacts {
@@ -165,7 +168,8 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
 
                 if matches!(name.as_str(), "source" | ".")
                     && let Some(argument) = command.args.first()
-                    && let Some(template) = source_path_template(argument, source)
+                    && let Some(template) =
+                        source_path_template(argument, source, model.bash_runtime_vars_enabled())
                 {
                     facts
                         .source_templates
@@ -415,7 +419,11 @@ fn walk_conditional_expr(
     }
 }
 
-fn source_path_template(word: &Word, source: &str) -> Option<SourcePathTemplate> {
+fn source_path_template(
+    word: &Word,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+) -> Option<SourcePathTemplate> {
     if static_word_text(word, source).is_some() {
         return None;
     }
@@ -436,9 +444,28 @@ fn source_path_template(word: &Word, source: &str) -> Option<SourcePathTemplate>
                 if let Some(index) = positional_index(name) {
                     saw_dynamic = true;
                     parts.push(TemplatePart::Arg(index));
+                } else if bash_runtime_vars_enabled && is_bash_source_var(name) {
+                    saw_dynamic = true;
+                    parts.push(TemplatePart::SourceFile);
                 } else if !ignored_root && parts.is_empty() {
                     ignored_root = true;
                     saw_dynamic = true;
+                } else {
+                    return None;
+                }
+            }
+            WordPart::ArrayAccess { name, index }
+                if bash_runtime_vars_enabled && is_bash_source_index(name, index, source) =>
+            {
+                saw_dynamic = true;
+                parts.push(TemplatePart::SourceFile);
+            }
+            WordPart::CommandSubstitution(commands) => {
+                if bash_runtime_vars_enabled
+                    && let Some(template_part) = dirname_source_template_part(commands, source)
+                {
+                    saw_dynamic = true;
+                    parts.push(template_part);
                 } else {
                     return None;
                 }
@@ -447,7 +474,7 @@ fn source_path_template(word: &Word, source: &str) -> Option<SourcePathTemplate>
         }
     }
 
-    (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::RelativeSuffix(parts))
+    (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::Interpolated(parts))
 }
 
 fn push_literal(parts: &mut Vec<TemplatePart>, text: String) {
@@ -462,16 +489,48 @@ fn positional_index(name: &Name) -> Option<usize> {
     name.as_str().parse().ok()
 }
 
+fn is_bash_source_var(name: &Name) -> bool {
+    name.as_str() == "BASH_SOURCE"
+}
+
+fn is_bash_source_index(name: &Name, index: &SourceText, source: &str) -> bool {
+    is_bash_source_var(name) && index.slice(source).trim() == "0"
+}
+
+fn dirname_source_template_part(commands: &[Command], source: &str) -> Option<TemplatePart> {
+    let [Command::Simple(command)] = commands else {
+        return None;
+    };
+    if !command.assignments.is_empty() || !command.redirects.is_empty() || command.args.len() != 1 {
+        return None;
+    }
+    if static_word_text(&command.name, source).as_deref() != Some("dirname") {
+        return None;
+    }
+    current_source_file_word(&command.args[0], source).then_some(TemplatePart::SourceDir)
+}
+
+fn current_source_file_word(word: &Word, source: &str) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [WordPart::Variable(name)] if is_bash_source_var(name)
+    ) || matches!(
+        word.parts.as_slice(),
+        [WordPart::ArrayAccess { name, index }] if is_bash_source_index(name, index, source)
+    )
+}
+
 fn source_candidates(
     kind: &SourceRefKind,
     template: Option<&SourcePathTemplate>,
     call_args: Option<&[Vec<Option<String>>]>,
+    source_path: &Path,
 ) -> Vec<String> {
     match kind {
         SourceRefKind::DirectiveDevNull => Vec::new(),
         SourceRefKind::Literal(path) | SourceRefKind::Directive(path) => vec![path.clone()],
         SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. } => {
-            source_candidates_from_template(template, call_args)
+            source_candidates_from_template(template, call_args, source_path)
         }
     }
 }
@@ -479,21 +538,24 @@ fn source_candidates(
 fn source_candidates_from_template(
     template: Option<&SourcePathTemplate>,
     call_args: Option<&[Vec<Option<String>>]>,
+    source_path: &Path,
 ) -> Vec<String> {
     let Some(template) = template else {
         return Vec::new();
     };
 
     match template {
-        SourcePathTemplate::RelativeSuffix(parts) => {
+        SourcePathTemplate::Interpolated(parts) => {
             if uses_positional_args(parts) {
                 call_args
                     .into_iter()
                     .flatten()
-                    .filter_map(|args| render_relative_suffix(parts, args))
+                    .filter_map(|args| render_template_candidate(parts, args, source_path))
                     .collect()
             } else {
-                render_relative_suffix(parts, &[]).into_iter().collect()
+                render_template_candidate(parts, &[], source_path)
+                    .into_iter()
+                    .collect()
             }
         }
     }
@@ -518,7 +580,11 @@ fn uses_positional_args(parts: &[TemplatePart]) -> bool {
         .any(|part| matches!(part, TemplatePart::Arg(_)))
 }
 
-fn render_relative_suffix(parts: &[TemplatePart], args: &[Option<String>]) -> Option<String> {
+fn render_template_candidate(
+    parts: &[TemplatePart],
+    args: &[Option<String>],
+    source_path: &Path,
+) -> Option<String> {
     let mut rendered = String::new();
     for part in parts {
         match part {
@@ -527,10 +593,30 @@ fn render_relative_suffix(parts: &[TemplatePart], args: &[Option<String>]) -> Op
                 let value = args.get(index.saturating_sub(1))?.as_ref()?;
                 rendered.push_str(value);
             }
+            TemplatePart::SourceDir => {
+                let value = source_path.parent()?.to_string_lossy();
+                rendered.push_str(&value);
+            }
+            TemplatePart::SourceFile => {
+                let value = source_path.to_string_lossy();
+                rendered.push_str(&value);
+            }
         }
     }
 
-    let normalized = rendered
+    let trimmed = rendered.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let source_derived = parts
+        .iter()
+        .any(|part| matches!(part, TemplatePart::SourceDir | TemplatePart::SourceFile));
+    if source_derived && Path::new(trimmed).is_absolute() {
+        return Some(trimmed.to_owned());
+    }
+
+    let normalized = trimmed
         .trim_start_matches("./")
         .trim_start_matches('/')
         .to_owned();
@@ -717,7 +803,15 @@ fn summarize_helper_uncached(
         return FxHashSet::default();
     };
     let indexer = Indexer::new(&source, &output);
-    let semantic = SemanticModel::build(&output.script, &source, &indexer);
+    let mut observer = crate::NoopTraversalObserver;
+    let semantic = crate::build_semantic_model(
+        &output.script,
+        &source,
+        &indexer,
+        &mut observer,
+        Some(path),
+        false,
+    );
 
     let mut reads = semantic
         .unresolved_references()

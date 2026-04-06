@@ -92,6 +92,7 @@ pub struct SemanticModel {
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
+    predefined_runtime_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, Vec<BindingId>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -99,6 +100,7 @@ pub struct SemanticModel {
     call_sites: FxHashMap<Name, Vec<CallSite>>,
     call_graph: CallGraph,
     source_refs: Vec<SourceRef>,
+    bash_runtime_vars_enabled: bool,
     declarations: Vec<Declaration>,
     indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_expansion_refs: FxHashSet<ReferenceId>,
@@ -126,6 +128,7 @@ impl SemanticModel {
             scopes: built.scopes,
             bindings: built.bindings,
             references: built.references,
+            predefined_runtime_refs: built.predefined_runtime_refs,
             binding_index: built.binding_index,
             resolved: built.resolved,
             unresolved: built.unresolved,
@@ -133,6 +136,7 @@ impl SemanticModel {
             call_sites: built.call_sites,
             call_graph: built.call_graph,
             source_refs: built.source_refs,
+            bash_runtime_vars_enabled: built.bash_runtime_vars_enabled,
             declarations: built.declarations,
             indirect_target_hints: built.indirect_target_hints,
             indirect_expansion_refs: built.indirect_expansion_refs,
@@ -323,6 +327,10 @@ impl SemanticModel {
         &self.source_refs
     }
 
+    pub(crate) fn bash_runtime_vars_enabled(&self) -> bool {
+        self.bash_runtime_vars_enabled
+    }
+
     pub fn cfg(&mut self) -> &ControlFlowGraph {
         if self.cfg.is_none() {
             self.cfg = Some(build_control_flow_graph(
@@ -351,6 +359,7 @@ impl SemanticModel {
                     &self.scopes,
                     &self.bindings,
                     &self.references,
+                    &self.predefined_runtime_refs,
                     &self.resolved,
                     &self.call_sites,
                     &self.indirect_target_hints,
@@ -402,9 +411,13 @@ impl SemanticModel {
                 ));
             }
             let cfg = self.cfg.as_ref().unwrap();
-            self.precise_uninitialized_references = Some(
-                dataflow::analyze_uninitialized_references(cfg, &self.bindings, &self.references),
-            );
+            self.precise_uninitialized_references =
+                Some(dataflow::analyze_uninitialized_references(
+                    cfg,
+                    &self.bindings,
+                    &self.references,
+                    &self.predefined_runtime_refs,
+                ));
         }
         self.precise_uninitialized_references.as_deref().unwrap()
     }
@@ -455,7 +468,7 @@ pub fn build_with_observer(
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
 ) -> SemanticModel {
-    build_with_observer_at_path(script, source, indexer, observer, None)
+    build_semantic_model(script, source, indexer, observer, None, false)
 }
 
 #[doc(hidden)]
@@ -466,14 +479,53 @@ pub fn build_with_observer_at_path(
     observer: &mut dyn TraversalObserver,
     source_path: Option<&Path>,
 ) -> SemanticModel {
-    let built = SemanticModelBuilder::build(script, source, indexer, observer);
+    build_semantic_model(script, source, indexer, observer, source_path, true)
+}
+
+fn build_semantic_model(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    source_path: Option<&Path>,
+    include_source_closure: bool,
+) -> SemanticModel {
+    let built = SemanticModelBuilder::build(
+        script,
+        source,
+        indexer,
+        observer,
+        bash_runtime_vars_enabled(source, source_path),
+    );
     let mut model = SemanticModel::from_build_output(built);
-    if let Some(source_path) = source_path {
+    if include_source_closure && let Some(source_path) = source_path {
         let synthetic_reads =
             source_closure::collect_source_closure_reads(&model, script, source, source_path);
         model.set_synthetic_reads(synthetic_reads);
     }
     model
+}
+
+fn bash_runtime_vars_enabled(source: &str, path: Option<&Path>) -> bool {
+    infer_bash_from_shebang(source).unwrap_or_else(|| {
+        path.and_then(|path| path.extension().and_then(|ext| ext.to_str()))
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("bash"))
+    })
+}
+
+fn infer_bash_from_shebang(source: &str) -> Option<bool> {
+    let first_line = source.lines().next()?.trim();
+    let line = first_line.strip_prefix("#!")?.trim();
+
+    let mut parts = line.split_whitespace();
+    let first = parts.next()?;
+    let interpreter = if Path::new(first).file_name()?.to_str()? == "env" {
+        parts.next()?
+    } else {
+        Path::new(first).file_name()?.to_str()?
+    };
+
+    Some(interpreter.eq_ignore_ascii_case("bash"))
 }
 
 fn contains_offset(span: Span, offset: usize) -> bool {
@@ -1299,6 +1351,72 @@ printf '%s\\n' \"${!args_var}\"
     }
 
     #[test]
+    fn bash_runtime_vars_are_not_marked_uninitialized() {
+        let source = "\
+#!/bin/bash
+printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
+";
+        let mut model = model(source);
+
+        let unresolved = model
+            .unresolved_references()
+            .iter()
+            .map(|reference| model.reference(*reference).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unresolved.contains(&"LINENO"));
+        assert!(!unresolved.contains(&"FUNCNAME"));
+        assert!(!unresolved.contains(&"BASH_SOURCE"));
+        assert!(!unresolved.contains(&"BASH_LINENO"));
+
+        let uninitialized_ids = model
+            .precompute_uninitialized_references()
+            .iter()
+            .map(|reference| reference.reference)
+            .collect::<Vec<_>>();
+        let uninitialized = uninitialized_ids
+            .iter()
+            .map(|reference| model.reference(*reference).name.to_string())
+            .collect::<Vec<_>>();
+        assert!(!uninitialized.iter().any(|name| name == "LINENO"));
+        assert!(!uninitialized.iter().any(|name| name == "FUNCNAME"));
+        assert!(!uninitialized.iter().any(|name| name == "BASH_SOURCE"));
+        assert!(!uninitialized.iter().any(|name| name == "BASH_LINENO"));
+    }
+
+    #[test]
+    fn bash_runtime_vars_remain_unresolved_in_non_bash_scripts() {
+        let source = "\
+#!/bin/sh
+printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
+";
+        let mut model = model(source);
+
+        let unresolved = model
+            .unresolved_references()
+            .iter()
+            .map(|reference| model.reference(*reference).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(unresolved.contains(&"LINENO"));
+        assert!(unresolved.contains(&"FUNCNAME"));
+        assert!(unresolved.contains(&"BASH_SOURCE"));
+        assert!(unresolved.contains(&"BASH_LINENO"));
+
+        let uninitialized_ids = model
+            .precompute_uninitialized_references()
+            .iter()
+            .map(|reference| reference.reference)
+            .collect::<Vec<_>>();
+        let uninitialized = uninitialized_ids
+            .iter()
+            .map(|reference| model.reference(*reference).name.to_string())
+            .collect::<Vec<_>>();
+        assert!(uninitialized.iter().any(|name| name == "LINENO"));
+        assert!(uninitialized.iter().any(|name| name == "FUNCNAME"));
+        assert!(uninitialized.iter().any(|name| name == "BASH_SOURCE"));
+        assert!(uninitialized.iter().any(|name| name == "BASH_LINENO"));
+    }
+
+    #[test]
     fn deferred_nested_function_bodies_resolve_later_outer_bindings() {
         let source = "\
 outer() {
@@ -1351,6 +1469,78 @@ flag=1
         )
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn bash_source_file_suffix_reads_keep_top_level_assignment_live_transitively() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("loader.bash__dep.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"${BASH_SOURCE[0]}__dep.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn bash_source_dirname_reads_keep_top_level_assignment_live_transitively() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("helper.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"$(dirname \"${BASH_SOURCE[0]}\")/helper.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
         let mut model = model_at_path(&main);
 
@@ -1440,6 +1630,80 @@ load helper.sh
         )
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn unsupported_bash_source_alias_fallback_does_not_keep_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("helper.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+SELF=\"${BASH_SOURCE}\"
+source \"$(dirname \"${SELF:-$0}\")/helper.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            !model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.contains(&Name::from("flag")), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn shellcheck_source_directive_overrides_bash_source_template() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("alt-helper.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+# shellcheck source=alt-helper.bash
+source \"$(dirname \"${BASH_SOURCE[0]}\")/missing-helper.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
         let mut model = model_at_path(&main);
 
@@ -1547,6 +1811,7 @@ echo $(printf '%s' \"$X\")
             &model.scopes,
             &model.bindings,
             &model.references,
+            &model.predefined_runtime_refs,
             &model.resolved,
             &model.call_sites,
             &model.indirect_target_hints,
@@ -1558,6 +1823,7 @@ echo $(printf '%s' \"$X\")
             &model.scopes,
             &model.bindings,
             &model.references,
+            &model.predefined_runtime_refs,
             &model.resolved,
             &model.call_sites,
             &model.indirect_target_hints,
