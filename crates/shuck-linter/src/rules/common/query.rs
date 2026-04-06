@@ -235,10 +235,16 @@ pub fn visit_expansion_words(
     }
 
     for redirect in command_redirects(command) {
-        if matches!(redirect.kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip) {
+        if matches!(
+            redirect.kind,
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip
+        ) {
             continue;
         }
-        visitor(&redirect.target, ExpansionWordKind::RedirectTarget(redirect.kind));
+        visitor(
+            &redirect.target,
+            ExpansionWordKind::RedirectTarget(redirect.kind),
+        );
     }
 }
 
