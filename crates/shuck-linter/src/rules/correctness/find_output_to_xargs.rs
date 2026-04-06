@@ -21,7 +21,6 @@ impl Violation for FindOutputToXargs {
 
 pub fn find_output_to_xargs(checker: &mut Checker) {
     let source = checker.source();
-    let mut spans = Vec::new();
 
     query::walk_commands(
         &checker.ast().commands,
@@ -33,16 +32,11 @@ pub fn find_output_to_xargs(checker: &mut Checker) {
                 return;
             };
 
-            spans.extend(unsafe_find_to_xargs_spans(pipeline, source));
+            for span in unsafe_find_to_xargs_spans(pipeline, source) {
+                checker.report_dedup(FindOutputToXargs, span);
+            }
         },
     );
-
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup();
-
-    for span in spans {
-        checker.report(FindOutputToXargs, span);
-    }
 }
 
 fn unsafe_find_to_xargs_spans(pipeline: &Pipeline, source: &str) -> Vec<Span> {
@@ -81,4 +75,19 @@ fn xargs_uses_null_input(args: &[&Word], source: &str) -> bool {
             arg == "--null"
                 || (arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains('0'))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn anchors_on_effective_find_command_name() {
+        let source = "command find . -type f | xargs wc -l\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "find");
+    }
 }

@@ -3,6 +3,7 @@ use shuck_ast::AssignmentValue;
 use crate::rules::common::{
     command::{self, DeclarationKind},
     query::{self, CommandWalkOptions},
+    span,
     word::classify_word,
 };
 use crate::{Checker, Rule, Violation};
@@ -22,8 +23,6 @@ impl Violation for ExportCommandSubstitution {
 }
 
 pub fn export_command_substitution(checker: &mut Checker) {
-    let mut diagnostics = Vec::new();
-
     query::walk_commands(
         &checker.ast().commands,
         CommandWalkOptions {
@@ -51,13 +50,43 @@ pub fn export_command_substitution(checker: &mut Checker) {
                 };
 
                 if classify_word(word, checker.source()).has_command_substitution() {
-                    diagnostics.push((assignment.span, assignment.name.to_string()));
+                    checker.report_dedup(
+                        ExportCommandSubstitution {
+                            name: assignment.name.to_string(),
+                        },
+                        span::assignment_name_span(assignment),
+                    );
                 }
             }
         },
     );
+}
 
-    for (span, name) in diagnostics {
-        checker.report(ExportCommandSubstitution { name }, span);
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn anchors_on_declaration_assignment_names() {
+        let source = "\
+#!/bin/bash
+export greeting=$(printf '%s\\n' hi)
+demo() {
+  local temp=\"$(date)\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["greeting", "temp"]
+        );
     }
 }

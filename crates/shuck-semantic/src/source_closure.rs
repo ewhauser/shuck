@@ -239,8 +239,8 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
         Command::Pipeline(command) => walk_commands(&command.commands, model, source, facts),
         Command::List(command) => {
             walk_command(command.first.as_ref(), model, source, facts);
-            for (_, command) in &command.rest {
-                walk_command(command, model, source, facts);
+            for item in &command.rest {
+                walk_command(&item.command, model, source, facts);
             }
         }
         Command::Compound(command, redirects) => {

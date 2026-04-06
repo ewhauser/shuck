@@ -276,7 +276,12 @@ fn convert_command(
                 first: Box::new(convert_command(first, scopes, function_bodies)),
                 rest: rest
                     .iter()
-                    .map(|(op, command)| (*op, convert_command(command, scopes, function_bodies)))
+                    .map(|item| {
+                        (
+                            item.operator,
+                            convert_command(&item.command, scopes, function_bodies),
+                        )
+                    })
                     .collect(),
             },
         },
@@ -528,9 +533,9 @@ fn collect_regions_from_command(
             .collect(),
         Command::List(CommandList { first, rest, .. }) => {
             let mut regions = collect_regions_from_command(first, scopes, function_bodies);
-            for (_, command) in rest {
+            for item in rest {
                 regions.extend(collect_regions_from_command(
-                    command,
+                    &item.command,
                     scopes,
                     function_bodies,
                 ));

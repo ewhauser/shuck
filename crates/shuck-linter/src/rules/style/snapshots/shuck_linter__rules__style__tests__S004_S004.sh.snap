@@ -8,7 +8,7 @@ S004 quote command substitutions in arguments to avoid word splitting
   |
 
 S004 quote command substitutions in arguments to avoid word splitting
- --> <source>:4:15
+ --> <source>:4:21
   |
 4 | printf '%s\n' prefix$(date)suffix
   |

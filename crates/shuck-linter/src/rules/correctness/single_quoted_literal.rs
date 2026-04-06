@@ -1,7 +1,7 @@
-use crate::rules::common::command;
+use crate::rules::common::{command, span};
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, Position, Redirect,
+    ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, Redirect,
     SimpleCommand, Span, TextSize, Word, WordPart,
 };
 use shuck_indexer::Indexer;
@@ -54,7 +54,7 @@ pub fn single_quoted_literal(checker: &mut Checker) {
     );
 
     for span in spans {
-        checker.report(SingleQuotedLiteral, span);
+        checker.report_dedup(SingleQuotedLiteral, span);
     }
 }
 
@@ -80,8 +80,8 @@ fn collect_command(command: &Command, indexer: &Indexer, source: &str, spans: &m
         Command::Pipeline(command) => collect_commands(&command.commands, indexer, source, spans),
         Command::List(CommandList { first, rest, .. }) => {
             collect_command(first, indexer, source, spans);
-            for (_, command) in rest {
-                collect_command(command, indexer, source, spans);
+            for item in rest {
+                collect_command(&item.command, indexer, source, spans);
             }
         }
         Command::Compound(command, redirects) => {
@@ -318,7 +318,7 @@ fn collect_word(
             WordPart::Literal(text) if is_single_quoted(indexer, span) => {
                 let text = text.as_str(source, span);
                 if should_report_single_quoted_literal(text, context) {
-                    spans.push(anchor_single_quote_span(indexer, span));
+                    spans.push(span::single_quoted_region_span(indexer, span));
                 }
             }
             WordPart::CommandSubstitution(commands)
@@ -408,32 +408,6 @@ fn should_report_single_quoted_literal(text: &str, context: ScanContext<'_>) -> 
     }
 
     true
-}
-
-fn anchor_single_quote_span(indexer: &Indexer, span: Span) -> Span {
-    let offset = TextSize::new(span.start.offset as u32);
-    let Some(range) = indexer.region_index().single_quoted_range_at(offset) else {
-        return span;
-    };
-
-    Span::from_positions(
-        position_for_offset(indexer, range.start()),
-        position_for_offset(indexer, range.end()),
-    )
-}
-
-fn position_for_offset(indexer: &Indexer, offset: TextSize) -> Position {
-    let line = indexer.line_index().line_number(offset);
-    let line_start = indexer
-        .line_index()
-        .line_start(line)
-        .unwrap_or_else(|| TextSize::new(0));
-
-    Position {
-        line,
-        column: usize::from(offset) - usize::from(line_start) + 1,
-        offset: usize::from(offset),
-    }
 }
 
 fn contains_sc2016_trigger(text: &str) -> bool {

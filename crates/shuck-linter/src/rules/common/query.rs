@@ -192,8 +192,8 @@ fn collect_command_visit<'a>(
         }
         Command::List(CommandList { first, rest, .. }) => {
             collect_command_visit(first, options, context, visits);
-            for (_, command) in rest {
-                collect_command_visit(command, options, context, visits);
+            for item in rest {
+                collect_command_visit(&item.command, options, context, visits);
             }
         }
         Command::Compound(command, redirects) => {
@@ -461,8 +461,8 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
             Command::Pipeline(command) => self.walk_commands(&command.commands, context),
             Command::List(CommandList { first, rest, .. }) => {
                 self.walk_command(first, context);
-                for (_, command) in rest {
-                    self.walk_command(command, context);
+                for item in rest {
+                    self.walk_command(&item.command, context);
                 }
             }
             Command::Compound(command, redirects) => {
@@ -679,8 +679,8 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
             Command::Pipeline(command) => self.walk_commands(&command.commands),
             Command::List(CommandList { first, rest, .. }) => {
                 self.walk_command(first);
-                for (_, command) in rest {
-                    self.walk_command(command);
+                for item in rest {
+                    self.walk_command(&item.command);
                 }
             }
             Command::Compound(command, redirects) => {

@@ -1,6 +1,7 @@
 use crate::rules::common::{
     command,
     query::{self, CommandWalkOptions},
+    span,
     word::classify_word,
 };
 use crate::{Checker, Rule, Violation};
@@ -18,7 +19,6 @@ impl Violation for EchoedCommandSubstitution {
 
 pub fn echoed_command_substitution(checker: &mut Checker) {
     let source = checker.source();
-    let mut spans = Vec::new();
 
     query::walk_commands(
         &checker.ast().commands,
@@ -36,14 +36,12 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
             };
 
             if classify_word(word, source).has_plain_command_substitution() {
-                spans.push(normalized.body_span);
+                for span in span::command_substitution_part_spans(word) {
+                    checker.report_dedup(EchoedCommandSubstitution, span);
+                }
             }
         },
     );
-
-    for span in spans {
-        checker.report(EchoedCommandSubstitution, span);
-    }
 }
 
 #[cfg(test)]
@@ -66,5 +64,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1]
         );
+        assert_eq!(diagnostics[0].span.slice(source), "$(date)");
     }
 }

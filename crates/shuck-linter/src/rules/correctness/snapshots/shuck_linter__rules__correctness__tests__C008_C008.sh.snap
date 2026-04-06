@@ -2,13 +2,13 @@
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
 C008 double-quoted trap handlers expand variables when the trap is set
- --> <source>:7:6
+ --> <source>:7:12
   |
 7 | trap "echo $x" EXIT
   |
 
 C008 double-quoted trap handlers expand variables when the trap is set
-  --> <source>:10:9
+  --> <source>:10:24
    |
 10 | trap -- "printf '%s\n' $handler" INT
    |

@@ -134,22 +134,22 @@ impl<'a> Printer<'a> {
         let mut current_chain: Vec<(ListOperator, &Command)> = Vec::new();
         let mut current_last: &Command = &list.first;
 
-        for (op, next) in &list.rest {
-            match op {
+        for item in &list.rest {
+            match item.operator {
                 ListOperator::And | ListOperator::Or => {
-                    current_chain.push((*op, next));
-                    current_last = next;
+                    current_chain.push((item.operator, &item.command));
+                    current_last = &item.command;
                 }
                 ListOperator::Semicolon | ListOperator::Background => {
-                    let search_end = if self.is_background_placeholder(next) {
+                    let search_end = if self.is_background_placeholder(&item.command) {
                         list.span.end.offset
                     } else {
-                        self.command_span(next).start.offset
+                        self.command_span(&item.command).start.offset
                     };
                     let semicolon = self.find_operator_after_span(
                         self.command_span(current_last),
                         search_end,
-                        match op {
+                        match item.operator {
                             ListOperator::Semicolon => ";",
                             ListOperator::Background => "&",
                             _ => unreachable!(),
@@ -159,14 +159,14 @@ impl<'a> Printer<'a> {
                         base: current_base,
                         chain: current_chain.clone(),
                         semicolon,
-                        background: matches!(op, ListOperator::Background),
+                        background: matches!(item.operator, ListOperator::Background),
                     });
-                    if self.is_background_placeholder(next) {
+                    if self.is_background_placeholder(&item.command) {
                         return fragments;
                     }
-                    current_base = next;
+                    current_base = &item.command;
                     current_chain.clear();
-                    current_last = next;
+                    current_last = &item.command;
                 }
             }
         }
@@ -318,8 +318,10 @@ impl<'a> Printer<'a> {
                     chain: list
                         .rest
                         .iter()
-                        .filter_map(|(op, cmd)| match op {
-                            ListOperator::And | ListOperator::Or => Some((*op, cmd)),
+                        .filter_map(|item| match item.operator {
+                            ListOperator::And | ListOperator::Or => {
+                                Some((item.operator, &item.command))
+                            }
                             _ => None,
                         })
                         .collect(),

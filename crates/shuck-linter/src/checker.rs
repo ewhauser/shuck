@@ -1,3 +1,4 @@
+use rustc_hash::FxHashSet;
 use shuck_ast::{Script, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
@@ -12,6 +13,24 @@ pub struct Checker<'a> {
     rules: &'a RuleSet,
     shell: ShellDialect,
     diagnostics: Vec<Diagnostic>,
+    reported: FxHashSet<DiagnosticKey>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DiagnosticKey {
+    rule: Rule,
+    start: usize,
+    end: usize,
+}
+
+impl DiagnosticKey {
+    fn new(rule: Rule, span: Span) -> Self {
+        Self {
+            rule,
+            start: span.start.offset,
+            end: span.end.offset,
+        }
+    }
 }
 
 impl<'a> Checker<'a> {
@@ -31,6 +50,7 @@ impl<'a> Checker<'a> {
             rules,
             shell,
             diagnostics: Vec::new(),
+            reported: FxHashSet::default(),
         }
     }
 
@@ -59,7 +79,19 @@ impl<'a> Checker<'a> {
     }
 
     pub fn report<V: Violation>(&mut self, violation: V, span: Span) {
-        self.diagnostics.push(Diagnostic::new(violation, span));
+        let diagnostic = Diagnostic::new(violation, span);
+        self.reported
+            .insert(DiagnosticKey::new(diagnostic.rule, diagnostic.span));
+        self.diagnostics.push(diagnostic);
+    }
+
+    pub fn report_dedup<V: Violation>(&mut self, violation: V, span: Span) {
+        let diagnostic = Diagnostic::new(violation, span);
+        let key = DiagnosticKey::new(diagnostic.rule, diagnostic.span);
+        if !self.reported.insert(key) {
+            return;
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     pub fn check(mut self) -> Vec<Diagnostic> {

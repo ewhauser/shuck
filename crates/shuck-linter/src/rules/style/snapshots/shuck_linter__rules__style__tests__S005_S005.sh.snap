@@ -8,7 +8,7 @@ S005 prefer `$(...)` over legacy backtick substitution
   |
 
 S005 prefer `$(...)` over legacy backtick substitution
- --> <source>:6:6
+ --> <source>:6:16
   |
 6 | echo "today is `date`"
   |

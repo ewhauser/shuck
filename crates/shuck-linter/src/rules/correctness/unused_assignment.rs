@@ -61,3 +61,18 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn anchors_on_variable_name_span() {
+        let source = "#!/bin/sh\nunused=1\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+}

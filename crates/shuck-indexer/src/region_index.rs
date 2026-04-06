@@ -238,8 +238,8 @@ impl<'a> RegionCollector<'a> {
             Command::Pipeline(pipeline) => self.visit_commands(&pipeline.commands),
             Command::List(CommandList { first, rest, .. }) => {
                 self.visit_command(first);
-                for (_, command) in rest {
-                    self.visit_command(command);
+                for item in rest {
+                    self.visit_command(&item.command);
                 }
             }
             Command::Compound(command, redirects) => {

@@ -1,8 +1,9 @@
-use shuck_ast::{Command, Redirect, RedirectKind};
+use shuck_ast::{Redirect, RedirectKind};
 
 use crate::rules::common::{
     command::{self, WrapperKind},
     query::{self, CommandWalkOptions},
+    span,
     word::static_word_text,
 };
 use crate::{Checker, Rule, Violation};
@@ -21,7 +22,6 @@ impl Violation for SudoRedirectionOrder {
 
 pub fn sudo_redirection_order(checker: &mut Checker) {
     let source = checker.source();
-    let mut spans = Vec::new();
 
     query::walk_commands(
         &checker.ast().commands,
@@ -38,29 +38,16 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
                 return;
             }
 
-            let has_hazardous_redirect = query::command_redirects(command).iter().any(|redirect| {
-                redirects_output_to_file(redirect) && !redirect_target_is_dev_null(redirect, source)
-            });
-            if !has_hazardous_redirect {
-                return;
+            for redirect in query::command_redirects(command) {
+                if redirects_output_to_file(redirect)
+                    && !redirect_target_is_dev_null(redirect, source)
+                {
+                    checker
+                        .report_dedup(SudoRedirectionOrder, span::redirect_target_span(redirect));
+                }
             }
-
-            let span = match command {
-                Command::Simple(command) => command.span,
-                Command::Builtin(_)
-                | Command::Decl(_)
-                | Command::Pipeline(_)
-                | Command::List(_)
-                | Command::Compound(_, _)
-                | Command::Function(_) => normalized.body_span,
-            };
-            spans.push(span);
         },
     );
-
-    for span in spans {
-        checker.report(SudoRedirectionOrder, span);
-    }
 }
 
 fn redirects_output_to_file(redirect: &Redirect) -> bool {
@@ -76,4 +63,27 @@ fn redirects_output_to_file(redirect: &Redirect) -> bool {
 
 fn redirect_target_is_dev_null(redirect: &Redirect, source: &str) -> bool {
     static_word_text(&redirect.target, source).as_deref() == Some("/dev/null")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_each_hazardous_redirect_target() {
+        let source = "#!/bin/bash\nsudo printf '%s\\n' ok > out.txt 2>> err.log\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SudoRedirectionOrder),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["out.txt", "err.log"]
+        );
+    }
 }

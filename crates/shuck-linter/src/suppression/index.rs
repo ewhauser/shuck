@@ -258,8 +258,8 @@ where
         Command::Pipeline(command) => walk_commands(&command.commands, visit),
         Command::List(command) => {
             walk_command(command.first.as_ref(), visit);
-            for (_, command) in &command.rest {
-                walk_command(command, visit);
+            for item in &command.rest {
+                walk_command(&item.command, visit);
             }
         }
         Command::Compound(command, redirects) => {

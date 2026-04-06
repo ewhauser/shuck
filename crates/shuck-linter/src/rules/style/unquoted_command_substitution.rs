@@ -1,4 +1,5 @@
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::span;
 use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
@@ -17,8 +18,6 @@ impl Violation for UnquotedCommandSubstitution {
 }
 
 pub fn unquoted_command_substitution(checker: &mut Checker) {
-    let mut spans = Vec::new();
-
     query::walk_commands(
         &checker.ast().commands,
         CommandWalkOptions {
@@ -28,16 +27,34 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
             visit_argument_words(command, |word| {
                 let classification = classify_word(word, checker.source());
                 if !word.quoted && classification.has_command_substitution() {
-                    spans.push(word.span);
+                    for span in span::command_substitution_part_spans(word) {
+                        checker.report_dedup(UnquotedCommandSubstitution, span);
+                    }
                 }
             });
         },
     );
+}
 
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup();
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
 
-    for span in spans {
-        checker.report(UnquotedCommandSubstitution, span);
+    #[test]
+    fn anchors_on_inner_command_substitution_spans() {
+        let source = "printf '%s\\n' prefix$(date)suffix $(uname)\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(date)", "$(uname)"]
+        );
     }
 }

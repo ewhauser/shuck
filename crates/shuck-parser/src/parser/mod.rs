@@ -21,8 +21,8 @@ pub use lexer::{
 
 use shuck_ast::{
     ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,
-    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, Comment,
-    CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
+    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CommandListItem,
+    Comment, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
     ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand, CoprocCommand, DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand,
     FunctionDef, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position,
@@ -735,8 +735,9 @@ impl<'a> Parser<'a> {
             Command::List(list) => {
                 list.span = list.span.rebased(base);
                 Self::rebase_command(&mut list.first, base);
-                for (_, command) in &mut list.rest {
-                    Self::rebase_command(command, base);
+                for item in &mut list.rest {
+                    item.operator_span = item.operator_span.rebased(base);
+                    Self::rebase_command(&mut item.command, base);
                 }
             }
             Command::Compound(compound, redirects) => {
@@ -1270,8 +1271,8 @@ impl<'a> Parser<'a> {
             Command::Simple(simple) => self.apply_simple_command_effects(simple),
             Command::List(list) => {
                 self.apply_command_effects(&list.first);
-                for (_, command) in &list.rest {
-                    self.apply_command_effects(command);
+                for item in &list.rest {
+                    self.apply_command_effects(&item.command);
                 }
             }
             _ => {}
@@ -1707,27 +1708,33 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::Background) => (ListOperator::Background, true),
                 _ => break,
             };
+            let operator_span = self.current_span;
             self.advance();
 
             self.skip_newlines()?;
             if allow_empty_tail && self.current_token.is_none() {
                 if matches!(op, ListOperator::Background) {
-                    rest.push((
-                        ListOperator::Background,
-                        Command::Simple(SimpleCommand {
+                    rest.push(CommandListItem {
+                        operator: ListOperator::Background,
+                        operator_span,
+                        command: Command::Simple(SimpleCommand {
                             name: Word::literal(""),
                             args: vec![],
                             redirects: vec![],
                             assignments: vec![],
                             span: self.current_span,
                         }),
-                    ));
+                    });
                 }
                 break;
             }
 
             if let Some(cmd) = self.parse_pipeline()? {
-                rest.push((op, cmd));
+                rest.push(CommandListItem {
+                    operator: op,
+                    operator_span,
+                    command: cmd,
+                });
             } else {
                 break;
             }
@@ -6183,6 +6190,20 @@ mod tests {
         let script = parser.parse().unwrap().script;
 
         assert!(matches!(&script.commands[0], Command::List(_)));
+    }
+
+    #[test]
+    fn test_parse_command_list_preserves_operator_spans() {
+        let input = "true && false || echo fallback";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::List(list) = &script.commands[0] else {
+            panic!("expected command list");
+        };
+
+        assert_eq!(list.rest.len(), 2);
+        assert_eq!(list.rest[0].operator_span.slice(input), "&&");
+        assert_eq!(list.rest[1].operator_span.slice(input), "||");
     }
 
     #[test]

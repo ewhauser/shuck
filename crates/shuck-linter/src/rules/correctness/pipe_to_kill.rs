@@ -71,8 +71,8 @@ fn collect_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
         }
         Command::List(CommandList { first, rest, .. }) => {
             collect_command(first, source, spans);
-            for (_, command) in rest {
-                collect_command(command, source, spans);
+            for item in rest {
+                collect_command(&item.command, source, spans);
             }
         }
         Command::Compound(command, redirects) => {

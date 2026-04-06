@@ -1,4 +1,5 @@
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::span;
 use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
@@ -18,7 +19,6 @@ impl Violation for UnquotedArrayExpansion {
 
 pub fn unquoted_array_expansion(checker: &mut Checker) {
     let source = checker.source();
-    let mut spans = Vec::new();
 
     query::walk_commands(
         &checker.ast().commands,
@@ -29,16 +29,37 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
             visit_argument_words(command, |word| {
                 let classification = classify_word(word, source);
                 if !word.quoted && classification.has_array_expansion() {
-                    spans.push(word.span);
+                    for span in span::array_expansion_part_spans(word, source) {
+                        checker.report_dedup(UnquotedArrayExpansion, span);
+                    }
                 }
             });
         },
     );
+}
 
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup();
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
 
-    for span in spans {
-        checker.report(UnquotedArrayExpansion, span);
+    #[test]
+    fn anchors_on_inner_array_expansion_spans() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' prefix${arr[@]}suffix ${arr[0]} ${names[*]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]}", "${names[*]}"]
+        );
     }
 }

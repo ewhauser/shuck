@@ -1,6 +1,7 @@
 use shuck_ast::{Command, Word};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::span;
 use crate::rules::common::word::{classify_word, static_word_text};
 use crate::{Checker, Rule, Violation};
 
@@ -21,7 +22,6 @@ impl Violation for TrapStringExpansion {
 pub fn trap_string_expansion(checker: &mut Checker) {
     let source = checker.source();
     let indexer = checker.indexer();
-    let mut spans = Vec::new();
 
     query::walk_commands(
         &checker.ast().commands,
@@ -43,14 +43,12 @@ pub fn trap_string_expansion(checker: &mut Checker) {
 
             if word_is_double_quoted(indexer, action) && classify_word(action, source).is_expanded()
             {
-                spans.push(action.span);
+                for span in span::expansion_part_spans(action) {
+                    checker.report_dedup(TrapStringExpansion, span);
+                }
             }
         },
     );
-
-    for span in spans {
-        checker.report(TrapStringExpansion, span);
-    }
 }
 
 fn trap_action_word<'a>(args: &'a [Word], source: &str) -> Option<&'a Word> {
@@ -67,4 +65,25 @@ fn trap_action_word<'a>(args: &'a [Word], source: &str) -> Option<&'a Word> {
     let action = args.get(start)?;
     args.get(start + 1)?;
     Some(action)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_each_expansion_inside_the_trap_action() {
+        let source = "trap \"echo $x $(date) ${y}\" EXIT\n";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::TrapStringExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$x", "$(date)", "${y}"]
+        );
+    }
 }

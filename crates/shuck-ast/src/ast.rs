@@ -316,9 +316,17 @@ pub struct CommandList {
     /// First command
     pub first: Box<Command>,
     /// Remaining commands with their operators
-    pub rest: Vec<(ListOperator, Command)>,
+    pub rest: Vec<CommandListItem>,
     /// Source span of this command list
     pub span: Span,
+}
+
+/// A command following a list operator such as `&&`, `||`, `;`, or `&`.
+#[derive(Debug, Clone)]
+pub struct CommandListItem {
+    pub operator: ListOperator,
+    pub operator_span: Span,
+    pub command: Command,
 }
 
 /// Operators for command lists.
@@ -1653,11 +1661,15 @@ mod tests {
         });
         let list = CommandList {
             first: Box::new(first),
-            rest: vec![(ListOperator::And, second)],
+            rest: vec![CommandListItem {
+                operator: ListOperator::And,
+                operator_span: Span::new(),
+                command: second,
+            }],
             span: Span::new(),
         };
         assert_eq!(list.rest.len(), 1);
-        assert_eq!(list.rest[0].0, ListOperator::And);
+        assert_eq!(list.rest[0].operator, ListOperator::And);
     }
 
     // --- ListOperator ---

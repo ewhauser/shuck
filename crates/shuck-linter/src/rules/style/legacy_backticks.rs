@@ -1,4 +1,5 @@
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::span;
 use crate::{Checker, Rule, Violation};
 
 pub struct LegacyBackticks;
@@ -15,7 +16,6 @@ impl Violation for LegacyBackticks {
 
 pub fn legacy_backticks(checker: &mut Checker) {
     let source = checker.source();
-    let mut spans = Vec::new();
 
     query::walk_words(
         &checker.ast().commands,
@@ -23,46 +23,29 @@ pub fn legacy_backticks(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |word| {
-            if word_uses_backticks(word.span.slice(source)) {
-                spans.push(word.span);
+            for span in span::backtick_fragment_spans(word, source) {
+                checker.report_dedup(LegacyBackticks, span);
             }
         },
     );
-
-    spans.sort_unstable_by_key(|span| (span.start.offset, usize::MAX - span.end.offset));
-
-    let mut filtered = Vec::new();
-    for span in spans {
-        if filtered.last().is_some_and(|previous: &shuck_ast::Span| {
-            previous.start.offset <= span.start.offset && previous.end.offset >= span.end.offset
-        }) {
-            continue;
-        }
-        filtered.push(span);
-    }
-
-    for span in filtered {
-        checker.report(LegacyBackticks, span);
-    }
 }
 
-fn word_uses_backticks(text: &str) -> bool {
-    let mut in_single_quotes = false;
-    let mut escaped = false;
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
 
-    for ch in text.chars() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
+    #[test]
+    fn anchors_on_each_backtick_fragment() {
+        let source = "echo \"prefix `date` suffix `uname`\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
 
-        match ch {
-            '\\' if !in_single_quotes => escaped = true,
-            '\'' => in_single_quotes = !in_single_quotes,
-            '`' if !in_single_quotes => return true,
-            _ => {}
-        }
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["`date`", "`uname`"]
+        );
     }
-
-    false
 }

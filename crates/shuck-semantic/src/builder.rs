@@ -435,10 +435,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn visit_list(&mut self, list: &'a CommandList, flow: FlowState) -> RecordedCommand {
-        let operators = list.rest.iter().map(|(op, _)| *op).collect::<Vec<_>>();
+        let operators = list
+            .rest
+            .iter()
+            .map(|item| item.operator)
+            .collect::<Vec<_>>();
         let mut commands = Vec::with_capacity(list.rest.len() + 1);
         commands.push(list.first.as_ref());
-        commands.extend(list.rest.iter().map(|(_, command)| command));
+        commands.extend(list.rest.iter().map(|item| &item.command));
 
         let mut recorded = Vec::with_capacity(commands.len());
         for (index, command) in commands.into_iter().enumerate() {
@@ -451,7 +455,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         let first = Box::new(recorded.remove(0));
-        let rest = list.rest.iter().map(|(op, _)| *op).zip(recorded).collect();
+        let rest = list
+            .rest
+            .iter()
+            .map(|item| item.operator)
+            .zip(recorded)
+            .collect();
 
         RecordedCommand {
             span: list.span,
