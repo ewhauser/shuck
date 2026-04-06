@@ -791,6 +791,147 @@ flag=1
     }
 
     #[test]
+    fn source_builtin_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let helper = temp.path().join("helper.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./helper.bash
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn bash_source_scalar_suffix_source_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("loader.bash__dep.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"${BASH_SOURCE}__dep.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn bash_source_index_suffix_source_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("loader.bash__dep.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"${BASH_SOURCE[0]}__dep.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn bash_source_scalar_dirname_source_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("helper.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"$(dirname \"$BASH_SOURCE\")/helper.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn bash_source_index_dirname_source_reads_keep_top_level_assignment_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("helper.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"$(dirname \"${BASH_SOURCE[0]}\")/helper.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn executed_helper_reads_keep_loop_variable_live() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
