@@ -44,6 +44,11 @@ impl RegionIndex {
 
     /// Return the innermost region containing the given byte offset, if any.
     pub fn region_at(&self, offset: TextSize) -> Option<RegionKind> {
+        self.region_with_range_at(offset).map(|(kind, _)| kind)
+    }
+
+    /// Return the innermost region kind and range containing the given byte offset, if any.
+    pub fn region_with_range_at(&self, offset: TextSize) -> Option<(RegionKind, TextRange)> {
         let mut best: Option<IndexedRegion> = None;
         let end = self
             .regions
@@ -61,7 +66,17 @@ impl RegionIndex {
             };
         }
 
-        best.map(|region| region.kind)
+        best.map(|region| (region.kind, region.range))
+    }
+
+    /// Return the single-quoted range containing the given byte offset, if any.
+    pub fn single_quoted_range_at(&self, offset: TextSize) -> Option<TextRange> {
+        containing_range(&self.single_quoted, offset)
+    }
+
+    /// Return the double-quoted range containing the given byte offset, if any.
+    pub fn double_quoted_range_at(&self, offset: TextSize) -> Option<TextRange> {
+        containing_range(&self.double_quoted, offset)
     }
 
     /// Check if a byte offset falls inside any quoted region.
@@ -546,11 +561,26 @@ fn contains(range: TextRange, offset: TextSize) -> bool {
 }
 
 fn contains_any(ranges: &[TextRange], offset: TextSize) -> bool {
+    containing_range(ranges, offset).is_some()
+}
+
+fn containing_range(ranges: &[TextRange], offset: TextSize) -> Option<TextRange> {
     let index = ranges.partition_point(|range| range.start() <= offset);
-    index
-        .checked_sub(1)
-        .and_then(|candidate| ranges.get(candidate))
-        .is_some_and(|range| contains(*range, offset))
+    let mut best = None;
+
+    for range in ranges[..index].iter().copied() {
+        if !contains(range, offset) {
+            continue;
+        }
+
+        best = match best {
+            None => Some(range),
+            Some(current) if is_innermost(range, current) => Some(range),
+            Some(current) => Some(current),
+        };
+    }
+
+    best
 }
 
 fn is_innermost(candidate: TextRange, current: TextRange) -> bool {
@@ -643,6 +673,20 @@ mod tests {
 
         assert_eq!(regions.region_at(single), Some(RegionKind::SingleQuoted));
         assert_eq!(regions.region_at(double), Some(RegionKind::DoubleQuoted));
+        assert_eq!(
+            regions
+                .single_quoted_range_at(single)
+                .unwrap()
+                .slice(source),
+            "'hello'"
+        );
+        assert_eq!(
+            regions
+                .double_quoted_range_at(double)
+                .unwrap()
+                .slice(source),
+            "\"world $name\""
+        );
     }
 
     #[test]
@@ -686,6 +730,16 @@ mod tests {
             regions.region_at(printf),
             Some(RegionKind::CommandSubstitution)
         );
+        assert_eq!(
+            regions.region_with_range_at(printf),
+            Some((
+                RegionKind::CommandSubstitution,
+                TextRange::new(
+                    TextSize::new(source.find("$(printf").unwrap() as u32),
+                    TextSize::new(source.rfind(')').unwrap() as u32 + 1),
+                )
+            ))
+        );
     }
 
     #[test]
@@ -695,5 +749,24 @@ mod tests {
         let offset = TextSize::new(source.find("foo").unwrap() as u32);
 
         assert_eq!(regions.region_at(offset), Some(RegionKind::Conditional));
+    }
+
+    #[test]
+    fn quoted_range_helpers_return_none_outside_matching_quote_kind() {
+        let source = "echo unquoted \"$name\"\n";
+        let regions = regions(source);
+        let unquoted = TextSize::new(source.find("unquoted").unwrap() as u32);
+        let quoted = TextSize::new(source.find("$name").unwrap() as u32);
+
+        assert_eq!(regions.single_quoted_range_at(unquoted), None);
+        assert_eq!(regions.double_quoted_range_at(unquoted), None);
+        assert_eq!(regions.single_quoted_range_at(quoted), None);
+        assert_eq!(
+            regions
+                .double_quoted_range_at(quoted)
+                .unwrap()
+                .slice(source),
+            "\"$name\""
+        );
     }
 }

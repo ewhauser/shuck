@@ -2,19 +2,43 @@
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
 C005 shell expansion inside single quotes stays literal
- --> <source>:4:7
+ --> <source>:4:6
   |
 4 | echo '$HOME'
   |
 
 C005 shell expansion inside single quotes stays literal
- --> <source>:7:16
+ --> <source>:7:15
   |
 7 | printf '%s\n' '${value:-fallback}'
   |
 
 C005 shell expansion inside single quotes stays literal
-  --> <source>:10:6
+  --> <source>:10:5
    |
 10 | msg='$(pwd)'
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:13:6
+   |
+13 | echo '`pwd`'
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:16:8
+   |
+16 | sed -n '$pattern'
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:19:19
+   |
+19 | find . -exec echo '$1' {} +
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:22:5
+   |
+22 | git '$a'
    |
