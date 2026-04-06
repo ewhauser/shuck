@@ -129,7 +129,7 @@ jobs:
       - name: "Download large corpus cache"
         run: |
           gh release download v0.0.0-test-files -R ewhauser/shuck -p 'shuck-cache.tar.zst' -D /tmp
-          echo "28e37f8d3e77fc5d0c6d10f02612a2444d1f211157ba252dbd887d9e6285305f  /tmp/shuck-cache.tar.zst" | sha256sum -c -
+          echo "d82829eed9a0ba09d5dc5fc30f29f7cb445c5fb82cfaf5d98917ac98b278ab09  /tmp/shuck-cache.tar.zst" | sha256sum -c -
         env:
           GH_TOKEN: ${{ github.token }}
       - name: "Extract large corpus cache"
