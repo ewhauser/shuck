@@ -50,13 +50,22 @@ pub fn find_output_loop(checker: &mut Checker) {
 }
 
 fn word_contains_find_substitution(word: &Word, source: &str) -> bool {
-    word.parts.iter().any(|part| match part {
-        WordPart::CommandSubstitution(commands)
+    word.parts
+        .iter()
+        .any(|part| part_contains_find_substitution(&part.kind, source))
+}
+
+fn part_contains_find_substitution(part: &WordPart, source: &str) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| part_contains_find_substitution(&part.kind, source)),
+        WordPart::CommandSubstitution { commands, .. }
         | WordPart::ProcessSubstitution { commands, .. } => {
             commands_start_with_find(commands, source)
         }
         _ => false,
-    })
+    }
 }
 
 fn commands_start_with_find(commands: &[Command], source: &str) -> bool {

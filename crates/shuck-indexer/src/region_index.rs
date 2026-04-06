@@ -1,7 +1,7 @@
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList,
     CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, FunctionDef, Redirect, RedirectKind,
-    Script, Span, TextRange, TextSize, Word, WordPart,
+    Script, TextRange, TextSize, Word, WordPart, WordPartNode,
 };
 
 /// A syntactic region that affects lint rule behavior.
@@ -36,8 +36,8 @@ pub struct RegionIndex {
 
 impl RegionIndex {
     /// Build from source text and the parsed script.
-    pub fn new(source: &str, script: &Script) -> Self {
-        let mut collector = RegionCollector::new(source);
+    pub fn new(_source: &str, script: &Script) -> Self {
+        let mut collector = RegionCollector::new();
         collector.visit_script(script);
         collector.finish()
     }
@@ -107,8 +107,7 @@ impl RegionIndex {
     }
 }
 
-struct RegionCollector<'a> {
-    source: &'a str,
+struct RegionCollector {
     single_quoted: Vec<TextRange>,
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
@@ -118,10 +117,9 @@ struct RegionCollector<'a> {
     quoted_heredocs: Vec<TextRange>,
 }
 
-impl<'a> RegionCollector<'a> {
-    fn new(source: &'a str) -> Self {
+impl RegionCollector {
+    fn new() -> Self {
         Self {
-            source,
             single_quoted: Vec::new(),
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
@@ -425,10 +423,10 @@ impl<'a> RegionCollector<'a> {
             RedirectKind::HereDoc | RedirectKind::HereDocStrip => {
                 let range = redirect.target.span.to_range();
                 push_range(&mut self.heredocs, range);
-                if redirect.target.quoted {
+                if is_fully_quoted_word(&redirect.target) {
                     push_range(&mut self.quoted_heredocs, range);
                 }
-                self.visit_word_parts(&redirect.target);
+                self.visit_word_parts(&redirect.target.parts);
             }
             _ => self.visit_word(&redirect.target, true),
         }
@@ -446,21 +444,26 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_word(&mut self, word: &Word, scan_quotes: bool) {
-        if scan_quotes {
-            self.scan_word_quotes(word);
-        }
-        self.visit_word_parts(word);
+        let _ = scan_quotes;
+        self.visit_word_parts(&word.parts);
     }
 
-    fn visit_word_parts(&mut self, word: &Word) {
-        for (part, span) in word.parts_with_spans() {
-            let range = span.to_range();
-            match part {
-                WordPart::CommandSubstitution(commands) => {
+    fn visit_word_parts(&mut self, parts: &[WordPartNode]) {
+        for part in parts {
+            let range = part.span.to_range();
+            match &part.kind {
+                WordPart::SingleQuoted { .. } => {
+                    push_range(&mut self.single_quoted, range);
+                }
+                WordPart::DoubleQuoted { parts, .. } => {
+                    push_range(&mut self.double_quoted, range);
+                    self.visit_word_parts(parts);
+                }
+                WordPart::CommandSubstitution { commands, .. } => {
                     push_range(&mut self.command_substitutions, range);
                     self.visit_commands(commands);
                 }
-                WordPart::ArithmeticExpansion(_) => {
+                WordPart::ArithmeticExpansion { .. } => {
                     push_range(&mut self.arithmetic, range);
                 }
                 WordPart::ProcessSubstitution { commands, .. } => self.visit_commands(commands),
@@ -479,67 +482,16 @@ impl<'a> RegionCollector<'a> {
             }
         }
     }
+}
 
-    fn scan_word_quotes(&mut self, word: &Word) {
-        if !valid_span(word.span, self.source) {
-            return;
-        }
-
-        let opaque_ranges = word
-            .parts_with_spans()
-            .filter_map(|(part, span)| {
-                (!matches!(part, WordPart::Literal(_))).then_some(span.to_range())
-            })
-            .collect::<Vec<_>>();
-
-        let mut opaque_index = 0usize;
-        let mut offset = word.span.start.offset;
-        let end = word.span.end.offset;
-
-        while offset < end {
-            if let Some(next_offset) = skip_opaque_range(&opaque_ranges, &mut opaque_index, offset)
-            {
-                offset = next_offset;
-                continue;
-            }
-
-            let Some((ch, next_offset)) = next_char(self.source, offset) else {
-                break;
-            };
-
-            match ch {
-                '\'' => {
-                    let range_end = scan_single_quote(self.source, next_offset, end);
-                    push_range(
-                        &mut self.single_quoted,
-                        TextRange::new(
-                            TextSize::new(offset as u32),
-                            TextSize::new(range_end as u32),
-                        ),
-                    );
-                    offset = range_end;
-                }
-                '"' => {
-                    let range_end = scan_double_quote(
-                        self.source,
-                        next_offset,
-                        end,
-                        &opaque_ranges,
-                        &mut opaque_index,
-                    );
-                    push_range(
-                        &mut self.double_quoted,
-                        TextRange::new(
-                            TextSize::new(offset as u32),
-                            TextSize::new(range_end as u32),
-                        ),
-                    );
-                    offset = range_end;
-                }
-                _ => offset = next_offset,
-            }
-        }
-    }
+fn is_fully_quoted_word(word: &Word) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [part] if matches!(
+            &part.kind,
+            WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
+        )
+    )
 }
 
 fn sort_ranges(ranges: &mut [TextRange]) {
@@ -550,10 +502,6 @@ fn push_range(ranges: &mut Vec<TextRange>, range: TextRange) {
     if !range.is_empty() {
         ranges.push(range);
     }
-}
-
-fn valid_span(span: Span, source: &str) -> bool {
-    span.start.offset < span.end.offset && span.end.offset <= source.len()
 }
 
 fn contains(range: TextRange, offset: TextSize) -> bool {
@@ -586,71 +534,6 @@ fn containing_range(ranges: &[TextRange], offset: TextSize) -> Option<TextRange>
 fn is_innermost(candidate: TextRange, current: TextRange) -> bool {
     candidate.len() < current.len()
         || (candidate.len() == current.len() && candidate.start() >= current.start())
-}
-
-fn skip_opaque_range(ranges: &[TextRange], index: &mut usize, offset: usize) -> Option<usize> {
-    while let Some(range) = ranges.get(*index) {
-        let start = usize::from(range.start());
-        let end = usize::from(range.end());
-        if end <= offset {
-            *index += 1;
-            continue;
-        }
-        if start <= offset {
-            return Some(end);
-        }
-        break;
-    }
-    None
-}
-
-fn scan_single_quote(source: &str, mut offset: usize, end: usize) -> usize {
-    while offset < end {
-        let Some((ch, next_offset)) = next_char(source, offset) else {
-            break;
-        };
-        offset = next_offset;
-        if ch == '\'' {
-            break;
-        }
-    }
-    offset
-}
-
-fn scan_double_quote(
-    source: &str,
-    mut offset: usize,
-    end: usize,
-    opaque_ranges: &[TextRange],
-    opaque_index: &mut usize,
-) -> usize {
-    while offset < end {
-        if let Some(next_offset) = skip_opaque_range(opaque_ranges, opaque_index, offset) {
-            offset = next_offset;
-            continue;
-        }
-
-        let Some((ch, next_offset)) = next_char(source, offset) else {
-            break;
-        };
-        match ch {
-            '\\' => {
-                offset = next_offset;
-                if offset < end {
-                    offset = next_char(source, offset).map_or(end, |(_, next)| next);
-                }
-            }
-            '"' => return next_offset,
-            _ => offset = next_offset,
-        }
-    }
-
-    offset
-}
-
-fn next_char(source: &str, offset: usize) -> Option<(char, usize)> {
-    let ch = source.get(offset..)?.chars().next()?;
-    Some((ch, offset + ch.len_utf8()))
 }
 
 #[cfg(test)]

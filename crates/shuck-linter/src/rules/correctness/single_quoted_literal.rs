@@ -1,8 +1,8 @@
-use crate::rules::common::{command, span};
+use crate::rules::common::command;
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
     ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, Redirect,
-    SimpleCommand, Span, TextSize, Word, WordPart,
+    SimpleCommand, Span, Word, WordPart,
 };
 use shuck_indexer::Indexer;
 
@@ -315,13 +315,20 @@ fn collect_word(
 ) {
     for (part, span) in word.parts_with_spans() {
         match part {
-            WordPart::Literal(text) if is_single_quoted(indexer, span) => {
-                let text = text.as_str(source, span);
+            WordPart::SingleQuoted { value, .. } => {
+                let text = value.slice(source);
                 if should_report_single_quoted_literal(text, context) {
-                    spans.push(span::single_quoted_region_span(indexer, span));
+                    spans.push(span);
                 }
             }
-            WordPart::CommandSubstitution(commands)
+            WordPart::DoubleQuoted { parts, .. } => {
+                let nested = Word {
+                    parts: parts.clone(),
+                    span,
+                };
+                collect_word(&nested, indexer, source, spans, context);
+            }
+            WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => {
                 collect_commands(commands, indexer, source, spans);
             }
@@ -378,13 +385,6 @@ fn simple_command_variable_set_operand<'a>(
     let operands = simple_test_operands(command, source)?;
     (operands.len() == 2 && static_word_text(&operands[0], source).as_deref() == Some("-v"))
         .then(|| &operands[1])
-}
-
-fn is_single_quoted(indexer: &Indexer, span: Span) -> bool {
-    indexer
-        .region_index()
-        .single_quoted_range_at(TextSize::new(span.start.offset as u32))
-        .is_some()
 }
 
 fn should_report_single_quoted_literal(text: &str, context: ScanContext<'_>) -> bool {

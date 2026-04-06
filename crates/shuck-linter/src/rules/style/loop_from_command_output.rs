@@ -36,7 +36,10 @@ pub fn loop_from_command_output(checker: &mut Checker) {
 
             for word in words {
                 let classification = classify_word(word, checker.source());
-                if !word.quoted && classification.has_command_substitution() {
+                if classification.has_command_substitution()
+                    && !crate::rules::common::span::unquoted_command_substitution_part_spans(word)
+                        .is_empty()
+                {
                     spans.push(word.span);
                 }
             }

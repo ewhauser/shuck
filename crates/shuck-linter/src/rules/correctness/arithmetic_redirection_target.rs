@@ -29,7 +29,7 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
                     .target
                     .parts
                     .iter()
-                    .any(|part| matches!(part, WordPart::ArithmeticExpansion(_)))
+                    .any(|part| contains_arithmetic_expansion(&part.kind))
                 {
                     spans.push(redirect.target.span);
                 }
@@ -39,5 +39,15 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
 
     for span in spans {
         checker.report(ArithmeticRedirectionTarget, span);
+    }
+}
+
+fn contains_arithmetic_expansion(part: &WordPart) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => {
+            parts.iter().any(|part| contains_arithmetic_expansion(&part.kind))
+        }
+        WordPart::ArithmeticExpansion { .. } => true,
+        _ => false,
     }
 }

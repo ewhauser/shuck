@@ -2,6 +2,7 @@ use rustc_hash::FxHashMap;
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
     ConditionalExpr, DeclOperand, FunctionDef, Redirect, Script, Span, TextSize, Word, WordPart,
+    WordPartNode,
 };
 
 use crate::Rule;
@@ -358,9 +359,17 @@ fn walk_word<F>(word: &Word, visit: &mut F)
 where
     F: FnMut(Span),
 {
-    for part in &word.parts {
-        match part {
-            WordPart::CommandSubstitution(commands)
+    walk_word_parts(&word.parts, visit);
+}
+
+fn walk_word_parts<F>(parts: &[WordPartNode], visit: &mut F)
+where
+    F: FnMut(Span),
+{
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, visit),
+            WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => walk_commands(commands, visit),
             _ => {}
         }

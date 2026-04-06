@@ -26,8 +26,8 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
         &mut |command, _| {
             visit_argument_words(command, |word| {
                 let classification = classify_word(word, checker.source());
-                if !word.quoted && classification.has_command_substitution() {
-                    for span in span::command_substitution_part_spans(word) {
+                if classification.has_command_substitution() {
+                    for span in span::unquoted_command_substitution_part_spans(word) {
                         checker.report_dedup(UnquotedCommandSubstitution, span);
                     }
                 }

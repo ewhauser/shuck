@@ -137,10 +137,14 @@ impl<'a> SafeValueIndex<'a> {
     fn part_is_field_safe(&mut self, part: &WordPart, span: Span) -> bool {
         match part {
             WordPart::Literal(text) => literal_is_field_safe(text.as_str(self.source, span)),
+            WordPart::SingleQuoted { value, .. } => literal_is_field_safe(value.slice(self.source)),
+            WordPart::DoubleQuoted { parts, .. } => parts
+                .iter()
+                .all(|part| self.part_is_field_safe(&part.kind, part.span)),
             WordPart::Variable(name) => self.name_is_field_safe(name, span),
-            WordPart::ArithmeticExpansion(_) => true,
+            WordPart::ArithmeticExpansion { .. } => true,
             WordPart::Length(_) | WordPart::ArrayLength(_) => true,
-            WordPart::CommandSubstitution(_)
+            WordPart::CommandSubstitution { .. }
             | WordPart::ParameterExpansion { .. }
             | WordPart::ArrayAccess { .. }
             | WordPart::ArrayIndices(_)
@@ -198,10 +202,12 @@ impl<'a> SafeValueIndex<'a> {
 fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
     match part {
         WordPart::Literal(_)
-        | WordPart::CommandSubstitution(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::DoubleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
         | WordPart::ProcessSubstitution { .. } => false,
         WordPart::Variable(_)
-        | WordPart::ArithmeticExpansion(_)
+        | WordPart::ArithmeticExpansion { .. }
         | WordPart::ParameterExpansion { .. }
         | WordPart::Length(_)
         | WordPart::ArrayLength(_)

@@ -27,7 +27,7 @@ The `gbash` frontend already has several AST shapes that address these problems 
 
 ### Why this matters for linting
 
-This is the highest-priority change because several rules already need to reconstruct quoting and syntax form from source text or indexer regions instead of reading that information from the AST.
+This was the highest-priority change because several rules had to reconstruct quoting and syntax form from source text or indexer regions instead of reading that information from the AST.
 
 Examples in the current linter:
 
@@ -38,11 +38,11 @@ Examples in the current linter:
 - `crates/shuck-linter/src/rules/style/legacy_arithmetic_expansion.rs`
 - `crates/shuck-linter/src/rules/common/span.rs`
 
-The recurring issue is that `Word` currently gives us:
+Before item 1, `Word` only gave us:
 
-- `parts`
-- `part_spans`
-- a word-level `quoted: bool`
+- flat parts
+- separate per-part span storage
+- a word-level quote flag
 
 That is enough for many checks, but it is not enough to answer:
 
@@ -51,7 +51,9 @@ That is enough for many checks, but it is not enough to answer:
 - whether an arithmetic expansion came from `$[...]` or `$((...))`
 - whether quoting boundaries changed meaning inside a mixed word
 
-When rules recover that structure from `Span` or raw text, we create more room for bugs than if the parser simply preserved it.
+Item 1 replaces that shape with `Vec<WordPartNode>` plus explicit quoted
+variants and syntax-tagged substitution nodes, so rules can read quote and
+syntax provenance directly from the AST.
 
 ### Proposed AST direction
 

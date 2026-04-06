@@ -28,8 +28,8 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
         &mut |command, _| {
             visit_argument_words(command, |word| {
                 let classification = classify_word(word, source);
-                if !word.quoted && classification.has_array_expansion() {
-                    for span in span::array_expansion_part_spans(word, source) {
+                if classification.has_array_expansion() {
+                    for span in span::unquoted_array_expansion_part_spans(word, source) {
                         checker.report_dedup(UnquotedArrayExpansion, span);
                     }
                 }

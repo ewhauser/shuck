@@ -37,30 +37,36 @@ pub fn positional_ten_braces(checker: &mut Checker) {
 }
 
 fn collect_positional_parameter_spans(word: &Word, source: &str, spans: &mut Vec<Span>) {
-    for (index, (part, span)) in word.parts_with_spans().enumerate() {
-        let WordPart::Variable(name) = part else {
-            continue;
-        };
+    collect_positional_parameter_spans_in_parts(&word.parts, source, spans);
+}
 
-        if !matches!(
-            name.as_str(),
-            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-        ) {
-            continue;
-        }
-
-        let Some(WordPart::Literal(text)) = word.parts.get(index + 1) else {
-            continue;
-        };
-        let Some(next_span) = word.part_span(index + 1) else {
-            continue;
-        };
-
-        if text
-            .as_str(source, next_span)
-            .starts_with(|char: char| char.is_ascii_digit())
-        {
-            spans.push(span.merge(next_span));
+fn collect_positional_parameter_spans_in_parts(
+    parts: &[shuck_ast::WordPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for (index, part) in parts.iter().enumerate() {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_positional_parameter_spans_in_parts(parts, source, spans);
+            }
+            WordPart::Variable(name)
+                if matches!(name.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9") =>
+            {
+                let Some(next_part) = parts.get(index + 1) else {
+                    continue;
+                };
+                let WordPart::Literal(text) = &next_part.kind else {
+                    continue;
+                };
+                if text
+                    .as_str(source, next_part.span)
+                    .starts_with(|char: char| char.is_ascii_digit())
+                {
+                    spans.push(part.span.merge(next_part.span));
+                }
+            }
+            _ => {}
         }
     }
 }

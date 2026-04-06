@@ -8,8 +8,9 @@ These instructions apply to `crates/shuck-ast/src`. Follow the repo-level
 - Keep AST text source-backed whenever possible. If text can be recovered from
   the original shell source, store a `Span`/`TextRange` or use the existing
   source-backed wrappers instead of introducing a new `String` allocation.
-- Reuse the existing AST text types before adding anything new:
-  `SourceText`, `LiteralText::Source`, `Name`, and `Word.part_spans`.
+- Reuse the existing AST text and span carriers before adding anything new:
+  `SourceText`, `LiteralText::Source`, `Name`, `WordPartNode::span`, and
+  `Word.span`.
 - Owned text is only for cooked or synthetic values that do not exist verbatim
   in the source. Do not add new owned string fields or parser paths for normal
   AST construction.

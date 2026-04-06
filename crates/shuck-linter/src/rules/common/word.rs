@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use shuck_ast::{ConditionalExpr, Redirect, RedirectKind, Span, Word, WordPart};
+use shuck_ast::{ConditionalExpr, Redirect, RedirectKind, Span, Word, WordPart, WordPartNode};
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WordQuote {
-    Quoted,
+    FullyQuoted,
+    Mixed,
     Unquoted,
 }
 
@@ -121,65 +122,24 @@ impl SubstitutionClassification {
 
 pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
-        }
-    }
-    Some(result)
+    collect_static_word_text(&word.parts, source, &mut result).then_some(result)
 }
 
 pub fn classify_word(word: &Word, source: &str) -> WordClassification {
-    let mut has_non_literal = false;
-    let mut has_scalar_expansion = false;
-    let mut has_array_expansion = false;
-    let mut command_substitution_count = 0usize;
+    let mut summary = PartSummary::default();
+    classify_parts(&word.parts, source, &mut summary);
 
-    for part in &word.parts {
-        match part {
-            WordPart::Literal(_) => {}
-            WordPart::CommandSubstitution(_) => {
-                has_non_literal = true;
-                command_substitution_count += 1;
-            }
-            WordPart::ProcessSubstitution { .. } => has_non_literal = true,
-            WordPart::Variable(_)
-            | WordPart::ArithmeticExpansion(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::Substring { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::Transformation { .. } => {
-                has_non_literal = true;
-                has_scalar_expansion = true;
-            }
-            WordPart::ArrayAccess { index, .. } => {
-                has_non_literal = true;
-                if matches!(index.slice(source), "@" | "*") {
-                    has_array_expansion = true;
-                } else {
-                    has_scalar_expansion = true;
-                }
-            }
-            WordPart::ArraySlice { .. } => {
-                has_non_literal = true;
-                has_array_expansion = true;
-            }
-            WordPart::ArrayLength(_) | WordPart::PrefixMatch(_) => {
-                has_non_literal = true;
-                has_scalar_expansion = true;
-            }
-            WordPart::ArrayIndices(_) => {
-                has_non_literal = true;
-                has_array_expansion = true;
-            }
-        }
-    }
+    let mut has_non_literal = false;
+    let has_scalar_expansion = summary.has_scalar_expansion;
+    let has_array_expansion = summary.has_array_expansion;
+    let command_substitution_count = summary.command_substitution_count;
+    has_non_literal |= summary.has_non_literal;
 
     WordClassification {
-        quote: if word.quoted {
-            WordQuote::Quoted
+        quote: if is_fully_quoted(word) {
+            WordQuote::FullyQuoted
+        } else if word.parts.iter().any(|part| is_quoted_part(&part.kind)) {
+            WordQuote::Mixed
         } else {
             WordQuote::Unquoted
         },
@@ -196,12 +156,103 @@ pub fn classify_word(word: &Word, source: &str) -> WordClassification {
         },
         substitution_shape: if command_substitution_count == 0 {
             WordSubstitutionShape::None
-        } else if matches!(word.parts.as_slice(), [WordPart::CommandSubstitution(_)]) {
+        } else if is_plain_command_substitution(&word.parts) {
             WordSubstitutionShape::Plain
         } else {
             WordSubstitutionShape::Mixed
         },
     }
+}
+
+#[derive(Default)]
+struct PartSummary {
+    has_non_literal: bool,
+    has_scalar_expansion: bool,
+    has_array_expansion: bool,
+    command_substitution_count: usize,
+}
+
+fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => out.push_str(text.as_str(source, part.span)),
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_static_word_text(parts, source, out) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn classify_parts(parts: &[WordPartNode], source: &str, summary: &mut PartSummary) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => classify_parts(parts, source, summary),
+            WordPart::CommandSubstitution { .. } => {
+                summary.has_non_literal = true;
+                summary.command_substitution_count += 1;
+            }
+            WordPart::ProcessSubstitution { .. } => summary.has_non_literal = true,
+            WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::Substring { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::Transformation { .. } => {
+                summary.has_non_literal = true;
+                summary.has_scalar_expansion = true;
+            }
+            WordPart::ArrayAccess { index, .. } => {
+                summary.has_non_literal = true;
+                if matches!(index.slice(source), "@" | "*") {
+                    summary.has_array_expansion = true;
+                } else {
+                    summary.has_scalar_expansion = true;
+                }
+            }
+            WordPart::ArraySlice { .. } => {
+                summary.has_non_literal = true;
+                summary.has_array_expansion = true;
+            }
+            WordPart::ArrayLength(_) | WordPart::PrefixMatch(_) => {
+                summary.has_non_literal = true;
+                summary.has_scalar_expansion = true;
+            }
+            WordPart::ArrayIndices(_) => {
+                summary.has_non_literal = true;
+                summary.has_array_expansion = true;
+            }
+        }
+    }
+}
+
+fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
+    matches!(
+        parts,
+        [part] if match &part.kind {
+            WordPart::CommandSubstitution { .. } => true,
+            WordPart::DoubleQuoted { parts, .. } => is_plain_command_substitution(parts),
+            _ => false,
+        }
+    )
+}
+
+fn is_quoted_part(part: &WordPart) -> bool {
+    matches!(
+        part,
+        WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
+    )
+}
+
+fn is_fully_quoted(word: &Word) -> bool {
+    matches!(word.parts.as_slice(), [part] if is_quoted_part(&part.kind))
 }
 
 pub fn classify_test_operand(word: &Word, source: &str) -> TestOperandClass {
@@ -372,13 +423,13 @@ mod tests {
         };
 
         let literal = classify_word(&command.args[0], source);
-        assert_eq!(literal.quote, WordQuote::Quoted);
+        assert_eq!(literal.quote, WordQuote::FullyQuoted);
         assert_eq!(literal.literalness, WordLiteralness::FixedLiteral);
         assert_eq!(literal.expansion_kind, WordExpansionKind::None);
         assert_eq!(literal.substitution_shape, WordSubstitutionShape::None);
 
         let expanded = classify_word(&command.args[1], source);
-        assert_eq!(expanded.quote, WordQuote::Quoted);
+        assert_eq!(expanded.quote, WordQuote::FullyQuoted);
         assert_eq!(expanded.literalness, WordLiteralness::Expanded);
         assert_eq!(expanded.expansion_kind, WordExpansionKind::Scalar);
         assert_eq!(expanded.substitution_shape, WordSubstitutionShape::None);

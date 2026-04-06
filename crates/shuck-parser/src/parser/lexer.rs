@@ -82,8 +82,10 @@ impl TokenText<'_> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexedWordSegmentKind {
     Plain,
-    Literal,
+    SingleQuoted,
+    DollarSingleQuoted,
     DoubleQuoted,
+    DollarDoubleQuoted,
     Composite,
 }
 
@@ -92,6 +94,7 @@ pub struct LexedWordSegment<'a> {
     kind: LexedWordSegmentKind,
     text: TokenText<'a>,
     span: Option<Span>,
+    wrapper_span: Option<Span>,
 }
 
 impl<'a> LexedWordSegment<'a> {
@@ -100,6 +103,21 @@ impl<'a> LexedWordSegment<'a> {
             kind,
             text: TokenText::Borrowed(text),
             span,
+            wrapper_span: span,
+        }
+    }
+
+    fn borrowed_with_spans(
+        kind: LexedWordSegmentKind,
+        text: &'a str,
+        span: Option<Span>,
+        wrapper_span: Option<Span>,
+    ) -> Self {
+        Self {
+            kind,
+            text: TokenText::Borrowed(text),
+            span,
+            wrapper_span,
         }
     }
 
@@ -108,6 +126,21 @@ impl<'a> LexedWordSegment<'a> {
             kind,
             text: TokenText::Owned(text),
             span: None,
+            wrapper_span: None,
+        }
+    }
+
+    fn owned_with_spans(
+        kind: LexedWordSegmentKind,
+        text: String,
+        span: Option<Span>,
+        wrapper_span: Option<Span>,
+    ) -> Self {
+        Self {
+            kind,
+            text: TokenText::Owned(text),
+            span,
+            wrapper_span,
         }
     }
 
@@ -123,8 +156,13 @@ impl<'a> LexedWordSegment<'a> {
         self.span
     }
 
+    pub fn wrapper_span(&self) -> Option<Span> {
+        self.wrapper_span.or(self.span)
+    }
+
     fn rebased(mut self, base: Position) -> Self {
         self.span = self.span.map(|span| span.rebased(base));
+        self.wrapper_span = self.wrapper_span.map(|span| span.rebased(base));
         self
     }
 
@@ -133,6 +171,7 @@ impl<'a> LexedWordSegment<'a> {
             kind: self.kind,
             text: self.text.into_owned(),
             span: self.span,
+            wrapper_span: self.wrapper_span,
         }
     }
 
@@ -141,6 +180,7 @@ impl<'a> LexedWordSegment<'a> {
             kind: self.kind,
             text: self.text.into_shared(source, self.span),
             span: self.span,
+            wrapper_span: self.wrapper_span,
         }
     }
 }
@@ -169,10 +209,6 @@ impl<'a> LexedWord<'a> {
 
     fn push_segment(&mut self, segment: LexedWordSegment<'a>) {
         self.trailing_segments.push(segment);
-    }
-
-    fn push_owned_segment(&mut self, kind: LexedWordSegmentKind, text: String) {
-        self.push_segment(LexedWordSegment::owned(kind, text));
     }
 
     pub fn segments(&self) -> impl Iterator<Item = &LexedWordSegment<'a>> {
@@ -275,7 +311,7 @@ impl<'a> LexedToken<'a> {
     fn word_segment_kind(kind: TokenKind) -> LexedWordSegmentKind {
         match kind {
             TokenKind::Word => LexedWordSegmentKind::Plain,
-            TokenKind::LiteralWord => LexedWordSegmentKind::Literal,
+            TokenKind::LiteralWord => LexedWordSegmentKind::SingleQuoted,
             TokenKind::QuotedWord => LexedWordSegmentKind::DoubleQuoted,
             _ => LexedWordSegmentKind::Composite,
         }
@@ -1239,6 +1275,14 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_complex_word(&mut self, start: Position) -> Option<LexedToken<'a>> {
+        if self.peek_char() == Some('$') {
+            match self.second_char() {
+                Some('\'') => return self.read_dollar_single_quoted_string(),
+                Some('"') => return self.read_dollar_double_quoted_string(),
+                _ => {}
+            }
+        }
+
         let segment = match self.read_unquoted_segment(start) {
             Ok(segment) => segment,
             Err(kind) => return Some(LexedToken::error(kind)),
@@ -1260,119 +1304,15 @@ impl<'a> Lexer<'a> {
             if ch == '"' || ch == '\'' {
                 break;
             } else if ch == '$' {
+                if matches!(self.second_char(), Some('\'') | Some('"'))
+                    && (self.current_position().offset > start.offset
+                        || word.as_ref().is_some_and(|word| !word.is_empty()))
+                {
+                    break;
+                }
+
                 // Handle variable references and command substitution
-                let dollar_start = self.current_position();
                 self.advance();
-
-                // $'...' — ANSI-C quoting: resolve escapes at parse time
-                if self.peek_char() == Some('\'') {
-                    self.ensure_capture_from_source(&mut word, start, dollar_start);
-                    self.advance(); // consume opening '
-                    let cooked = self.read_dollar_single_quoted_content();
-                    Self::push_capture_str(&mut word, &cooked);
-                    continue;
-                }
-
-                // $"..." — locale translation synonym, treated like "..."
-                if self.peek_char() == Some('"') {
-                    self.ensure_capture_from_source(&mut word, start, dollar_start);
-                    self.advance(); // consume opening "
-                    while let Some(c) = self.peek_char() {
-                        if c == '"' {
-                            self.advance();
-                            break;
-                        }
-                        if c == '\\' {
-                            let escape_start = self.current_position();
-                            self.advance();
-                            if let Some(next) = self.peek_char() {
-                                match next {
-                                    '\n' => {
-                                        self.advance();
-                                    }
-                                    '$' => {
-                                        self.ensure_capture_from_source(
-                                            &mut word,
-                                            start,
-                                            escape_start,
-                                        );
-                                        Self::push_capture_char(&mut word, '\x00');
-                                        Self::push_capture_char(&mut word, '$');
-                                        self.advance();
-                                    }
-                                    '"' | '\\' | '`' => {
-                                        self.ensure_capture_from_source(
-                                            &mut word,
-                                            start,
-                                            escape_start,
-                                        );
-                                        Self::push_capture_char(&mut word, next);
-                                        self.advance();
-                                    }
-                                    _ => {
-                                        Self::push_capture_char(&mut word, '\\');
-                                        Self::push_capture_char(&mut word, next);
-                                        self.advance();
-                                    }
-                                }
-                                continue;
-                            }
-                        }
-                        if c == '$' {
-                            Self::push_capture_char(&mut word, c);
-                            self.advance();
-                            if let Some(nc) = self.peek_char() {
-                                if nc == '{' {
-                                    Self::push_capture_char(&mut word, nc);
-                                    self.advance();
-                                    while let Some(bc) = self.peek_char() {
-                                        Self::push_capture_char(&mut word, bc);
-                                        self.advance();
-                                        if bc == '}' {
-                                            break;
-                                        }
-                                    }
-                                } else if nc == '(' {
-                                    Self::push_capture_char(&mut word, nc);
-                                    self.advance();
-                                    let mut depth = 1;
-                                    while let Some(pc) = self.peek_char() {
-                                        Self::push_capture_char(&mut word, pc);
-                                        self.advance();
-                                        if pc == '(' {
-                                            depth += 1;
-                                        } else if pc == ')' {
-                                            depth -= 1;
-                                            if depth == 0 {
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } else if nc.is_ascii_alphanumeric()
-                                    || nc == '_'
-                                    || matches!(nc, '?' | '#' | '@' | '*' | '!' | '$' | '-')
-                                {
-                                    Self::push_capture_char(&mut word, nc);
-                                    self.advance();
-                                    if nc.is_ascii_alphabetic() || nc == '_' {
-                                        while let Some(vc) = self.peek_char() {
-                                            if vc.is_ascii_alphanumeric() || vc == '_' {
-                                                Self::push_capture_char(&mut word, vc);
-                                                self.advance();
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            continue;
-                        }
-                        Self::push_capture_char(&mut word, c);
-                        self.advance();
-                    }
-                    continue;
-                }
 
                 Self::push_capture_char(&mut word, ch); // push the '$'
 
@@ -1449,40 +1389,30 @@ impl<'a> Lexer<'a> {
                     }
                 }
             } else if ch == '`' {
-                // Backtick command substitution: convert `cmd` to $(cmd)
+                // Preserve legacy backticks verbatim so the parser can keep the
+                // original syntax form.
                 let capture_end = self.current_position();
                 self.ensure_capture_from_source(&mut word, start, capture_end);
+                Self::push_capture_char(&mut word, ch);
                 self.advance(); // consume opening `
-                Self::push_capture_str(&mut word, "$(");
                 let mut closed = false;
                 while let Some(c) = self.peek_char() {
+                    Self::push_capture_char(&mut word, c);
+                    self.advance();
                     if c == '`' {
-                        self.advance(); // consume closing `
                         closed = true;
                         break;
                     }
-                    if c == '\\' {
-                        // In backticks, backslash only escapes $, `, \, newline
-                        self.advance();
-                        if let Some(next) = self.peek_char() {
-                            if matches!(next, '$' | '`' | '\\' | '\n') {
-                                Self::push_capture_char(&mut word, next);
-                                self.advance();
-                            } else {
-                                Self::push_capture_char(&mut word, '\\');
-                                Self::push_capture_char(&mut word, next);
-                                self.advance();
-                            }
-                        }
-                    } else {
-                        Self::push_capture_char(&mut word, c);
+                    if c == '\\'
+                        && let Some(next) = self.peek_char()
+                    {
+                        Self::push_capture_char(&mut word, next);
                         self.advance();
                     }
                 }
                 if !closed {
                     return Err(LexerErrorKind::BacktickSubstitution);
                 }
-                Self::push_capture_char(&mut word, ')');
             } else if ch == '\\' {
                 let capture_end = self.current_position();
                 self.ensure_capture_from_source(&mut word, start, capture_end);
@@ -1639,6 +1569,7 @@ impl<'a> Lexer<'a> {
     fn read_single_quoted_segment(&mut self) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
         debug_assert_eq!(self.peek_char(), Some('\''));
 
+        let wrapper_start = self.current_position();
         self.consume_ascii_chars(1); // consume opening '
         let content_start = self.current_position();
         let can_borrow = self.reinject_buf.is_empty();
@@ -1678,118 +1609,70 @@ impl<'a> Lexer<'a> {
             return Err(LexerErrorKind::SingleQuote);
         }
 
+        let wrapper_span = Some(Span::from_positions(wrapper_start, self.current_position()));
+        let content_span = Some(Span::from_positions(content_start, content_end));
+
         if can_borrow {
-            Ok(LexedWordSegment::borrowed(
-                LexedWordSegmentKind::Literal,
+            Ok(LexedWordSegment::borrowed_with_spans(
+                LexedWordSegmentKind::SingleQuoted,
                 &self.input[content_start.offset..content_end.offset],
-                Some(Span::from_positions(content_start, content_end)),
+                content_span,
+                wrapper_span,
             ))
         } else {
-            Ok(LexedWordSegment::owned(
-                LexedWordSegmentKind::Literal,
+            Ok(LexedWordSegment::owned_with_spans(
+                LexedWordSegmentKind::SingleQuoted,
                 content,
+                content_span,
+                wrapper_span,
             ))
         }
     }
 
-    fn read_plain_continuation_segment(&mut self) -> Option<LexedWordSegment<'a>> {
-        let start = self.current_position();
-
-        if self.reinject_buf.is_empty() {
-            let ascii_len = self.source_ascii_plain_word_len();
-            let chunk = if ascii_len > 0
-                && self
-                    .cursor
-                    .rest()
-                    .as_bytes()
-                    .get(ascii_len)
-                    .is_none_or(|byte| byte.is_ascii())
-            {
-                self.consume_source_bytes(ascii_len);
-                &self.input[start.offset..self.offset]
-            } else {
-                let chunk = self.cursor.eat_while(Self::is_plain_word_char);
-                self.advance_scanned_source_bytes(chunk.len());
-                chunk
-            };
-            if chunk.is_empty() {
-                return None;
-            }
-
-            let end = self.current_position();
-            return Some(LexedWordSegment::borrowed(
-                LexedWordSegmentKind::Plain,
-                &self.input[start.offset..self.offset],
-                Some(Span::from_positions(start, end)),
-            ));
+    fn read_dollar_single_quoted_string(&mut self) -> Option<LexedToken<'a>> {
+        let segment = match self.read_dollar_single_quoted_segment() {
+            Ok(segment) => segment,
+            Err(kind) => return Some(LexedToken::error(kind)),
+        };
+        let mut word = LexedWord::from_segment(segment);
+        if let Err(kind) = self.append_segmented_continuation(&mut word) {
+            return Some(LexedToken::error(kind));
         }
 
-        let ch = self.peek_char()?;
-        if !Self::is_plain_word_char(ch) {
-            return None;
-        }
+        let kind = if word.single_segment().is_some() {
+            TokenKind::LiteralWord
+        } else {
+            TokenKind::Word
+        };
 
-        let mut text = String::with_capacity(16);
-        while let Some(ch) = self.peek_char() {
-            if !Self::is_plain_word_char(ch) {
-                break;
-            }
-            text.push(ch);
-            self.advance();
-        }
-
-        Some(LexedWordSegment::owned(LexedWordSegmentKind::Plain, text))
+        Some(LexedToken::with_word_payload(kind, word))
     }
 
-    /// After a closing quote, read any adjacent quoted or unquoted word chars
-    /// into `word`. Handles concatenation like `'foo'"bar"baz`.
-    fn append_segmented_continuation(
+    fn read_dollar_single_quoted_segment(
         &mut self,
-        word: &mut LexedWord<'a>,
-    ) -> Result<(), LexerErrorKind> {
-        loop {
-            match self.peek_char() {
-                Some('\'') => {
-                    word.push_segment(self.read_single_quoted_segment()?);
-                }
-                Some('"') => {
-                    word.push_segment(self.read_double_quoted_segment()?);
-                }
-                Some('$') if self.second_char() == Some('\'') => {
-                    self.consume_ascii_chars(2);
-                    word.push_owned_segment(
-                        LexedWordSegmentKind::Literal,
-                        self.read_dollar_single_quoted_content(),
-                    );
-                }
-                _ => {
-                    if let Some(segment) = self.read_plain_continuation_segment() {
-                        word.push_segment(segment);
-                        continue;
-                    }
+    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+        debug_assert_eq!(self.peek_char(), Some('$'));
+        debug_assert_eq!(self.second_char(), Some('\''));
 
-                    let start = self.current_position();
-                    let plain = self.read_unquoted_segment(start)?;
-                    if plain.as_str().is_empty() {
-                        break;
-                    }
-                    word.push_segment(plain);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Read ANSI-C quoted content ($'...').
-    /// Opening $' already consumed. Returns the resolved string.
-    fn read_dollar_single_quoted_content(&mut self) -> String {
+        let wrapper_start = self.current_position();
+        self.consume_ascii_chars(2); // consume $'
+        let content_start = self.current_position();
         let mut out = String::with_capacity(16);
+
         while let Some(ch) = self.peek_char() {
             if ch == '\'' {
+                let content_end = self.current_position();
                 self.advance();
-                break;
+                let wrapper_span = Some(Span::from_positions(wrapper_start, self.current_position()));
+                let content_span = Some(Span::from_positions(content_start, content_end));
+                return Ok(LexedWordSegment::owned_with_spans(
+                    LexedWordSegmentKind::DollarSingleQuoted,
+                    out,
+                    content_span,
+                    wrapper_span,
+                ));
             }
+
             if ch == '\\' {
                 self.advance();
                 if let Some(esc) = self.peek_char() {
@@ -1895,14 +1778,112 @@ impl<'a> Lexer<'a> {
                 }
                 continue;
             }
+
             out.push(ch);
             self.advance();
         }
-        out
+
+        Err(LexerErrorKind::SingleQuote)
+    }
+
+    fn read_plain_continuation_segment(&mut self) -> Option<LexedWordSegment<'a>> {
+        let start = self.current_position();
+
+        if self.reinject_buf.is_empty() {
+            let ascii_len = self.source_ascii_plain_word_len();
+            let chunk = if ascii_len > 0
+                && self
+                    .cursor
+                    .rest()
+                    .as_bytes()
+                    .get(ascii_len)
+                    .is_none_or(|byte| byte.is_ascii())
+            {
+                self.consume_source_bytes(ascii_len);
+                &self.input[start.offset..self.offset]
+            } else {
+                let chunk = self.cursor.eat_while(Self::is_plain_word_char);
+                self.advance_scanned_source_bytes(chunk.len());
+                chunk
+            };
+            if chunk.is_empty() {
+                return None;
+            }
+
+            let end = self.current_position();
+            return Some(LexedWordSegment::borrowed(
+                LexedWordSegmentKind::Plain,
+                &self.input[start.offset..self.offset],
+                Some(Span::from_positions(start, end)),
+            ));
+        }
+
+        let ch = self.peek_char()?;
+        if !Self::is_plain_word_char(ch) {
+            return None;
+        }
+
+        let mut text = String::with_capacity(16);
+        while let Some(ch) = self.peek_char() {
+            if !Self::is_plain_word_char(ch) {
+                break;
+            }
+            text.push(ch);
+            self.advance();
+        }
+
+        Some(LexedWordSegment::owned(LexedWordSegmentKind::Plain, text))
+    }
+
+    /// After a closing quote, read any adjacent quoted or unquoted word chars
+    /// into `word`. Handles concatenation like `'foo'"bar"baz`.
+    fn append_segmented_continuation(
+        &mut self,
+        word: &mut LexedWord<'a>,
+    ) -> Result<(), LexerErrorKind> {
+        loop {
+            match self.peek_char() {
+                Some('\'') => {
+                    word.push_segment(self.read_single_quoted_segment()?);
+                }
+                Some('"') => {
+                    word.push_segment(self.read_double_quoted_segment()?);
+                }
+                Some('$') if self.second_char() == Some('\'') => {
+                    word.push_segment(self.read_dollar_single_quoted_segment()?);
+                }
+                Some('$') if self.second_char() == Some('"') => {
+                    word.push_segment(self.read_dollar_double_quoted_segment()?);
+                }
+                _ => {
+                    if let Some(segment) = self.read_plain_continuation_segment() {
+                        word.push_segment(segment);
+                        continue;
+                    }
+
+                    let start = self.current_position();
+                    let plain = self.read_unquoted_segment(start)?;
+                    if plain.as_str().is_empty() {
+                        break;
+                    }
+                    word.push_segment(plain);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn read_double_quoted_string(&mut self) -> Option<LexedToken<'a>> {
-        let segment = match self.read_double_quoted_segment() {
+        self.read_double_quoted_word(false)
+    }
+
+    fn read_dollar_double_quoted_string(&mut self) -> Option<LexedToken<'a>> {
+        self.read_double_quoted_word(true)
+    }
+
+    fn read_double_quoted_word(&mut self, dollar: bool) -> Option<LexedToken<'a>> {
+        let segment = match self.read_double_quoted_segment_with_dollar(dollar) {
             Ok(segment) => segment,
             Err(kind) => return Some(LexedToken::error(kind)),
         };
@@ -1921,9 +1902,30 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_double_quoted_segment(&mut self) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
-        debug_assert_eq!(self.peek_char(), Some('"'));
+        self.read_double_quoted_segment_with_dollar(false)
+    }
 
-        self.consume_ascii_chars(1); // consume opening "
+    fn read_dollar_double_quoted_segment(&mut self) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+        self.read_double_quoted_segment_with_dollar(true)
+    }
+
+    fn read_double_quoted_segment_with_dollar(
+        &mut self,
+        dollar: bool,
+    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+        if dollar {
+            debug_assert_eq!(self.peek_char(), Some('$'));
+            debug_assert_eq!(self.second_char(), Some('"'));
+        } else {
+            debug_assert_eq!(self.peek_char(), Some('"'));
+        }
+
+        let wrapper_start = self.current_position();
+        if dollar {
+            self.consume_ascii_chars(2); // consume $"
+        } else {
+            self.consume_ascii_chars(1); // consume opening "
+        }
         let content_start = self.current_position();
         let mut content_end = content_start;
         let mut simple = self.reinject_buf.is_empty();
@@ -2045,31 +2047,21 @@ impl<'a> Lexer<'a> {
                     borrowable = false;
                     let capture_end = self.current_position();
                     self.ensure_capture_from_source(&mut content, content_start, capture_end);
+                    Self::push_capture_char(&mut content, '`');
                     self.advance(); // consume opening `
-                    Self::push_capture_str(&mut content, "$(");
                     while let Some(c) = self.peek_char() {
+                        Self::push_capture_char(&mut content, c);
+                        self.advance();
                         if c == '`' {
-                            self.advance();
                             break;
                         }
                         if c == '\\' {
-                            self.advance();
                             if let Some(next) = self.peek_char() {
-                                if matches!(next, '$' | '`' | '\\' | '"') {
-                                    Self::push_capture_char(&mut content, next);
-                                    self.advance();
-                                } else {
-                                    Self::push_capture_char(&mut content, '\\');
-                                    Self::push_capture_char(&mut content, next);
-                                    self.advance();
-                                }
+                                Self::push_capture_char(&mut content, next);
+                                self.advance();
                             }
-                        } else {
-                            Self::push_capture_char(&mut content, c);
-                            self.advance();
                         }
                     }
-                    Self::push_capture_char(&mut content, ')');
                 }
                 _ => {
                     Self::push_capture_char(&mut content, ch);
@@ -2082,16 +2074,30 @@ impl<'a> Lexer<'a> {
             return Err(LexerErrorKind::DoubleQuote);
         }
 
+        let wrapper_span = Some(Span::from_positions(wrapper_start, self.current_position()));
+        let content_span = Some(Span::from_positions(content_start, content_end));
+
         if borrowable {
-            Ok(LexedWordSegment::borrowed(
-                LexedWordSegmentKind::DoubleQuoted,
+            Ok(LexedWordSegment::borrowed_with_spans(
+                if dollar {
+                    LexedWordSegmentKind::DollarDoubleQuoted
+                } else {
+                    LexedWordSegmentKind::DoubleQuoted
+                },
                 &self.input[content_start.offset..content_end.offset],
-                Some(Span::from_positions(content_start, content_end)),
+                content_span,
+                wrapper_span,
             ))
         } else {
-            Ok(LexedWordSegment::owned(
-                LexedWordSegmentKind::DoubleQuoted,
+            Ok(LexedWordSegment::owned_with_spans(
+                if dollar {
+                    LexedWordSegmentKind::DollarDoubleQuoted
+                } else {
+                    LexedWordSegmentKind::DoubleQuoted
+                },
                 content.unwrap_or_default(),
+                content_span,
+                wrapper_span,
             ))
         }
     }
@@ -2907,7 +2913,7 @@ mod tests {
             vec![
                 (LexedWordSegmentKind::Plain, "foo".to_string()),
                 (LexedWordSegmentKind::DoubleQuoted, "bar".to_string()),
-                (LexedWordSegmentKind::Literal, "baz".to_string()),
+                (LexedWordSegmentKind::SingleQuoted, "baz".to_string()),
             ]
         );
         assert_eq!(word.joined_text(), "foobarbaz");
@@ -2938,7 +2944,7 @@ mod tests {
         assert_eq!(
             segments,
             vec![
-                (LexedWordSegmentKind::Literal, "foo".to_string()),
+                (LexedWordSegmentKind::SingleQuoted, "foo".to_string()),
                 (LexedWordSegmentKind::Plain, "bar".to_string()),
             ]
         );
@@ -3021,7 +3027,7 @@ mod tests {
         let mut lexer = Lexer::new("echo $'\\c''");
 
         assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
-        assert_next_token(&mut lexer, TokenKind::Word, Some("\x07"));
+        assert_next_token(&mut lexer, TokenKind::LiteralWord, Some("\x07"));
         assert!(lexer.next_lexed_token().is_none());
     }
 

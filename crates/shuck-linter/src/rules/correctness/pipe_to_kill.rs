@@ -1,6 +1,6 @@
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Redirect, Span, Word, WordPart,
+    ConditionalExpr, DeclOperand, FunctionDef, Redirect, Span, Word, WordPart, WordPartNode,
 };
 
 use crate::rules::common::word::static_word_text;
@@ -198,10 +198,11 @@ fn collect_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
     collect_word_parts(&word.parts, source, spans);
 }
 
-fn collect_word_parts(parts: &[WordPart], source: &str, spans: &mut Vec<Span>) {
+fn collect_word_parts(parts: &[WordPartNode], source: &str, spans: &mut Vec<Span>) {
     for part in parts {
-        match part {
-            WordPart::CommandSubstitution(commands)
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => collect_word_parts(parts, source, spans),
+            WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => {
                 collect_commands(commands, source, spans);
             }

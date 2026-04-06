@@ -970,7 +970,7 @@ fn collect_regions_from_word(
     let mut regions = Vec::new();
     for (part, span) in word.parts_with_spans() {
         match part {
-            WordPart::CommandSubstitution(commands)
+            WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => {
                 regions.push(IsolatedRegion {
                     scope: scope_for_span(scopes, span),
@@ -1006,7 +1006,10 @@ fn depth_from_word(word: Option<&Word>) -> usize {
 #[cfg(test)]
 fn single_literal_word(word: &Word) -> Option<&str> {
     match word.parts.as_slice() {
-        [WordPart::Literal(shuck_ast::LiteralText::Owned(text))] => Some(text.as_ref()),
+        [part] => match &part.kind {
+            WordPart::Literal(shuck_ast::LiteralText::Owned(text)) => Some(text.as_ref()),
+            _ => None,
+        },
         _ => None,
     }
 }

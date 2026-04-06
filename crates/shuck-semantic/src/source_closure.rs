@@ -5,6 +5,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
     DeclOperand, FunctionDef, Name, Redirect, Script, SourceText, Span, Word, WordPart,
+    WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -343,13 +344,26 @@ fn walk_words(words: &[Word], model: &SemanticModel, source: &str, facts: &mut A
 }
 
 fn walk_word(word: &Word, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    for part in &word.parts {
-        match part {
-            WordPart::CommandSubstitution(commands)
+    walk_word_parts(&word.parts, model, source, facts);
+}
+
+fn walk_word_parts(
+    parts: &[WordPartNode],
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, model, source, facts),
+            WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => {
                 walk_commands(commands, model, source, facts)
             }
-            WordPart::ArithmeticExpansion(text) => walk_arithmetic(text, model, source, facts),
+            WordPart::ArithmeticExpansion { expression, .. } => {
+                walk_arithmetic(expression, model, source, facts)
+            }
             WordPart::ParameterExpansion { operand, .. } => {
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
@@ -439,49 +453,89 @@ fn source_path_template(
     let mut ignored_root = false;
     let mut saw_dynamic = false;
 
-    for (part, span) in word.parts_with_spans() {
-        match part {
+    if !collect_source_template_parts(
+        &word.parts,
+        source,
+        bash_runtime_vars_enabled,
+        &mut parts,
+        &mut ignored_root,
+        &mut saw_dynamic,
+    ) {
+        return None;
+    }
+
+    (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::Interpolated(parts))
+}
+
+fn collect_source_template_parts(
+    word_parts: &[WordPartNode],
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    parts: &mut Vec<TemplatePart>,
+    ignored_root: &mut bool,
+    saw_dynamic: &mut bool,
+) -> bool {
+    for part in word_parts {
+        match &part.kind {
             WordPart::Literal(text) => {
-                let text = text.as_str(source, span);
+                let text = text.as_str(source, part.span);
                 if !text.is_empty() {
-                    push_literal(&mut parts, text.to_owned());
+                    push_literal(parts, text.to_owned());
+                }
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                let text = value.slice(source);
+                if !text.is_empty() {
+                    push_literal(parts, text.to_owned());
+                }
+            }
+            WordPart::DoubleQuoted { parts: inner, .. } => {
+                if !collect_source_template_parts(
+                    inner,
+                    source,
+                    bash_runtime_vars_enabled,
+                    parts,
+                    ignored_root,
+                    saw_dynamic,
+                ) {
+                    return false;
                 }
             }
             WordPart::Variable(name) => {
                 if let Some(index) = positional_index(name) {
-                    saw_dynamic = true;
+                    *saw_dynamic = true;
                     parts.push(TemplatePart::Arg(index));
                 } else if bash_runtime_vars_enabled && is_bash_source_var(name) {
-                    saw_dynamic = true;
+                    *saw_dynamic = true;
                     parts.push(TemplatePart::SourceFile);
-                } else if !ignored_root && parts.is_empty() {
-                    ignored_root = true;
-                    saw_dynamic = true;
+                } else if !*ignored_root && parts.is_empty() {
+                    *ignored_root = true;
+                    *saw_dynamic = true;
                 } else {
-                    return None;
+                    return false;
                 }
             }
             WordPart::ArrayAccess { name, index }
                 if bash_runtime_vars_enabled && is_bash_source_index(name, index, source) =>
             {
-                saw_dynamic = true;
+                *saw_dynamic = true;
                 parts.push(TemplatePart::SourceFile);
             }
-            WordPart::CommandSubstitution(commands) => {
+            WordPart::CommandSubstitution { commands, .. } => {
                 if bash_runtime_vars_enabled
                     && let Some(template_part) = dirname_source_template_part(commands, source)
                 {
-                    saw_dynamic = true;
+                    *saw_dynamic = true;
                     parts.push(template_part);
                 } else {
-                    return None;
+                    return false;
                 }
             }
-            _ => return None,
+            _ => return false,
         }
     }
 
-    (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::Interpolated(parts))
+    true
 }
 
 fn push_literal(parts: &mut Vec<TemplatePart>, text: String) {
@@ -520,11 +574,19 @@ fn dirname_source_template_part(commands: &[Command], source: &str) -> Option<Te
 fn current_source_file_word(word: &Word, source: &str) -> bool {
     matches!(
         word.parts.as_slice(),
-        [WordPart::Variable(name)] if is_bash_source_var(name)
-    ) || matches!(
-        word.parts.as_slice(),
-        [WordPart::ArrayAccess { name, index }] if is_bash_source_index(name, index, source)
+        [part] if is_current_source_part(&part.kind, source)
     )
+}
+
+fn is_current_source_part(part: &WordPart, source: &str) -> bool {
+    match part {
+        WordPart::Variable(name) => is_bash_source_var(name),
+        WordPart::ArrayAccess { name, index } => is_bash_source_index(name, index, source),
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(parts.as_slice(), [part] if is_current_source_part(&part.kind, source))
+        }
+        _ => false,
+    }
 }
 
 fn source_candidates(
@@ -820,11 +882,22 @@ fn summarize_helper_uncached(
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
+    collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+}
+
+fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => out.push_str(text.as_str(source, part.span)),
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_static_word_text(parts, source, out) {
+                    return false;
+                }
+            }
+            _ => return false,
         }
     }
-    Some(result)
+
+    true
 }

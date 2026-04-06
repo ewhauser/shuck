@@ -2,7 +2,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
     ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name, ParameterOp, Script, SourceText,
-    Span, Word, WordPart,
+    Span, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 
@@ -866,110 +866,136 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
-        for (part, span) in word.parts_with_spans() {
-            match part {
-                WordPart::Literal(_) => {}
-                WordPart::Variable(name) => {
-                    self.add_reference(
-                        name.clone(),
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::Expansion
-                        },
-                        span,
-                    );
-                }
-                WordPart::CommandSubstitution(commands)
-                | WordPart::ProcessSubstitution { commands, .. } => {
-                    let scope =
-                        self.push_scope(ScopeKind::CommandSubstitution, self.current_scope(), span);
-                    let commands = self.visit_commands(
-                        commands,
-                        FlowState {
-                            in_subshell: true,
-                            ..flow
-                        },
-                    );
-                    self.pop_scope(scope);
-                    self.mark_scope_completed(scope);
-                    nested_regions.push(IsolatedRegion { scope, commands });
-                }
-                WordPart::ArithmeticExpansion(text) => self.visit_arithmetic_source_text(text),
-                WordPart::ParameterExpansion { name, operator, .. } => {
-                    self.add_reference(
-                        name.clone(),
-                        if matches!(operator, ParameterOp::Error) {
-                            ReferenceKind::RequiredRead
-                        } else if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
-                        span,
-                    );
-                }
-                WordPart::Length(name) | WordPart::ArrayLength(name) => {
-                    self.add_reference(
-                        name.clone(),
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::Length
-                        },
-                        span,
-                    );
-                }
-                WordPart::ArrayAccess { name, .. } => {
-                    self.add_reference(
-                        name.clone(),
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ArrayAccess
-                        },
-                        span,
-                    );
-                }
-                WordPart::ArrayIndices(name) | WordPart::PrefixMatch(name) => {
-                    self.add_reference(
-                        name.clone(),
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::IndirectExpansion
-                        },
-                        span,
-                    );
-                }
-                WordPart::IndirectExpansion { name, .. } => {
-                    let id = self.add_reference(
-                        name.clone(),
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::IndirectExpansion
-                        },
-                        span,
-                    );
-                    self.indirect_expansion_refs.insert(id);
-                }
-                WordPart::Substring { name, .. }
-                | WordPart::ArraySlice { name, .. }
-                | WordPart::Transformation { name, .. } => {
-                    self.add_reference(
-                        name.clone(),
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
-                        span,
-                    );
-                }
+        self.visit_word_part_nodes(&word.parts, kind, flow, &mut nested_regions);
+        nested_regions
+    }
+
+    fn visit_word_part_nodes(
+        &mut self,
+        parts: &'a [WordPartNode],
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        for part in parts {
+            self.visit_word_part(&part.kind, part.span, kind, flow, nested_regions);
+        }
+    }
+
+    fn visit_word_part(
+        &mut self,
+        part: &'a WordPart,
+        span: Span,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match part {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                self.visit_word_part_nodes(parts, kind, flow, nested_regions);
+            }
+            WordPart::Variable(name) => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::Expansion
+                    },
+                    span,
+                );
+            }
+            WordPart::CommandSubstitution { commands, .. }
+            | WordPart::ProcessSubstitution { commands, .. } => {
+                let scope =
+                    self.push_scope(ScopeKind::CommandSubstitution, self.current_scope(), span);
+                let commands = self.visit_commands(
+                    commands,
+                    FlowState {
+                        in_subshell: true,
+                        ..flow
+                    },
+                );
+                self.pop_scope(scope);
+                self.mark_scope_completed(scope);
+                nested_regions.push(IsolatedRegion { scope, commands });
+            }
+            WordPart::ArithmeticExpansion { expression, .. } => {
+                self.visit_arithmetic_source_text(expression)
+            }
+            WordPart::ParameterExpansion { name, operator, .. } => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(operator, ParameterOp::Error) {
+                        ReferenceKind::RequiredRead
+                    } else if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::ParameterExpansion
+                    },
+                    span,
+                );
+            }
+            WordPart::Length(name) | WordPart::ArrayLength(name) => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::Length
+                    },
+                    span,
+                );
+            }
+            WordPart::ArrayAccess { name, .. } => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::ArrayAccess
+                    },
+                    span,
+                );
+            }
+            WordPart::ArrayIndices(name) | WordPart::PrefixMatch(name) => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::IndirectExpansion
+                    },
+                    span,
+                );
+            }
+            WordPart::IndirectExpansion { name, .. } => {
+                let id = self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::IndirectExpansion
+                    },
+                    span,
+                );
+                self.indirect_expansion_refs.insert(id);
+            }
+            WordPart::Substring { name, .. }
+            | WordPart::ArraySlice { name, .. }
+            | WordPart::Transformation { name, .. } => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::ParameterExpansion
+                    },
+                    span,
+                );
             }
         }
-        nested_regions
     }
 
     fn visit_conditional_expr(
@@ -1614,18 +1640,14 @@ fn indirect_target_hint_from_word(word: &Word, source: &str) -> Option<IndirectT
     let mut prefix = String::new();
     let mut suffix = String::new();
     let mut saw_variable = false;
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => {
-                if saw_variable {
-                    suffix.push_str(text.as_str(source, span));
-                } else {
-                    prefix.push_str(text.as_str(source, span));
-                }
-            }
-            WordPart::Variable(_) if !saw_variable => saw_variable = true,
-            _ => return None,
-        }
+    if !collect_indirect_pattern_parts(
+        &word.parts,
+        source,
+        &mut prefix,
+        &mut suffix,
+        &mut saw_variable,
+    ) {
+        return None;
     }
 
     if !saw_variable {
@@ -1645,6 +1667,42 @@ fn indirect_target_hint_from_word(word: &Word, source: &str) -> Option<IndirectT
         suffix: suffix.to_string(),
         array_like,
     })
+}
+
+fn collect_indirect_pattern_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    prefix: &mut String,
+    suffix: &mut String,
+    saw_variable: &mut bool,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                if *saw_variable {
+                    suffix.push_str(text.as_str(source, part.span));
+                } else {
+                    prefix.push_str(text.as_str(source, part.span));
+                }
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                if *saw_variable {
+                    suffix.push_str(value.slice(source));
+                } else {
+                    prefix.push_str(value.slice(source));
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_indirect_pattern_parts(parts, source, prefix, suffix, saw_variable) {
+                    return false;
+                }
+            }
+            WordPart::Variable(_) if !*saw_variable => *saw_variable = true,
+            _ => return false,
+        }
+    }
+
+    true
 }
 
 fn parse_indirect_target_name(text: &str) -> Option<(&str, bool)> {
@@ -1707,13 +1765,24 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
+    collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+}
+
+fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => out.push_str(text.as_str(source, part.span)),
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_static_word_text(parts, source, out) {
+                    return false;
+                }
+            }
+            _ => return false,
         }
     }
-    Some(result)
+
+    true
 }
 
 fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
@@ -1873,7 +1942,10 @@ fn depth_from_word(word: Option<&Word>) -> usize {
 
 fn single_literal_word(word: &Word) -> Option<&str> {
     match word.parts.as_slice() {
-        [WordPart::Literal(shuck_ast::LiteralText::Owned(text))] => Some(text.as_ref()),
+        [part] => match &part.kind {
+            WordPart::Literal(shuck_ast::LiteralText::Owned(text)) => Some(text.as_ref()),
+            _ => None,
+        },
         _ => None,
     }
 }

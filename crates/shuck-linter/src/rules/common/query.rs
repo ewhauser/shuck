@@ -1,6 +1,7 @@
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
     ConditionalExpr, DeclOperand, FunctionDef, Redirect, RedirectKind, Span, Word, WordPart,
+    WordPartNode,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -109,26 +110,9 @@ pub fn iter_command_words(command: &Command) -> impl Iterator<Item = &Word> {
 pub fn iter_word_command_substitutions<'a>(
     word: &'a Word,
 ) -> impl Iterator<Item = NestedCommandSubstitution<'a>> + 'a {
-    word.parts_with_spans()
-        .filter_map(|(part, span)| match part {
-            WordPart::CommandSubstitution(commands) => Some(NestedCommandSubstitution {
-                commands,
-                span,
-                kind: CommandSubstitutionKind::Command,
-            }),
-            WordPart::ProcessSubstitution { commands, is_input } => {
-                Some(NestedCommandSubstitution {
-                    commands,
-                    span,
-                    kind: if *is_input {
-                        CommandSubstitutionKind::ProcessInput
-                    } else {
-                        CommandSubstitutionKind::ProcessOutput
-                    },
-                })
-            }
-            _ => None,
-        })
+    let mut substitutions = Vec::new();
+    collect_word_command_substitutions(&word.parts, &mut substitutions);
+    substitutions.into_iter()
 }
 
 pub fn iter_command_substitutions<'a>(
@@ -719,9 +703,14 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
             return;
         }
 
-        for part in &word.parts {
-            match part {
-                WordPart::CommandSubstitution(commands)
+        self.walk_word_parts(&word.parts, context);
+    }
+
+    fn walk_word_parts(&mut self, parts: &[WordPartNode], context: WalkContext) {
+        for part in parts {
+            match &part.kind {
+                WordPart::DoubleQuoted { parts, .. } => self.walk_word_parts(parts, context),
+                WordPart::CommandSubstitution { commands, .. }
                 | WordPart::ProcessSubstitution { commands, .. } => {
                     self.walk_commands(commands, context);
                 }
@@ -918,9 +907,14 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
             return;
         }
 
-        for part in &word.parts {
-            match part {
-                WordPart::CommandSubstitution(commands)
+        self.walk_word_parts(&word.parts);
+    }
+
+    fn walk_word_parts(&mut self, parts: &[WordPartNode]) {
+        for part in parts {
+            match &part.kind {
+                WordPart::DoubleQuoted { parts, .. } => self.walk_word_parts(parts),
+                WordPart::CommandSubstitution { commands, .. }
                 | WordPart::ProcessSubstitution { commands, .. } => self.walk_commands(commands),
                 _ => {}
             }
@@ -1062,6 +1056,38 @@ fn collect_builtin_words<'a>(command: &'a BuiltinCommand, words: &mut Vec<&'a Wo
             }
             collect_words(&command.extra_args, words);
             collect_redirect_target_words(&command.redirects, words);
+        }
+    }
+}
+
+fn collect_word_command_substitutions<'a>(
+    parts: &'a [WordPartNode],
+    substitutions: &mut Vec<NestedCommandSubstitution<'a>>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_word_command_substitutions(parts, substitutions);
+            }
+            WordPart::CommandSubstitution { commands, .. } => {
+                substitutions.push(NestedCommandSubstitution {
+                    commands,
+                    span: part.span,
+                    kind: CommandSubstitutionKind::Command,
+                });
+            }
+            WordPart::ProcessSubstitution { commands, is_input } => {
+                substitutions.push(NestedCommandSubstitution {
+                    commands,
+                    span: part.span,
+                    kind: if *is_input {
+                        CommandSubstitutionKind::ProcessInput
+                    } else {
+                        CommandSubstitutionKind::ProcessOutput
+                    },
+                });
+            }
+            _ => {}
         }
     }
 }

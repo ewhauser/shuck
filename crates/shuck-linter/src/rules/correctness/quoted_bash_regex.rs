@@ -2,7 +2,7 @@ use shuck_ast::{Command, CompoundCommand, ConditionalBinaryOp, ConditionalExpr};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::common::word::{
-    TestOperandClass, classify_conditional_operand, static_word_text,
+    TestOperandClass, WordQuote, classify_conditional_operand, classify_word, static_word_text,
 };
 use crate::{Checker, Rule, Violation};
 
@@ -44,7 +44,9 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
                 return;
             };
 
-            if word.quoted && quoted_regex_requires_warning(word, source) {
+            if classify_word(word, source).quote != WordQuote::Unquoted
+                && quoted_regex_requires_warning(word, source)
+            {
                 spans.push(word.span);
             }
         },

@@ -258,18 +258,39 @@ Redirects can appear:
 The lexer produces word tokens with raw expansion syntax. The parser's `parse_word_with_context()` method then parses expansions into `WordPart` variants:
 
 ```rust
-pub struct Word {
-    pub parts: Vec<WordPart>,      // Literal, Variable, CommandSubst, etc.
-    pub part_spans: Vec<Span>,     // Position of each part
-    pub quoted: bool,              // From quoted source (affects glob/brace)
+pub struct WordPartNode {
+    pub kind: WordPart,
     pub span: Span,
 }
 
+pub struct Word {
+    pub parts: Vec<WordPartNode>,  // Literal, quoted fragments, expansions, etc.
+    pub span: Span,
+}
+
+pub enum CommandSubstitutionSyntax {
+    DollarParen,
+    Backtick,
+}
+
+pub enum ArithmeticExpansionSyntax {
+    DollarParenParen,
+    LegacyBracket,
+}
+
 pub enum WordPart {
-    Literal(String),
+    Literal(LiteralText),
+    SingleQuoted { value: SourceText, dollar: bool },
+    DoubleQuoted { parts: Vec<WordPartNode>, dollar: bool },
     Variable(Name),                             // $VAR, ${VAR}
-    CommandSubstitution(Vec<Command>),          // $(...)
-    ArithmeticExpansion(String),                // $((...))
+    CommandSubstitution {
+        commands: Vec<Command>,
+        syntax: CommandSubstitutionSyntax,
+    },
+    ArithmeticExpansion {
+        expression: SourceText,
+        syntax: ArithmeticExpansionSyntax,
+    },
     ParameterExpansion { name, operator, operand, colon_variant },
     Length(Name),                               // ${#var}
     ArrayAccess { name, index },                // ${arr[idx]}, ${arr[@]}
@@ -296,17 +317,18 @@ pub enum ParameterOp {
 }
 ```
 
-Identifier-like fields in `WordPart` use `Name`, a compact owned string type backed by `compact_str::CompactString`. Free-form payloads remain `String`:
+Identifier-like fields in `WordPart` use `Name`, a compact owned string type backed by `compact_str::CompactString`. Source-backed text uses `LiteralText` or `SourceText` so ordinary parsing can preserve original slices:
 
 - `Name`: variable names, parameter names, loop/function/coproc names, fd-variable redirect names
-- `String`: literals, here-doc bodies, parameter operands, replacement patterns, array indices, arithmetic-expansion text
+- `LiteralText`: unquoted literal fragments
+- `SourceText`: quoted bodies, parameter operands, array indices and slices, arithmetic-expansion text
 
 **Algorithm:** Character-by-character iteration:
 1. Collect literal characters
 2. On `$`, dispatch to expansion-specific parser
 3. Read expansion until terminator (`}`, `))`, `[`, etc.)
 4. For command substitutions, recursively parse nested commands
-5. Build `WordPart` and add to parts list
+5. Build a `WordPartNode` and add it to the word's parts list
 
 ### Abstract Syntax Tree
 
