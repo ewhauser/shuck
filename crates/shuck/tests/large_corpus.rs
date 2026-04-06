@@ -1177,11 +1177,10 @@ fn projected_worktree_fixture_paths(
     let mut seen = HashSet::new();
 
     for root in worktree_roots {
+        let corpus_base = root.join(".cache").join("large-corpus");
         for projected in [
-            root.join(LARGE_CORPUS_CACHE_DIR_NAME)
-                .join("scripts")
-                .join(cache_rel_path),
-            root.join(LARGE_CORPUS_CACHE_DIR_NAME)
+            corpus_base.join("scripts").join(cache_rel_path),
+            corpus_base
                 .join("corpus")
                 .join("scripts")
                 .join(cache_rel_path),
@@ -2940,7 +2939,12 @@ mod tests {
         let stable_path = cache.cache_path(&fixture);
         let alternate_legacy_path = cache.legacy_cache_path_for_absolute_path(
             &fixture,
-            &alternate_root.join(".cache/large-corpus/corpus/scripts/example.sh"),
+            &alternate_root
+                .join(".cache")
+                .join("large-corpus")
+                .join("corpus")
+                .join("scripts")
+                .join("example.sh"),
         );
 
         write_cache_file(&alternate_legacy_path, "legacy-alternate");
