@@ -1505,7 +1505,10 @@ fn fixture_supported_for_large_corpus(
     fixture: &LargeCorpusFixture,
     shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
 ) -> bool {
-    if fixture_looks_like_zsh(fixture) || fixture_is_repo_git_entry(fixture) {
+    if fixture_looks_like_zsh(fixture)
+        || path_is_sample_file(&fixture.path)
+        || fixture_is_repo_git_entry(fixture)
+    {
         return false;
     }
 
@@ -1531,6 +1534,12 @@ fn fixture_looks_like_zsh(fixture: &LargeCorpusFixture) -> bool {
     };
 
     name.ends_with(".zsh") || name.ends_with(".zsh-theme") || name.starts_with(".zsh")
+}
+
+fn path_is_sample_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".sample"))
 }
 
 fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
@@ -1749,6 +1758,9 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
         }
 
         let path = entry.path().to_path_buf();
+        if path_is_sample_file(&path) {
+            continue;
+        }
         let cache_rel_path = path
             .strip_prefix(&scripts_dir)
             .unwrap_or(path.as_path())
@@ -2637,6 +2649,19 @@ mod tests {
     }
 
     #[test]
+    fn sample_files_are_skipped_for_large_corpus() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("hooks/pre-commit.sample"),
+            cache_rel_path: PathBuf::from("hooks/pre-commit.sample"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_sample_file(&fixture.path));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+    }
+
+    #[test]
     fn shellcheck_parse_abort_classification() {
         let aborted = vec![
             ShellCheckDiagnostic {
@@ -3303,6 +3328,26 @@ mod tests {
         );
 
         assert_eq!(resolved, vec![canonicalize_for_resolver(&local.path)]);
+    }
+
+    #[test]
+    fn collect_fixtures_skips_sample_files() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let scripts_dir = tempdir.path().join("scripts");
+        let nested_dir = scripts_dir.join("nested");
+        fs::create_dir_all(&nested_dir).unwrap();
+
+        fs::write(scripts_dir.join("keep.sh"), "#!/bin/sh\necho keep\n").unwrap();
+        fs::write(scripts_dir.join("pre-commit.sample"), "#!/bin/sh\necho skip\n").unwrap();
+        fs::write(nested_dir.join("post-checkout.sample"), "#!/bin/sh\necho skip\n").unwrap();
+
+        let fixtures = collect_fixtures(tempdir.path());
+        let collected_paths: Vec<_> = fixtures
+            .into_iter()
+            .map(|fixture| fixture.cache_rel_path)
+            .collect();
+
+        assert_eq!(collected_paths, vec![PathBuf::from("keep.sh")]);
     }
 
     fn fixture(path: &str) -> LargeCorpusFixture {

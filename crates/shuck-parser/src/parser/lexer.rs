@@ -2347,11 +2347,6 @@ impl<'a> Lexer<'a> {
             }
 
             match c {
-                '{' if !in_single && !in_double => {
-                    depth += 1;
-                    Self::push_capture_char(content, c);
-                    self.advance();
-                }
                 '}' if !in_single && !in_double => {
                     depth -= 1;
                     self.advance();

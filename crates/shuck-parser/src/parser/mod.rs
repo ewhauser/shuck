@@ -5789,16 +5789,21 @@ impl<'a> Parser<'a> {
                         operand.push(ch);
                     }
                 }
-                '{' if !in_single && !in_double => {
-                    depth += 1;
+                '$' if !in_single => {
                     let ch = Self::next_word_char_unwrap(chars, cursor);
                     if let Some(operand) = operand.as_mut() {
                         operand.push(ch);
                     }
+                    if chars.peek() == Some(&'{') {
+                        depth += 1;
+                        let brace = Self::next_word_char_unwrap(chars, cursor);
+                        if let Some(operand) = operand.as_mut() {
+                            operand.push(brace);
+                        }
+                    }
                 }
                 '}' if !in_single && !in_double => {
-                    depth -= 1;
-                    if depth == 0 {
+                    if depth == 1 {
                         let end = *cursor;
                         Self::next_word_char_unwrap(chars, cursor);
                         return if source_backed {
@@ -5807,6 +5812,7 @@ impl<'a> Parser<'a> {
                             self.source_text(operand.unwrap_or_default(), start, end)
                         };
                     }
+                    depth -= 1;
                     let ch = Self::next_word_char_unwrap(chars, cursor);
                     if let Some(operand) = operand.as_mut() {
                         operand.push(ch);
@@ -6765,6 +6771,57 @@ mod tests {
         let operand = operand.as_ref().expect("expected operand");
         assert!(operand.is_source_backed());
         assert_eq!(operand.slice(input), "$(pwd)");
+    }
+
+    #[test]
+    fn test_parameter_expansion_trim_operand_accepts_literal_left_brace_after_multiline_quote() {
+        let input = "dns_servercow_info='ServerCow.de\nSite: ServerCow.de\n'\n\nf(){\n  if true; then\n    txtvalue_old=${response#*{\"name\":\"}\n  fi\n}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Function(function) = &script.commands[1] else {
+            panic!("expected function definition");
+        };
+        let Command::Compound(CompoundCommand::BraceGroup(body), redirects) = function.body.as_ref()
+        else {
+            panic!("expected brace-group function body");
+        };
+        assert!(redirects.is_empty());
+        let Command::Compound(CompoundCommand::If(if_command), redirects) = &body[0] else {
+            panic!("expected if command");
+        };
+        assert!(redirects.is_empty());
+        let Command::Simple(command) = &if_command.then_branch[0] else {
+            panic!("expected simple command in then branch");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+        let WordPart::ParameterExpansion { operand, .. } = &word.parts[0] else {
+            panic!("expected parameter expansion");
+        };
+
+        let operand = operand.as_ref().expect("expected operand");
+        assert!(operand.is_source_backed());
+        assert_eq!(operand.slice(input), "*{\"name\":\"");
+    }
+
+    #[test]
+    fn test_parameter_expansion_trim_operand_tracks_nested_parameter_expansions() {
+        let input = "echo ${var#${prefix:-fallback}}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let word = &command.args[0];
+
+        let WordPart::ParameterExpansion { operand, .. } = &word.parts[0] else {
+            panic!("expected parameter expansion");
+        };
+
+        let operand = operand.as_ref().expect("expected operand");
+        assert!(operand.is_source_backed());
+        assert_eq!(operand.slice(input), "${prefix:-fallback}");
     }
 
     #[test]
