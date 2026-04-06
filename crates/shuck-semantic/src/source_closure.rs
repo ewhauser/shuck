@@ -10,7 +10,8 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 
 use crate::{
-    Binding, BindingId, ScopeId, ScopeKind, SemanticModel, SourceRefKind, SpanKey, SyntheticRead,
+    Binding, BindingId, ScopeId, ScopeKind, SemanticModel, SourcePathResolver, SourceRefKind,
+    SpanKey, SyntheticRead,
 };
 
 pub(crate) fn collect_source_closure_reads(
@@ -18,6 +19,7 @@ pub(crate) fn collect_source_closure_reads(
     script: &Script,
     source: &str,
     source_path: &Path,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<SyntheticRead> {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
@@ -28,6 +30,7 @@ pub(crate) fn collect_source_closure_reads(
         source_path,
         &mut summaries,
         &mut active,
+        source_path_resolver,
     )
 }
 
@@ -38,6 +41,7 @@ fn collect_source_closure_reads_with_cache(
     source_path: &Path,
     summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
     active: &mut FxHashSet<PathBuf>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<SyntheticRead> {
     let facts = collect_ast_facts(script, model, source);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
@@ -62,6 +66,7 @@ fn collect_source_closure_reads_with_cache(
             candidates,
             summaries,
             active,
+            source_path_resolver,
         );
     }
 
@@ -78,6 +83,7 @@ fn collect_source_closure_reads_with_cache(
             [candidate],
             summaries,
             active,
+            source_path_resolver,
         );
     }
 
@@ -94,10 +100,11 @@ fn extend_synthetic_reads_for_candidates(
     candidates: impl IntoIterator<Item = String>,
     summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
     active: &mut FxHashSet<PathBuf>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) {
     for candidate in candidates {
-        for resolved_path in resolve_helper_paths(source_path, &candidate) {
-            let reads = summarize_helper(&resolved_path, summaries, active);
+        for resolved_path in resolve_helper_paths(source_path, &candidate, source_path_resolver) {
+            let reads = summarize_helper(&resolved_path, summaries, active, source_path_resolver);
             for name in reads {
                 if seen.insert((scope, span.start.offset, name.clone())) {
                     synthetic_reads.push(SyntheticRead { scope, span, name });
@@ -716,11 +723,15 @@ fn visible_function_binding(
     None
 }
 
-fn resolve_helper_paths(source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+fn resolve_helper_paths(
+    source_path: &Path,
+    candidate: &str,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> Vec<PathBuf> {
     let candidate_path = Path::new(candidate);
     if candidate_path.is_absolute() {
         return candidate_path
-            .exists()
+            .is_file()
             .then_some(candidate_path.to_path_buf())
             .into_iter()
             .collect();
@@ -731,51 +742,22 @@ fn resolve_helper_paths(source_path: &Path, candidate: &str) -> Vec<PathBuf> {
     };
 
     let direct = base_dir.join(candidate_path);
-    if direct.exists() {
+    if direct.is_file() {
         return vec![direct];
     }
 
-    let normalized = normalize_relative_candidate(candidate);
-    if normalized.is_empty() {
-        return Vec::new();
-    }
-
-    let flattened = normalized.replace('/', "__");
-    let suffix = format!("__{flattened}");
-    let Ok(entries) = fs::read_dir(base_dir) else {
-        return Vec::new();
-    };
-
-    let mut matches = entries
-        .flatten()
-        .map(|entry| entry.path())
+    source_path_resolver
+        .into_iter()
+        .flat_map(|resolver| resolver.resolve_candidate_paths(source_path, candidate))
         .filter(|path| path.is_file())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name == flattened || name.ends_with(&suffix))
-        })
-        .collect::<Vec<_>>();
-    matches.sort();
-    matches.dedup();
-    matches
-}
-
-fn normalize_relative_candidate(candidate: &str) -> String {
-    let mut value = candidate.trim();
-    while let Some(stripped) = value.strip_prefix("./") {
-        value = stripped;
-    }
-    while let Some(stripped) = value.strip_prefix('/') {
-        value = stripped;
-    }
-    value.to_owned()
+        .collect()
 }
 
 fn summarize_helper(
     path: &Path,
     summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
     active: &mut FxHashSet<PathBuf>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> FxHashSet<Name> {
     let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if let Some(summary) = summaries.get(&key) {
@@ -785,7 +767,7 @@ fn summarize_helper(
         return FxHashSet::default();
     }
 
-    let summary = summarize_helper_uncached(&key, summaries, active);
+    let summary = summarize_helper_uncached(&key, summaries, active, source_path_resolver);
     active.remove(&key);
     summaries.insert(key, summary.clone());
     summary
@@ -795,6 +777,7 @@ fn summarize_helper_uncached(
     path: &Path,
     summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
     active: &mut FxHashSet<PathBuf>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> FxHashSet<Name> {
     let Ok(source) = fs::read_to_string(path) else {
         return FxHashSet::default();
@@ -811,6 +794,7 @@ fn summarize_helper_uncached(
         &mut observer,
         Some(path),
         false,
+        source_path_resolver,
     );
 
     let mut reads = semantic
@@ -826,6 +810,7 @@ fn summarize_helper_uncached(
             path,
             summaries,
             active,
+            source_path_resolver,
         )
         .into_iter()
         .map(|read| read.name),

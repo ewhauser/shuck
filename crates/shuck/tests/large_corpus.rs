@@ -7,7 +7,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{
-    Mutex,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc,
 };
@@ -77,6 +77,89 @@ impl LargeCorpusFixture {
     fn cache_rel_path_key(&self) -> String {
         normalize_cache_rel_path(&self.cache_rel_path)
     }
+}
+
+#[derive(Debug)]
+struct LargeCorpusPathResolver {
+    cache_rel_by_path: HashMap<PathBuf, PathBuf>,
+    path_by_cache_rel: HashMap<PathBuf, PathBuf>,
+}
+
+impl LargeCorpusPathResolver {
+    fn new(fixtures: &[&LargeCorpusFixture]) -> Self {
+        let mut cache_rel_by_path = HashMap::new();
+        let mut path_by_cache_rel = HashMap::new();
+
+        for fixture in fixtures {
+            let canonical_path = canonicalize_for_resolver(&fixture.path);
+            cache_rel_by_path.insert(fixture.path.clone(), fixture.cache_rel_path.clone());
+            cache_rel_by_path.insert(canonical_path.clone(), fixture.cache_rel_path.clone());
+            path_by_cache_rel.insert(fixture.cache_rel_path.clone(), canonical_path);
+        }
+
+        Self {
+            cache_rel_by_path,
+            path_by_cache_rel,
+        }
+    }
+}
+
+impl shuck_semantic::SourcePathResolver for LargeCorpusPathResolver {
+    fn resolve_candidate_paths(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+        let Some(source_cache_rel_path) = self.cache_rel_by_path.get(source_path) else {
+            return Vec::new();
+        };
+        let Some(candidate_cache_rel_path) =
+            resolve_large_corpus_candidate_cache_rel_path(source_cache_rel_path, candidate)
+        else {
+            return Vec::new();
+        };
+
+        self.path_by_cache_rel
+            .get(&candidate_cache_rel_path)
+            .cloned()
+            .into_iter()
+            .collect()
+    }
+}
+
+fn canonicalize_for_resolver(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn resolve_large_corpus_candidate_cache_rel_path(
+    source_cache_rel_path: &Path,
+    candidate: &str,
+) -> Option<PathBuf> {
+    let candidate_path = Path::new(candidate);
+    if candidate_path.is_absolute() {
+        return None;
+    }
+
+    let mut resolved = source_cache_rel_path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let mut saw_component = false;
+
+    for component in candidate_path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !resolved.pop() {
+                    return None;
+                }
+                saw_component = true;
+            }
+            std::path::Component::Normal(part) => {
+                resolved.push(part);
+                saw_component = true;
+            }
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => return None,
+        }
+    }
+
+    saw_component.then_some(resolved)
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +528,7 @@ fn large_corpus_conforms_with_shellcheck() {
         .filter(|fixture| fixture_supported_for_large_corpus(fixture, Some(&supported_shells)))
         .collect();
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
+    let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
 
     let failure_collection =
         collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
@@ -458,6 +542,7 @@ fn large_corpus_conforms_with_shellcheck() {
                 &shellcheck_index,
                 &sc2034_allowlist,
                 shellcheck_filter_codes.as_ref(),
+                Arc::clone(&shuck_path_resolver),
             )
         });
     let timeout_cap_note = if failure_collection.timeout_cap_reached {
@@ -619,12 +704,18 @@ fn evaluate_fixture_compatibility(
     shellcheck_index: &HashMap<String, String>,
     sc2034_allowlist: &[ShellCheckRuleAllowlistEntry],
     shellcheck_filter_codes: Option<&HashSet<u32>>,
+    shuck_path_resolver: Arc<LargeCorpusPathResolver>,
 ) -> Option<FixtureFailure> {
     let _progress = FixtureProgress::new(fixture);
     let mut issues: Vec<String> = Vec::new();
     let mut failure_kind = FixtureFailureKind::Other;
 
-    let shuck_run = match run_shuck_with_timeout(fixture, linter_settings, shuck_timeout) {
+    let shuck_run = match run_shuck_with_timeout(
+        fixture,
+        linter_settings,
+        shuck_timeout,
+        shuck_path_resolver,
+    ) {
         Ok(run) => run,
         Err(err) => {
             return Some(FixtureFailure {
@@ -1124,6 +1215,7 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
 fn run_shuck(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
+    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
 ) -> ShuckRun {
     let source = match fs::read_to_string(&fixture.path) {
         Ok(s) => s,
@@ -1151,13 +1243,14 @@ fn run_shuck(
     let linter_settings = linter_settings
         .clone()
         .with_shell(shuck_linter::ShellDialect::from_name(&fixture.shell));
-    let diagnostics = shuck_linter::lint_file_at_path(
+    let diagnostics = shuck_linter::lint_file_at_path_with_resolver(
         &output.script,
         &source,
         &indexer,
         &linter_settings,
         None,
         Some(&fixture.path),
+        source_path_resolver,
     );
 
     let shellcheck_index = build_shellcheck_index();
@@ -1177,11 +1270,18 @@ fn run_shuck_with_timeout(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
     timeout: Duration,
+    source_path_resolver: Arc<LargeCorpusPathResolver>,
 ) -> Result<ShuckRun, String> {
     let fixture = fixture.clone();
     let linter_settings = linter_settings.clone();
+    let source_path_resolver = Arc::clone(&source_path_resolver);
     run_with_timeout("shuck", timeout, move || {
-        run_shuck(&fixture, &linter_settings)
+        run_shuck(
+            &fixture,
+            &linter_settings,
+            Some(source_path_resolver.as_ref()
+                as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)),
+        )
     })
 }
 
@@ -2637,6 +2737,49 @@ mod tests {
             fs::read_to_string(&stable_path).unwrap(),
             cache_file_data("stable")
         );
+    }
+
+    #[test]
+    fn large_corpus_candidate_resolution_uses_cache_relative_parent_dirs() {
+        let resolved = resolve_large_corpus_candidate_cache_rel_path(
+            Path::new("repo/pkg/main.sh"),
+            "../common/helper.sh",
+        );
+
+        assert_eq!(resolved, Some(PathBuf::from("repo/common/helper.sh")));
+    }
+
+    #[test]
+    fn large_corpus_path_resolver_keeps_helper_lookup_inside_current_repo() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let scripts_dir = tempdir.path().join("scripts");
+        fs::create_dir_all(&scripts_dir).unwrap();
+
+        let source = fixture_at(
+            &scripts_dir.join("repo__pkg__main.sh"),
+            Path::new("repo/pkg/main.sh"),
+        );
+        let local = fixture_at(
+            &scripts_dir.join("repo__pkg__build.sh"),
+            Path::new("repo/pkg/build.sh"),
+        );
+        let unrelated = fixture_at(
+            &scripts_dir.join("other__build.sh"),
+            Path::new("other/build.sh"),
+        );
+
+        fs::write(&source.path, "#!/bin/sh\n./build.sh\n").unwrap();
+        fs::write(&local.path, "echo local\n").unwrap();
+        fs::write(&unrelated.path, "echo unrelated\n").unwrap();
+
+        let resolver = LargeCorpusPathResolver::new(&[&source, &local, &unrelated]);
+        let resolved = shuck_semantic::SourcePathResolver::resolve_candidate_paths(
+            &resolver,
+            &source.path,
+            "./build.sh",
+        );
+
+        assert_eq!(resolved, vec![canonicalize_for_resolver(&local.path)]);
     }
 
     fn fixture(path: &str) -> LargeCorpusFixture {

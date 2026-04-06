@@ -24,7 +24,7 @@ pub use source_ref::{SourceRef, SourceRefKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, Name, Script, Span};
 use shuck_indexer::Indexer;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
@@ -86,6 +86,20 @@ pub trait TraversalObserver {
 pub struct NoopTraversalObserver;
 
 impl TraversalObserver for NoopTraversalObserver {}
+
+#[doc(hidden)]
+pub trait SourcePathResolver {
+    fn resolve_candidate_paths(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf>;
+}
+
+impl<F> SourcePathResolver for F
+where
+    F: Fn(&Path, &str) -> Vec<PathBuf> + Send + Sync,
+{
+    fn resolve_candidate_paths(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+        self(source_path, candidate)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct SemanticModel {
@@ -468,7 +482,7 @@ pub fn build_with_observer(
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
 ) -> SemanticModel {
-    build_semantic_model(script, source, indexer, observer, None, false)
+    build_semantic_model(script, source, indexer, observer, None, false, None)
 }
 
 #[doc(hidden)]
@@ -479,7 +493,27 @@ pub fn build_with_observer_at_path(
     observer: &mut dyn TraversalObserver,
     source_path: Option<&Path>,
 ) -> SemanticModel {
-    build_semantic_model(script, source, indexer, observer, source_path, true)
+    build_with_observer_at_path_with_resolver(script, source, indexer, observer, source_path, None)
+}
+
+#[doc(hidden)]
+pub fn build_with_observer_at_path_with_resolver(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> SemanticModel {
+    build_semantic_model(
+        script,
+        source,
+        indexer,
+        observer,
+        source_path,
+        true,
+        source_path_resolver,
+    )
 }
 
 fn build_semantic_model(
@@ -489,6 +523,7 @@ fn build_semantic_model(
     observer: &mut dyn TraversalObserver,
     source_path: Option<&Path>,
     include_source_closure: bool,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> SemanticModel {
     let built = SemanticModelBuilder::build(
         script,
@@ -499,8 +534,13 @@ fn build_semantic_model(
     );
     let mut model = SemanticModel::from_build_output(built);
     if include_source_closure && let Some(source_path) = source_path {
-        let synthetic_reads =
-            source_closure::collect_source_closure_reads(&model, script, source, source_path);
+        let synthetic_reads = source_closure::collect_source_closure_reads(
+            &model,
+            script,
+            source,
+            source_path,
+            source_path_resolver,
+        );
         model.set_synthetic_reads(synthetic_reads);
     }
     model
@@ -554,11 +594,25 @@ mod tests {
     }
 
     fn model_at_path(path: &Path) -> SemanticModel {
+        model_at_path_with_resolver(path, None)
+    }
+
+    fn model_at_path_with_resolver(
+        path: &Path,
+        source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    ) -> SemanticModel {
         let source = fs::read_to_string(path).unwrap();
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
         let mut observer = NoopTraversalObserver;
-        build_with_observer_at_path(&output.script, &source, &indexer, &mut observer, Some(path))
+        build_with_observer_at_path_with_resolver(
+            &output.script,
+            &source,
+            &indexer,
+            &mut observer,
+            Some(path),
+            source_path_resolver,
+        )
     }
 
     fn reportable_unused_names(model: &mut SemanticModel) -> Vec<Name> {
@@ -1640,6 +1694,58 @@ load helper.sh
         );
         let unused = reportable_unused_names(&mut model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn source_path_resolver_keeps_helper_reads_generic() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("resolved/helper.sh");
+        fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+flag=1
+./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let mut without_resolver = model_at_path(&main);
+        let unused_without_resolver = reportable_unused_names(&mut without_resolver);
+        assert!(
+            unused_without_resolver.contains(&Name::from("flag")),
+            "unused without resolver: {:?}",
+            unused_without_resolver
+        );
+
+        let main_path = main.clone();
+        let helper_path = helper.clone();
+        let resolver = move |source_path: &Path, candidate: &str| {
+            if source_path == main_path.as_path() && candidate == "./helper.sh" {
+                vec![helper_path.clone()]
+            } else {
+                Vec::new()
+            }
+        };
+
+        let mut with_resolver = model_at_path_with_resolver(&main, Some(&resolver));
+        assert!(
+            with_resolver
+                .synthetic_reads
+                .iter()
+                .any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            with_resolver.synthetic_reads
+        );
+        let unused_with_resolver = reportable_unused_names(&mut with_resolver);
+        assert!(
+            !unused_with_resolver.contains(&Name::from("flag")),
+            "unused with resolver: {:?}",
+            unused_with_resolver
+        );
     }
 
     #[test]

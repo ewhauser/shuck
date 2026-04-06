@@ -28,7 +28,8 @@ pub use violation::Violation;
 use shuck_ast::{Script, TextSize};
 use shuck_indexer::Indexer;
 use shuck_semantic::{
-    SemanticModel, TraversalObserver, build_with_observer, build_with_observer_at_path,
+    SemanticModel, SourcePathResolver, TraversalObserver, build_with_observer,
+    build_with_observer_at_path_with_resolver,
 };
 use std::path::Path;
 
@@ -68,9 +69,36 @@ pub fn analyze_file_at_path(
     suppression_index: Option<&SuppressionIndex>,
     source_path: Option<&Path>,
 ) -> AnalysisResult {
+    analyze_file_at_path_with_resolver(
+        script,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        None,
+    )
+}
+
+pub fn analyze_file_at_path_with_resolver(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> AnalysisResult {
     let mut observer = LintTraversalObserver::default();
     let mut semantic = if source_path.is_some() {
-        build_with_observer_at_path(script, source, indexer, &mut observer, source_path)
+        build_with_observer_at_path_with_resolver(
+            script,
+            source,
+            indexer,
+            &mut observer,
+            source_path,
+            source_path_resolver,
+        )
     } else {
         build_with_observer(script, source, indexer, &mut observer)
     };
@@ -127,13 +155,34 @@ pub fn lint_file_at_path(
     suppression_index: Option<&SuppressionIndex>,
     source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
-    analyze_file_at_path(
+    lint_file_at_path_with_resolver(
         script,
         source,
         indexer,
         settings,
         suppression_index,
         source_path,
+        None,
+    )
+}
+
+pub fn lint_file_at_path_with_resolver(
+    script: &Script,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> Vec<Diagnostic> {
+    analyze_file_at_path_with_resolver(
+        script,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        source_path_resolver,
     )
     .diagnostics
 }
