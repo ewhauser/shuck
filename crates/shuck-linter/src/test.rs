@@ -5,13 +5,24 @@ use std::path::Path;
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 
-use crate::{Diagnostic, LinterSettings, lint_file};
+use crate::{Diagnostic, LinterSettings, lint_file, lint_file_at_path};
 
 /// Lint a source string directly (no file needed).
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     lint_file(&output.script, source, &indexer, settings, None)
+}
+
+/// Lint a source string while preserving an explicit path for path-sensitive rules.
+pub fn test_snippet_at_path(
+    path: &Path,
+    source: &str,
+    settings: &LinterSettings,
+) -> Vec<Diagnostic> {
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    lint_file_at_path(&output.script, source, &indexer, settings, None, Some(path))
 }
 
 /// Lint a fixture file relative to `resources/test/fixtures/`.
@@ -24,7 +35,7 @@ pub fn test_path(
     let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/test/fixtures");
     let full_path = fixtures_dir.join(path);
     let source = fs::read_to_string(&full_path)?;
-    let diagnostics = test_snippet(&source, settings);
+    let diagnostics = test_snippet_at_path(&full_path, &source, settings);
     Ok((diagnostics, source))
 }
 

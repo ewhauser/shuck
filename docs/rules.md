@@ -364,9 +364,9 @@ Proposed additions:
 
 Action items:
 
-- [ ] Add file-context classification helpers using path, shebang, and local syntax cues.
-- [ ] Add minimal policy hooks so rules can opt into reviewed context-specific behavior without hardcoding file names.
-- [ ] Add explicit tests for ShellSpec DSL blocks, generated `configure` scripts, and wrapper-heavy helpers.
+- [x] Add file-context classification helpers using path, shebang, and local syntax cues.
+- [x] Add minimal policy hooks so rules can opt into reviewed context-specific behavior without hardcoding file names.
+- [x] Add explicit tests for ShellSpec DSL blocks, generated `configure` scripts, and wrapper-heavy helpers.
 
 Rules to refactor onto this helper:
 

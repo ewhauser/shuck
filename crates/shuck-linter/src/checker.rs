@@ -3,7 +3,7 @@ use shuck_ast::{Script, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
 
-use crate::{Diagnostic, Rule, RuleSet, ShellDialect, Violation, rules};
+use crate::{Diagnostic, FileContext, Rule, RuleSet, ShellDialect, Violation, rules};
 
 pub struct Checker<'a> {
     semantic: &'a SemanticModel,
@@ -12,6 +12,7 @@ pub struct Checker<'a> {
     source: &'a str,
     rules: &'a RuleSet,
     shell: ShellDialect,
+    file_context: &'a FileContext,
     diagnostics: Vec<Diagnostic>,
     reported: FxHashSet<DiagnosticKey>,
 }
@@ -41,6 +42,7 @@ impl<'a> Checker<'a> {
         indexer: &'a Indexer,
         rules: &'a RuleSet,
         shell: ShellDialect,
+        file_context: &'a FileContext,
     ) -> Self {
         Self {
             semantic,
@@ -49,6 +51,7 @@ impl<'a> Checker<'a> {
             source,
             rules,
             shell,
+            file_context,
             diagnostics: Vec::new(),
             reported: FxHashSet::default(),
         }
@@ -76,6 +79,10 @@ impl<'a> Checker<'a> {
 
     pub fn shell(&self) -> ShellDialect {
         self.shell
+    }
+
+    pub fn file_context(&self) -> &'a FileContext {
+        self.file_context
     }
 
     pub fn report<V: Violation>(&mut self, violation: V, span: Span) {

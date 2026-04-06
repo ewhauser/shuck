@@ -1,4 +1,5 @@
 mod checker;
+pub mod context;
 mod diagnostic;
 mod registry;
 mod rule_selector;
@@ -13,6 +14,9 @@ mod violation;
 pub mod test;
 
 pub use checker::Checker;
+pub use context::{
+    ContextRegion, ContextRegionKind, FileContext, FileContextTag, classify_file_context,
+};
 pub use diagnostic::{Diagnostic, Severity};
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
@@ -112,11 +116,20 @@ pub fn analyze_file_at_path_with_resolver(
         let _ = semantic.precompute_dead_code();
     }
     let shell = if settings.shell == ShellDialect::Unknown {
-        ShellDialect::infer(source, None)
+        ShellDialect::infer(source, source_path)
     } else {
         settings.shell
     };
-    let checker = Checker::new(script, source, &semantic, indexer, &settings.rules, shell);
+    let file_context = classify_file_context(source, source_path, shell);
+    let checker = Checker::new(
+        script,
+        source,
+        &semantic,
+        indexer,
+        &settings.rules,
+        shell,
+        &file_context,
+    );
     let mut diagnostics = observer.into_diagnostics();
     diagnostics.extend(checker.check());
     for diagnostic in &mut diagnostics {
@@ -241,6 +254,12 @@ mod tests {
         lint_path(path, &LinterSettings::for_rule(rule))
     }
 
+    fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        lint_file_at_path(&output.script, source, &indexer, settings, None, Some(path))
+    }
+
     fn runtime_prelude_source(shebang: &str) -> String {
         format!(
             "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$LANG\" \"$SUDO_USER\" \"$DOAS_USER\"\nprintf '%s\\n' \"$LINENO\" \"$FUNCNAME\" \"${{BASH_SOURCE[0]}}\" \"${{BASH_LINENO[0]}}\" \"$RANDOM\" \"${{BASH_REMATCH[0]}}\" \"$READLINE_LINE\" \"$BASH_VERSION\" \"${{BASH_VERSINFO[0]}}\" \"$OSTYPE\" \"$HISTCONTROL\" \"$HISTSIZE\"\n"
@@ -282,6 +301,48 @@ mod tests {
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn path_sensitive_context_classification_uses_the_supplied_path() {
+        let shellspec_path = Path::new("/tmp/project/spec/clone_spec.sh");
+        let source = "\
+Describe 'clone'
+Parameters
+  \"test\"
+End
+";
+        let diagnostics = lint_named_source(
+            shellspec_path,
+            source,
+            &LinterSettings::for_rule(Rule::EmptyTest),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn shell_inference_uses_path_when_shebang_is_missing() {
+        let source = "local value=ok\n";
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/example.bash"),
+            source,
+            &LinterSettings::for_rule(Rule::LocalTopLevel),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LocalTopLevel);
+    }
+
+    #[test]
+    fn helper_library_context_uses_path_tokens() {
+        let context = classify_file_context(
+            "helper() { :; }\n",
+            Some(Path::new("/tmp/repo/libexec/plugins/tool.func")),
+            ShellDialect::Sh,
+        );
+
+        assert!(context.has_tag(FileContextTag::HelperLibrary));
     }
 
     #[test]
