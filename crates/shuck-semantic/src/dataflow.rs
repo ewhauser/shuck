@@ -5,8 +5,7 @@ use shuck_ast::Span;
 use crate::runtime::RuntimePrelude;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ControlFlowGraph,
-    IndirectTargetHint, Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey,
-    SyntheticRead,
+    Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,8 +79,7 @@ pub(crate) fn analyze_unused_assignments(
     references: &[Reference],
     resolved: &FxHashMap<ReferenceId, BindingId>,
     call_sites: &FxHashMap<Name, Vec<CallSite>>,
-    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
-    indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    indirect_targets_by_reference: &[Vec<BindingId>],
     synthetic_reads: &[SyntheticRead],
 ) -> Vec<BindingId> {
     analyze_unused_assignments_exact(
@@ -92,8 +90,7 @@ pub(crate) fn analyze_unused_assignments(
         references,
         resolved,
         call_sites,
-        indirect_target_hints,
-        indirect_expansion_refs,
+        indirect_targets_by_reference,
         synthetic_reads,
     )
     .unused_assignment_ids
@@ -104,6 +101,8 @@ pub(crate) fn analyze_uninitialized_references(
     bindings: &[Binding],
     references: &[Reference],
     predefined_runtime_refs: &FxHashSet<ReferenceId>,
+    resolved: &FxHashMap<ReferenceId, BindingId>,
+    indirect_targets_by_reference: &[Vec<BindingId>],
 ) -> Vec<UninitializedReference> {
     let names = build_uninitialized_name_table(bindings, references);
     let binding_data = build_dense_binding_data_for_scope_count(
@@ -121,6 +120,8 @@ pub(crate) fn analyze_uninitialized_references(
         bindings,
         references,
         predefined_runtime_refs,
+        resolved,
+        indirect_targets_by_reference,
         &names,
         &binding_data,
         &reaching_definitions,
@@ -141,14 +142,13 @@ pub(crate) fn analyze(
     predefined_runtime_refs: &FxHashSet<ReferenceId>,
     resolved: &FxHashMap<ReferenceId, BindingId>,
     call_sites: &FxHashMap<Name, Vec<CallSite>>,
-    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
-    indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    indirect_targets_by_reference: &[Vec<BindingId>],
     synthetic_reads: &[SyntheticRead],
 ) -> DataflowResult {
     let binding_name_data = build_binding_name_data(bindings);
     let reaching_definitions =
         compute_reaching_definitions(cfg, bindings, &binding_name_data.bindings_by_name);
-    let names = build_name_table(bindings, references, synthetic_reads, indirect_target_hints);
+    let names = build_name_table(bindings, references, synthetic_reads);
     let dense_binding_data = build_dense_binding_data(bindings, scopes, &names);
     let dense_reaching_definitions =
         compute_reaching_definitions_dense(cfg, bindings, &dense_binding_data);
@@ -160,8 +160,7 @@ pub(crate) fn analyze(
         references,
         resolved,
         call_sites,
-        indirect_target_hints,
-        indirect_expansion_refs,
+        indirect_targets_by_reference,
         synthetic_reads,
     );
     let uninitialized_references = analyze_uninitialized_references_dense(
@@ -169,6 +168,8 @@ pub(crate) fn analyze(
         bindings,
         references,
         predefined_runtime_refs,
+        resolved,
+        indirect_targets_by_reference,
         &names,
         &dense_binding_data,
         &dense_reaching_definitions,
@@ -189,6 +190,8 @@ fn analyze_uninitialized_references_dense(
     bindings: &[Binding],
     references: &[Reference],
     predefined_runtime_refs: &FxHashSet<ReferenceId>,
+    resolved: &FxHashMap<ReferenceId, BindingId>,
+    indirect_targets_by_reference: &[Vec<BindingId>],
     names: &NameTable,
     binding_data: &DenseBindingData,
     reaching_definitions: &DenseReachingDefinitions,
@@ -229,6 +232,12 @@ fn analyze_uninitialized_references_dense(
             reference.kind,
             ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
         ) || predefined_runtime_refs.contains(&reference.id)
+        {
+            continue;
+        }
+        if matches!(reference.kind, ReferenceKind::IndirectExpansion)
+            && (resolved.contains_key(&reference.id)
+                || !indirect_targets_by_reference[reference.id.index()].is_empty())
         {
             continue;
         }
@@ -370,11 +379,10 @@ fn analyze_unused_assignments_exact(
     references: &[Reference],
     resolved: &FxHashMap<ReferenceId, BindingId>,
     call_sites: &FxHashMap<Name, Vec<CallSite>>,
-    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
-    indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    indirect_targets_by_reference: &[Vec<BindingId>],
     synthetic_reads: &[SyntheticRead],
 ) -> UnusedAssignmentsResult {
-    let names = build_name_table(bindings, references, synthetic_reads, indirect_target_hints);
+    let names = build_name_table(bindings, references, synthetic_reads);
     let binding_data = build_dense_binding_data(bindings, scopes, &names);
     let reference_name_ids = references
         .iter()
@@ -394,13 +402,6 @@ fn analyze_unused_assignments_exact(
         cfg.blocks().len(),
         bindings.len(),
         &reaching_definitions.reaching_out,
-    );
-    let indirect_target_matches = build_indirect_target_matches(
-        bindings,
-        indirect_target_hints,
-        &names,
-        &binding_data.bindings_for_name,
-        &binding_data.array_like_bindings,
     );
     let interprocedural_reads = if call_sites.is_empty() {
         None
@@ -453,12 +454,16 @@ fn analyze_unused_assignments_exact(
             );
         }
 
-        if indirect_expansion_refs.contains(&reference.id)
-            && let Some(candidates) = indirect_target_matches[resolved_binding_id.index()].as_ref()
+        if let Some(candidates) = indirect_targets_by_reference.get(reference.id.index())
+            && !candidates.is_empty()
         {
-            used_bindings.or_intersection_with(incoming, candidates);
+            mark_reaching_candidate_bindings_used(&mut used_bindings, incoming, candidates);
             if !component.blocks.contains(block_id.index()) {
-                used_bindings.or_intersection_with(&component.exit_defs, candidates);
+                mark_reaching_candidate_bindings_used(
+                    &mut used_bindings,
+                    &component.exit_defs,
+                    candidates,
+                );
             }
         }
     }
@@ -850,7 +855,6 @@ struct DenseBindingData {
     bindings_for_name: Vec<DenseBitSet>,
     bindings_in_scope: Vec<DenseBitSet>,
     next_overwrite: Vec<Option<BindingId>>,
-    array_like_bindings: DenseBitSet,
 }
 
 #[derive(Debug, Clone)]
@@ -934,7 +938,6 @@ fn build_name_table(
     bindings: &[Binding],
     references: &[Reference],
     synthetic_reads: &[SyntheticRead],
-    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
 ) -> NameTable {
     let mut names = NameTable::default();
     for binding in bindings {
@@ -945,11 +948,6 @@ fn build_name_table(
     }
     for synthetic_read in synthetic_reads {
         names.intern(&synthetic_read.name);
-    }
-    for hint in indirect_target_hints.values() {
-        if let IndirectTargetHint::Exact { name, .. } = hint {
-            names.intern(name);
-        }
     }
     names
 }
@@ -988,7 +986,6 @@ fn build_dense_binding_data_for_scope_count(
     let mut bindings_in_scope = (0..scope_count)
         .map(|_| DenseBitSet::new(binding_count))
         .collect::<Vec<_>>();
-    let mut array_like_bindings = DenseBitSet::new(binding_count);
 
     for binding in bindings {
         let name_id = names.get(&binding.name).expect("binding name interned");
@@ -997,9 +994,6 @@ fn build_dense_binding_data_for_scope_count(
         bindings_by_name[name_id.index()].push(binding.id);
         if let Some(bindings_in_scope) = bindings_in_scope.get_mut(binding.scope.index()) {
             bindings_in_scope.insert(binding.id.index());
-        }
-        if is_array_like_binding(binding) {
-            array_like_bindings.insert(binding.id.index());
         }
     }
 
@@ -1015,7 +1009,6 @@ fn build_dense_binding_data_for_scope_count(
         bindings_for_name,
         bindings_in_scope,
         next_overwrite,
-        array_like_bindings,
     }
 }
 
@@ -1233,41 +1226,6 @@ fn reachable_blocks_dense(
     visited
 }
 
-fn build_indirect_target_matches(
-    bindings: &[Binding],
-    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
-    names: &NameTable,
-    bindings_for_name: &[DenseBitSet],
-    array_like_bindings: &DenseBitSet,
-) -> Vec<Option<DenseBitSet>> {
-    let mut matches_by_binding = vec![None; bindings.len()];
-    for (binding_id, hint) in indirect_target_hints {
-        let matches = match hint {
-            IndirectTargetHint::Exact { name, array_like } => {
-                let name_id = names
-                    .get(name)
-                    .expect("exact indirect target name interned");
-                let mut matches = bindings_for_name[name_id.index()].clone();
-                if *array_like {
-                    matches.intersect_with(array_like_bindings);
-                }
-                matches
-            }
-            IndirectTargetHint::Pattern { .. } => {
-                let mut matches = DenseBitSet::new(bindings.len());
-                for binding in bindings {
-                    if indirect_target_matches(hint, binding) {
-                        matches.insert(binding.id.index());
-                    }
-                }
-                matches
-            }
-        };
-        matches_by_binding[binding_id.index()] = Some(matches);
-    }
-    matches_by_binding
-}
-
 #[allow(clippy::too_many_arguments)]
 fn build_scope_read_plans(
     scopes: &[Scope],
@@ -1458,6 +1416,18 @@ fn mark_reaching_defs_for_names_used(
     }
 }
 
+fn mark_reaching_candidate_bindings_used(
+    used_bindings: &mut DenseBitSet,
+    incoming: &DenseBitSet,
+    candidates: &[BindingId],
+) {
+    for candidate in candidates {
+        if incoming.contains(candidate.index()) {
+            used_bindings.insert(candidate.index());
+        }
+    }
+}
+
 fn gen_set(
     cfg: &ControlFlowGraph,
     block_id: BlockId,
@@ -1526,31 +1496,6 @@ fn binding_initializes_name(binding: &Binding) -> bool {
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
     }
-}
-
-fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool {
-    match hint {
-        IndirectTargetHint::Exact { name, array_like } => {
-            binding.name == *name && (!array_like || is_array_like_binding(binding))
-        }
-        IndirectTargetHint::Pattern {
-            prefix,
-            suffix,
-            array_like,
-        } => {
-            let name = binding.name.as_str();
-            name.starts_with(prefix)
-                && name.ends_with(suffix)
-                && (!array_like || is_array_like_binding(binding))
-        }
-    }
-}
-
-fn is_array_like_binding(binding: &Binding) -> bool {
-    binding
-        .attributes
-        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
-        || matches!(binding.kind, BindingKind::ArrayAssignment)
 }
 
 fn function_scopes_by_binding(

@@ -743,6 +743,53 @@ f
     }
 
     #[test]
+    fn resolved_indirect_expansion_carrier_is_not_reported_as_uninitialized() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+f() {
+  local foo
+  printf '%s\\n' \"${!foo}\"
+}
+f
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn indirect_reads_do_not_report_missing_targets_for_indirect_or_nameref_access() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+name=missing
+declare -n ref=missing
+printf '%s %s\\n' \"${!name}\" \"$ref\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unresolved_indirect_expansion_carrier_is_still_reported() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+printf '%s\\n' \"${!foo}\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("foo"));
+    }
+
+    #[test]
     fn undefined_variable_reports_definite_and_possible_reads() {
         let source = "\
 #!/bin/bash

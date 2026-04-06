@@ -40,6 +40,13 @@ pub enum BindingKind {
     Imported,
 }
 
+pub(crate) fn is_array_like_binding(binding: &Binding) -> bool {
+    binding
+        .attributes
+        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
+        || matches!(binding.kind, BindingKind::ArrayAssignment)
+}
+
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct BindingAttributes: u16 {

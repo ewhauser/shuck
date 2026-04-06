@@ -118,8 +118,8 @@ pub struct SemanticModel {
     source_refs: Vec<SourceRef>,
     runtime: RuntimePrelude,
     declarations: Vec<Declaration>,
-    indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
-    indirect_expansion_refs: FxHashSet<ReferenceId>,
+    indirect_targets_by_binding: Vec<Vec<BindingId>>,
+    indirect_targets_by_reference: Vec<Vec<BindingId>>,
     synthetic_reads: Vec<SyntheticRead>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_program: RecordedProgram,
@@ -140,6 +140,14 @@ impl SemanticModel {
     }
 
     fn from_build_output(built: builder::BuildOutput) -> Self {
+        let indirect_targets_by_binding =
+            build_indirect_targets_by_binding(&built.bindings, &built.indirect_target_hints);
+        let indirect_targets_by_reference = build_indirect_targets_by_reference(
+            &built.references,
+            &built.resolved,
+            &built.indirect_expansion_refs,
+            &indirect_targets_by_binding,
+        );
         Self {
             scopes: built.scopes,
             bindings: built.bindings,
@@ -154,8 +162,8 @@ impl SemanticModel {
             source_refs: built.source_refs,
             runtime: built.runtime,
             declarations: built.declarations,
-            indirect_target_hints: built.indirect_target_hints,
-            indirect_expansion_refs: built.indirect_expansion_refs,
+            indirect_targets_by_binding,
+            indirect_targets_by_reference,
             synthetic_reads: Vec::new(),
             flow_contexts: built.flow_contexts,
             recorded_program: built.recorded_program,
@@ -194,6 +202,20 @@ impl SemanticModel {
         self.resolved
             .get(&id)
             .map(|binding| &self.bindings[binding.index()])
+    }
+
+    pub fn indirect_targets_for_binding(&self, id: BindingId) -> &[BindingId] {
+        self.indirect_targets_by_binding
+            .get(id.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn indirect_targets_for_reference(&self, id: ReferenceId) -> &[BindingId] {
+        self.indirect_targets_by_reference
+            .get(id.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn bindings_for(&self, name: &Name) -> &[BindingId] {
@@ -269,7 +291,12 @@ impl SemanticModel {
             return false;
         }
 
-        if !self.synthetic_reads.is_empty() || !self.indirect_expansion_refs.is_empty() {
+        if !self.synthetic_reads.is_empty()
+            || self
+                .indirect_targets_by_reference
+                .iter()
+                .any(|targets| !targets.is_empty())
+        {
             return true;
         }
 
@@ -379,8 +406,7 @@ impl SemanticModel {
                     &self.predefined_runtime_refs,
                     &self.resolved,
                     &self.call_sites,
-                    &self.indirect_target_hints,
-                    &self.indirect_expansion_refs,
+                    &self.indirect_targets_by_reference,
                     &self.synthetic_reads,
                 )
             };
@@ -411,8 +437,7 @@ impl SemanticModel {
                 &self.references,
                 &self.resolved,
                 &self.call_sites,
-                &self.indirect_target_hints,
-                &self.indirect_expansion_refs,
+                &self.indirect_targets_by_reference,
                 &self.synthetic_reads,
             ));
         }
@@ -435,6 +460,8 @@ impl SemanticModel {
                     &self.bindings,
                     &self.references,
                     &self.predefined_runtime_refs,
+                    &self.resolved,
+                    &self.indirect_targets_by_reference,
                 ));
         }
         self.precise_uninitialized_references.as_deref().unwrap()
@@ -580,6 +607,60 @@ fn contains_span(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
+fn build_indirect_targets_by_binding(
+    bindings: &[Binding],
+    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
+) -> Vec<Vec<BindingId>> {
+    let mut targets_by_binding = vec![Vec::new(); bindings.len()];
+    for (binding_id, hint) in indirect_target_hints {
+        let targets = bindings
+            .iter()
+            .filter(|binding| indirect_target_matches(hint, binding))
+            .map(|binding| binding.id)
+            .collect::<Vec<_>>();
+        targets_by_binding[binding_id.index()] = targets;
+    }
+    targets_by_binding
+}
+
+fn build_indirect_targets_by_reference(
+    references: &[Reference],
+    resolved: &FxHashMap<ReferenceId, BindingId>,
+    indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    indirect_targets_by_binding: &[Vec<BindingId>],
+) -> Vec<Vec<BindingId>> {
+    let mut targets_by_reference = vec![Vec::new(); references.len()];
+    for reference in references {
+        if !indirect_expansion_refs.contains(&reference.id) {
+            continue;
+        }
+        let Some(binding_id) = resolved.get(&reference.id).copied() else {
+            continue;
+        };
+        targets_by_reference[reference.id.index()] =
+            indirect_targets_by_binding[binding_id.index()].clone();
+    }
+    targets_by_reference
+}
+
+fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool {
+    match hint {
+        IndirectTargetHint::Exact { name, array_like } => {
+            binding.name == *name && (!array_like || binding::is_array_like_binding(binding))
+        }
+        IndirectTargetHint::Pattern {
+            prefix,
+            suffix,
+            array_like,
+        } => {
+            let name = binding.name.as_str();
+            name.starts_with(prefix)
+                && name.ends_with(suffix)
+                && (!array_like || binding::is_array_like_binding(binding))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,6 +739,12 @@ mod tests {
         let precise = model.precompute_dead_code().to_vec();
         let exact = model.dataflow().dead_code.clone();
         assert_eq!(precise, exact);
+    }
+
+    fn binding_names(model: &SemanticModel, ids: &[BindingId]) -> Vec<String> {
+        ids.iter()
+            .map(|binding_id| model.binding(*binding_id).name.to_string())
+            .collect()
     }
 
     fn unresolved_names(model: &SemanticModel) -> Vec<String> {
@@ -874,6 +961,7 @@ done
             "echo $VAR\n",
             "if cond; then VAR=x; fi\necho $VAR\n",
             "f() { local VAR; echo \"$VAR\"; }\nf\n",
+            "#!/bin/bash\nf() { local carrier; echo \"${!carrier}\"; }\nf\n",
             "#!/bin/sh\nprintf '%s\\n' \"$HOME\"\n",
             "#!/bin/bash\nprintf '%s\\n' \"$RANDOM\"\n",
         ];
@@ -1421,6 +1509,31 @@ printf '%s\\n' \"${!args_var}\"
             .collect::<Vec<_>>();
         assert!(!unused.contains(&"apache_args"));
         assert!(!unused.contains(&"nginx_args"));
+
+        let carrier = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "args_var")
+            .unwrap();
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::IndirectExpansion && reference.name == "args_var"
+            })
+            .unwrap();
+
+        let mut carrier_targets =
+            binding_names(&model, model.indirect_targets_for_binding(carrier.id));
+        carrier_targets.sort();
+        carrier_targets.dedup();
+        assert_eq!(carrier_targets, vec!["apache_args", "nginx_args"]);
+
+        let mut reference_targets =
+            binding_names(&model, model.indirect_targets_for_reference(reference.id));
+        reference_targets.sort();
+        reference_targets.dedup();
+        assert_eq!(reference_targets, vec!["apache_args", "nginx_args"]);
     }
 
     #[test]
@@ -1509,6 +1622,63 @@ printf '%s\\n' \"${!args_var}\"
             .collect::<Vec<_>>();
         assert!(!unused.contains(&"apache_args"));
         assert!(unused.contains(&"unused_args"));
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::IndirectExpansion && reference.name == "args_var"
+            })
+            .unwrap();
+        let targets = binding_names(&model, model.indirect_targets_for_reference(reference.id));
+        assert_eq!(targets, vec!["apache_args"]);
+    }
+
+    #[test]
+    fn exact_indirect_target_resolution_tracks_underlying_binding() {
+        let source = "\
+#!/bin/bash
+target=ok
+name=target
+printf '%s\\n' \"${!name}\"
+";
+        let model = model(source);
+
+        let carrier = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "name")
+            .unwrap();
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::IndirectExpansion && reference.name == "name"
+            })
+            .unwrap();
+
+        assert_eq!(
+            binding_names(&model, model.indirect_targets_for_binding(carrier.id)),
+            vec!["target"]
+        );
+        assert_eq!(
+            binding_names(&model, model.indirect_targets_for_reference(reference.id)),
+            vec!["target"]
+        );
+    }
+
+    #[test]
+    fn resolved_indirect_expansion_carrier_is_not_marked_uninitialized() {
+        let source = "\
+#!/bin/bash
+f() {
+  local carrier
+  echo \"${!carrier}\"
+}
+f
+";
+        let mut model = model(source);
+        assert!(uninitialized_names(&mut model).is_empty());
     }
 
     #[test]
@@ -2080,8 +2250,7 @@ echo $(printf '%s' \"$X\")
             &model.predefined_runtime_refs,
             &model.resolved,
             &model.call_sites,
-            &model.indirect_target_hints,
-            &model.indirect_expansion_refs,
+            &model.indirect_targets_by_reference,
             &model.synthetic_reads,
         );
         let legacy_dataflow = crate::dataflow::analyze(
@@ -2093,8 +2262,7 @@ echo $(printf '%s' \"$X\")
             &model.predefined_runtime_refs,
             &model.resolved,
             &model.call_sites,
-            &model.indirect_target_hints,
-            &model.indirect_expansion_refs,
+            &model.indirect_targets_by_reference,
             &model.synthetic_reads,
         );
         assert_eq!(new_dataflow, legacy_dataflow);
