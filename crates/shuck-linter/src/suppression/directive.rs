@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn parses_own_line_shellcheck_directives_only() {
         let source = "\
-# shellcheck disable=SC2086 disable=SC2034 disable=SC9999
+# shellcheck disable=SC2086 disable=SC2034 disable=SC7777
 echo $foo
 value=1 # shellcheck disable=SC2034
 ";

@@ -141,9 +141,6 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
             rules::style::export_command_substitution::export_command_substitution(self);
         }
-        if self.is_rule_enabled(Rule::NoopPlaceholder) {
-            rules::correctness::noop::noop(self);
-        }
         if self.is_rule_enabled(Rule::TrapStringExpansion) {
             rules::correctness::trap_string_expansion::trap_string_expansion(self);
         }

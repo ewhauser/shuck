@@ -11,7 +11,6 @@ pub mod invalid_exit_status;
 pub mod line_oriented_input;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
-pub mod noop;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
 pub mod pipe_to_kill;

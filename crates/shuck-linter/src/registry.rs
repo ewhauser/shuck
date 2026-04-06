@@ -126,7 +126,6 @@ declare_rules! {
     ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
-    ("C999", Category::Correctness, Severity::Warning, NoopPlaceholder),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {

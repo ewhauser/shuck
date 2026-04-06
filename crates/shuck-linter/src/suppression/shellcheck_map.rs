@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
-        assert_eq!(map.resolve("SC9999"), None);
+        assert_eq!(map.resolve("SC7777"), None);
     }
 
     #[test]
@@ -187,7 +187,6 @@ mod tests {
             map.mappings().map(|(_, rule)| rule).collect();
 
         let unmapped: Vec<&str> = Rule::iter()
-            .filter(|r| *r != Rule::NoopPlaceholder)
             .filter(|r| !mapped_rules.contains(r))
             .map(|r| r.code())
             .collect();

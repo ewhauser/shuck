@@ -361,6 +361,6 @@ Once implemented, verify with:
 - **Post-hoc filtering**: `lint_file()` with a suppression index filters out diagnostics on suppressed lines while preserving diagnostics on non-suppressed lines.
 - **Multiple codes**: `# shuck: disable=C001,C002,C003` suppresses all three rules.
 - **Reason stripping**: `# shuck: disable=C001 # legacy code` parses correctly, ignoring the reason.
-- **Unknown codes**: `# shellcheck disable=SC9999` (unmapped) is silently ignored and produces no suppression entries.
+- **Unknown codes**: `# shellcheck disable=SC7777` (unmapped) is silently ignored and produces no suppression entries.
 - **Empty/malformed directives**: `# shuck: disable=`, `# shuck: foobar=C001`, and `# shuck disable=C001` (missing colon) are all ignored.
 - **Sort stability**: Diagnostics remain sorted by source position after suppression filtering.

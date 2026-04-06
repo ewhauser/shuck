@@ -88,12 +88,12 @@ mod tests {
         let mut set = RuleSet::EMPTY;
         assert!(set.is_empty());
 
-        set.insert(Rule::NoopPlaceholder);
-        assert!(set.contains(Rule::NoopPlaceholder));
+        set.insert(Rule::UnusedAssignment);
+        assert!(set.contains(Rule::UnusedAssignment));
         assert_eq!(set.len(), 1);
-        assert_eq!(set.iter().collect::<Vec<_>>(), vec![Rule::NoopPlaceholder]);
+        assert_eq!(set.iter().collect::<Vec<_>>(), vec![Rule::UnusedAssignment]);
 
-        set.remove(Rule::NoopPlaceholder);
+        set.remove(Rule::UnusedAssignment);
         assert!(set.is_empty());
     }
 }

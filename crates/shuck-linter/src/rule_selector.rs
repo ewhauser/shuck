@@ -70,19 +70,19 @@ mod tests {
 
     #[test]
     fn expands_exact_rules() {
-        let selector = RuleSelector::from_str("C999").unwrap();
+        let selector = RuleSelector::from_str("C124").unwrap();
         assert_eq!(
             selector.into_rule_set().iter().collect::<Vec<_>>(),
-            vec![Rule::NoopPlaceholder]
+            vec![Rule::UnreachableAfterExit]
         );
     }
 
     #[test]
     fn parses_rule_prefixes() {
-        let selector = RuleSelector::from_str("C9").unwrap();
+        let selector = RuleSelector::from_str("C12").unwrap();
         assert_eq!(
             selector.into_rule_set().iter().collect::<Vec<_>>(),
-            vec![Rule::NoopPlaceholder]
+            vec![Rule::UnreachableAfterExit]
         );
     }
 }

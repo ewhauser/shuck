@@ -672,7 +672,6 @@ where
         for _ in 0..worker_count {
             let failures = &failures;
             let next_index = &next_index;
-            let progress = progress;
             let timeout_failures = &timeout_failures;
             let timeout_cap_reached = &timeout_cap_reached;
             scope.spawn(move || {
@@ -976,13 +975,13 @@ fn load_all_shuck_allowlists() -> HashMap<String, Vec<RuleAllowlistEntry>> {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "yaml") {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                let rule_code = stem.to_ascii_uppercase();
-                let allowlist = load_shuck_rule_allowlist(&rule_code);
-                if !allowlist.is_empty() {
-                    map.insert(rule_code, allowlist);
-                }
+        if path.extension().is_some_and(|ext| ext == "yaml")
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+        {
+            let rule_code = stem.to_ascii_uppercase();
+            let allowlist = load_shuck_rule_allowlist(&rule_code);
+            if !allowlist.is_empty() {
+                map.insert(rule_code, allowlist);
             }
         }
     }
