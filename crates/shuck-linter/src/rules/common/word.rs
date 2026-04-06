@@ -84,23 +84,38 @@ impl TestOperandClass {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StdoutDisposition {
+pub enum SubstitutionOutputIntent {
     Captured,
-    RedirectedToDevNull,
-    RedirectedElsewhere,
+    Discarded,
+    Rerouted,
+    Mixed,
+}
+
+impl SubstitutionOutputIntent {
+    fn merge(self, other: Self) -> Self {
+        if self == other { self } else { Self::Mixed }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubstitutionClassification {
     pub kind: CommandSubstitutionKind,
     pub span: Span,
-    pub stdout_disposition: StdoutDisposition,
+    pub stdout_intent: SubstitutionOutputIntent,
     pub has_stdout_redirect: bool,
 }
 
 impl SubstitutionClassification {
     pub fn stdout_is_captured(self) -> bool {
-        self.stdout_disposition == StdoutDisposition::Captured
+        self.stdout_intent == SubstitutionOutputIntent::Captured
+    }
+
+    pub fn stdout_is_discarded(self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Discarded
+    }
+
+    pub fn stdout_is_rerouted(self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Rerouted
     }
 }
 
@@ -218,9 +233,7 @@ pub fn classify_substitution(
     substitution: NestedCommandSubstitution<'_>,
     source: &str,
 ) -> SubstitutionClassification {
-    let mut saw_captured = false;
-    let mut saw_dev_null = false;
-    let mut saw_redirect_elsewhere = false;
+    let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
     let mut has_stdout_redirect = false;
 
     query::walk_commands(
@@ -231,26 +244,17 @@ pub fn classify_substitution(
         &mut |command, _| {
             let state = classify_command_redirects(query::command_redirects(command), source);
             has_stdout_redirect |= state.has_stdout_redirect;
-            match state.stdout_disposition {
-                StdoutDisposition::Captured => saw_captured = true,
-                StdoutDisposition::RedirectedToDevNull => saw_dev_null = true,
-                StdoutDisposition::RedirectedElsewhere => saw_redirect_elsewhere = true,
-            }
+            stdout_intent = Some(match stdout_intent {
+                Some(current) => current.merge(state.stdout_intent),
+                None => state.stdout_intent,
+            });
         },
     );
-
-    let stdout_disposition = if saw_captured || (!saw_dev_null && !saw_redirect_elsewhere) {
-        StdoutDisposition::Captured
-    } else if saw_dev_null {
-        StdoutDisposition::RedirectedToDevNull
-    } else {
-        StdoutDisposition::RedirectedElsewhere
-    };
 
     SubstitutionClassification {
         kind: substitution.kind,
         span: substitution.span,
-        stdout_disposition,
+        stdout_intent: stdout_intent.unwrap_or(SubstitutionOutputIntent::Captured),
         has_stdout_redirect,
     }
 }
@@ -264,7 +268,7 @@ enum OutputSink {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RedirectState {
-    stdout_disposition: StdoutDisposition,
+    stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
 }
 
@@ -303,18 +307,18 @@ fn classify_command_redirects(redirects: &[Redirect], source: &str) -> RedirectS
 
     let stdout_sink = *fds.get(&1).unwrap_or(&OutputSink::Other);
     let stderr_sink = *fds.get(&2).unwrap_or(&OutputSink::Other);
-    let stdout_disposition = if matches!(stdout_sink, OutputSink::Captured)
+    let stdout_intent = if matches!(stdout_sink, OutputSink::Captured)
         || matches!(stderr_sink, OutputSink::Captured)
     {
-        StdoutDisposition::Captured
+        SubstitutionOutputIntent::Captured
     } else if matches!(stdout_sink, OutputSink::DevNull) {
-        StdoutDisposition::RedirectedToDevNull
+        SubstitutionOutputIntent::Discarded
     } else {
-        StdoutDisposition::RedirectedElsewhere
+        SubstitutionOutputIntent::Rerouted
     };
 
     RedirectState {
-        stdout_disposition,
+        stdout_intent,
         has_stdout_redirect,
     }
 }
@@ -349,7 +353,7 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        StdoutDisposition, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
+        SubstitutionOutputIntent, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
         WordSubstitutionShape, classify_conditional_operand, classify_substitution,
         classify_test_operand, classify_word,
     };
@@ -455,37 +459,66 @@ mod tests {
     }
 
     #[test]
-    fn classify_substitution_reports_stdout_disposition_and_redirects() {
+    fn classify_substitution_reports_stdout_intent_and_redirects() {
         let cases = [
-            ("out=$(printf hi)\n", StdoutDisposition::Captured, false),
+            (
+                "out=$(printf hi)\n",
+                SubstitutionOutputIntent::Captured,
+                false,
+            ),
             (
                 "out=$(printf hi > out.txt)\n",
-                StdoutDisposition::RedirectedElsewhere,
+                SubstitutionOutputIntent::Rerouted,
                 true,
             ),
             (
                 "out=$(printf hi >/dev/null 2>&1)\n",
-                StdoutDisposition::RedirectedToDevNull,
+                SubstitutionOutputIntent::Discarded,
                 true,
             ),
             (
                 "out=$(whiptail 3>&1 1>&2 2>&3)\n",
-                StdoutDisposition::Captured,
+                SubstitutionOutputIntent::Captured,
                 true,
             ),
             (
                 "out=$(jq -r . <<< \"$status\" || die >&2)\n",
-                StdoutDisposition::Captured,
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(awk 'BEGIN { print \"ok\" }' || warn >&2)\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(getopt -o a -- \"$@\" || { usage >&2 && false; })\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(\"${cmd[@]}\" \"${options[@]}\" 2>&1 >/dev/tty)\n",
+                SubstitutionOutputIntent::Captured,
                 true,
             ),
             (
                 "out=$(cat <<'EOF'\nhello\nEOF\n)\n",
-                StdoutDisposition::Captured,
+                SubstitutionOutputIntent::Captured,
                 false,
+            ),
+            (
+                "out=$(printf quiet >/dev/null; printf loud)\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(printf quiet >/dev/null; printf loud > out.txt)\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
             ),
         ];
 
-        for (source, expected_disposition, expected_redirect) in cases {
+        for (source, expected_intent, expected_redirect) in cases {
             let commands = parse_commands(source);
             let Command::Simple(command) = &commands[0] else {
                 panic!("expected simple command");
@@ -499,7 +532,7 @@ mod tests {
                 .expect("expected command substitution");
 
             let classification = classify_substitution(substitution, source);
-            assert_eq!(classification.stdout_disposition, expected_disposition);
+            assert_eq!(classification.stdout_intent, expected_intent);
             assert_eq!(classification.has_stdout_redirect, expected_redirect);
         }
     }

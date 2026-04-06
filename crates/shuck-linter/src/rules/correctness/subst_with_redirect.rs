@@ -1,7 +1,7 @@
 use crate::rules::common::query::{
     self, CommandSubstitutionKind, CommandWalkOptions, visit_command_words,
 };
-use crate::rules::common::word::{StdoutDisposition, classify_substitution};
+use crate::rules::common::word::classify_substitution;
 use crate::{Checker, Rule, Violation};
 
 pub struct SubstWithRedirect;
@@ -33,7 +33,7 @@ pub fn subst_with_redirect(checker: &mut Checker) {
                     }
 
                     let classification = classify_substitution(substitution, source);
-                    if classification.stdout_disposition == StdoutDisposition::RedirectedElsewhere {
+                    if classification.stdout_is_rerouted() {
                         spans.push(classification.span);
                     }
                 }
@@ -52,8 +52,18 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn ignores_fd_swaps_and_sidecar_stderr_logging() {
-        let source = "out=$(whiptail 3>&1 1>&2 2>&3)\nout=$(jq -r . <<< \"$status\" || die >&2)\nout=$(printf hi > out.txt)\nout=$(printf hi >&2)\n";
+    fn reports_only_rerouted_substitutions() {
+        let source = "\
+opts=$(getopt -o a -- \"$@\" || { usage >&2 && false; })
+menu=$(whiptail --menu pick 0 0 0 foo bar 3>&1 1>&2 2>&3)
+dialog_out=$(dialog --menu pick 0 0 0 foo bar 3>&1 1>&2 2>&3)
+json=$(jq -r . <<< \"$status\" || die >&2)
+awk_output=$(awk 'BEGIN { print \"ok\" }' || warn >&2)
+choice=$(\"${cmd[@]}\" \"${options[@]}\" 2>&1 >/dev/tty)
+out=$(printf quiet >/dev/null; printf loud > out.txt)
+out=$(printf hi > out.txt)
+out=$(printf hi >&2)
+";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubstWithRedirect));
 
         assert_eq!(
@@ -61,7 +71,7 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.start.line)
                 .collect::<Vec<_>>(),
-            vec![3, 4]
+            vec![8, 9]
         );
     }
 }

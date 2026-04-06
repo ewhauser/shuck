@@ -340,9 +340,9 @@ Proposed additions:
 
 Action items:
 
-- [ ] Build a shared substitution-intent classifier in the common layer, backed by semantic or structural helpers where needed.
-- [ ] Rewrite local redirect checks in substitution rules to use the classifier.
-- [ ] Add regressions for `getopt`, `jq`, `awk`, `dialog`, `whiptail`, and helper-wrapper substitutions.
+- [x] Build a shared substitution-intent classifier in the common layer, backed by semantic or structural helpers where needed.
+- [x] Rewrite local redirect checks in substitution rules to use the classifier.
+- [x] Add regressions for `getopt`, `jq`, `awk`, `dialog`, `whiptail`, and helper-wrapper substitutions.
 
 Rules to refactor onto this helper:
 
