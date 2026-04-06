@@ -680,6 +680,14 @@ impl<'a> Parser<'a> {
         )
     }
 
+    fn split_double_right_paren(span: Span) -> (Span, Span) {
+        let middle = span.start.advanced_by(")");
+        (
+            Span::from_positions(span.start, middle),
+            Span::from_positions(middle, span.end),
+        )
+    }
+
     fn record_arithmetic_for_separator(
         semicolon_span: Span,
         segment_start: &mut Position,
@@ -2441,6 +2449,16 @@ impl<'a> Parser<'a> {
             ));
     }
 
+    fn split_current_double_right_paren(&mut self) {
+        let (left_span, right_span) = Self::split_double_right_paren(self.current_span);
+        self.set_current_kind(TokenKind::RightParen, left_span);
+        self.synthetic_tokens
+            .push_front(SyntheticToken::punctuation(
+                TokenKind::RightParen,
+                right_span,
+            ));
+    }
+
     /// Parse a single command (simple or compound)
     fn parse_command(&mut self) -> Result<Option<Command>> {
         self.skip_newlines()?;
@@ -3315,11 +3333,18 @@ impl<'a> Parser<'a> {
             }));
         }
 
+        if self.at(TokenKind::DoubleLeftParen) {
+            self.split_current_double_left_paren();
+        }
+
         let left = if self.at(TokenKind::LeftParen) {
             let left_paren_span = self.current_span;
             self.advance();
             let expr = self.parse_conditional_or(true)?;
             self.skip_conditional_newlines();
+            if self.at(TokenKind::DoubleRightParen) {
+                self.split_current_double_right_paren();
+            }
             if !self.at(TokenKind::RightParen) {
                 return Err(self.error("expected ')' in conditional expression"));
             }
@@ -7254,6 +7279,43 @@ coproc worker { true; }
         assert!(matches!(binary.right.as_ref(), ConditionalExpr::Word(_)));
         assert_eq!(command.left_bracket_span.start.column, 1);
         assert_eq!(command.right_bracket_span.start.column, 19);
+    }
+
+    #[test]
+    fn test_parse_conditional_accepts_nested_grouping_with_double_parens() {
+        let input = "[[ ! -e \"$cache\" && (( -e \"$prefix/n\" && ! -w \"$prefix/n\" ) || ( ! -e \"$prefix/n\" && ! -w \"$prefix\" )) ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Binary(binary) = &command.expression else {
+            panic!("expected binary conditional");
+        };
+        assert_eq!(binary.op, ConditionalBinaryOp::And);
+
+        let ConditionalExpr::Parenthesized(paren) = binary.right.as_ref() else {
+            panic!("expected parenthesized conditional term");
+        };
+        assert_eq!(
+            paren.span().slice(input),
+            "(( -e \"$prefix/n\" && ! -w \"$prefix/n\" ) || ( ! -e \"$prefix/n\" && ! -w \"$prefix\" ))"
+        );
+
+        let ConditionalExpr::Binary(inner) = paren.expr.as_ref() else {
+            panic!("expected grouped binary conditional");
+        };
+        assert_eq!(inner.op, ConditionalBinaryOp::Or);
+        assert!(matches!(
+            inner.left.as_ref(),
+            ConditionalExpr::Parenthesized(_)
+        ));
+        assert!(matches!(
+            inner.right.as_ref(),
+            ConditionalExpr::Parenthesized(_)
+        ));
     }
 
     #[test]
