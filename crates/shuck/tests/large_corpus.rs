@@ -1369,8 +1369,8 @@ fn shuck_parse_aborted(error: &str) -> bool {
 fn classify_fixture_noise(
     fixture: &LargeCorpusFixture,
     src: &[u8],
-    shuck_parse_aborted: bool,
-    shellcheck_parse_aborted: bool,
+    _shuck_parse_aborted: bool,
+    _shellcheck_parse_aborted: bool,
 ) -> CorpusNoiseKind {
     if fixture_looks_like_patch(fixture) {
         CorpusNoiseKind::Patch
@@ -1378,8 +1378,6 @@ fn classify_fixture_noise(
         CorpusNoiseKind::Fish
     } else if source_starts_with_unknown_shell_comment(src) {
         CorpusNoiseKind::ShellCollapse
-    } else if shuck_parse_aborted || shellcheck_parse_aborted {
-        CorpusNoiseKind::ParseAbort
     } else {
         CorpusNoiseKind::ParseAbort
     }

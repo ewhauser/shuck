@@ -115,7 +115,7 @@ pub fn classify_file_context(
         tags.push(FileContextTag::GeneratedConfigure);
     }
 
-    if path_tokens.iter().any(|token| {
+    if (path_tokens.iter().any(|token| {
         matches!(
             token.as_str(),
             "lib" | "libexec" | "completion" | "plugins" | "helpers"
@@ -125,11 +125,10 @@ pub fn classify_file_context(
     }) || path
         .and_then(Path::file_name)
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".func"))
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".func")))
+        && source_defines_function(&lines)
     {
-        if source_defines_function(&lines) {
-            tags.push(FileContextTag::HelperLibrary);
-        }
+        tags.push(FileContextTag::HelperLibrary);
     }
 
     if path_tokens
