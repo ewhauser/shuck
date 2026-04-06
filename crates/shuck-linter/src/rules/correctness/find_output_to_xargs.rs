@@ -57,9 +57,24 @@ fn unsafe_find_to_xargs_spans(pipeline: &Pipeline, source: &str) -> Vec<Span> {
                 return None;
             }
 
-            Some(left.body_span)
+            Some(find_command_span(&pair[0], left))
         })
         .collect()
+}
+
+fn find_command_span(command: &Command, normalized: command::NormalizedCommand<'_>) -> Span {
+    match command {
+        Command::Simple(simple) => {
+            let end = simple
+                .redirects
+                .last()
+                .map(|redirect| redirect.span.end)
+                .or_else(|| simple.args.last().map(|word| word.span.end))
+                .unwrap_or(simple.name.span.end);
+            Span::from_positions(normalized.body_span.start, end)
+        }
+        _ => normalized.body_span,
+    }
 }
 
 fn find_uses_print0(args: &[&Word], source: &str) -> bool {
@@ -88,6 +103,18 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "find");
+        assert_eq!(diagnostics[0].span.slice(source), "find . -type f");
+    }
+
+    #[test]
+    fn anchors_on_multiline_find_segment_before_pipe() {
+        let source = "find . -type f \\\n  -name '*.txt' | xargs rm\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "find . -type f \\\n  -name '*.txt'"
+        );
     }
 }

@@ -112,7 +112,6 @@ Rules to refactor onto this helper:
 | Rules | Why |
 | --- | --- |
 | `C005` | Command-specific exemptions and wrapper awareness already dominate the rule. |
-| `C007` | `find | xargs` matching benefits from normalized `find` handling. |
 | `C013` | `find`-driven loop matching should use the same normalized command logic. |
 | `C015` | Must distinguish real `sudo` redirection hazards from safe wrapper forms. |
 | `S007` | `printf` detection should work through wrappers and nested contexts. |
@@ -179,7 +178,6 @@ Rules to refactor onto this helper:
 | --- | --- |
 | `C001` | Needs variable-name spans instead of assignment or command spans. |
 | `C005` | Needs consistent quoted-fragment anchoring and dedup. |
-| `C007` | Needs `find`-side anchoring rather than broad pipeline spans. |
 | `C008` | Needs per-expansion spans inside traps. |
 | `C010` | Needs operator-token anchoring for `&&` and `||`. |
 | `C015` | Needs per-redirect spans rather than whole `sudo tee` command spans. |
