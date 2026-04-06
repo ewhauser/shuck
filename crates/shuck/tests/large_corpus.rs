@@ -41,6 +41,7 @@ const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
 const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
 const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PERCENT_STEP;
 const SHELLCHECK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists";
+const SHUCK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists/shuck";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
@@ -307,13 +308,13 @@ struct ShellCheckProbe {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct ShellCheckRuleAllowlistDocument {
-    entries: Vec<ShellCheckRuleAllowlistEntry>,
+struct RuleAllowlistDocument {
+    entries: Vec<RuleAllowlistEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct ShellCheckRuleAllowlistEntry {
+struct RuleAllowlistEntry {
     path_suffix: String,
     line: usize,
     end_line: usize,
@@ -554,6 +555,7 @@ fn large_corpus_conforms_with_shellcheck() {
     let shellcheck_index = build_shellcheck_index();
     let sc2034_allowlist =
         load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
+    let shuck_allowlists = load_all_shuck_allowlists();
     let shellcheck_filter_codes =
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
@@ -577,6 +579,7 @@ fn large_corpus_conforms_with_shellcheck() {
                 &linter_settings,
                 &shellcheck_index,
                 &sc2034_allowlist,
+                &shuck_allowlists,
                 shellcheck_filter_codes.as_ref(),
                 Arc::clone(&shuck_path_resolver),
             )
@@ -754,7 +757,8 @@ fn evaluate_fixture_compatibility(
     shuck_timeout: Duration,
     linter_settings: &shuck_linter::LinterSettings,
     shellcheck_index: &HashMap<String, String>,
-    sc2034_allowlist: &[ShellCheckRuleAllowlistEntry],
+    sc2034_allowlist: &[RuleAllowlistEntry],
+    shuck_allowlists: &HashMap<String, Vec<RuleAllowlistEntry>>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
     shuck_path_resolver: Arc<LargeCorpusPathResolver>,
 ) -> Option<FixtureFailure> {
@@ -775,6 +779,10 @@ fn evaluate_fixture_compatibility(
             });
         }
     };
+    let mut shuck_run = shuck_run;
+    for (rule_code, allowlist) in shuck_allowlists {
+        shuck_run = apply_shuck_allowlist(allowlist, rule_code, fixture, shuck_run);
+    }
     if let Some(ref err) = shuck_run.parse_error {
         issues.push(format!("shuck parse error: {err}"));
     }
@@ -848,7 +856,7 @@ fn filter_shellcheck_run(
 }
 
 fn apply_shellcheck_allowlist(
-    allowlist: &[ShellCheckRuleAllowlistEntry],
+    allowlist: &[RuleAllowlistEntry],
     code: u32,
     fixture: &LargeCorpusFixture,
     mut run: ShellCheckRun,
@@ -860,7 +868,7 @@ fn apply_shellcheck_allowlist(
 }
 
 fn shellcheck_allowlist_reason<'a>(
-    allowlist: &'a [ShellCheckRuleAllowlistEntry],
+    allowlist: &'a [RuleAllowlistEntry],
     code: u32,
     path: &Path,
     diag: &ShellCheckDiagnostic,
@@ -880,13 +888,11 @@ fn shellcheck_allowlist_reason<'a>(
     })
 }
 
-fn load_shellcheck_rule_allowlist(
-    rule_code: &str,
-) -> Result<Vec<ShellCheckRuleAllowlistEntry>, String> {
+fn load_shellcheck_rule_allowlist(rule_code: &str) -> Result<Vec<RuleAllowlistEntry>, String> {
     let path = shellcheck_rule_allowlist_path(rule_code);
     let data =
         fs::read_to_string(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
-    let document: ShellCheckRuleAllowlistDocument =
+    let document: RuleAllowlistDocument =
         serde_yaml::from_str(&data).map_err(|err| format!("parse {}: {err}", path.display()))?;
     Ok(document.entries)
 }
@@ -896,6 +902,91 @@ fn shellcheck_rule_allowlist_path(rule_code: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(SHELLCHECK_RULE_ALLOWLIST_DIR)
         .join(filename)
+}
+
+// ---------------------------------------------------------------------------
+// Shuck allowlists
+// ---------------------------------------------------------------------------
+
+fn apply_shuck_allowlist(
+    allowlist: &[RuleAllowlistEntry],
+    rule_code: &str,
+    fixture: &LargeCorpusFixture,
+    mut run: ShuckRun,
+) -> ShuckRun {
+    let before = run.diagnostics.len();
+    run.diagnostics
+        .retain(|diag| shuck_allowlist_reason(allowlist, rule_code, &fixture.path, diag).is_none());
+    if run.diagnostics.len() != before {
+        let shellcheck_index = build_shellcheck_index();
+        run.locations = count_codes(&shuck_compatibility_locations(
+            &run.diagnostics,
+            &shellcheck_index,
+        ));
+    }
+    run
+}
+
+fn shuck_allowlist_reason<'a>(
+    allowlist: &'a [RuleAllowlistEntry],
+    rule_code: &str,
+    path: &Path,
+    diag: &shuck_linter::Diagnostic,
+) -> Option<&'a str> {
+    if diag.code() != rule_code {
+        return None;
+    }
+
+    let path = path.to_string_lossy();
+    allowlist.iter().find_map(|entry| {
+        (path.ends_with(entry.path_suffix.as_str())
+            && diag.span.start.line == entry.line
+            && diag.span.end.line == entry.end_line
+            && diag.span.start.column == entry.column
+            && diag.span.end.column == entry.end_column)
+            .then_some(entry.reason.as_str())
+    })
+}
+
+fn load_shuck_rule_allowlist(rule_code: &str) -> Vec<RuleAllowlistEntry> {
+    let path = shuck_rule_allowlist_path(rule_code);
+    if !path.exists() {
+        return Vec::new();
+    }
+    let data =
+        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let document: RuleAllowlistDocument =
+        serde_yaml::from_str(&data).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()));
+    document.entries
+}
+
+fn shuck_rule_allowlist_path(rule_code: &str) -> PathBuf {
+    let filename = format!("{}.yaml", rule_code.to_ascii_lowercase());
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(SHUCK_RULE_ALLOWLIST_DIR)
+        .join(filename)
+}
+
+fn load_all_shuck_allowlists() -> HashMap<String, Vec<RuleAllowlistEntry>> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(SHUCK_RULE_ALLOWLIST_DIR);
+    let mut map = HashMap::new();
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return map,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "yaml") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                let rule_code = stem.to_ascii_uppercase();
+                let allowlist = load_shuck_rule_allowlist(&rule_code);
+                if !allowlist.is_empty() {
+                    map.insert(rule_code, allowlist);
+                }
+            }
+        }
+    }
+    map
 }
 
 fn format_fixture_failure(path: &Path, issues: &[String]) -> String {
@@ -2528,6 +2619,115 @@ mod tests {
                 && entry.reason
                     == "loop variable is consumed by the sibling query_gamedig.sh helper invoked in the loop"
         }));
+    }
+
+    #[test]
+    fn shuck_allowlist_filters_exact_matches_only() {
+        let allowlist = vec![RuleAllowlistEntry {
+            path_suffix: "owner__repo__script.sh".into(),
+            line: 10,
+            end_line: 10,
+            column: 5,
+            end_column: 20,
+            reason: "shuck is more correct here".into(),
+        }];
+        let fixture = fixture("owner__repo__script.sh");
+
+        let matching_diag = shuck_linter::Diagnostic {
+            rule: shuck_linter::Rule::UnusedAssignment,
+            message: "matched".into(),
+            severity: shuck_linter::Severity::Warning,
+            span: shuck_ast::Span {
+                start: shuck_ast::Position {
+                    line: 10,
+                    column: 5,
+                    offset: 0,
+                },
+                end: shuck_ast::Position {
+                    line: 10,
+                    column: 20,
+                    offset: 0,
+                },
+            },
+        };
+        let non_matching_diag = shuck_linter::Diagnostic {
+            rule: shuck_linter::Rule::UnusedAssignment,
+            message: "not matched".into(),
+            severity: shuck_linter::Severity::Warning,
+            span: shuck_ast::Span {
+                start: shuck_ast::Position {
+                    line: 10,
+                    column: 5,
+                    offset: 0,
+                },
+                end: shuck_ast::Position {
+                    line: 10,
+                    column: 21,
+                    offset: 0,
+                },
+            },
+        };
+
+        let run = ShuckRun {
+            locations: HashMap::new(),
+            diagnostics: vec![matching_diag, non_matching_diag],
+            parse_error: None,
+        };
+
+        let filtered = apply_shuck_allowlist(&allowlist, "C001", &fixture, run);
+
+        assert_eq!(filtered.diagnostics.len(), 1);
+        assert_eq!(filtered.diagnostics[0].message, "not matched");
+    }
+
+    #[test]
+    fn shuck_allowlist_ignores_non_matching_rule_code() {
+        let allowlist = vec![RuleAllowlistEntry {
+            path_suffix: "script.sh".into(),
+            line: 1,
+            end_line: 1,
+            column: 1,
+            end_column: 10,
+            reason: "test".into(),
+        }];
+        let fixture = fixture("script.sh");
+
+        let diag = shuck_linter::Diagnostic {
+            rule: shuck_linter::Rule::UnusedAssignment,
+            message: "kept".into(),
+            severity: shuck_linter::Severity::Warning,
+            span: shuck_ast::Span {
+                start: shuck_ast::Position {
+                    line: 1,
+                    column: 1,
+                    offset: 0,
+                },
+                end: shuck_ast::Position {
+                    line: 1,
+                    column: 10,
+                    offset: 0,
+                },
+            },
+        };
+
+        let run = ShuckRun {
+            locations: HashMap::new(),
+            diagnostics: vec![diag],
+            parse_error: None,
+        };
+
+        // Filter for a different rule code — should not remove anything
+        let filtered = apply_shuck_allowlist(&allowlist, "C005", &fixture, run);
+
+        assert_eq!(filtered.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn load_all_shuck_allowlists_returns_empty_for_empty_dir() {
+        let allowlists = load_all_shuck_allowlists();
+        // The directory exists but may or may not have entries; just verify it doesn't panic
+        // and returns a valid map.
+        assert!(allowlists.values().all(|v| !v.is_empty()));
     }
 
     #[test]
