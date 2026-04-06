@@ -2218,7 +2218,7 @@ mod tests {
     #[test]
     fn run_with_timeout_reports_timeout() {
         let err = run_with_timeout("test worker", Duration::from_millis(10), || {
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_secs(5));
             42
         })
         .unwrap_err();
