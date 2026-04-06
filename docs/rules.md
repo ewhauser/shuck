@@ -236,10 +236,10 @@ This work likely belongs near:
 
 Action items:
 
-- [ ] Add a runtime prelude model for shell-provided variables and common environment variables.
-- [ ] Thread runtime-prelude knowledge into uninitialized-reference analysis.
-- [ ] Add builtin-specific implicit-use hooks where shell semantics consume variables without a visible `$name`.
-- [ ] Add focused semantic tests for `IFS`, `RANDOM`, `BASH_REMATCH`, `READLINE_LINE`, `USER`, `HOME`, `PWD`, `OSTYPE`, and related names.
+- [X] Add a runtime prelude model for shell-provided variables and common environment variables.
+- [X] Thread runtime-prelude knowledge into uninitialized-reference analysis.
+- [X] Add builtin-specific implicit-use hooks where shell semantics consume variables without a visible `$name`.
+- [X] Add focused semantic tests for `IFS`, `RANDOM`, `BASH_REMATCH`, `READLINE_LINE`, `USER`, `HOME`, `PWD`, `OSTYPE`, and related names.
 
 Rules to refactor onto this helper:
 

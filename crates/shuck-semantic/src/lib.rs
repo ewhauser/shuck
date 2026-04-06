@@ -5,6 +5,7 @@ mod cfg;
 mod dataflow;
 mod declaration;
 mod reference;
+mod runtime;
 mod scope;
 mod source_closure;
 mod source_ref;
@@ -29,6 +30,7 @@ use std::path::{Path, PathBuf};
 use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
 use crate::dataflow::DataflowResult;
+use crate::runtime::RuntimePrelude;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SpanKey {
@@ -114,7 +116,7 @@ pub struct SemanticModel {
     call_sites: FxHashMap<Name, Vec<CallSite>>,
     call_graph: CallGraph,
     source_refs: Vec<SourceRef>,
-    bash_runtime_vars_enabled: bool,
+    runtime: RuntimePrelude,
     declarations: Vec<Declaration>,
     indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_expansion_refs: FxHashSet<ReferenceId>,
@@ -150,7 +152,7 @@ impl SemanticModel {
             call_sites: built.call_sites,
             call_graph: built.call_graph,
             source_refs: built.source_refs,
-            bash_runtime_vars_enabled: built.bash_runtime_vars_enabled,
+            runtime: built.runtime,
             declarations: built.declarations,
             indirect_target_hints: built.indirect_target_hints,
             indirect_expansion_refs: built.indirect_expansion_refs,
@@ -274,7 +276,7 @@ impl SemanticModel {
         let has_call_sites = !self.call_sites.is_empty();
         self.heuristic_unused_assignments.iter().any(|binding_id| {
             let binding = &self.bindings[binding_id.index()];
-            binding.name == "IFS"
+            self.runtime.is_always_used_binding(&binding.name)
                 || self
                     .binding_index
                     .get(&binding.name)
@@ -342,7 +344,7 @@ impl SemanticModel {
     }
 
     pub(crate) fn bash_runtime_vars_enabled(&self) -> bool {
-        self.bash_runtime_vars_enabled
+        self.runtime.bash_enabled()
     }
 
     pub fn cfg(&mut self) -> &ControlFlowGraph {
@@ -370,6 +372,7 @@ impl SemanticModel {
                 let cfg = self.cfg.as_ref().unwrap();
                 dataflow::analyze(
                     cfg,
+                    &self.runtime,
                     &self.scopes,
                     &self.bindings,
                     &self.references,
@@ -402,6 +405,7 @@ impl SemanticModel {
             let cfg = self.cfg.as_ref().unwrap();
             self.precise_unused_assignments = Some(dataflow::analyze_unused_assignments(
                 cfg,
+                &self.runtime,
                 &self.scopes,
                 &self.bindings,
                 &self.references,
@@ -656,6 +660,56 @@ mod tests {
         assert_eq!(precise, exact);
     }
 
+    fn unresolved_names(model: &SemanticModel) -> Vec<String> {
+        model
+            .unresolved_references()
+            .iter()
+            .map(|reference| model.reference(*reference).name.to_string())
+            .collect()
+    }
+
+    fn uninitialized_names(model: &mut SemanticModel) -> Vec<String> {
+        let references = model
+            .precompute_uninitialized_references()
+            .iter()
+            .map(|reference| reference.reference)
+            .collect::<Vec<_>>();
+        references
+            .iter()
+            .map(|reference| model.reference(*reference).name.to_string())
+            .collect()
+    }
+
+    fn assert_names_absent(names: &[&str], actual: &[String]) {
+        for name in names {
+            assert!(
+                !actual.iter().any(|actual_name| actual_name == name),
+                "did not expect `{name}` in {actual:?}"
+            );
+        }
+    }
+
+    fn assert_names_present(names: &[&str], actual: &[String]) {
+        for name in names {
+            assert!(
+                actual.iter().any(|actual_name| actual_name == name),
+                "expected `{name}` in {actual:?}"
+            );
+        }
+    }
+
+    fn common_runtime_source(shebang: &str) -> String {
+        format!(
+            "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$LANG\" \"$SUDO_USER\" \"$DOAS_USER\"\n"
+        )
+    }
+
+    fn bash_runtime_source(shebang: &str) -> String {
+        format!(
+            "{shebang}\nprintf '%s\\n' \"$LINENO\" \"$FUNCNAME\" \"${{BASH_SOURCE[0]}}\" \"${{BASH_LINENO[0]}}\" \"$RANDOM\" \"${{BASH_REMATCH[0]}}\" \"$READLINE_LINE\" \"$BASH_VERSION\" \"${{BASH_VERSINFO[0]}}\" \"$OSTYPE\" \"$HISTCONTROL\" \"$HISTSIZE\"\n"
+        )
+    }
+
     #[test]
     fn creates_file_and_function_scopes_and_resolves_local_shadowing() {
         let source = "VAR=global\nf() { local VAR=local; echo $VAR; }\n";
@@ -820,6 +874,8 @@ done
             "echo $VAR\n",
             "if cond; then VAR=x; fi\necho $VAR\n",
             "f() { local VAR; echo \"$VAR\"; }\nf\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$HOME\"\n",
+            "#!/bin/bash\nprintf '%s\\n' \"$RANDOM\"\n",
         ];
 
         for source in cases {
@@ -911,6 +967,16 @@ nginx_args+=(--common)
 web_server=apache
 args_var=\"${web_server}_args[@]\"
 printf '%s\\n' \"${!args_var}\"
+",
+            "\
+#!/bin/bash
+f() {
+  local IFS=$'\\n'
+  local unused=1
+  read -d '' -ra reply < <(printf 'alpha\\nbeta\\0')
+  printf '%s\\n' \"${reply[@]}\"
+}
+f
 ",
         ];
 
@@ -1487,69 +1553,80 @@ printf '%s\\n' \"${!args_var}\"
     }
 
     #[test]
-    fn bash_runtime_vars_are_not_marked_uninitialized() {
-        let source = "\
-#!/bin/bash
-printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
-";
-        let mut model = model(source);
+    fn common_runtime_vars_are_not_marked_uninitialized_in_bash_and_sh_scripts() {
+        let names = [
+            "IFS",
+            "USER",
+            "HOME",
+            "SHELL",
+            "PWD",
+            "TERM",
+            "LANG",
+            "SUDO_USER",
+            "DOAS_USER",
+        ];
 
-        let unresolved = model
-            .unresolved_references()
-            .iter()
-            .map(|reference| model.reference(*reference).name.as_str())
-            .collect::<Vec<_>>();
-        assert!(!unresolved.contains(&"LINENO"));
-        assert!(!unresolved.contains(&"FUNCNAME"));
-        assert!(!unresolved.contains(&"BASH_SOURCE"));
-        assert!(!unresolved.contains(&"BASH_LINENO"));
+        for shebang in ["#!/bin/bash", "#!/bin/sh"] {
+            let source = common_runtime_source(shebang);
+            let mut model = model(&source);
+            let unresolved = unresolved_names(&model);
+            let uninitialized = uninitialized_names(&mut model);
 
-        let uninitialized_ids = model
-            .precompute_uninitialized_references()
-            .iter()
-            .map(|reference| reference.reference)
-            .collect::<Vec<_>>();
-        let uninitialized = uninitialized_ids
-            .iter()
-            .map(|reference| model.reference(*reference).name.to_string())
-            .collect::<Vec<_>>();
-        assert!(!uninitialized.iter().any(|name| name == "LINENO"));
-        assert!(!uninitialized.iter().any(|name| name == "FUNCNAME"));
-        assert!(!uninitialized.iter().any(|name| name == "BASH_SOURCE"));
-        assert!(!uninitialized.iter().any(|name| name == "BASH_LINENO"));
+            assert_names_absent(&names, &unresolved);
+            assert_names_absent(&names, &uninitialized);
+        }
+    }
+
+    #[test]
+    fn bash_runtime_vars_are_not_marked_uninitialized_in_bash_scripts() {
+        let source = bash_runtime_source("#!/bin/bash");
+        let mut model = model(&source);
+        let names = [
+            "LINENO",
+            "FUNCNAME",
+            "BASH_SOURCE",
+            "BASH_LINENO",
+            "RANDOM",
+            "BASH_REMATCH",
+            "READLINE_LINE",
+            "BASH_VERSION",
+            "BASH_VERSINFO",
+            "OSTYPE",
+            "HISTCONTROL",
+            "HISTSIZE",
+        ];
+
+        let unresolved = unresolved_names(&model);
+        let uninitialized = uninitialized_names(&mut model);
+
+        assert_names_absent(&names, &unresolved);
+        assert_names_absent(&names, &uninitialized);
     }
 
     #[test]
     fn bash_runtime_vars_remain_unresolved_in_non_bash_scripts() {
-        let source = "\
-#!/bin/sh
-printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
-";
-        let mut model = model(source);
+        let source = bash_runtime_source("#!/bin/sh");
+        let mut model = model(&source);
+        let names = [
+            "LINENO",
+            "FUNCNAME",
+            "BASH_SOURCE",
+            "BASH_LINENO",
+            "RANDOM",
+            "BASH_REMATCH",
+            "READLINE_LINE",
+            "BASH_VERSION",
+            "BASH_VERSINFO",
+            "OSTYPE",
+            "HISTCONTROL",
+            "HISTSIZE",
+        ];
 
-        let unresolved = model
-            .unresolved_references()
-            .iter()
-            .map(|reference| model.reference(*reference).name.as_str())
-            .collect::<Vec<_>>();
-        assert!(unresolved.contains(&"LINENO"));
-        assert!(unresolved.contains(&"FUNCNAME"));
-        assert!(unresolved.contains(&"BASH_SOURCE"));
-        assert!(unresolved.contains(&"BASH_LINENO"));
+        let unresolved = unresolved_names(&model);
+        let uninitialized = uninitialized_names(&mut model);
 
-        let uninitialized_ids = model
-            .precompute_uninitialized_references()
-            .iter()
-            .map(|reference| reference.reference)
-            .collect::<Vec<_>>();
-        let uninitialized = uninitialized_ids
-            .iter()
-            .map(|reference| model.reference(*reference).name.to_string())
-            .collect::<Vec<_>>();
-        assert!(uninitialized.iter().any(|name| name == "LINENO"));
-        assert!(uninitialized.iter().any(|name| name == "FUNCNAME"));
-        assert!(uninitialized.iter().any(|name| name == "BASH_SOURCE"));
-        assert!(uninitialized.iter().any(|name| name == "BASH_LINENO"));
+        assert_names_present(&names, &unresolved);
+        assert_names_present(&names, &uninitialized);
     }
 
     #[test]
@@ -1996,6 +2073,7 @@ echo $(printf '%s' \"$X\")
 
         let new_dataflow = crate::dataflow::analyze(
             &new_cfg,
+            &model.runtime,
             &model.scopes,
             &model.bindings,
             &model.references,
@@ -2008,6 +2086,7 @@ echo $(printf '%s' \"$X\")
         );
         let legacy_dataflow = crate::dataflow::analyze(
             &legacy_cfg,
+            &model.runtime,
             &model.scopes,
             &model.bindings,
             &model.references,

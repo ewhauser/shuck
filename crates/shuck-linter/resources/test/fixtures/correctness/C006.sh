@@ -1,13 +1,32 @@
 #!/bin/bash
 
-# Bash runtime vars should not be reported as undefined.
-printf '%s %s %s %s %s %s\n' \
+# Runtime prelude names should not be reported as undefined in Bash.
+printf '%s %s %s %s %s %s %s %s %s\n' \
+  "$IFS" \
+  "$USER" \
+  "$HOME" \
+  "$SHELL" \
+  "$PWD" \
+  "$TERM" \
+  "$LANG" \
+  "$SUDO_USER" \
+  "$DOAS_USER"
+
+printf '%s %s %s %s %s %s %s %s %s %s %s %s %s %s\n' \
   "$LINENO" \
   "$FUNCNAME" \
   "${FUNCNAME[0]}" \
   "$BASH_SOURCE" \
   "${BASH_SOURCE[0]}" \
-  "${BASH_LINENO[0]}"
+  "${BASH_LINENO[0]}" \
+  "$RANDOM" \
+  "${BASH_REMATCH[0]}" \
+  "$READLINE_LINE" \
+  "$BASH_VERSION" \
+  "${BASH_VERSINFO[0]}" \
+  "$OSTYPE" \
+  "$HISTCONTROL" \
+  "$HISTSIZE"
 
 echo "$missing"
 

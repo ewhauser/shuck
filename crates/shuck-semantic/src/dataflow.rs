@@ -2,6 +2,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::Name;
 use shuck_ast::Span;
 
+use crate::runtime::RuntimePrelude;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ControlFlowGraph,
     IndirectTargetHint, Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey,
@@ -73,6 +74,7 @@ struct BindingNameData {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze_unused_assignments(
     cfg: &ControlFlowGraph,
+    runtime: &RuntimePrelude,
     scopes: &[Scope],
     bindings: &[Binding],
     references: &[Reference],
@@ -84,6 +86,7 @@ pub(crate) fn analyze_unused_assignments(
 ) -> Vec<BindingId> {
     analyze_unused_assignments_exact(
         cfg,
+        runtime,
         scopes,
         bindings,
         references,
@@ -131,6 +134,7 @@ pub(crate) fn analyze_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
 #[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn analyze(
     cfg: &ControlFlowGraph,
+    runtime: &RuntimePrelude,
     scopes: &[Scope],
     bindings: &[Binding],
     references: &[Reference],
@@ -150,6 +154,7 @@ pub(crate) fn analyze(
         compute_reaching_definitions_dense(cfg, bindings, &dense_binding_data);
     let unused_assignments = analyze_unused_assignments_exact(
         cfg,
+        runtime,
         scopes,
         bindings,
         references,
@@ -359,6 +364,7 @@ fn compute_reaching_definitions(
 #[allow(clippy::too_many_arguments)]
 fn analyze_unused_assignments_exact(
     cfg: &ControlFlowGraph,
+    runtime: &RuntimePrelude,
     scopes: &[Scope],
     bindings: &[Binding],
     references: &[Reference],
@@ -416,7 +422,7 @@ fn analyze_unused_assignments_exact(
 
     let mut used_bindings = DenseBitSet::new(bindings.len());
     for binding in bindings {
-        if !binding.references.is_empty() || binding.name == "IFS" {
+        if !binding.references.is_empty() || runtime.is_always_used_binding(&binding.name) {
             used_bindings.insert(binding.id.index());
         }
     }
@@ -509,7 +515,11 @@ fn analyze_unused_assignments_exact(
         let Some(block_id) = binding_blocks[binding.id.index()] else {
             continue;
         };
-        if unreachable_blocks.contains(block_id.index())
+        if matches!(
+            binding.kind,
+            BindingKind::FunctionDefinition | BindingKind::Imported
+        ) || runtime.is_always_used_binding(&binding.name)
+            || unreachable_blocks.contains(block_id.index())
             || used_bindings.contains(binding.id.index())
         {
             continue;

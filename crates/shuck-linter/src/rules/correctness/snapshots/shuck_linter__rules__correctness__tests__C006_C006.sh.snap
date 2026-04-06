@@ -1,20 +1,21 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 74
 ---
 C006 variable `missing` is referenced before assignment
-  --> <source>:12:7
+  --> <source>:31:7
    |
-12 | echo "$missing"
+31 | echo "$missing"
    |
 
 C006 variable `maybe` may be referenced before assignment
-  --> <source>:17:7
+  --> <source>:36:7
    |
-17 | echo "$maybe"
+36 | echo "$maybe"
    |
 
 C006 variable `local_only` is referenced before assignment
-  --> <source>:21:18
+  --> <source>:40:18
    |
-21 |   printf '%s\n' "$local_only"
+40 |   printf '%s\n' "$local_only"
    |

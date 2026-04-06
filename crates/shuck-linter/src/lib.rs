@@ -241,6 +241,12 @@ mod tests {
         lint_path(path, &LinterSettings::for_rule(rule))
     }
 
+    fn runtime_prelude_source(shebang: &str) -> String {
+        format!(
+            "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$LANG\" \"$SUDO_USER\" \"$DOAS_USER\"\nprintf '%s\\n' \"$LINENO\" \"$FUNCNAME\" \"${{BASH_SOURCE[0]}}\" \"${{BASH_LINENO[0]}}\" \"$RANDOM\" \"${{BASH_REMATCH[0]}}\" \"$READLINE_LINE\" \"$BASH_VERSION\" \"${{BASH_VERSINFO[0]}}\" \"$OSTYPE\" \"$HISTCONTROL\" \"$HISTSIZE\"\n"
+        )
+    }
+
     #[test]
     fn default_settings_run_without_emitting_noop_diagnostics() {
         let diagnostics = lint("#!/bin/bash\necho ok\n", &LinterSettings::default());
@@ -782,32 +788,39 @@ printf '%s %s %s\\n' \"$1\" \"$@\" \"$#\"
 
     #[test]
     fn undefined_variable_ignores_bash_runtime_vars_in_bash_scripts() {
-        let diagnostics = lint_for_rule(
-            "\
-#!/bin/bash
-printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
-",
-            Rule::UndefinedVariable,
-        );
+        let source = runtime_prelude_source("#!/bin/bash");
+        let diagnostics = lint_for_rule(&source, Rule::UndefinedVariable);
 
         assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn undefined_variable_still_reports_bash_runtime_vars_in_sh_scripts() {
-        let diagnostics = lint_for_rule(
-            "\
-#!/bin/sh
-printf '%s %s %s %s\\n' \"$LINENO\" \"$FUNCNAME\" \"${BASH_SOURCE[0]}\" \"${BASH_LINENO[0]}\"
-",
-            Rule::UndefinedVariable,
-        );
+        let source = runtime_prelude_source("#!/bin/sh");
+        let diagnostics = lint_for_rule(&source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 4);
-        assert!(diagnostics[0].message.contains("LINENO"));
-        assert!(diagnostics[1].message.contains("FUNCNAME"));
-        assert!(diagnostics[2].message.contains("BASH_SOURCE"));
-        assert!(diagnostics[3].message.contains("BASH_LINENO"));
+        assert_eq!(diagnostics.len(), 12);
+        for name in [
+            "LINENO",
+            "FUNCNAME",
+            "BASH_SOURCE",
+            "BASH_LINENO",
+            "RANDOM",
+            "BASH_REMATCH",
+            "READLINE_LINE",
+            "BASH_VERSION",
+            "BASH_VERSINFO",
+            "OSTYPE",
+            "HISTCONTROL",
+            "HISTSIZE",
+        ] {
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains(name)),
+                "missing diagnostic for {name}"
+            );
+        }
     }
 
     #[test]
