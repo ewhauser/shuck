@@ -1,3 +1,4 @@
+use crate::rules::common::command;
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
     ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, Position, Redirect,
@@ -5,9 +6,7 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 
-use super::syntax::{
-    assignment_target_name, effective_command_name, simple_test_operands, static_word_text,
-};
+use super::syntax::{assignment_target_name, simple_test_operands, static_word_text};
 use crate::{Checker, Rule, Violation};
 
 pub struct SingleQuotedLiteral;
@@ -66,9 +65,9 @@ fn collect_commands(commands: &[Command], indexer: &Indexer, source: &str, spans
 }
 
 fn collect_command(command: &Command, indexer: &Indexer, source: &str, spans: &mut Vec<Span>) {
-    let command_name = effective_command_name(command, source);
+    let normalized = command::normalize_command(command, source);
     let context = ScanContext {
-        command_name: command_name.as_deref(),
+        command_name: normalized.effective_or_literal_name(),
         ..ScanContext::default()
     };
 

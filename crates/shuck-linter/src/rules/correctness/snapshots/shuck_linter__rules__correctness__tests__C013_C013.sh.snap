@@ -6,3 +6,9 @@ C013 expanding `find` output in a `for` loop splits paths on whitespace
   |
 4 | for file in $(find . -name '*.txt'); do
   |
+
+C013 expanding `find` output in a `for` loop splits paths on whitespace
+ --> <source>:9:13
+  |
+9 | for file in $(command find . -name '*.txt'); do
+  |

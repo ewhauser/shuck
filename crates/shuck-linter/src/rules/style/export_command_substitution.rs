@@ -1,6 +1,9 @@
-use shuck_ast::{AssignmentValue, Command, WordPart};
+use shuck_ast::{AssignmentValue, WordPart};
 
-use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::{
+    command::{self, DeclarationKind},
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
 
 pub struct ExportCommandSubstitution {
@@ -13,7 +16,7 @@ impl Violation for ExportCommandSubstitution {
     }
 
     fn message(&self) -> String {
-        format!("assign command output before exporting `{}`", self.name)
+        format!("assign command output before declaring `{}`", self.name)
     }
 }
 
@@ -26,19 +29,22 @@ pub fn export_command_substitution(checker: &mut Checker) {
             descend_nested_word_commands: false,
         },
         &mut |command, _| {
-            let Command::Decl(command) = command else {
+            let normalized = command::normalize_command(command, checker.source());
+            let Some(declaration) = normalized.declaration.as_ref() else {
                 return;
             };
 
-            if command.variant.as_ref() != "export" {
+            if !matches!(
+                declaration.kind,
+                DeclarationKind::Export
+                    | DeclarationKind::Local
+                    | DeclarationKind::Declare
+                    | DeclarationKind::Typeset
+            ) {
                 return;
             }
 
-            for operand in &command.operands {
-                let shuck_ast::DeclOperand::Assignment(assignment) = operand else {
-                    continue;
-                };
-
+            for assignment in &declaration.assignment_operands {
                 let AssignmentValue::Scalar(word) = &assignment.value else {
                     continue;
                 };

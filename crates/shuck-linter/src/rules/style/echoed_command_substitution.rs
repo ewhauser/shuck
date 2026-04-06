@@ -1,9 +1,10 @@
-use shuck_ast::Command;
-
-use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::{
+    command,
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{static_word_text, word_is_plain_command_substitution};
+use super::syntax::word_is_plain_command_substitution;
 
 pub struct EchoedCommandSubstitution;
 
@@ -24,23 +25,20 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
     query::walk_commands(
         &checker.ast().commands,
         CommandWalkOptions {
-            descend_nested_word_commands: false,
+            descend_nested_word_commands: true,
         },
         &mut |command, _| {
-            let Command::Simple(command) = command else {
-                return;
-            };
-
-            if static_word_text(&command.name, source).as_deref() != Some("echo") {
+            let normalized = command::normalize_command(command, source);
+            if !normalized.effective_name_is("echo") {
                 return;
             }
 
-            let [word] = command.args.as_slice() else {
+            let [word] = normalized.body_args() else {
                 return;
             };
 
             if word_is_plain_command_substitution(word) {
-                spans.push(command.span);
+                spans.push(normalized.body_span);
             }
         },
     );

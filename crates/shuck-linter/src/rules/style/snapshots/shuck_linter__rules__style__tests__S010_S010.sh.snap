@@ -1,14 +1,32 @@
 ---
 source: crates/shuck-linter/src/rules/style/mod.rs
 ---
-S010 assign command output before exporting `greeting`
+S010 assign command output before declaring `greeting`
  --> <source>:3:8
   |
 3 | export greeting=$(printf '%s\n' hi)
   |
 
-S010 assign command output before exporting `now`
+S010 assign command output before declaring `now`
  --> <source>:4:8
   |
 4 | export now="$(date)"
+  |
+
+S010 assign command output before declaring `temp_conf`
+ --> <source>:7:9
+  |
+7 |   local temp_conf="$(mktemp)"
+  |
+
+S010 assign command output before declaring `current_soversion`
+ --> <source>:8:11
+  |
+8 |   declare current_soversion=$(sed -n '1p' VERSION)
+  |
+
+S010 assign command output before declaring `build_root`
+ --> <source>:9:11
+  |
+9 |   typeset build_root=$(pwd)
   |

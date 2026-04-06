@@ -103,9 +103,9 @@ Proposed additions:
 
 Action items:
 
-- [ ] Move effective-command helpers into the new common layer instead of keeping local copies inside individual rules.
-- [ ] Add declaration normalization helpers so assignment-bearing declaration rules can match on a shared representation.
-- [ ] Add regression coverage for wrapper commands and declaration variants.
+- [x] Move effective-command helpers into the new common layer instead of keeping local copies inside individual rules.
+- [x] Add declaration normalization helpers so assignment-bearing declaration rules can match on a shared representation.
+- [x] Add regression coverage for wrapper commands and declaration variants.
 
 Rules to refactor onto this helper:
 

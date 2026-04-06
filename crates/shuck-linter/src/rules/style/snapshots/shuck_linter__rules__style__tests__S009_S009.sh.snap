@@ -12,3 +12,21 @@ S009 call the command directly instead of echoing its substitution
   |
 4 | echo $(date)
   |
+
+S009 call the command directly instead of echoing its substitution
+ --> <source>:5:9
+  |
+5 | value=$(echo $(date))
+  |
+
+S009 call the command directly instead of echoing its substitution
+ --> <source>:6:9
+  |
+6 | command echo "$(date)"
+  |
+
+S009 call the command directly instead of echoing its substitution
+ --> <source>:7:6
+  |
+7 | exec echo "$(date)"
+  |

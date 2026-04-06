@@ -1,6 +1,9 @@
-use shuck_ast::{Command, Word};
+use shuck_ast::Word;
 
-use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::{
+    command,
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
 
 use super::syntax::static_word_text;
@@ -24,18 +27,15 @@ pub fn printf_format_variable(checker: &mut Checker) {
     query::walk_commands(
         &checker.ast().commands,
         CommandWalkOptions {
-            descend_nested_word_commands: false,
+            descend_nested_word_commands: true,
         },
         &mut |command, _| {
-            let Command::Simple(command) = command else {
-                return;
-            };
-
-            if static_word_text(&command.name, source).as_deref() != Some("printf") {
+            let normalized = command::normalize_command(command, source);
+            if !normalized.effective_name_is("printf") {
                 return;
             }
 
-            let Some(format_word) = printf_format_word(&command.args, source) else {
+            let Some(format_word) = printf_format_word(normalized.body_args(), source) else {
                 return;
             };
 
@@ -50,7 +50,7 @@ pub fn printf_format_variable(checker: &mut Checker) {
     }
 }
 
-fn printf_format_word<'a>(args: &'a [Word], source: &str) -> Option<&'a Word> {
+fn printf_format_word<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
     let mut index = 0usize;
 
     if static_word_text(args.get(index)?, source).as_deref() == Some("--") {
@@ -68,5 +68,5 @@ fn printf_format_word<'a>(args: &'a [Word], source: &str) -> Option<&'a Word> {
         }
     }
 
-    args.get(index)
+    args.get(index).copied()
 }

@@ -1,9 +1,10 @@
 use shuck_ast::{Command, CompoundCommand, Pipeline, Word, WordPart};
 
-use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::{
+    command,
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::is_simple_command_named;
 
 pub struct FindOutputLoop;
 
@@ -59,18 +60,17 @@ fn word_contains_find_substitution(word: &Word, source: &str) -> bool {
 }
 
 fn commands_start_with_find(commands: &[Command], source: &str) -> bool {
-    match commands.first() {
-        Some(command) => command_starts_with_find(command, source),
-        None => false,
-    }
+    matches!(commands, [command] if command_starts_with_find(command, source))
 }
 
 fn command_starts_with_find(command: &Command, source: &str) -> bool {
     match command {
-        Command::Pipeline(Pipeline { commands, .. }) => commands
-            .first()
-            .is_some_and(|command| is_simple_command_named(command, source, "find")),
-        Command::List(command) => command_starts_with_find(&command.first, source),
-        _ => is_simple_command_named(command, source, "find"),
+        Command::Pipeline(Pipeline { commands, .. }) => {
+            matches!(commands.as_slice(), [command] if command_starts_with_find(command, source))
+        }
+        Command::List(command) => {
+            command.rest.is_empty() && command_starts_with_find(&command.first, source)
+        }
+        _ => command::normalize_command(command, source).effective_name_is("find"),
     }
 }

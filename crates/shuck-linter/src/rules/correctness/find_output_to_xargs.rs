@@ -1,8 +1,9 @@
-use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Pipeline, Redirect, Span, Word, WordPart,
-};
+use shuck_ast::{Command, Pipeline, Span, Word, WordPart};
 
+use crate::rules::common::{
+    command,
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
 
 pub struct FindOutputToXargs;
@@ -18,255 +19,67 @@ impl Violation for FindOutputToXargs {
 }
 
 pub fn find_output_to_xargs(checker: &mut Checker) {
+    let source = checker.source();
     let mut spans = Vec::new();
-    collect_commands(&checker.ast().commands, checker.source(), &mut spans);
+
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            let Command::Pipeline(pipeline) = command else {
+                return;
+            };
+
+            spans.extend(unsafe_find_to_xargs_spans(pipeline, source));
+        },
+    );
+
+    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
 
     for span in spans {
         checker.report(FindOutputToXargs, span);
     }
 }
 
-fn collect_commands(commands: &[Command], source: &str, spans: &mut Vec<Span>) {
-    for command in commands {
-        collect_command(command, source, spans);
-    }
+fn unsafe_find_to_xargs_spans(pipeline: &Pipeline, source: &str) -> Vec<Span> {
+    pipeline
+        .commands
+        .windows(2)
+        .filter_map(|pair| {
+            let left = command::normalize_command(&pair[0], source);
+            let right = command::normalize_command(&pair[1], source);
+
+            if !left.effective_name_is("find") || !right.effective_name_is("xargs") {
+                return None;
+            }
+
+            if find_uses_print0(left.body_args(), source)
+                && xargs_uses_null_input(right.body_args(), source)
+            {
+                return None;
+            }
+
+            Some(left.body_span)
+        })
+        .collect()
 }
 
-fn collect_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
-    match command {
-        Command::Simple(command) => {
-            collect_assignments(&command.assignments, source, spans);
-            collect_word(&command.name, source, spans);
-            collect_words(&command.args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
-        }
-        Command::Builtin(command) => collect_builtin(command, source, spans),
-        Command::Decl(command) => {
-            collect_assignments(&command.assignments, source, spans);
-            for operand in &command.operands {
-                match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        collect_word(word, source, spans);
-                    }
-                    DeclOperand::Name(_) => {}
-                    DeclOperand::Assignment(assignment) => {
-                        collect_assignment(assignment, source, spans);
-                    }
-                }
-            }
-            collect_redirects(&command.redirects, source, spans);
-        }
-        Command::Pipeline(command) => {
-            if pipeline_has_unsafe_find_to_xargs(command, source) {
-                spans.push(command.span);
-            }
-
-            collect_commands(&command.commands, source, spans);
-        }
-        Command::List(CommandList { first, rest, .. }) => {
-            collect_command(first, source, spans);
-            for (_, command) in rest {
-                collect_command(command, source, spans);
-            }
-        }
-        Command::Compound(command, redirects) => {
-            collect_compound(command, source, spans);
-            collect_redirects(redirects, source, spans);
-        }
-        Command::Function(FunctionDef { body, .. }) => collect_command(body, source, spans),
-    }
-}
-
-fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>) {
-    match command {
-        BuiltinCommand::Break(command) => {
-            collect_assignments(&command.assignments, source, spans);
-            if let Some(word) = &command.depth {
-                collect_word(word, source, spans);
-            }
-            collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
-        }
-        BuiltinCommand::Continue(command) => {
-            collect_assignments(&command.assignments, source, spans);
-            if let Some(word) = &command.depth {
-                collect_word(word, source, spans);
-            }
-            collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
-        }
-        BuiltinCommand::Return(command) => {
-            collect_assignments(&command.assignments, source, spans);
-            if let Some(word) = &command.code {
-                collect_word(word, source, spans);
-            }
-            collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
-        }
-        BuiltinCommand::Exit(command) => {
-            collect_assignments(&command.assignments, source, spans);
-            if let Some(word) = &command.code {
-                collect_word(word, source, spans);
-            }
-            collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
-        }
-    }
-}
-
-fn collect_compound(command: &CompoundCommand, source: &str, spans: &mut Vec<Span>) {
-    match command {
-        CompoundCommand::If(command) => {
-            collect_commands(&command.condition, source, spans);
-            collect_commands(&command.then_branch, source, spans);
-            for (condition, body) in &command.elif_branches {
-                collect_commands(condition, source, spans);
-                collect_commands(body, source, spans);
-            }
-            if let Some(body) = &command.else_branch {
-                collect_commands(body, source, spans);
-            }
-        }
-        CompoundCommand::For(command) => {
-            if let Some(words) = &command.words {
-                collect_words(words, source, spans);
-            }
-            collect_commands(&command.body, source, spans);
-        }
-        CompoundCommand::ArithmeticFor(command) => collect_commands(&command.body, source, spans),
-        CompoundCommand::While(command) => {
-            collect_commands(&command.condition, source, spans);
-            collect_commands(&command.body, source, spans);
-        }
-        CompoundCommand::Until(command) => {
-            collect_commands(&command.condition, source, spans);
-            collect_commands(&command.body, source, spans);
-        }
-        CompoundCommand::Case(command) => {
-            collect_word(&command.word, source, spans);
-            for case in &command.cases {
-                collect_words(&case.patterns, source, spans);
-                collect_commands(&case.commands, source, spans);
-            }
-        }
-        CompoundCommand::Select(command) => {
-            collect_words(&command.words, source, spans);
-            collect_commands(&command.body, source, spans);
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            collect_commands(commands, source, spans);
-        }
-        CompoundCommand::Arithmetic(_) => {}
-        CompoundCommand::Time(command) => {
-            if let Some(command) = &command.command {
-                collect_command(command, source, spans);
-            }
-        }
-        CompoundCommand::Conditional(command) => {
-            collect_conditional_expr(&command.expression, source, spans);
-        }
-        CompoundCommand::Coproc(command) => collect_command(&command.body, source, spans),
-    }
-}
-
-fn collect_assignments(assignments: &[Assignment], source: &str, spans: &mut Vec<Span>) {
-    for assignment in assignments {
-        collect_assignment(assignment, source, spans);
-    }
-}
-
-fn collect_assignment(assignment: &Assignment, source: &str, spans: &mut Vec<Span>) {
-    match &assignment.value {
-        AssignmentValue::Scalar(word) => collect_word(word, source, spans),
-        AssignmentValue::Array(words) => collect_words(words, source, spans),
-    }
-}
-
-fn collect_words(words: &[Word], source: &str, spans: &mut Vec<Span>) {
-    for word in words {
-        collect_word(word, source, spans);
-    }
-}
-
-fn collect_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
-    collect_word_parts(&word.parts, source, spans);
-}
-
-fn collect_word_parts(parts: &[WordPart], source: &str, spans: &mut Vec<Span>) {
-    for part in parts {
-        match part {
-            WordPart::CommandSubstitution(commands)
-            | WordPart::ProcessSubstitution { commands, .. } => {
-                collect_commands(commands, source, spans);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_conditional_expr(expression: &ConditionalExpr, source: &str, spans: &mut Vec<Span>) {
-    match expression {
-        ConditionalExpr::Binary(expr) => {
-            collect_conditional_expr(&expr.left, source, spans);
-            collect_conditional_expr(&expr.right, source, spans);
-        }
-        ConditionalExpr::Unary(expr) => collect_conditional_expr(&expr.expr, source, spans),
-        ConditionalExpr::Parenthesized(expr) => {
-            collect_conditional_expr(&expr.expr, source, spans);
-        }
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => collect_word(word, source, spans),
-    }
-}
-
-fn collect_redirects(redirects: &[Redirect], source: &str, spans: &mut Vec<Span>) {
-    for redirect in redirects {
-        collect_word(&redirect.target, source, spans);
-    }
-}
-
-fn pipeline_has_unsafe_find_to_xargs(command: &Pipeline, source: &str) -> bool {
-    command.commands.windows(2).any(|pair| {
-        is_static_command_named(&pair[0], source, "find")
-            && is_static_command_named(&pair[1], source, "xargs")
-            && !(find_uses_print0(&pair[0], source) && xargs_uses_null_input(&pair[1], source))
-    })
-}
-
-fn find_uses_print0(command: &Command, source: &str) -> bool {
-    command_args(command)
-        .into_iter()
-        .flatten()
+fn find_uses_print0(args: &[&Word], source: &str) -> bool {
+    args.iter()
         .filter_map(|word| static_word_text(word, source))
         .any(|arg| arg == "-print0")
 }
 
-fn xargs_uses_null_input(command: &Command, source: &str) -> bool {
-    command_args(command)
-        .into_iter()
-        .flatten()
+fn xargs_uses_null_input(args: &[&Word], source: &str) -> bool {
+    args.iter()
         .filter_map(|word| static_word_text(word, source))
         .any(|arg| {
             arg == "--null"
                 || (arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains('0'))
         })
-}
-
-fn is_static_command_named(command: &Command, source: &str, name: &str) -> bool {
-    match command {
-        Command::Simple(command) => {
-            static_word_text(&command.name, source).as_deref() == Some(name)
-        }
-        _ => false,
-    }
-}
-
-fn command_args(command: &Command) -> Option<&[Word]> {
-    match command {
-        Command::Simple(command) => Some(&command.args),
-        _ => None,
-    }
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
