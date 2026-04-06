@@ -1,8 +1,9 @@
 use shuck_ast::{BuiltinCommand, Command};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{static_word_text, walk_commands};
+use super::syntax::static_word_text;
 
 pub struct InvalidExitStatus;
 
@@ -20,21 +21,27 @@ pub fn invalid_exit_status(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        let Command::Builtin(BuiltinCommand::Exit(exit)) = command else {
-            return;
-        };
-        let Some(code) = &exit.code else {
-            return;
-        };
-        let Some(text) = static_word_text(code, source) else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            let Command::Builtin(BuiltinCommand::Exit(exit)) = command else {
+                return;
+            };
+            let Some(code) = &exit.code else {
+                return;
+            };
+            let Some(text) = static_word_text(code, source) else {
+                return;
+            };
 
-        if !text.chars().all(|char| char.is_ascii_digit()) {
-            spans.push(code.span);
-        }
-    });
+            if !text.chars().all(|char| char.is_ascii_digit()) {
+                spans.push(code.span);
+            }
+        },
+    );
 
     for span in spans {
         checker.report(InvalidExitStatus, span);

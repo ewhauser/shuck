@@ -1,6 +1,5 @@
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::walk_words;
 
 pub struct LegacyArithmeticExpansion;
 
@@ -18,11 +17,17 @@ pub fn legacy_arithmetic_expansion(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_words(&checker.ast().commands, &mut |word| {
-        if word_uses_legacy_arithmetic(word.span.slice(source)) {
-            spans.push(word.span);
-        }
-    });
+    query::walk_words(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |word| {
+            if word_uses_legacy_arithmetic(word.span.slice(source)) {
+                spans.push(word.span);
+            }
+        },
+    );
 
     spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup();

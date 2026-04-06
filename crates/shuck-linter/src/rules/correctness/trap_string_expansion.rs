@@ -1,8 +1,9 @@
 use shuck_ast::{Command, Word};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{static_word_text, walk_commands, word_has_expansion, word_is_double_quoted};
+use super::syntax::{static_word_text, word_has_expansion, word_is_double_quoted};
 
 pub struct TrapStringExpansion;
 
@@ -21,23 +22,29 @@ pub fn trap_string_expansion(checker: &mut Checker) {
     let indexer = checker.indexer();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        let Command::Simple(command) = command else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            let Command::Simple(command) = command else {
+                return;
+            };
 
-        if static_word_text(&command.name, source).as_deref() != Some("trap") {
-            return;
-        }
+            if static_word_text(&command.name, source).as_deref() != Some("trap") {
+                return;
+            }
 
-        let Some(action) = trap_action_word(&command.args, source) else {
-            return;
-        };
+            let Some(action) = trap_action_word(&command.args, source) else {
+                return;
+            };
 
-        if word_is_double_quoted(indexer, action) && word_has_expansion(action) {
-            spans.push(action.span);
-        }
-    });
+            if word_is_double_quoted(indexer, action) && word_has_expansion(action) {
+                spans.push(action.span);
+            }
+        },
+    );
 
     for span in spans {
         checker.report(TrapStringExpansion, span);

@@ -1,8 +1,9 @@
 use shuck_ast::{Command, CompoundCommand};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{static_word_text, walk_commands};
+use super::syntax::static_word_text;
 
 pub struct ConstantCaseSubject;
 
@@ -20,15 +21,21 @@ pub fn constant_case_subject(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        let Command::Compound(CompoundCommand::Case(command), _) = command else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            let Command::Compound(CompoundCommand::Case(command), _) = command else {
+                return;
+            };
 
-        if static_word_text(&command.word, source).is_some() {
-            spans.push(command.word.span);
-        }
-    });
+            if static_word_text(&command.word, source).is_some() {
+                spans.push(command.word.span);
+            }
+        },
+    );
 
     for span in spans {
         checker.report(ConstantCaseSubject, span);

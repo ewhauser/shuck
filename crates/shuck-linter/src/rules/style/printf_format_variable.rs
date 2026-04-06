@@ -1,8 +1,9 @@
 use shuck_ast::{Command, Word};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{static_word_text, walk_commands};
+use super::syntax::static_word_text;
 
 pub struct PrintfFormatVariable;
 
@@ -20,23 +21,29 @@ pub fn printf_format_variable(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command| {
-        let Command::Simple(command) = command else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+        &mut |command, _| {
+            let Command::Simple(command) = command else {
+                return;
+            };
 
-        if static_word_text(&command.name, source).as_deref() != Some("printf") {
-            return;
-        }
+            if static_word_text(&command.name, source).as_deref() != Some("printf") {
+                return;
+            }
 
-        let Some(format_word) = printf_format_word(&command.args, source) else {
-            return;
-        };
+            let Some(format_word) = printf_format_word(&command.args, source) else {
+                return;
+            };
 
-        if static_word_text(format_word, source).is_none() {
-            spans.push(format_word.span);
-        }
-    });
+            if static_word_text(format_word, source).is_none() {
+                spans.push(format_word.span);
+            }
+        },
+    );
 
     for span in spans {
         checker.report(PrintfFormatVariable, span);

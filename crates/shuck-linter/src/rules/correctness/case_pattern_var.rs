@@ -1,8 +1,9 @@
 use shuck_ast::{Command, CompoundCommand};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{walk_commands, word_has_expansion};
+use super::syntax::word_has_expansion;
 
 pub struct CasePatternVar;
 
@@ -19,19 +20,25 @@ impl Violation for CasePatternVar {
 pub fn case_pattern_var(checker: &mut Checker) {
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        let Command::Compound(CompoundCommand::Case(case), _) = command else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            let Command::Compound(CompoundCommand::Case(case), _) = command else {
+                return;
+            };
 
-        for item in &case.cases {
-            for pattern in &item.patterns {
-                if word_has_expansion(pattern) {
-                    spans.push(pattern.span);
+            for item in &case.cases {
+                for pattern in &item.patterns {
+                    if word_has_expansion(pattern) {
+                        spans.push(pattern.span);
+                    }
                 }
             }
-        }
-    });
+        },
+    );
 
     for span in spans {
         checker.report(CasePatternVar, span);

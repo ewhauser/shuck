@@ -1,8 +1,9 @@
 use shuck_ast::{Command, CompoundCommand, Pipeline, Word, WordPart};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{is_simple_command_named, walk_commands};
+use super::syntax::is_simple_command_named;
 
 pub struct FindOutputLoop;
 
@@ -20,21 +21,27 @@ pub fn find_output_loop(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        let Command::Compound(CompoundCommand::For(command), _) = command else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            let Command::Compound(CompoundCommand::For(command), _) = command else {
+                return;
+            };
 
-        let Some(words) = &command.words else {
-            return;
-        };
+            let Some(words) = &command.words else {
+                return;
+            };
 
-        for word in words {
-            if word_contains_find_substitution(word, source) {
-                spans.push(word.span);
+            for word in words {
+                if word_contains_find_substitution(word, source) {
+                    spans.push(word.span);
+                }
             }
-        }
-    });
+        },
+    );
 
     for span in spans {
         checker.report(FindOutputLoop, span);

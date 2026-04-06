@@ -1,8 +1,7 @@
 use shuck_ast::{Span, Word, WordPart};
 
+use crate::rules::common::query::{self, CommandWalkOptions, visit_command_words};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::{visit_command_words, walk_commands};
 
 pub struct PositionalTenBraces;
 
@@ -20,11 +19,17 @@ pub fn positional_ten_braces(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        visit_command_words(command, &mut |word| {
-            collect_positional_parameter_spans(word, source, &mut spans);
-        });
-    });
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            visit_command_words(command, &mut |word| {
+                collect_positional_parameter_spans(word, source, &mut spans);
+            });
+        },
+    );
 
     for span in spans {
         checker.report(PositionalTenBraces, span);

@@ -1,8 +1,7 @@
 use shuck_ast::{ParameterOp, SourceText, WordPart};
 
+use crate::rules::common::query::{self, CommandWalkOptions, visit_command_words};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::{visit_command_words, walk_commands};
 
 pub struct PatternWithVariable;
 
@@ -20,22 +19,28 @@ pub fn pattern_with_variable(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        visit_command_words(command, &mut |word| {
-            for (part, span) in word.parts_with_spans() {
-                let WordPart::ParameterExpansion {
-                    operator, operand, ..
-                } = part
-                else {
-                    continue;
-                };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            visit_command_words(command, &mut |word| {
+                for (part, span) in word.parts_with_spans() {
+                    let WordPart::ParameterExpansion {
+                        operator, operand, ..
+                    } = part
+                    else {
+                        continue;
+                    };
 
-                if pattern_uses_variable(operator, operand.as_ref(), source) {
-                    spans.push(span);
+                    if pattern_uses_variable(operator, operand.as_ref(), source) {
+                        spans.push(span);
+                    }
                 }
-            }
-        });
-    });
+            });
+        },
+    );
 
     for span in spans {
         checker.report(PatternWithVariable, span);

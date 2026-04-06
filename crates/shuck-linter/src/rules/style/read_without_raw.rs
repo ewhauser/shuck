@@ -1,8 +1,9 @@
 use shuck_ast::Command;
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{static_word_text, walk_commands};
+use super::syntax::static_word_text;
 
 pub struct ReadWithoutRaw;
 
@@ -20,19 +21,25 @@ pub fn read_without_raw(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command| {
-        let Command::Simple(command) = command else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+        &mut |command, _| {
+            let Command::Simple(command) = command else {
+                return;
+            };
 
-        if static_word_text(&command.name, source).as_deref() != Some("read") {
-            return;
-        }
+            if static_word_text(&command.name, source).as_deref() != Some("read") {
+                return;
+            }
 
-        if !read_uses_raw_input(&command.args, source) {
-            spans.push(command.name.span);
-        }
-    });
+            if !read_uses_raw_input(&command.args, source) {
+                spans.push(command.name.span);
+            }
+        },
+    );
 
     for span in spans {
         checker.report(ReadWithoutRaw, span);

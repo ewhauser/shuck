@@ -1,8 +1,7 @@
 use shuck_ast::WordPart;
 
+use crate::rules::common::query::{self, CommandWalkOptions, visit_command_redirects};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::{visit_command_redirects, walk_commands};
 
 pub struct ArithmeticRedirectionTarget;
 
@@ -19,18 +18,24 @@ impl Violation for ArithmeticRedirectionTarget {
 pub fn arithmetic_redirection_target(checker: &mut Checker) {
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        visit_command_redirects(command, &mut |redirect| {
-            if redirect
-                .target
-                .parts
-                .iter()
-                .any(|part| matches!(part, WordPart::ArithmeticExpansion(_)))
-            {
-                spans.push(redirect.target.span);
-            }
-        });
-    });
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            visit_command_redirects(command, &mut |redirect| {
+                if redirect
+                    .target
+                    .parts
+                    .iter()
+                    .any(|part| matches!(part, WordPart::ArithmeticExpansion(_)))
+                {
+                    spans.push(redirect.target.span);
+                }
+            });
+        },
+    );
 
     for span in spans {
         checker.report(ArithmeticRedirectionTarget, span);

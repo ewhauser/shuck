@@ -1,8 +1,9 @@
 use shuck_ast::{Command, CompoundCommand, ConditionalExpr};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{simple_test_operands, static_word_text, walk_commands};
+use super::syntax::{simple_test_operands, static_word_text};
 
 pub struct TruthyLiteralTest;
 
@@ -20,21 +21,27 @@ pub fn truthy_literal_test(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| match command {
-        Command::Simple(command) => {
-            if simple_test_operands(command, source).is_some_and(|operands| {
-                operands.len() == 1 && static_word_text(&operands[0], source).is_some()
-            }) {
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| match command {
+            Command::Simple(command) => {
+                if simple_test_operands(command, source).is_some_and(|operands| {
+                    operands.len() == 1 && static_word_text(&operands[0], source).is_some()
+                }) {
+                    spans.push(command.span);
+                }
+            }
+            Command::Compound(CompoundCommand::Conditional(command), _)
+                if is_truthy_literal_conditional(&command.expression, source) =>
+            {
                 spans.push(command.span);
             }
-        }
-        Command::Compound(CompoundCommand::Conditional(command), _)
-            if is_truthy_literal_conditional(&command.expression, source) =>
-        {
-            spans.push(command.span);
-        }
-        _ => {}
-    });
+            _ => {}
+        },
+    );
 
     for span in spans {
         checker.report(TruthyLiteralTest, span);

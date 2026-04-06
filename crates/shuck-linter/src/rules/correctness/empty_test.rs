@@ -1,8 +1,9 @@
 use shuck_ast::Command;
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{simple_test_operands, walk_commands};
+use super::syntax::simple_test_operands;
 
 pub struct EmptyTest;
 
@@ -20,15 +21,21 @@ pub fn empty_test(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| {
-        let Command::Simple(command) = command else {
-            return;
-        };
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| {
+            let Command::Simple(command) = command else {
+                return;
+            };
 
-        if simple_test_operands(command, source).is_some_and(|operands| operands.is_empty()) {
-            spans.push(command.span);
-        }
-    });
+            if simple_test_operands(command, source).is_some_and(|operands| operands.is_empty()) {
+                spans.push(command.span);
+            }
+        },
+    );
 
     for span in spans {
         checker.report(EmptyTest, span);

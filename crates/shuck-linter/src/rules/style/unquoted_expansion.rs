@@ -1,8 +1,9 @@
 use shuck_ast::{Word, WordPart};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{visit_argument_words, walk_commands};
+use super::syntax::visit_argument_words;
 
 pub struct UnquotedExpansion;
 
@@ -20,13 +21,19 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command| {
-        visit_argument_words(command, |word| {
-            if word_has_unquoted_scalar_expansion(word, source) {
-                spans.push(word.span);
-            }
-        });
-    });
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+        &mut |command, _| {
+            visit_argument_words(command, |word| {
+                if word_has_unquoted_scalar_expansion(word, source) {
+                    spans.push(word.span);
+                }
+            });
+        },
+    );
 
     spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup();

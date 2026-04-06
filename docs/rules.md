@@ -68,10 +68,10 @@ The query layer should expose:
 
 Action items:
 
-- [ ] Introduce `rules/common/query.rs` and move shared traversal primitives out of `style/syntax.rs` and `correctness/syntax.rs`.
-- [ ] Add common iterators for commands, declaration operands, assignments, redirects, and nested command substitutions.
-- [ ] Add tests that verify traversal reaches nested substitutions, assignment values, here-strings, `[[ ... ]]`, wrapper commands, and compound commands.
-- [ ] Migrate rules incrementally and delete duplicated helper logic once the last rule moves.
+- [x] Introduce `rules/common/query.rs` and move shared traversal primitives out of `style/syntax.rs` and `correctness/syntax.rs`.
+- [x] Add common iterators for commands, declaration operands, assignments, redirects, and nested command substitutions.
+- [x] Add tests that verify traversal reaches nested substitutions, assignment values, here-strings, `[[ ... ]]`, wrapper commands, and compound commands.
+- [x] Migrate rules incrementally and delete duplicated helper logic once the last rule moves.
 
 Rules to refactor onto this helper:
 
@@ -475,9 +475,9 @@ Rejected because `S001` is broad enough that it would likely reproduce the same 
 
 For each initiative and migrated rule:
 
-- [ ] Add focused unit or snapshot coverage in `crates/shuck-linter/src/lib.rs`, rule fixture files, or `crates/shuck-semantic/src/lib.rs` as appropriate.
-- [ ] Run `cargo test -p shuck-linter`.
-- [ ] Run `cargo test -p shuck-semantic`.
+- [x] Add focused unit or snapshot coverage in `crates/shuck-linter/src/lib.rs`, rule fixture files, or `crates/shuck-semantic/src/lib.rs` as appropriate.
+- [x] Run `cargo test -p shuck-linter`.
+- [x] Run `cargo test -p shuck-semantic`.
 - [ ] Run `cargo test -p shuck --test large_corpus`.
 - [ ] Run targeted corpus checks for the affected rule set:
   - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=S001`

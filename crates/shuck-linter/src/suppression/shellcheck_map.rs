@@ -139,11 +139,11 @@ mod tests {
             mappings,
             vec![
                 (1019, Rule::EmptyTest),
+                (1037, Rule::PositionalTenBraces),
+                (1090, Rule::DynamicSourcePath),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
-                (1037, Rule::PositionalTenBraces),
-                (1090, Rule::DynamicSourcePath),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
                 (2016, Rule::SingleQuotedLiteral),

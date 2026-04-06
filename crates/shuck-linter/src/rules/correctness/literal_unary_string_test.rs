@@ -1,8 +1,9 @@
 use shuck_ast::{Command, CompoundCommand, ConditionalExpr, ConditionalUnaryOp, Word};
 
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{simple_test_operands, static_word_text, walk_commands};
+use super::syntax::{simple_test_operands, static_word_text};
 
 pub struct LiteralUnaryStringTest;
 
@@ -20,21 +21,27 @@ pub fn literal_unary_string_test(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
 
-    walk_commands(&checker.ast().commands, &mut |command, _| match command {
-        Command::Simple(command) => {
-            if simple_test_operands(command, source)
-                .is_some_and(|operands| is_literal_unary_simple_test(operands, source))
+    query::walk_commands(
+        &checker.ast().commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |command, _| match command {
+            Command::Simple(command) => {
+                if simple_test_operands(command, source)
+                    .is_some_and(|operands| is_literal_unary_simple_test(operands, source))
+                {
+                    spans.push(command.span);
+                }
+            }
+            Command::Compound(CompoundCommand::Conditional(command), _)
+                if is_literal_unary_conditional_test(&command.expression, source) =>
             {
                 spans.push(command.span);
             }
-        }
-        Command::Compound(CompoundCommand::Conditional(command), _)
-            if is_literal_unary_conditional_test(&command.expression, source) =>
-        {
-            spans.push(command.span);
-        }
-        _ => {}
-    });
+            _ => {}
+        },
+    );
 
     for span in spans {
         checker.report(LiteralUnaryStringTest, span);
