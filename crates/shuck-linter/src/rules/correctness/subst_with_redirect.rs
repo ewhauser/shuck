@@ -1,18 +1,8 @@
-use shuck_ast::{Command, Redirect, RedirectKind, WordPart};
-
 use crate::rules::common::query::{
-    self, CommandWalkOptions, visit_command_redirects, visit_command_words,
+    self, CommandSubstitutionKind, CommandWalkOptions, visit_command_words,
 };
+use crate::rules::common::word::{StdoutDisposition, classify_substitution};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::static_word_text;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandSubstitutionRedirect {
-    None,
-    DevNull,
-    Other,
-}
 
 pub struct SubstWithRedirect;
 
@@ -37,15 +27,14 @@ pub fn subst_with_redirect(checker: &mut Checker) {
         },
         &mut |command, _| {
             visit_command_words(command, &mut |word| {
-                for (part, span) in word.parts_with_spans() {
-                    let WordPart::CommandSubstitution(commands) = part else {
+                for substitution in query::iter_word_command_substitutions(word) {
+                    if substitution.kind != CommandSubstitutionKind::Command {
                         continue;
-                    };
+                    }
 
-                    if command_substitution_redirect(commands, source)
-                        == CommandSubstitutionRedirect::Other
-                    {
-                        spans.push(span);
+                    let classification = classify_substitution(substitution, source);
+                    if classification.stdout_disposition == StdoutDisposition::RedirectedElsewhere {
+                        spans.push(classification.span);
                     }
                 }
             });
@@ -57,51 +46,22 @@ pub fn subst_with_redirect(checker: &mut Checker) {
     }
 }
 
-pub fn command_substitution_redirect(
-    commands: &[Command],
-    source: &str,
-) -> CommandSubstitutionRedirect {
-    let mut kind = CommandSubstitutionRedirect::None;
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
 
-    query::walk_commands(
-        commands,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |command, _| {
-            visit_command_redirects(command, &mut |redirect| {
-                if !redirects_stdout(redirect) {
-                    return;
-                }
+    #[test]
+    fn ignores_fd_swaps_and_sidecar_stderr_logging() {
+        let source = "out=$(whiptail 3>&1 1>&2 2>&3)\nout=$(jq -r . <<< \"$status\" || die >&2)\nout=$(printf hi > out.txt)\nout=$(printf hi >&2)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubstWithRedirect));
 
-                if redirect_target_is_dev_null(redirect, source) {
-                    kind = CommandSubstitutionRedirect::DevNull;
-                } else if kind == CommandSubstitutionRedirect::None {
-                    kind = CommandSubstitutionRedirect::Other;
-                }
-            });
-        },
-    );
-
-    kind
-}
-
-fn redirects_stdout(redirect: &Redirect) -> bool {
-    match redirect.kind {
-        RedirectKind::Output
-        | RedirectKind::Clobber
-        | RedirectKind::Append
-        | RedirectKind::DupOutput => redirect.fd.unwrap_or(1) == 1,
-        RedirectKind::OutputBoth => true,
-        RedirectKind::Input
-        | RedirectKind::ReadWrite
-        | RedirectKind::HereDoc
-        | RedirectKind::HereDocStrip
-        | RedirectKind::HereString
-        | RedirectKind::DupInput => false,
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![3, 4]
+        );
     }
-}
-
-fn redirect_target_is_dev_null(redirect: &Redirect, source: &str) -> bool {
-    static_word_text(&redirect.target, source).as_deref() == Some("/dev/null")
 }

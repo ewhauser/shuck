@@ -130,13 +130,14 @@ Proposed classifier families:
 - plain command substitution vs mixed word containing substitution
 - array expansion vs scalar expansion
 - fixed-literal test operand vs runtime-sensitive operand
-- command substitution with consumed output vs command substitution used for control flow only
+- command substitution redirect/capture shape
+  - command-substitution intent stays deferred to Initiative 10
 
 Action items:
 
-- [ ] Add reusable word classifiers under `rules/common/word.rs`.
-- [ ] Add substitution classifiers that describe nested commands, redirect presence, and whether stdout is still captured.
-- [ ] Add test vectors for mixed quote forms, nested substitutions, heredoc payloads, and arithmetic/file-test operators.
+- [x] Add reusable word classifiers under `rules/common/word.rs`.
+- [x] Add substitution classifiers that describe nested commands, redirect presence, and whether stdout is still captured.
+- [x] Add test vectors for mixed quote forms, nested substitutions, heredoc payloads, and arithmetic/file-test operators.
 
 Rules to refactor onto this helper:
 

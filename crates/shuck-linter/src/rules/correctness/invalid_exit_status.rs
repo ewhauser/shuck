@@ -1,9 +1,8 @@
 use shuck_ast::{BuiltinCommand, Command};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::static_word_text;
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::static_word_text;
 
 pub struct InvalidExitStatus;
 

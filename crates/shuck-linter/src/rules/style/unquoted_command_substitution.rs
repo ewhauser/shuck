@@ -1,9 +1,8 @@
-use shuck_ast::Word;
-
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{visit_argument_words, word_contains_command_substitution};
+use super::syntax::visit_argument_words;
 
 pub struct UnquotedCommandSubstitution;
 
@@ -27,7 +26,8 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
         },
         &mut |command, _| {
             visit_argument_words(command, |word| {
-                if word_has_unquoted_command_substitution(word) {
+                let classification = classify_word(word, checker.source());
+                if !word.quoted && classification.has_command_substitution() {
                     spans.push(word.span);
                 }
             });
@@ -40,8 +40,4 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
     for span in spans {
         checker.report(UnquotedCommandSubstitution, span);
     }
-}
-
-fn word_has_unquoted_command_substitution(word: &Word) -> bool {
-    !word.quoted && word_contains_command_substitution(word)
 }

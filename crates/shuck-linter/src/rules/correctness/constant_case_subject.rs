@@ -1,9 +1,8 @@
 use shuck_ast::{Command, CompoundCommand};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::static_word_text;
 
 pub struct ConstantCaseSubject;
 
@@ -31,7 +30,7 @@ pub fn constant_case_subject(checker: &mut Checker) {
                 return;
             };
 
-            if static_word_text(&command.word, source).is_some() {
+            if classify_word(&command.word, source).is_fixed_literal() {
                 spans.push(command.word.span);
             }
         },

@@ -1,6 +1,5 @@
-use shuck_ast::{Word, WordPart};
-
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
 use super::syntax::visit_argument_words;
@@ -28,7 +27,8 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
         },
         &mut |command, _| {
             visit_argument_words(command, |word| {
-                if word_has_unquoted_array_expansion(word, source) {
+                let classification = classify_word(word, source);
+                if !word.quoted && classification.has_array_expansion() {
                     spans.push(word.span);
                 }
             });
@@ -41,19 +41,4 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
     for span in spans {
         checker.report(UnquotedArrayExpansion, span);
     }
-}
-
-fn word_has_unquoted_array_expansion(word: &Word, source: &str) -> bool {
-    if word.quoted {
-        return false;
-    }
-
-    word.parts.iter().any(|part| match part {
-        WordPart::ArrayAccess { index, .. } => {
-            let index = index.slice(source);
-            index == "@" || index == "*"
-        }
-        WordPart::ArraySlice { .. } => true,
-        _ => false,
-    })
 }

@@ -1,9 +1,10 @@
 use shuck_ast::{Command, CompoundCommand, ConditionalExpr};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::{classify_conditional_operand, classify_test_operand};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{simple_test_operands, static_word_text};
+use super::syntax::simple_test_operands;
 
 pub struct TruthyLiteralTest;
 
@@ -29,7 +30,8 @@ pub fn truthy_literal_test(checker: &mut Checker) {
         &mut |command, _| match command {
             Command::Simple(command) => {
                 if simple_test_operands(command, source).is_some_and(|operands| {
-                    operands.len() == 1 && static_word_text(&operands[0], source).is_some()
+                    operands.len() == 1
+                        && classify_test_operand(&operands[0], source).is_fixed_literal()
                 }) {
                     spans.push(command.span);
                 }
@@ -50,7 +52,9 @@ pub fn truthy_literal_test(checker: &mut Checker) {
 
 fn is_truthy_literal_conditional(expression: &ConditionalExpr, source: &str) -> bool {
     match expression {
-        ConditionalExpr::Word(word) => static_word_text(word, source).is_some(),
+        ConditionalExpr::Word(_) => {
+            classify_conditional_operand(expression, source).is_fixed_literal()
+        }
         ConditionalExpr::Parenthesized(expression) => {
             is_truthy_literal_conditional(&expression.expr, source)
         }

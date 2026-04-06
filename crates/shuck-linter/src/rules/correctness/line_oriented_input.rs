@@ -1,6 +1,7 @@
-use shuck_ast::{Command, CompoundCommand, Word, WordPart};
+use shuck_ast::{Command, CompoundCommand};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
 pub struct LineOrientedInput;
@@ -33,7 +34,7 @@ pub fn line_oriented_input(checker: &mut Checker) {
             };
 
             for word in words {
-                if word_contains_command_substitution(word) {
+                if classify_word(word, checker.source()).has_command_substitution() {
                     spans.push(word.span);
                 }
             }
@@ -43,10 +44,4 @@ pub fn line_oriented_input(checker: &mut Checker) {
     for span in spans {
         checker.report(LineOrientedInput, span);
     }
-}
-
-fn word_contains_command_substitution(word: &Word) -> bool {
-    word.parts
-        .iter()
-        .any(|part| matches!(part, WordPart::CommandSubstitution(_)))
 }

@@ -1,9 +1,10 @@
 use shuck_ast::{Command, Word};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::{classify_word, static_word_text};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{static_word_text, word_has_expansion, word_is_double_quoted};
+use super::syntax::word_is_double_quoted;
 
 pub struct TrapStringExpansion;
 
@@ -40,7 +41,8 @@ pub fn trap_string_expansion(checker: &mut Checker) {
                 return;
             };
 
-            if word_is_double_quoted(indexer, action) && word_has_expansion(action) {
+            if word_is_double_quoted(indexer, action) && classify_word(action, source).is_expanded()
+            {
                 spans.push(action.span);
             }
         },

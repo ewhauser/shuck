@@ -1,11 +1,9 @@
 use crate::rules::common::{
     command,
     query::{self, CommandWalkOptions},
+    word::classify_word,
 };
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::word_is_plain_command_substitution;
-
 pub struct EchoedCommandSubstitution;
 
 impl Violation for EchoedCommandSubstitution {
@@ -37,7 +35,7 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
                 return;
             };
 
-            if word_is_plain_command_substitution(word) {
+            if classify_word(word, source).has_plain_command_substitution() {
                 spans.push(normalized.body_span);
             }
         },
@@ -45,5 +43,28 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
 
     for span in spans {
         checker.report(EchoedCommandSubstitution, span);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn only_reports_plain_command_substitutions() {
+        let source = "echo \"$(date)\"\necho \"date: $(date)\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
     }
 }

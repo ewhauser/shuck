@@ -1,6 +1,9 @@
 use shuck_ast::{Command, CompoundCommand, ConditionalBinaryOp, ConditionalExpr};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::{
+    TestOperandClass, classify_conditional_operand, static_word_text,
+};
 use crate::{Checker, Rule, Violation};
 
 pub struct QuotedBashRegex;
@@ -16,6 +19,7 @@ impl Violation for QuotedBashRegex {
 }
 
 pub fn quoted_bash_regex(checker: &mut Checker) {
+    let source = checker.source();
     let mut spans = Vec::new();
 
     query::walk_commands(
@@ -40,7 +44,7 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
                 return;
             };
 
-            if word.quoted {
+            if word.quoted && quoted_regex_requires_warning(word, source) {
                 spans.push(word.span);
             }
         },
@@ -48,5 +52,65 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
 
     for span in spans {
         checker.report(QuotedBashRegex, span);
+    }
+}
+
+fn quoted_regex_requires_warning(word: &shuck_ast::Word, source: &str) -> bool {
+    match classify_conditional_operand(&ConditionalExpr::Regex(word.clone()), source) {
+        TestOperandClass::RuntimeSensitive => true,
+        TestOperandClass::FixedLiteral => static_word_text(word, source)
+            .is_some_and(|text| literal_uses_regex_significance(&text)),
+    }
+}
+
+fn literal_uses_regex_significance(text: &str) -> bool {
+    let mut escaped = false;
+
+    for char in text.chars() {
+        if escaped {
+            return true;
+        }
+
+        if char == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if matches!(
+            char,
+            '.' | '[' | ']' | '(' | ')' | '{' | '}' | '*' | '+' | '?' | '|' | '^' | '$'
+        ) {
+            return true;
+        }
+    }
+
+    escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn ignores_quoted_fixed_literals_without_regex_semantics() {
+        let source = "#!/bin/bash\n[[ \"$output\" =~ \"Error: No available formula\" ]]\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn keeps_reporting_runtime_and_regex_significant_operands() {
+        let source = "#!/bin/bash\nre='a+'\n[[ $value =~ \"$re\" ]]\n[[ foo =~ \"a+\" ]]\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![3, 4]
+        );
     }
 }

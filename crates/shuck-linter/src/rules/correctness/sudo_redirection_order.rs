@@ -1,8 +1,9 @@
-use shuck_ast::{Command, Redirect, RedirectKind, Word, WordPart};
+use shuck_ast::{Command, Redirect, RedirectKind};
 
 use crate::rules::common::{
     command::{self, WrapperKind},
     query::{self, CommandWalkOptions},
+    word::static_word_text,
 };
 use crate::{Checker, Rule, Violation};
 
@@ -75,15 +76,4 @@ fn redirects_output_to_file(redirect: &Redirect) -> bool {
 
 fn redirect_target_is_dev_null(redirect: &Redirect, source: &str) -> bool {
     static_word_text(&redirect.target, source).as_deref() == Some("/dev/null")
-}
-
-fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
-        }
-    }
-    Some(result)
 }

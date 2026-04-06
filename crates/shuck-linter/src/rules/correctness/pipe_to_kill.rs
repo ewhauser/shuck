@@ -3,6 +3,7 @@ use shuck_ast::{
     ConditionalExpr, DeclOperand, FunctionDef, Redirect, Span, Word, WordPart,
 };
 
+use crate::rules::common::word::static_word_text;
 use crate::{Checker, Rule, Violation};
 
 pub struct PipeToKill;
@@ -238,15 +239,4 @@ fn is_static_kill_command(command: &Command, source: &str) -> bool {
         }
         _ => false,
     }
-}
-
-fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
-        }
-    }
-    Some(result)
 }

@@ -1,9 +1,12 @@
 use shuck_ast::{Command, CompoundCommand, ConditionalBinaryOp, ConditionalExpr, Word};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::{
+    classify_conditional_operand, classify_test_operand, static_word_text,
+};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{simple_test_operands, static_word_text};
+use super::syntax::simple_test_operands;
 
 pub struct ConstantComparisonTest;
 
@@ -58,30 +61,21 @@ fn is_constant_simple_test(operands: &[Word], source: &str) -> bool {
     };
 
     is_binary_test_operator(&operator)
-        && static_word_text(&operands[0], source).is_some()
-        && static_word_text(&operands[2], source).is_some()
+        && classify_test_operand(&operands[0], source).is_fixed_literal()
+        && classify_test_operand(&operands[2], source).is_fixed_literal()
 }
 
 fn is_constant_conditional_test(expression: &ConditionalExpr, source: &str) -> bool {
     match expression {
         ConditionalExpr::Binary(expression) => {
             is_comparison_binary_op(expression.op)
-                && conditional_literal(expression.left.as_ref(), source)
-                && conditional_literal(expression.right.as_ref(), source)
+                && classify_conditional_operand(expression.left.as_ref(), source).is_fixed_literal()
+                && classify_conditional_operand(expression.right.as_ref(), source)
+                    .is_fixed_literal()
         }
         ConditionalExpr::Parenthesized(expression) => {
             is_constant_conditional_test(&expression.expr, source)
         }
-        _ => false,
-    }
-}
-
-fn conditional_literal(expression: &ConditionalExpr, source: &str) -> bool {
-    match expression {
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => static_word_text(word, source).is_some(),
-        ConditionalExpr::Parenthesized(expression) => conditional_literal(&expression.expr, source),
         _ => false,
     }
 }

@@ -1,9 +1,8 @@
-use shuck_ast::{Command, CompoundCommand, Word};
+use shuck_ast::{Command, CompoundCommand};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::word_contains_command_substitution;
 
 pub struct LoopFromCommandOutput;
 
@@ -36,7 +35,8 @@ pub fn loop_from_command_output(checker: &mut Checker) {
             };
 
             for word in words {
-                if word_contains_unquoted_command_output(word) {
+                let classification = classify_word(word, checker.source());
+                if !word.quoted && classification.has_command_substitution() {
                     spans.push(word.span);
                 }
             }
@@ -46,8 +46,4 @@ pub fn loop_from_command_output(checker: &mut Checker) {
     for span in spans {
         checker.report(LoopFromCommandOutput, span);
     }
-}
-
-fn word_contains_unquoted_command_output(word: &Word) -> bool {
-    !word.quoted && word_contains_command_substitution(word)
 }

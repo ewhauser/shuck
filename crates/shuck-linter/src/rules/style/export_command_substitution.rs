@@ -1,8 +1,9 @@
-use shuck_ast::{AssignmentValue, WordPart};
+use shuck_ast::AssignmentValue;
 
 use crate::rules::common::{
     command::{self, DeclarationKind},
     query::{self, CommandWalkOptions},
+    word::classify_word,
 };
 use crate::{Checker, Rule, Violation};
 
@@ -49,11 +50,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
                     continue;
                 };
 
-                if word
-                    .parts
-                    .iter()
-                    .any(|part| matches!(part, WordPart::CommandSubstitution(_)))
-                {
+                if classify_word(word, checker.source()).has_command_substitution() {
                     diagnostics.push((assignment.span, assignment.name.to_string()));
                 }
             }

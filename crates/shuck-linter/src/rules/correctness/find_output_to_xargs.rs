@@ -1,8 +1,9 @@
-use shuck_ast::{Command, Pipeline, Span, Word, WordPart};
+use shuck_ast::{Command, Pipeline, Span, Word};
 
 use crate::rules::common::{
     command,
     query::{self, CommandWalkOptions},
+    word::static_word_text,
 };
 use crate::{Checker, Rule, Violation};
 
@@ -80,15 +81,4 @@ fn xargs_uses_null_input(args: &[&Word], source: &str) -> bool {
             arg == "--null"
                 || (arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains('0'))
         })
-}
-
-fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
-        }
-    }
-    Some(result)
 }

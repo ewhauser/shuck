@@ -1,9 +1,12 @@
 use shuck_ast::{Command, CompoundCommand, ConditionalExpr, ConditionalUnaryOp, Word};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::{
+    classify_conditional_operand, classify_test_operand, static_word_text,
+};
 use crate::{Checker, Rule, Violation};
 
-use super::syntax::{simple_test_operands, static_word_text};
+use super::syntax::simple_test_operands;
 
 pub struct LiteralUnaryStringTest;
 
@@ -57,7 +60,8 @@ fn is_literal_unary_simple_test(operands: &[Word], source: &str) -> bool {
         return false;
     };
 
-    matches!(operator.as_str(), "-z" | "-n") && static_word_text(&operands[1], source).is_some()
+    matches!(operator.as_str(), "-z" | "-n")
+        && classify_test_operand(&operands[1], source).is_fixed_literal()
 }
 
 fn is_literal_unary_conditional_test(expression: &ConditionalExpr, source: &str) -> bool {
@@ -66,21 +70,11 @@ fn is_literal_unary_conditional_test(expression: &ConditionalExpr, source: &str)
             matches!(
                 expression.op,
                 ConditionalUnaryOp::EmptyString | ConditionalUnaryOp::NonEmptyString
-            ) && conditional_literal(expression.expr.as_ref(), source)
+            ) && classify_conditional_operand(expression.expr.as_ref(), source).is_fixed_literal()
         }
         ConditionalExpr::Parenthesized(expression) => {
             is_literal_unary_conditional_test(&expression.expr, source)
         }
-        _ => false,
-    }
-}
-
-fn conditional_literal(expression: &ConditionalExpr, source: &str) -> bool {
-    match expression {
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => static_word_text(word, source).is_some(),
-        ConditionalExpr::Parenthesized(expression) => conditional_literal(&expression.expr, source),
         _ => false,
     }
 }

@@ -1,9 +1,8 @@
-use shuck_ast::WordPart;
-
-use crate::rules::common::query::{self, CommandWalkOptions, visit_command_words};
+use crate::rules::common::query::{
+    self, CommandSubstitutionKind, CommandWalkOptions, visit_command_words,
+};
+use crate::rules::common::word::{StdoutDisposition, classify_substitution};
 use crate::{Checker, Rule, Violation};
-
-use super::subst_with_redirect::{CommandSubstitutionRedirect, command_substitution_redirect};
 
 pub struct SubstWithRedirectErr;
 
@@ -28,15 +27,14 @@ pub fn subst_with_redirect_err(checker: &mut Checker) {
         },
         &mut |command, _| {
             visit_command_words(command, &mut |word| {
-                for (part, span) in word.parts_with_spans() {
-                    let WordPart::CommandSubstitution(commands) = part else {
+                for substitution in query::iter_word_command_substitutions(word) {
+                    if substitution.kind != CommandSubstitutionKind::Command {
                         continue;
-                    };
+                    }
 
-                    if command_substitution_redirect(commands, source)
-                        == CommandSubstitutionRedirect::DevNull
-                    {
-                        spans.push(span);
+                    let classification = classify_substitution(substitution, source);
+                    if classification.stdout_disposition == StdoutDisposition::RedirectedToDevNull {
+                        spans.push(classification.span);
                     }
                 }
             });
@@ -45,5 +43,28 @@ pub fn subst_with_redirect_err(checker: &mut Checker) {
 
     for span in spans {
         checker.report(SubstWithRedirectErr, span);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn only_reports_substitutions_that_drop_output_to_dev_null() {
+        let source = "out=$(whiptail 3>&1 1>&2 2>&3)\nout=$(printf hi >/dev/null 2>&1)\nout=$(printf hi 1>/dev/null)\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubstWithRedirectErr),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
     }
 }

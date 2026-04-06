@@ -1,9 +1,8 @@
 use shuck_ast::{Command, CompoundCommand};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::word_has_expansion;
 
 pub struct CasePatternVar;
 
@@ -32,7 +31,7 @@ pub fn case_pattern_var(checker: &mut Checker) {
 
             for item in &case.cases {
                 for pattern in &item.patterns {
-                    if word_has_expansion(pattern) {
+                    if classify_word(pattern, checker.source()).is_expanded() {
                         spans.push(pattern.span);
                     }
                 }

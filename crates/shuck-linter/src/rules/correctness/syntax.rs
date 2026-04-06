@@ -1,5 +1,7 @@
-use shuck_ast::{Assignment, SimpleCommand, TextSize, Word, WordPart};
+use shuck_ast::{Assignment, SimpleCommand, TextSize, Word};
 use shuck_indexer::{Indexer, RegionKind};
+
+pub use crate::rules::common::word::static_word_text;
 
 fn simple_command_name(command: &SimpleCommand, source: &str) -> Option<String> {
     static_word_text(&command.name, source)
@@ -7,17 +9,6 @@ fn simple_command_name(command: &SimpleCommand, source: &str) -> Option<String> 
 
 pub fn assignment_target_name(assignment: &Assignment) -> &str {
     assignment.name.as_str()
-}
-
-pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
-        }
-    }
-    Some(result)
 }
 
 pub fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<&'a [Word]> {
@@ -30,12 +21,6 @@ pub fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Opt
         "test" => Some(&command.args),
         _ => None,
     }
-}
-
-pub fn word_has_expansion(word: &Word) -> bool {
-    word.parts
-        .iter()
-        .any(|part| !matches!(part, WordPart::Literal(_)))
 }
 
 pub fn word_is_double_quoted(indexer: &Indexer, word: &Word) -> bool {
