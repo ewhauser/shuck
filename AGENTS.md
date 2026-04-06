@@ -57,6 +57,42 @@ cargo fmt
 cargo clippy --all-targets -- -D warnings
 ```
 
+## Large corpus tests
+
+Always run the large corpus comparisons with the nix-provided `shellcheck`, not a globally installed one. The supported path is `make test-large-corpus`, which enters the repo's nix dev environment before running the ignored large-corpus test.
+
+```bash
+# Download/populate the corpus if needed
+make setup-large-corpus
+
+# Run the full compatibility comparison
+make test-large-corpus
+
+# Run a targeted comparison for one rule or a CSV list of selectors
+make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001
+make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001,C006
+
+# Run a smaller sample while iterating
+make test-large-corpus SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
+```
+
+Relevant environment variables for the large-corpus harness:
+
+- `SHUCK_TEST_LARGE_CORPUS=1` — enables the ignored large-corpus test. `make test-large-corpus` sets this for you.
+- `SHUCK_LARGE_CORPUS_ROOT=/path/to/corpus` — overrides corpus discovery. By default the test looks under `.cache/large-corpus` and then `../shell-checks`.
+- `SHUCK_LARGE_CORPUS_TIMEOUT_SECS=300` — per-fixture timeout budget.
+- `TEST_SHARD_INDEX=0` and `TEST_TOTAL_SHARDS=1` — split the corpus run across shards.
+- `SHUCK_LARGE_CORPUS_RULES=C001,C006` — comma-separated rule selectors to compare. Accepts exact rule codes and the existing selector syntax such as category or prefix selectors.
+- `SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=100` — deterministic fixture sampling percentage in `[1,100]`.
+- `SHUCK_LARGE_CORPUS_MAPPED_ONLY=1` — limits ShellCheck diagnostics to codes that Shuck maps today.
+- `SHUCK_LARGE_CORPUS_KEEP_GOING=1` — collects all fixture failures instead of stopping at the first one.
+
+If you need to call `shellcheck` directly while debugging a large-corpus issue, do it through nix so the version matches the test harness. For example:
+
+```bash
+nix --extra-experimental-features 'nix-command flakes' develop --command shellcheck --version
+```
+
 ## Architecture
 
 ### Workspace crates
