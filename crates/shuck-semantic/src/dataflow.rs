@@ -505,7 +505,6 @@ fn analyze_unused_assignments_exact(
     }
 
     let mut unused_assignments = Vec::new();
-    let mut unused_assignment_ids = Vec::new();
     for binding in bindings {
         let Some(block_id) = binding_blocks[binding.id.index()] else {
             continue;
@@ -523,13 +522,175 @@ fn analyze_unused_assignments_exact(
             binding: binding.id,
             reason,
         });
-        unused_assignment_ids.push(binding.id);
     }
+    let unused_assignment_ids = collapse_redundant_branch_unused_assignment_ids(
+        cfg,
+        bindings,
+        &binding_blocks,
+        &unreachable_blocks,
+        &unused_assignments,
+    );
 
     UnusedAssignmentsResult {
         unused_assignments,
         unused_assignment_ids,
     }
+}
+
+fn collapse_redundant_branch_unused_assignment_ids(
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    binding_blocks: &[Option<BlockId>],
+    unreachable_blocks: &DenseBitSet,
+    unused_assignments: &[UnusedAssignment],
+) -> Vec<BindingId> {
+    if unused_assignments.len() < 2 {
+        return unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect();
+    }
+
+    let binding_name_data = build_binding_name_data(bindings);
+    let unused_binding_ids = unused_assignments
+        .iter()
+        .map(|unused| unused.binding)
+        .collect::<FxHashSet<_>>();
+    let mut reachability_cache = vec![None; cfg.blocks().len()];
+    let mut suppression_context = RedundantBranchUnusedAssignmentContext {
+        cfg,
+        bindings,
+        bindings_by_name: &binding_name_data.bindings_by_name,
+        binding_blocks,
+        unreachable_blocks,
+        unused_binding_ids: &unused_binding_ids,
+        reachability_cache: &mut reachability_cache,
+    };
+
+    unused_assignments
+        .iter()
+        .filter_map(|unused| {
+            (!should_suppress_redundant_branch_unused_assignment(
+                unused.binding,
+                &mut suppression_context,
+            ))
+            .then_some(unused.binding)
+        })
+        .collect()
+}
+
+struct RedundantBranchUnusedAssignmentContext<'a> {
+    cfg: &'a ControlFlowGraph,
+    bindings: &'a [Binding],
+    bindings_by_name: &'a FxHashMap<Name, Vec<BindingId>>,
+    binding_blocks: &'a [Option<BlockId>],
+    unreachable_blocks: &'a DenseBitSet,
+    unused_binding_ids: &'a FxHashSet<BindingId>,
+    reachability_cache: &'a mut [Option<DenseBitSet>],
+}
+
+fn should_suppress_redundant_branch_unused_assignment(
+    binding_id: BindingId,
+    context: &mut RedundantBranchUnusedAssignmentContext<'_>,
+) -> bool {
+    let binding = &context.bindings[binding_id.index()];
+    if !participates_in_unused_assignment_reporting(binding.kind, binding.attributes) {
+        return false;
+    }
+
+    let Some(binding_block) = context.binding_blocks[binding_id.index()] else {
+        return false;
+    };
+    let Some(later_bindings) = context.bindings_by_name.get(&binding.name) else {
+        return false;
+    };
+
+    let mut later_reportable = later_bindings
+        .iter()
+        .copied()
+        .filter(|candidate_id| candidate_id.index() > binding_id.index())
+        .filter(|candidate_id| {
+            let candidate = &context.bindings[candidate_id.index()];
+            candidate.scope == binding.scope
+                && participates_in_unused_assignment_reporting(candidate.kind, candidate.attributes)
+        })
+        .filter_map(|candidate_id| {
+            let candidate_block = context.binding_blocks[candidate_id.index()]?;
+            (!context.unreachable_blocks.contains(candidate_block.index()))
+                .then_some((candidate_id, candidate_block))
+        });
+
+    let Some((next_binding_id, next_binding_block)) = later_reportable.next() else {
+        return false;
+    };
+
+    if !context.unused_binding_ids.contains(&next_binding_id) {
+        return false;
+    }
+
+    if later_reportable.any(|(candidate_id, _)| !context.unused_binding_ids.contains(&candidate_id))
+    {
+        return false;
+    }
+
+    !block_can_reach(
+        context.cfg,
+        binding_block,
+        next_binding_block,
+        context.reachability_cache,
+    )
+}
+
+fn participates_in_unused_assignment_reporting(
+    kind: BindingKind,
+    attributes: BindingAttributes,
+) -> bool {
+    match kind {
+        BindingKind::Assignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => true,
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+        }
+        BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
+    }
+}
+
+fn block_can_reach(
+    cfg: &ControlFlowGraph,
+    from: BlockId,
+    to: BlockId,
+    reachability_cache: &mut [Option<DenseBitSet>],
+) -> bool {
+    if from == to {
+        return true;
+    }
+
+    if let Some(reachable) = &reachability_cache[from.index()] {
+        return reachable.contains(to.index());
+    }
+
+    let mut reachable = DenseBitSet::new(cfg.blocks().len());
+    let mut stack = vec![from];
+    while let Some(block_id) = stack.pop() {
+        for &(successor, _) in cfg.successors(block_id) {
+            if reachable.contains(successor.index()) {
+                continue;
+            }
+            reachable.insert(successor.index());
+            stack.push(successor);
+        }
+    }
+
+    let can_reach = reachable.contains(to.index());
+    reachability_cache[from.index()] = Some(reachable);
+    can_reach
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

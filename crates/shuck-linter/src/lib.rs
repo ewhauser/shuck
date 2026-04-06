@@ -584,6 +584,42 @@ ${code_command} --version
     }
 
     #[test]
+    fn mutually_exclusive_unused_branch_assignments_report_one_diagnostic() {
+        let source = "\
+#!/bin/sh
+if command -v code >/dev/null 2>&1; then
+  code_command=\"code\"
+else
+  code_command=\"flatpak run com.visualstudio.code\"
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 5);
+    }
+
+    #[test]
+    fn partially_used_branch_assignments_still_report_each_dead_arm() {
+        let source = "\
+#!/bin/sh
+if a; then
+  VAR=1
+elif b; then
+  VAR=2
+else
+  VAR=3
+  echo \"$VAR\"
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.start.line, 5);
+    }
+
+    #[test]
     fn case_branch_assignments_used_in_function_body_are_not_flagged() {
         let diagnostics = lint(
             "\

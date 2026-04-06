@@ -938,6 +938,42 @@ ${code_command} --version
     }
 
     #[test]
+    fn mutually_exclusive_unused_branch_assignments_collapse_to_one_reported_id() {
+        let source = "\
+if command -v code >/dev/null 2>&1; then
+  code_command=\"code\"
+else
+  code_command=\"flatpak run com.visualstudio.code\"
+fi
+";
+        let mut model = model(source);
+        let all_bindings = model.bindings_for(&Name::from("code_command")).to_vec();
+        let binding_ids = model.dataflow().unused_assignment_ids().to_vec();
+
+        assert_eq!(model.dataflow().unused_assignments.len(), 2);
+        assert_eq!(binding_ids, vec![all_bindings[1]]);
+    }
+
+    #[test]
+    fn partially_used_branch_assignments_keep_each_dead_arm_reported() {
+        let source = "\
+if a; then
+  VAR=1
+elif b; then
+  VAR=2
+else
+  VAR=3
+  echo \"$VAR\"
+fi
+";
+        let mut model = model(source);
+        let all_bindings = model.bindings_for(&Name::from("VAR")).to_vec();
+        let binding_ids = model.dataflow().unused_assignment_ids().to_vec();
+
+        assert_eq!(binding_ids, vec![all_bindings[0], all_bindings[1]]);
+    }
+
+    #[test]
     fn branch_join_defs_used_in_later_function_body_are_all_live() {
         let source = "\
 if command -v code >/dev/null 2>&1; then
