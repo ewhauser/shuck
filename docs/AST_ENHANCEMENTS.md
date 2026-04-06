@@ -393,7 +393,7 @@ By contrast, lower-priority ideas like top-level `Stmt` wrappers, file-level com
 For each enhancement:
 
 1. add parser-level shape tests in Rust that mirror the relevant `gbash` parser/unit tests
-2. add typed-JSON parity cases where the new node shape is meant to align with `gbash`
+2. add focused parser fixtures for the structural edge cases the new node shape is meant to represent
 3. add rule-level regression tests in `crates/shuck-linter/resources/test/fixtures`
 4. rerun the most relevant corpus samples for affected rules
 
