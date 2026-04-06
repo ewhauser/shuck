@@ -32,20 +32,29 @@ impl Default for ShellCheckCodeMap {
     fn default() -> Self {
         Self {
             map: FxHashMap::from_iter([
+                (2005, Rule::EchoedCommandSubstitution),
+                (2006, Rule::LegacyBackticks),
+                (2007, Rule::LegacyArithmeticExpansion),
                 (2016, Rule::SingleQuotedLiteral),
                 (1019, Rule::EmptyTest),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
                 (2044, Rule::FindOutputLoop),
+                (2045, Rule::LoopFromCommandOutput),
+                (2046, Rule::UnquotedCommandSubstitution),
+                (2059, Rule::PrintfFormatVariable),
                 (2038, Rule::FindOutputToXargs),
                 (2064, Rule::TrapStringExpansion),
+                (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
                 (2124, Rule::PipeToKill),
+                (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
                 (2159, Rule::TruthyLiteralTest),
+                (2162, Rule::ReadWithoutRaw),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2154, Rule::UndefinedVariable),
@@ -65,19 +74,31 @@ mod tests {
         let map = ShellCheckCodeMap::default();
 
         assert_eq!(map.resolve("SC2034"), Some(Rule::UnusedAssignment));
+        assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
+        assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
+        assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
+        assert_eq!(map.resolve("SC2045"), Some(Rule::LoopFromCommandOutput));
+        assert_eq!(
+            map.resolve("SC2046"),
+            Some(Rule::UnquotedCommandSubstitution)
+        );
+        assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
         assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2064"), Some(Rule::TrapStringExpansion));
+        assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(map.resolve("SC2124"), Some(Rule::PipeToKill));
+        assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
         assert_eq!(map.resolve("SC2159"), Some(Rule::TruthyLiteralTest));
+        assert_eq!(map.resolve("SC2162"), Some(Rule::ReadWithoutRaw));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("SC2194"), Some(Rule::ConstantCaseSubject));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
@@ -95,20 +116,29 @@ mod tests {
             mappings,
             vec![
                 (1019, Rule::EmptyTest),
+                (2005, Rule::EchoedCommandSubstitution),
+                (2006, Rule::LegacyBackticks),
+                (2007, Rule::LegacyArithmeticExpansion),
                 (2016, Rule::SingleQuotedLiteral),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
                 (2038, Rule::FindOutputToXargs),
                 (2044, Rule::FindOutputLoop),
+                (2045, Rule::LoopFromCommandOutput),
+                (2046, Rule::UnquotedCommandSubstitution),
+                (2059, Rule::PrintfFormatVariable),
                 (2064, Rule::TrapStringExpansion),
+                (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
                 (2124, Rule::PipeToKill),
                 (2154, Rule::UndefinedVariable),
+                (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
                 (2159, Rule::TruthyLiteralTest),
+                (2162, Rule::ReadWithoutRaw),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2266, Rule::OverwrittenFunction),

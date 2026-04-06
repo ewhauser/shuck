@@ -107,6 +107,36 @@ impl<'a> Checker<'a> {
     fn check_source_refs(&mut self) {}
 
     fn check_commands(&mut self) {
+        if self.is_rule_enabled(Rule::UnquotedExpansion) {
+            rules::style::unquoted_expansion::unquoted_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::ReadWithoutRaw) {
+            rules::style::read_without_raw::read_without_raw(self);
+        }
+        if self.is_rule_enabled(Rule::LoopFromCommandOutput) {
+            rules::style::loop_from_command_output::loop_from_command_output(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedCommandSubstitution) {
+            rules::style::unquoted_command_substitution::unquoted_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::LegacyBackticks) {
+            rules::style::legacy_backticks::legacy_backticks(self);
+        }
+        if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
+            rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::PrintfFormatVariable) {
+            rules::style::printf_format_variable::printf_format_variable(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
+            rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::EchoedCommandSubstitution) {
+            rules::style::echoed_command_substitution::echoed_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
+            rules::style::export_command_substitution::export_command_substitution(self);
+        }
         if self.is_rule_enabled(Rule::NoopPlaceholder) {
             rules::correctness::noop::noop(self);
         }

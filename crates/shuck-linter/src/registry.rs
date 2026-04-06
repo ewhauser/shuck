@@ -107,19 +107,37 @@ declare_rules! {
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
+    ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
+    ("S003", Category::Style, Severity::Warning, LoopFromCommandOutput),
+    ("S004", Category::Style, Severity::Warning, UnquotedCommandSubstitution),
+    ("S005", Category::Style, Severity::Warning, LegacyBackticks),
+    ("S006", Category::Style, Severity::Warning, LegacyArithmeticExpansion),
+    ("S007", Category::Style, Severity::Warning, PrintfFormatVariable),
+    ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
+    ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
+    ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("C999", Category::Correctness, Severity::Warning, NoopPlaceholder),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
     canonical_code_to_rule(code).or(match code {
         "SH-001" => Some(Rule::UnquotedExpansion),
+        "SH-002" => Some(Rule::ReadWithoutRaw),
         "SH-003" => Some(Rule::UnusedAssignment),
+        "SH-004" => Some(Rule::LoopFromCommandOutput),
+        "SH-005" => Some(Rule::UnquotedCommandSubstitution),
+        "SH-034" => Some(Rule::LegacyBackticks),
+        "SH-035" => Some(Rule::LegacyArithmeticExpansion),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
+        "SH-037" => Some(Rule::PrintfFormatVariable),
+        "SH-038" => Some(Rule::UnquotedArrayExpansion),
         "SH-039" => Some(Rule::UndefinedVariable),
+        "SH-040" => Some(Rule::EchoedCommandSubstitution),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
         "SH-049" => Some(Rule::FindOutputLoop),
+        "SH-050" => Some(Rule::ExportCommandSubstitution),
         "SH-052" => Some(Rule::LocalTopLevel),
         "SH-060" => Some(Rule::SudoRedirectionOrder),
         "SH-069" => Some(Rule::ConstantComparisonTest),
@@ -149,13 +167,34 @@ mod tests {
     #[test]
     fn resolves_legacy_shuck_aliases() {
         assert_eq!(code_to_rule("SH-001"), Some(Rule::UnquotedExpansion));
+        assert_eq!(code_to_rule("SH-002"), Some(Rule::ReadWithoutRaw));
         assert_eq!(code_to_rule("SH-003"), Some(Rule::UnusedAssignment));
+        assert_eq!(code_to_rule("SH-004"), Some(Rule::LoopFromCommandOutput));
+        assert_eq!(
+            code_to_rule("SH-005"),
+            Some(Rule::UnquotedCommandSubstitution)
+        );
+        assert_eq!(code_to_rule("SH-034"), Some(Rule::LegacyBackticks));
+        assert_eq!(
+            code_to_rule("SH-035"),
+            Some(Rule::LegacyArithmeticExpansion)
+        );
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
+        assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));
+        assert_eq!(code_to_rule("SH-038"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
+        assert_eq!(
+            code_to_rule("SH-040"),
+            Some(Rule::EchoedCommandSubstitution)
+        );
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));
         assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
+        assert_eq!(
+            code_to_rule("SH-050"),
+            Some(Rule::ExportCommandSubstitution)
+        );
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
         assert_eq!(code_to_rule("SH-060"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(code_to_rule("SH-069"), Some(Rule::ConstantComparisonTest));
