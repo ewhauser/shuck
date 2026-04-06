@@ -1053,6 +1053,53 @@ main \"$@\"
     }
 
     #[test]
+    fn later_file_scope_helper_reads_keep_caller_local_assignment_live() {
+        let source = "\
+main() {
+  local status=''
+  helper
+  printf '%s\\n' \"$status\"
+}
+helper() {
+  status=ok
+}
+main
+";
+        let mut model = model(source);
+
+        let unused = reportable_unused_names(&mut model);
+        assert!(
+            !unused.contains(&Name::from("status")),
+            "unused: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn later_file_scope_helper_appends_keep_caller_local_array_live() {
+        let source = "\
+#!/bin/bash
+main() {
+  local errors=()
+  helper
+  printf '%s\\n' \"${errors[@]}\"
+}
+helper() {
+  errors+=(oops)
+}
+main
+";
+        let mut model = model(source);
+
+        let unused = reportable_unused_names(&mut model);
+        assert!(
+            !unused.contains(&Name::from("errors")),
+            "unused: {:?}",
+            unused
+        );
+    }
+
+    #[test]
     fn recursive_function_reads_keep_later_global_write_live() {
         let source = "\
 check_status() {

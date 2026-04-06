@@ -427,6 +427,48 @@ printf '%s\\n' \"${arr[@]}\"
     }
 
     #[test]
+    fn later_defined_helper_assignment_to_caller_local_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+main() {
+  local status=''
+  helper
+  printf '%s\\n' \"$status\"
+}
+helper() {
+  status=ok
+}
+main
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn later_defined_helper_array_append_to_caller_local_is_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+main() {
+  local errors=()
+  helper
+  printf '%s\\n' \"${errors[@]}\"
+}
+helper() {
+  errors+=(oops)
+}
+main
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn read_implicitly_consumes_ifs_but_still_flags_unrelated_local() {
         let source = "\
 #!/bin/bash

@@ -1476,6 +1476,19 @@ fn visible_function_binding(
         let Some(candidates) = scopes[scope_id.index()].bindings.get(name) else {
             continue;
         };
+
+        if scope_id != scope {
+            if let Some(binding) = candidates.iter().rev().copied().find(|binding| {
+                matches!(
+                    bindings[binding.index()].kind,
+                    BindingKind::FunctionDefinition
+                )
+            }) {
+                return Some(binding);
+            }
+            continue;
+        }
+
         for binding in candidates.iter().rev().copied() {
             let candidate = &bindings[binding.index()];
             if matches!(candidate.kind, BindingKind::FunctionDefinition)
