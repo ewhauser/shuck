@@ -6,9 +6,15 @@ Proposed
 
 ## Summary
 
-This document turns the current expansion-related linter gaps into a shared implementation plan. The goal is to improve rule accuracy by teaching the linter more about shell expansion context, value shape, and runtime sensitivity without waiting for broader AST redesign work.
+This document turns the current expansion-related linter gaps into a shared implementation plan. The goal is to improve rule accuracy by teaching the linter more about shell expansion context, value shape, and runtime sensitivity.
 
 The proposal is intentionally scoped to helper infrastructure and rule precision. It is not a plan to build a general-purpose shell executor inside the linter.
+
+After comparing this plan against the AST work captured in `docs/AST_ENHANCEMENTS.md`, this document should now be read as the AST-aware follow-on plan:
+
+- some current expansion projects become simpler once richer AST shapes exist
+- one project becomes mainly a temporary bridge if AST pattern work is delayed
+- the remaining long-term work is the runtime and context-sensitive reasoning that AST shape alone will not solve
 
 ## Motivation
 
@@ -31,7 +37,8 @@ These gaps show up across both style and correctness rules:
 
 - Make expansion reasoning context-sensitive instead of word-shape-only.
 - Reuse one helper layer across rules instead of repeating local expansion heuristics.
-- Improve accuracy for existing rules without blocking on AST redesign.
+- Prefer consuming richer AST shape when it exists rather than rebuilding syntax from spans and source text.
+- Improve accuracy for existing rules without rebuilding parser concerns in linter code.
 - Keep rollout incremental so each helper can land with concrete consumer rules.
 - Preserve room for later parser and AST work without making this document depend on it.
 
@@ -42,6 +49,23 @@ These gaps show up across both style and correctness rules:
 - Requiring exact shell-runtime parity for every edge case in the first pass.
 - Replacing focused unit and snapshot tests with only corpus-based checks.
 - Duplicating runtime-prelude work already tracked in [`docs/rules.md`](./rules.md).
+- Re-implementing AST enhancements in linter helpers when the parser can preserve the same facts directly.
+
+## Relationship To AST Enhancements
+
+The AST plan in `docs/AST_ENHANCEMENTS.md` changes the shape of this roadmap.
+
+- Quote-aware word parts and syntax-form preservation would simplify Projects 1, 2, and 6 by replacing a large share of today’s quoting and syntax-form recovery work.
+- First-class pattern AST and typed `[[ ... ]]` operands would largely absorb Project 3 and simplify Projects 1, 2, and 5.
+- First-class `VarRef`, typed `Subscript`, and compound-array nodes would simplify Projects 2 and 6 by replacing current index-string heuristics.
+- Heredoc delimiter metadata is mostly orthogonal to this document. It may improve future redirect and heredoc rules, but it does not replace the current expansion projects.
+- Structured arithmetic AST would simplify Projects 2 and 6 by replacing opaque arithmetic text with typed reads, writes, and operands.
+
+The practical consequence is:
+
+- AST priorities 1 through 3 should land before most of the rule-facing expansion migrations in this document.
+- Project 3 should be treated as a transitional bridge if pattern AST work is delayed.
+- Projects 1, 2, 4, 5, and 6 still matter after the AST work, but they become more semantic and less stringly.
 
 ## Local gbash Reference Checkout
 
@@ -72,6 +96,8 @@ High-value reference files:
 ### Project 1: Expansion Context Matrix
 
 Create a shared model for where expansion is being interpreted, because the same word is treated differently in command arguments, redirect targets, test operands, patterns, and trap strings.
+
+This project still matters after AST changes. Richer AST shape reduces syntax recovery, but it does not remove the need to normalize expansion behavior by shell context.
 
 Proposed additions:
 
@@ -115,6 +141,13 @@ Rules to migrate first:
 
 Add a richer shared classifier that answers not only whether a word is expanded, but also what kind of runtime behavior it can trigger.
 
+If the AST priorities in `docs/AST_ENHANCEMENTS.md` land first, this classifier should consume those richer nodes directly:
+
+- quote-aware word parts instead of a word-level quoted heuristic
+- pattern and regex operands instead of generic `Word`
+- `VarRef` and typed `Subscript` nodes instead of string-matching selectors
+- structured arithmetic expressions instead of opaque source slices
+
 Proposed classifier output:
 
 - value shape: `None`, `Scalar`, `Array`, `MultiField`, `Unknown`
@@ -151,9 +184,11 @@ Rules to migrate first:
 | `S008` | Needs array-vs-scalar precision rather than index-string heuristics. |
 | `CasePatternVar` | Needs to distinguish literal pattern text from runtime-built patterns. |
 
-### Project 3: SourceText Operand Analyzer
+### Project 3: Transitional SourceText Operand Analyzer
 
 Many expansion-bearing constructs still store operands as `SourceText`. The linter should stop treating that source as opaque text and instead analyze it with shell-aware helpers.
+
+This project becomes much smaller if first-class pattern AST and typed conditional operands land. In the long term, it should mostly disappear into AST-backed consumers and shared expansion analysis.
 
 Proposed additions:
 
@@ -165,12 +200,13 @@ Proposed additions:
   - substring and slice expressions where needed
 - source-backed span mapping so diagnostics still point at the original operand text
 
-This project should explicitly replace the raw `$` scan in [`pattern_with_variable.rs`](../crates/shuck-linter/src/rules/correctness/pattern_with_variable.rs).
+This project should explicitly replace the raw `$` scan in [`pattern_with_variable.rs`](../crates/shuck-linter/src/rules/correctness/pattern_with_variable.rs), but only as a bridge until the AST can preserve pattern structure directly.
 
 Action items:
 
-- [ ] Add `SourceText` analysis helpers to the common expansion layer.
-- [ ] Replace raw byte scans with source-aware operand inspection.
+- [ ] Add `SourceText` analysis helpers to the common expansion layer only for still-flattened operands.
+- [ ] Replace raw byte scans with source-aware operand inspection where richer AST nodes are not yet available.
+- [ ] Delete or fold these helpers into Project 2 once first-class pattern and operand nodes land.
 - [ ] Add tests for escaped dollars, quoted dollars, nested substitutions, and mixed literals inside parameter-pattern operands.
 
 gbash references:
@@ -189,6 +225,8 @@ Rules to migrate first:
 ### Project 4: Redirect and Substitution Target Semantics
 
 Redirect targets need their own helper layer because redirect expansion follows different shell rules from normal argv expansion, and descriptor-dup redirects are different again.
+
+This project is mostly unchanged by the AST roadmap. Better AST shape can improve anchoring and classification inputs, but redirect target semantics remain runtime- and context-sensitive.
 
 Proposed additions:
 
@@ -227,13 +265,14 @@ Rules to migrate first:
 
 Some words are syntactically literal but still not fixed literals at runtime. The linter should model those cases directly.
 
+If pattern AST and quote-aware word parts land first, this project narrows to words that are still syntactically literal in the AST but runtime-sensitive in shell evaluation.
+
 Important examples:
 
 - leading `~` in contexts where tilde expansion applies
 - assignment-like tilde segments such as `PATH=~/bin`
 - unquoted glob characters in contexts where pathname matching applies
 - brace-style fanout candidates that are still stored as raw words
-- extglob-like patterns that the current AST does not model directly
 
 The goal is not to fully execute these features. The goal is to stop misclassifying these words as permanently fixed.
 
@@ -241,7 +280,7 @@ Action items:
 
 - [ ] Add a source-based runtime-sensitivity scanner for words that remain literal in the AST.
 - [ ] Make the scanner context-aware so tilde, glob, and brace sensitivity only apply where the shell would use them.
-- [ ] Add focused tests for `~`, `~user`, `x=~`, `*.sh`, `{a,b}`, and `+(foo)`-style words.
+- [ ] Add focused tests for `~`, `~user`, `x=~`, `*.sh`, and `{a,b}`-style words.
 
 gbash references:
 
@@ -260,6 +299,13 @@ Rules to migrate first:
 ### Project 6: Safe Value Index v2
 
 `S001` already has a local safe-value index, but it is still shaped by simplified expansion assumptions. It should be rebuilt on top of the new shared analysis layer.
+
+This project should wait for the richer AST foundations where possible:
+
+- quote-aware word parts
+- first-class pattern and conditional operands
+- `VarRef` / `Subscript` / array nodes
+- structured arithmetic, when arithmetic facts are part of the safety question
 
 Proposed additions:
 
@@ -303,20 +349,24 @@ The helper layer should be rolled out through a few narrow, high-signal migratio
 
 Recommended order:
 
-1. `C055` and `CasePatternVar`
-2. `TruthyLiteralTest`, `ConstantComparisonTest`, and `QuotedBashRegex`
-3. `C057` and `C058`
-4. `S008`
-5. `S004`
-6. `S001`
+1. AST quote-aware word parts and syntax-form preservation
+2. AST pattern AST and typed `[[ ... ]]` operands
+3. AST `VarRef` / typed `Subscript` / compound-array nodes
+4. Expansion Projects 1 and 2 on top of the richer AST
+5. `C055` and `CasePatternVar`
+6. `TruthyLiteralTest`, `ConstantComparisonTest`, and `QuotedBashRegex`
+7. `C057` and `C058`
+8. AST structured arithmetic
+9. `S008`, then `S004`, then `S001`
 
 Rationale:
 
-- `C055` and `CasePatternVar` are small consumers with clear win conditions.
-- The test and regex rules validate the new fixed-literal and runtime-sensitivity helpers.
-- The redirected-substitution rules validate redirect-target semantics.
-- `S008` and `S004` validate shared value-shape analysis.
-- `S001` should land last so it can consume the stable version of the helper layer rather than forcing premature API choices.
+- AST priorities 1 through 3 remove the highest-value syntax-recovery work from the linter and make the follow-on expansion helpers cleaner.
+- `C055` and `CasePatternVar` are still the best first rule consumers once pattern-aware AST data exists.
+- The test and regex rules validate the new fixed-literal and runtime-sensitivity helpers after the AST stops flattening their operands.
+- The redirected-substitution rules validate redirect-target semantics, which the AST work does not solve by itself.
+- `S008` and `S004` validate shared value-shape analysis after array and quoting structure become less heuristic.
+- `S001` should still land last so it can consume the stable version of the helper layer rather than forcing premature API choices.
 
 gbash references:
 
@@ -325,26 +375,33 @@ gbash references:
 
 ## Rollout Plan
 
-### Phase 1: Shared Expansion Infrastructure
+### Phase 1: AST Foundations
 
-- Build Projects 1 through 3.
+- Land AST priorities 1 through 3 from `docs/AST_ENHANCEMENTS.md`.
+- Treat Project 3 in this document as temporary bridge work only if AST pattern work is delayed.
+- Revisit the shared expansion helper APIs after the richer AST shapes are available.
+
+### Phase 2: Shared Expansion Infrastructure
+
+- Build Projects 1 and 2 on top of the richer AST.
 - Land small consumer migrations for `C055` and `CasePatternVar`.
 - Keep helper APIs narrow until at least two rule families share them.
 
-### Phase 2: Runtime Sensitivity and Test Precision
+### Phase 3: Runtime Sensitivity and Test Precision
 
 - Build Project 5.
 - Migrate `TruthyLiteralTest`, `ConstantComparisonTest`, and `QuotedBashRegex`.
-- Add direct tests for tilde, glob, brace-like, and extglob-like literals.
+- Add direct tests for tilde, glob, and brace-like literals.
 
-### Phase 3: Redirect Semantics
+### Phase 4: Redirect Semantics
 
 - Build Project 4.
 - Re-run `C057` and `C058` after every redirect-classifier change.
 - Confirm that substitution-intent changes improve signal rather than only shifting span choices.
 
-### Phase 4: Style Rule Adoption
+### Phase 5: Style Rule Adoption
 
+- Land structured arithmetic AST if safe-value and arithmetic facts still need it.
 - Build Project 6.
 - Migrate `S008`, then `S004`, then `S001`.
 - Delete duplicated expansion heuristics once the shared helpers become the only path.
@@ -355,9 +412,9 @@ gbash references:
 
 Rejected because the current problems are mostly about missing context and value-shape information. Adding more one-off booleans to the existing helpers would keep the same ambiguity, just with more branches.
 
-### Alternative B: Wait for AST Redesign First
+### Alternative B: Do Only AST Redesign And Defer Expansion Helper Work
 
-Rejected because several high-value improvements do not require new node types. Context-aware analysis of existing `Word`, `WordPart`, and `SourceText` structures should already unlock better accuracy.
+Rejected because richer AST shape still does not solve context normalization, redirect target semantics, runtime-sensitive literal classification, or `S001` safety reasoning by itself.
 
 ### Alternative C: Build a Full Expansion Engine for the Linter
 
@@ -370,6 +427,7 @@ Rejected because the same expansion questions already recur across style, correc
 ## Risks
 
 - A shared expansion layer may become too broad if it tries to answer every future shell question at once.
+- Project 3 may linger longer than intended if AST pattern work is delayed, leaving temporary bridge logic in place.
 - Source-based runtime-sensitivity scanning may drift if it is not validated with focused tests.
 - Redirect-target classification could overfit to current substitution rules unless its API stays generic.
 - `S001` may pressure the design toward premature complexity if migrated before smaller consumers harden the helper layer.
@@ -378,6 +436,7 @@ Rejected because the same expansion questions already recur across style, correc
 
 For each project and migrated rule:
 
+- [ ] For AST-backed changes, land parser-level shape tests first and then simplify the corresponding expansion helpers.
 - [ ] Add focused unit tests for the shared helper being introduced.
 - [ ] Add snapshot or fixture coverage for each consumer rule.
 - [ ] Run `cargo test -p shuck-linter`.
