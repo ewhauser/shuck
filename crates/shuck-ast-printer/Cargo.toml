@@ -10,7 +10,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-serde = { workspace = true }
 serde_json = { version = "1", features = ["preserve_order"] }
 shuck-ast = { path = "../shuck-ast" }
 

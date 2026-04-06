@@ -185,6 +185,7 @@ pub(crate) fn analyze(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn analyze_uninitialized_references_dense(
     cfg: &ControlFlowGraph,
     bindings: &[Binding],
