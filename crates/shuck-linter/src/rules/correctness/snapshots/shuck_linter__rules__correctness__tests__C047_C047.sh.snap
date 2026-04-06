@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C047 `exit` expects a numeric status
+ --> <source>:4:6
+  |
+4 | exit -1
+  |
+
+C047 `exit` expects a numeric status
+ --> <source>:7:6
+  |
+7 | exit nope
+  |

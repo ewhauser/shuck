@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C025 use braces for positional parameters above 9
+ --> <source>:4:16
+  |
+4 | printf '%s\n' "$10"
+  |
+
+C025 use braces for positional parameters above 9
+ --> <source>:7:15
+  |
+7 | printf '%s\n' $123
+  |

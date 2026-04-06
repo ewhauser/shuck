@@ -104,7 +104,11 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_source_refs(&mut self) {}
+    fn check_source_refs(&mut self) {
+        if self.is_rule_enabled(Rule::DynamicSourcePath) {
+            rules::correctness::dynamic_source_path::dynamic_source_path(self);
+        }
+    }
 
     fn check_commands(&mut self) {
         if self.is_rule_enabled(Rule::UnquotedExpansion) {
@@ -146,6 +150,12 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::QuotedBashRegex) {
             rules::correctness::quoted_bash_regex::quoted_bash_regex(self);
         }
+        if self.is_rule_enabled(Rule::ChainedTestBranches) {
+            rules::correctness::chained_test_branches::chained_test_branches(self);
+        }
+        if self.is_rule_enabled(Rule::LineOrientedInput) {
+            rules::correctness::line_oriented_input::line_oriented_input(self);
+        }
         if self.is_rule_enabled(Rule::FindOutputToXargs) {
             rules::correctness::find_output_to_xargs::find_output_to_xargs(self);
         }
@@ -178,6 +188,27 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::PipeToKill) {
             rules::correctness::pipe_to_kill::pipe_to_kill(self);
+        }
+        if self.is_rule_enabled(Rule::PositionalTenBraces) {
+            rules::correctness::positional_ten_braces::positional_ten_braces(self);
+        }
+        if self.is_rule_enabled(Rule::InvalidExitStatus) {
+            rules::correctness::invalid_exit_status::invalid_exit_status(self);
+        }
+        if self.is_rule_enabled(Rule::CasePatternVar) {
+            rules::correctness::case_pattern_var::case_pattern_var(self);
+        }
+        if self.is_rule_enabled(Rule::ArithmeticRedirectionTarget) {
+            rules::correctness::arithmetic_redirection_target::arithmetic_redirection_target(self);
+        }
+        if self.is_rule_enabled(Rule::PatternWithVariable) {
+            rules::correctness::pattern_with_variable::pattern_with_variable(self);
+        }
+        if self.is_rule_enabled(Rule::SubstWithRedirect) {
+            rules::correctness::subst_with_redirect::subst_with_redirect(self);
+        }
+        if self.is_rule_enabled(Rule::SubstWithRedirectErr) {
+            rules::correctness::subst_with_redirect_err::subst_with_redirect_err(self);
         }
     }
 

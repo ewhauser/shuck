@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C011 iterating over command output in a `for` loop splits lines on whitespace
+ --> <source>:4:13
+  |
+4 | for line in $(cat input.txt); do
+  |
+
+C011 iterating over command output in a `for` loop splits lines on whitespace
+ --> <source>:9:13
+  |
+9 | for line in `printf '%s\n' alpha beta`; do
+  |

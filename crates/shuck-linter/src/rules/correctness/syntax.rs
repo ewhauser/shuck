@@ -178,6 +178,242 @@ fn mumps_subcommand_name(command: &SimpleCommand, source: &str) -> Option<String
     }
 }
 
+pub fn visit_command_words(command: &Command, visitor: &mut impl FnMut(&Word)) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                match &assignment.value {
+                    AssignmentValue::Scalar(word) => visitor(word),
+                    AssignmentValue::Array(words) => {
+                        for word in words {
+                            visitor(word);
+                        }
+                    }
+                }
+            }
+            visitor(&command.name);
+            for word in &command.args {
+                visitor(word);
+            }
+            for redirect in &command.redirects {
+                visitor(&redirect.target);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                for assignment in &command.assignments {
+                    match &assignment.value {
+                        AssignmentValue::Scalar(word) => visitor(word),
+                        AssignmentValue::Array(words) => {
+                            for word in words {
+                                visitor(word);
+                            }
+                        }
+                    }
+                }
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+                for redirect in &command.redirects {
+                    visitor(&redirect.target);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                for assignment in &command.assignments {
+                    match &assignment.value {
+                        AssignmentValue::Scalar(word) => visitor(word),
+                        AssignmentValue::Array(words) => {
+                            for word in words {
+                                visitor(word);
+                            }
+                        }
+                    }
+                }
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+                for redirect in &command.redirects {
+                    visitor(&redirect.target);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                for assignment in &command.assignments {
+                    match &assignment.value {
+                        AssignmentValue::Scalar(word) => visitor(word),
+                        AssignmentValue::Array(words) => {
+                            for word in words {
+                                visitor(word);
+                            }
+                        }
+                    }
+                }
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+                for redirect in &command.redirects {
+                    visitor(&redirect.target);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                for assignment in &command.assignments {
+                    match &assignment.value {
+                        AssignmentValue::Scalar(word) => visitor(word),
+                        AssignmentValue::Array(words) => {
+                            for word in words {
+                                visitor(word);
+                            }
+                        }
+                    }
+                }
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+                for redirect in &command.redirects {
+                    visitor(&redirect.target);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                match &assignment.value {
+                    AssignmentValue::Scalar(word) => visitor(word),
+                    AssignmentValue::Array(words) => {
+                        for word in words {
+                            visitor(word);
+                        }
+                    }
+                }
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => visitor(word),
+                    DeclOperand::Name(_) => {}
+                    DeclOperand::Assignment(assignment) => match &assignment.value {
+                        AssignmentValue::Scalar(word) => visitor(word),
+                        AssignmentValue::Array(words) => {
+                            for word in words {
+                                visitor(word);
+                            }
+                        }
+                    },
+                }
+            }
+            for redirect in &command.redirects {
+                visitor(&redirect.target);
+            }
+        }
+        Command::Pipeline(_) | Command::List(_) | Command::Function(_) => {}
+        Command::Compound(command, redirects) => {
+            match command {
+                CompoundCommand::For(command) => {
+                    if let Some(words) = &command.words {
+                        for word in words {
+                            visitor(word);
+                        }
+                    }
+                }
+                CompoundCommand::Case(command) => {
+                    visitor(&command.word);
+                    for case in &command.cases {
+                        for pattern in &case.patterns {
+                            visitor(pattern);
+                        }
+                    }
+                }
+                CompoundCommand::Select(command) => {
+                    for word in &command.words {
+                        visitor(word);
+                    }
+                }
+                CompoundCommand::Conditional(command) => {
+                    visit_conditional_words(&command.expression, visitor);
+                }
+                CompoundCommand::If(_)
+                | CompoundCommand::ArithmeticFor(_)
+                | CompoundCommand::While(_)
+                | CompoundCommand::Until(_)
+                | CompoundCommand::Subshell(_)
+                | CompoundCommand::BraceGroup(_)
+                | CompoundCommand::Arithmetic(_)
+                | CompoundCommand::Time(_)
+                | CompoundCommand::Coproc(_) => {}
+            }
+
+            for redirect in redirects {
+                visitor(&redirect.target);
+            }
+        }
+    }
+}
+
+pub fn visit_command_redirects(command: &Command, visitor: &mut impl FnMut(&Redirect)) {
+    match command {
+        Command::Simple(command) => {
+            for redirect in &command.redirects {
+                visitor(redirect);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                for redirect in &command.redirects {
+                    visitor(redirect);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                for redirect in &command.redirects {
+                    visitor(redirect);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                for redirect in &command.redirects {
+                    visitor(redirect);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                for redirect in &command.redirects {
+                    visitor(redirect);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for redirect in &command.redirects {
+                visitor(redirect);
+            }
+        }
+        Command::Compound(_, redirects) => {
+            for redirect in redirects {
+                visitor(redirect);
+            }
+        }
+        Command::Pipeline(_) | Command::List(_) | Command::Function(_) => {}
+    }
+}
+
+fn visit_conditional_words(expression: &ConditionalExpr, visitor: &mut impl FnMut(&Word)) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            visit_conditional_words(&expr.left, visitor);
+            visit_conditional_words(&expr.right, visitor);
+        }
+        ConditionalExpr::Unary(expr) => visit_conditional_words(&expr.expr, visitor),
+        ConditionalExpr::Parenthesized(expr) => visit_conditional_words(&expr.expr, visitor),
+        ConditionalExpr::Word(word)
+        | ConditionalExpr::Pattern(word)
+        | ConditionalExpr::Regex(word) => visitor(word),
+    }
+}
 struct Walker<'a, F> {
     visitor: &'a mut F,
 }

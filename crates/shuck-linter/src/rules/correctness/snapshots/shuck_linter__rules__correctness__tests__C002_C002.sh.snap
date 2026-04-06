@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C002 source path is built at runtime
+ --> <source>:6:3
+  |
+6 | . "$lib"
+  |
+
+C002 source path is built at runtime
+ --> <source>:9:3
+  |
+9 | . "$lib".generated
+  |

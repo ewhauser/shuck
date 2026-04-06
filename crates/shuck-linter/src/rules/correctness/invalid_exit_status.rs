@@ -1,0 +1,42 @@
+use shuck_ast::{BuiltinCommand, Command};
+
+use crate::{Checker, Rule, Violation};
+
+use super::syntax::{static_word_text, walk_commands};
+
+pub struct InvalidExitStatus;
+
+impl Violation for InvalidExitStatus {
+    fn rule() -> Rule {
+        Rule::InvalidExitStatus
+    }
+
+    fn message(&self) -> String {
+        "`exit` expects a numeric status".to_owned()
+    }
+}
+
+pub fn invalid_exit_status(checker: &mut Checker) {
+    let source = checker.source();
+    let mut spans = Vec::new();
+
+    walk_commands(&checker.ast().commands, &mut |command, _| {
+        let Command::Builtin(BuiltinCommand::Exit(exit)) = command else {
+            return;
+        };
+        let Some(code) = &exit.code else {
+            return;
+        };
+        let Some(text) = static_word_text(code, source) else {
+            return;
+        };
+
+        if !text.chars().all(|char| char.is_ascii_digit()) {
+            spans.push(code.span);
+        }
+    });
+
+    for span in spans {
+        checker.report(InvalidExitStatus, span);
+    }
+}

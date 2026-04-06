@@ -89,11 +89,14 @@ macro_rules! declare_rules {
 
 declare_rules! {
     ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
+    ("C002", Category::Correctness, Severity::Warning, DynamicSourcePath),
     ("C005", Category::Correctness, Severity::Warning, SingleQuotedLiteral),
     ("C006", Category::Correctness, Severity::Error, UndefinedVariable),
     ("C007", Category::Correctness, Severity::Warning, FindOutputToXargs),
     ("C008", Category::Correctness, Severity::Warning, TrapStringExpansion),
     ("C009", Category::Correctness, Severity::Warning, QuotedBashRegex),
+    ("C010", Category::Correctness, Severity::Warning, ChainedTestBranches),
+    ("C011", Category::Correctness, Severity::Warning, LineOrientedInput),
     ("C013", Category::Correctness, Severity::Warning, FindOutputLoop),
     ("C014", Category::Correctness, Severity::Error, LocalTopLevel),
     ("C015", Category::Correctness, Severity::Warning, SudoRedirectionOrder),
@@ -103,7 +106,14 @@ declare_rules! {
     ("C020", Category::Correctness, Severity::Warning, TruthyLiteralTest),
     ("C021", Category::Correctness, Severity::Warning, ConstantCaseSubject),
     ("C022", Category::Correctness, Severity::Error, EmptyTest),
+    ("C025", Category::Correctness, Severity::Warning, PositionalTenBraces),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
+    ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
+    ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
+    ("C050", Category::Correctness, Severity::Warning, ArithmeticRedirectionTarget),
+    ("C055", Category::Correctness, Severity::Warning, PatternWithVariable),
+    ("C057", Category::Correctness, Severity::Warning, SubstWithRedirect),
+    ("C058", Category::Correctness, Severity::Warning, SubstWithRedirectErr),
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
@@ -128,6 +138,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-005" => Some(Rule::UnquotedCommandSubstitution),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
+        "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -136,6 +147,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
+        "SH-045" => Some(Rule::ChainedTestBranches),
+        "SH-046" => Some(Rule::LineOrientedInput),
         "SH-049" => Some(Rule::FindOutputLoop),
         "SH-050" => Some(Rule::ExportCommandSubstitution),
         "SH-052" => Some(Rule::LocalTopLevel),
@@ -147,6 +160,13 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-074" => Some(Rule::ConstantCaseSubject),
         "SH-075" => Some(Rule::EmptyTest),
         "SH-134" => Some(Rule::PipeToKill),
+        "SH-086" => Some(Rule::PositionalTenBraces),
+        "SH-141" => Some(Rule::InvalidExitStatus),
+        "SH-142" => Some(Rule::CasePatternVar),
+        "SH-144" => Some(Rule::ArithmeticRedirectionTarget),
+        "SH-152" => Some(Rule::PatternWithVariable),
+        "SH-159" => Some(Rule::SubstWithRedirect),
+        "SH-160" => Some(Rule::SubstWithRedirectErr),
         "SH-171" => Some(Rule::OverwrittenFunction),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         _ => None,
@@ -179,6 +199,7 @@ mod tests {
             code_to_rule("SH-035"),
             Some(Rule::LegacyArithmeticExpansion)
         );
+        assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));
         assert_eq!(code_to_rule("SH-038"), Some(Rule::UnquotedArrayExpansion));
@@ -190,6 +211,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));
         assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));
+        assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
+        assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
         assert_eq!(
             code_to_rule("SH-050"),
@@ -204,6 +227,16 @@ mod tests {
         assert_eq!(code_to_rule("SH-074"), Some(Rule::ConstantCaseSubject));
         assert_eq!(code_to_rule("SH-075"), Some(Rule::EmptyTest));
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));
+        assert_eq!(code_to_rule("SH-086"), Some(Rule::PositionalTenBraces));
+        assert_eq!(code_to_rule("SH-141"), Some(Rule::InvalidExitStatus));
+        assert_eq!(code_to_rule("SH-142"), Some(Rule::CasePatternVar));
+        assert_eq!(
+            code_to_rule("SH-144"),
+            Some(Rule::ArithmeticRedirectionTarget)
+        );
+        assert_eq!(code_to_rule("SH-152"), Some(Rule::PatternWithVariable));
+        assert_eq!(code_to_rule("SH-159"), Some(Rule::SubstWithRedirect));
+        assert_eq!(code_to_rule("SH-160"), Some(Rule::SubstWithRedirectErr));
         assert_eq!(code_to_rule("SH-171"), Some(Rule::OverwrittenFunction));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));

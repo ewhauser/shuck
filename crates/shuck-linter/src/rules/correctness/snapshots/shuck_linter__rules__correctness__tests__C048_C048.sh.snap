@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C048 case patterns should be literal instead of built from expansions
+ --> <source>:8:3
+  |
+8 |   $pat) printf '%s\n' match ;;
+  |
+
+C048 case patterns should be literal instead of built from expansions
+  --> <source>:13:3
+   |
+13 |   $(printf '%s' foo)) printf '%s\n' match ;;
+   |

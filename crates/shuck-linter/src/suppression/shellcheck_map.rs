@@ -35,7 +35,11 @@ impl Default for ShellCheckCodeMap {
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (1037, Rule::PositionalTenBraces),
+                (1090, Rule::DynamicSourcePath),
                 (2016, Rule::SingleQuotedLiteral),
+                (2013, Rule::LineOrientedInput),
+                (2015, Rule::ChainedTestBranches),
                 (1019, Rule::EmptyTest),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
@@ -58,6 +62,12 @@ impl Default for ShellCheckCodeMap {
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2154, Rule::UndefinedVariable),
+                (2241, Rule::InvalidExitStatus),
+                (2242, Rule::CasePatternVar),
+                (2244, Rule::ArithmeticRedirectionTarget),
+                (2250, Rule::PatternWithVariable),
+                (2255, Rule::SubstWithRedirect),
+                (2256, Rule::SubstWithRedirectErr),
                 (2266, Rule::OverwrittenFunction),
                 (2365, Rule::UnreachableAfterExit),
             ]),
@@ -77,7 +87,11 @@ mod tests {
         assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
+        assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
+        assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
+        assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
+        assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
@@ -102,6 +116,15 @@ mod tests {
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("SC2194"), Some(Rule::ConstantCaseSubject));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
+        assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
+        assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
+        assert_eq!(
+            map.resolve("SC2244"),
+            Some(Rule::ArithmeticRedirectionTarget)
+        );
+        assert_eq!(map.resolve("SC2250"), Some(Rule::PatternWithVariable));
+        assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
+        assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC9999"), None);
@@ -119,6 +142,10 @@ mod tests {
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (1037, Rule::PositionalTenBraces),
+                (1090, Rule::DynamicSourcePath),
+                (2013, Rule::LineOrientedInput),
+                (2015, Rule::ChainedTestBranches),
                 (2016, Rule::SingleQuotedLiteral),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
@@ -141,6 +168,12 @@ mod tests {
                 (2162, Rule::ReadWithoutRaw),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
+                (2241, Rule::InvalidExitStatus),
+                (2242, Rule::CasePatternVar),
+                (2244, Rule::ArithmeticRedirectionTarget),
+                (2250, Rule::PatternWithVariable),
+                (2255, Rule::SubstWithRedirect),
+                (2256, Rule::SubstWithRedirectErr),
                 (2266, Rule::OverwrittenFunction),
                 (2365, Rule::UnreachableAfterExit),
             ]
