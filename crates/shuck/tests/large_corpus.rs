@@ -12,7 +12,7 @@ use std::sync::{
     mpsc,
 };
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -38,6 +38,8 @@ const LARGE_CORPUS_DEFAULT_SHUCK_TIMEOUT: Duration = Duration::from_secs(30);
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
 const LARGE_CORPUS_WORKER_COUNT: usize = 4;
 const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
+const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
+const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PERCENT_STEP;
 const SHELLCHECK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
@@ -168,26 +170,44 @@ fn resolve_large_corpus_candidate_cache_rel_path(
 
 static LARGE_CORPUS_PROGRESS_LOG: Mutex<()> = Mutex::new(());
 
-struct FixtureProgress {
-    label: String,
-    started_at: Instant,
+struct LargeCorpusProgress {
+    total: usize,
+    completed: AtomicUsize,
+    logged_bucket: AtomicUsize,
 }
 
-impl FixtureProgress {
-    fn new(fixture: &LargeCorpusFixture) -> Self {
-        let label = fixture_progress_label(fixture);
-        log_large_corpus_progress(&format!("checking {label}"));
+impl LargeCorpusProgress {
+    fn new(total: usize) -> Self {
         Self {
-            label,
-            started_at: Instant::now(),
+            total,
+            completed: AtomicUsize::new(0),
+            logged_bucket: AtomicUsize::new(0),
         }
     }
-}
 
-impl Drop for FixtureProgress {
-    fn drop(&mut self) {
-        let elapsed = format_fixture_elapsed(self.started_at.elapsed());
-        log_large_corpus_progress(&format!("finished {} in {elapsed}", self.label));
+    fn finish_fixture(&self) {
+        let completed = self.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        let bucket = progress_bucket(self.total, completed);
+
+        loop {
+            let logged_bucket = self.logged_bucket.load(Ordering::Relaxed);
+            if bucket <= logged_bucket {
+                return;
+            }
+
+            if self
+                .logged_bucket
+                .compare_exchange(logged_bucket, bucket, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                let percent = bucket * LARGE_CORPUS_PROGRESS_PERCENT_STEP;
+                log_large_corpus_progress(&format!(
+                    "processed {completed}/{} fixtures ({percent}%)",
+                    self.total
+                ));
+                return;
+            }
+        }
     }
 }
 
@@ -200,6 +220,22 @@ fn log_large_corpus_progress(message: &str) {
 
 fn fixture_progress_label(fixture: &LargeCorpusFixture) -> String {
     fixture.cache_rel_path_key()
+}
+
+fn log_large_corpus_timeout(fixture: &LargeCorpusFixture) {
+    log_large_corpus_progress(&format!("timeout {}", fixture_progress_label(fixture)));
+}
+
+fn progress_bucket(total: usize, completed: usize) -> usize {
+    if total == 0 {
+        return 0;
+    }
+
+    let completed = completed.min(total) as u128;
+    let total = total as u128;
+    let bucket_count = LARGE_CORPUS_PROGRESS_BUCKET_COUNT as u128;
+
+    ((completed * bucket_count) / total) as usize
 }
 
 fn format_fixture_elapsed(duration: Duration) -> String {
@@ -573,26 +609,36 @@ fn collect_fixture_failures<F>(
 where
     F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure> + Sync,
 {
+    let progress = LargeCorpusProgress::new(fixtures.len());
+
     if keep_going {
         return collect_fixture_failures_in_parallel(
             fixtures,
             LARGE_CORPUS_WORKER_COUNT,
             &evaluate,
+            &progress,
         );
     }
 
-    collect_fixture_failures_sequential(fixtures, &evaluate)
+    collect_fixture_failures_sequential(fixtures, &evaluate, &progress)
 }
 
 fn collect_fixture_failures_sequential<F>(
     fixtures: &[&LargeCorpusFixture],
     evaluate: &F,
+    progress: &LargeCorpusProgress,
 ) -> FixtureFailureCollection
 where
     F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure>,
 {
     for fixture in fixtures {
-        if let Some(failure) = evaluate(fixture) {
+        let failure = evaluate(fixture);
+        progress.finish_fixture();
+
+        if let Some(failure) = failure {
+            if failure.kind == FixtureFailureKind::Timeout {
+                log_large_corpus_timeout(fixture);
+            }
             panic!("{}", failure.message);
         }
     }
@@ -604,6 +650,7 @@ fn collect_fixture_failures_in_parallel<F>(
     fixtures: &[&LargeCorpusFixture],
     worker_count: usize,
     evaluate: &F,
+    progress: &LargeCorpusProgress,
 ) -> FixtureFailureCollection
 where
     F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure> + Sync,
@@ -622,6 +669,7 @@ where
         for _ in 0..worker_count {
             let failures = &failures;
             let next_index = &next_index;
+            let progress = progress;
             let timeout_failures = &timeout_failures;
             let timeout_cap_reached = &timeout_cap_reached;
             scope.spawn(move || {
@@ -637,9 +685,13 @@ where
                     }
 
                     let fixture = fixtures[index];
-                    match panic::catch_unwind(AssertUnwindSafe(|| evaluate(fixture))) {
+                    let result = panic::catch_unwind(AssertUnwindSafe(|| evaluate(fixture)));
+                    progress.finish_fixture();
+
+                    match result {
                         Ok(Some(failure)) => {
                             if failure.kind == FixtureFailureKind::Timeout {
+                                log_large_corpus_timeout(fixture);
                                 let timeout_count =
                                     timeout_failures.fetch_add(1, Ordering::Relaxed) + 1;
                                 if timeout_count <= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
@@ -706,7 +758,6 @@ fn evaluate_fixture_compatibility(
     shellcheck_filter_codes: Option<&HashSet<u32>>,
     shuck_path_resolver: Arc<LargeCorpusPathResolver>,
 ) -> Option<FixtureFailure> {
-    let _progress = FixtureProgress::new(fixture);
     let mut issues: Vec<String> = Vec::new();
     let mut failure_kind = FixtureFailureKind::Other;
 
@@ -2036,6 +2087,24 @@ mod tests {
         );
 
         assert_eq!(fixture_progress_label(&fixture), "nested/example.sh");
+    }
+
+    #[test]
+    fn progress_bucket_waits_until_a_full_five_percent_is_complete() {
+        assert_eq!(progress_bucket(21, 1), 0);
+        assert_eq!(progress_bucket(21, 2), 1);
+    }
+
+    #[test]
+    fn progress_bucket_can_skip_ahead_for_small_fixture_sets() {
+        assert_eq!(progress_bucket(3, 1), 6);
+        assert_eq!(progress_bucket(3, 2), 13);
+        assert_eq!(progress_bucket(3, 3), 20);
+    }
+
+    #[test]
+    fn progress_bucket_clamps_to_one_hundred_percent() {
+        assert_eq!(progress_bucket(20, 25), 20);
     }
 
     #[test]
