@@ -80,7 +80,8 @@ Relevant environment variables for the large-corpus harness:
 
 - `SHUCK_TEST_LARGE_CORPUS=1` — enables the ignored large-corpus test. `make test-large-corpus` sets this for you.
 - `SHUCK_LARGE_CORPUS_ROOT=/path/to/corpus` — overrides corpus discovery. By default the test looks under `.cache/large-corpus` and then `../shell-checks`.
-- `SHUCK_LARGE_CORPUS_TIMEOUT_SECS=300` — per-fixture timeout budget.
+- `SHUCK_LARGE_CORPUS_TIMEOUT_SECS=300` — ShellCheck timeout budget per fixture.
+- `SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS=30` — Shuck timeout budget per fixture.
 - `TEST_SHARD_INDEX=0` and `TEST_TOTAL_SHARDS=1` — split the corpus run across shards.
 - `SHUCK_LARGE_CORPUS_RULES=C001,C006` — comma-separated rule selectors to compare. Accepts exact rule codes and the existing selector syntax such as category or prefix selectors.
 - `SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=100` — deterministic fixture sampling percentage in `[1,100]`.

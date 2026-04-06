@@ -30,4 +30,5 @@ shuck-linter = { path = "../shuck-linter" }
 shuck-parser = { path = "../shuck-parser" }
 shuck-semantic = { path = "../shuck-semantic" }
 tempfile = { workspace = true }
+wait-timeout = "0.2"
 walkdir = "2"

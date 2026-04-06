@@ -2,15 +2,21 @@ use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::Mutex;
+use std::process::{Command, Stdio};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc,
+};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use wait_timeout::ChildExt;
 
 // ---------------------------------------------------------------------------
 // Environment variable names (matching the Go test)
@@ -18,7 +24,8 @@ use sha2::{Digest, Sha256};
 
 const LARGE_CORPUS_ENV: &str = "SHUCK_TEST_LARGE_CORPUS";
 const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
-const LARGE_CORPUS_TIMEOUT_ENV: &str = "SHUCK_LARGE_CORPUS_TIMEOUT_SECS";
+const LARGE_CORPUS_SHELLCHECK_TIMEOUT_ENV: &str = "SHUCK_LARGE_CORPUS_TIMEOUT_SECS";
+const LARGE_CORPUS_SHUCK_TIMEOUT_ENV: &str = "SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS";
 const LARGE_CORPUS_SHARD_ENV: &str = "TEST_SHARD_INDEX";
 const LARGE_CORPUS_SHARDS_ENV: &str = "TEST_TOTAL_SHARDS";
 const LARGE_CORPUS_RULES_ENV: &str = "SHUCK_LARGE_CORPUS_RULES";
@@ -26,9 +33,11 @@ const LARGE_CORPUS_SAMPLE_PERCENT_ENV: &str = "SHUCK_LARGE_CORPUS_SAMPLE_PERCENT
 const LARGE_CORPUS_MAPPED_ONLY_ENV: &str = "SHUCK_LARGE_CORPUS_MAPPED_ONLY";
 const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
 
-const LARGE_CORPUS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
+const LARGE_CORPUS_DEFAULT_SHELLCHECK_TIMEOUT: Duration = Duration::from_secs(300);
+const LARGE_CORPUS_DEFAULT_SHUCK_TIMEOUT: Duration = Duration::from_secs(30);
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
 const LARGE_CORPUS_WORKER_COUNT: usize = 4;
+const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
 const SHELLCHECK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
@@ -42,7 +51,8 @@ const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 struct LargeCorpusConfig {
     corpus_dir: PathBuf,
     cache_dir: PathBuf,
-    timeout: Duration,
+    shellcheck_timeout: Duration,
+    shuck_timeout: Duration,
     shard_index: usize,
     total_shards: usize,
     selected_rules: Option<shuck_linter::RuleSet>,
@@ -66,6 +76,82 @@ struct LargeCorpusFixture {
 impl LargeCorpusFixture {
     fn cache_rel_path_key(&self) -> String {
         normalize_cache_rel_path(&self.cache_rel_path)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Progress logging
+// ---------------------------------------------------------------------------
+
+static LARGE_CORPUS_PROGRESS_LOG: Mutex<()> = Mutex::new(());
+
+struct FixtureProgress {
+    label: String,
+    started_at: Instant,
+}
+
+impl FixtureProgress {
+    fn new(fixture: &LargeCorpusFixture) -> Self {
+        let label = fixture_progress_label(fixture);
+        log_large_corpus_progress(&format!("checking {label}"));
+        Self {
+            label,
+            started_at: Instant::now(),
+        }
+    }
+}
+
+impl Drop for FixtureProgress {
+    fn drop(&mut self) {
+        let elapsed = format_fixture_elapsed(self.started_at.elapsed());
+        log_large_corpus_progress(&format!("finished {} in {elapsed}", self.label));
+    }
+}
+
+fn log_large_corpus_progress(message: &str) {
+    let _guard = LARGE_CORPUS_PROGRESS_LOG
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    eprintln!("large corpus: {message}");
+}
+
+fn fixture_progress_label(fixture: &LargeCorpusFixture) -> String {
+    fixture.cache_rel_path_key()
+}
+
+fn format_fixture_elapsed(duration: Duration) -> String {
+    let millis = duration.as_millis();
+    if millis < 1_000 {
+        return format!("{millis}ms");
+    }
+
+    format!("{:.3}s", duration.as_secs_f64())
+}
+
+fn format_timeout_message(label: &str, timeout: Duration) -> String {
+    format!(
+        "{label} timed out after {}",
+        format_fixture_elapsed(timeout)
+    )
+}
+
+fn run_with_timeout<T, F>(label: &'static str, timeout: Duration, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let result = work();
+        let _ = sender.send(result);
+    });
+
+    match receiver.recv_timeout(timeout) {
+        Ok(result) => Ok(result),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(format_timeout_message(label, timeout)),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(format!("{label} worker thread exited before returning"))
+        }
     }
 }
 
@@ -301,6 +387,24 @@ struct ShuckRun {
     parse_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FixtureFailureKind {
+    Other,
+    Timeout,
+}
+
+#[derive(Debug, Clone)]
+struct FixtureFailure {
+    message: String,
+    kind: FixtureFailureKind,
+}
+
+#[derive(Debug, Default)]
+struct FixtureFailureCollection {
+    failures: Vec<String>,
+    timeout_cap_reached: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Main test
 // ---------------------------------------------------------------------------
@@ -342,26 +446,37 @@ fn large_corpus_conforms_with_shellcheck() {
         .collect();
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
 
-    let failures = collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
-        evaluate_fixture_compatibility(
-            fixture,
-            &shellcheck_cache,
-            &shellcheck.command,
-            cfg.timeout,
-            &linter_settings,
-            &shellcheck_index,
-            &sc2034_allowlist,
-            shellcheck_filter_codes.as_ref(),
+    let failure_collection =
+        collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
+            evaluate_fixture_compatibility(
+                fixture,
+                &shellcheck_cache,
+                &shellcheck.command,
+                cfg.shellcheck_timeout,
+                cfg.shuck_timeout,
+                &linter_settings,
+                &shellcheck_index,
+                &sc2034_allowlist,
+                shellcheck_filter_codes.as_ref(),
+            )
+        });
+    let timeout_cap_note = if failure_collection.timeout_cap_reached {
+        format!(
+            "; stopped after reaching timeout cap of {} fixture timeouts",
+            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
         )
-    });
+    } else {
+        String::new()
+    };
 
     assert!(
-        failures.is_empty(),
-        "large corpus compatibility had {} failure(s) across {} fixture(s) ({} skipped unsupported shells):\n\n{}",
-        failures.len(),
+        failure_collection.failures.is_empty(),
+        "large corpus compatibility had {} failure(s) across {} fixture(s) ({} skipped unsupported shells){}:\n\n{}",
+        failure_collection.failures.len(),
         fixtures.len(),
         skipped_unsupported_shells,
-        failures.join("\n\n")
+        timeout_cap_note,
+        failure_collection.failures.join("\n\n")
     );
 }
 
@@ -369,9 +484,9 @@ fn collect_fixture_failures<F>(
     fixtures: &[&LargeCorpusFixture],
     keep_going: bool,
     evaluate: F,
-) -> Vec<String>
+) -> FixtureFailureCollection
 where
-    F: Fn(&LargeCorpusFixture) -> Option<String> + Sync,
+    F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure> + Sync,
 {
     if keep_going {
         return collect_fixture_failures_in_parallel(
@@ -387,45 +502,72 @@ where
 fn collect_fixture_failures_sequential<F>(
     fixtures: &[&LargeCorpusFixture],
     evaluate: &F,
-) -> Vec<String>
+) -> FixtureFailureCollection
 where
-    F: Fn(&LargeCorpusFixture) -> Option<String>,
+    F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure>,
 {
     for fixture in fixtures {
         if let Some(failure) = evaluate(fixture) {
-            panic!("{failure}");
+            panic!("{}", failure.message);
         }
     }
 
-    Vec::new()
+    FixtureFailureCollection::default()
 }
 
 fn collect_fixture_failures_in_parallel<F>(
     fixtures: &[&LargeCorpusFixture],
     worker_count: usize,
     evaluate: &F,
-) -> Vec<String>
+) -> FixtureFailureCollection
 where
-    F: Fn(&LargeCorpusFixture) -> Option<String> + Sync,
+    F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure> + Sync,
 {
     if fixtures.is_empty() {
-        return Vec::new();
+        return FixtureFailureCollection::default();
     }
 
     let worker_count = worker_count.max(1).min(fixtures.len());
-    let chunk_size = fixtures.len().div_ceil(worker_count);
+    let next_index = AtomicUsize::new(0);
+    let timeout_failures = AtomicUsize::new(0);
+    let timeout_cap_reached = AtomicBool::new(false);
     let failures = Mutex::new(Vec::<(usize, String)>::new());
 
     thread::scope(|scope| {
-        for (chunk_index, chunk) in fixtures.chunks(chunk_size).enumerate() {
+        for _ in 0..worker_count {
             let failures = &failures;
+            let next_index = &next_index;
+            let timeout_failures = &timeout_failures;
+            let timeout_cap_reached = &timeout_cap_reached;
             scope.spawn(move || {
                 let mut local_failures = Vec::new();
-                for (offset, fixture) in chunk.iter().enumerate() {
-                    let fixture = *fixture;
-                    let index = chunk_index * chunk_size + offset;
+                loop {
+                    if timeout_cap_reached.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let index = next_index.fetch_add(1, Ordering::Relaxed);
+                    if index >= fixtures.len() {
+                        break;
+                    }
+
+                    let fixture = fixtures[index];
                     match panic::catch_unwind(AssertUnwindSafe(|| evaluate(fixture))) {
-                        Ok(Some(failure)) => local_failures.push((index, failure)),
+                        Ok(Some(failure)) => {
+                            if failure.kind == FixtureFailureKind::Timeout {
+                                let timeout_count =
+                                    timeout_failures.fetch_add(1, Ordering::Relaxed) + 1;
+                                if timeout_count <= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
+                                    local_failures.push((index, failure.message));
+                                }
+                                if timeout_count >= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
+                                    timeout_cap_reached.store(true, Ordering::Relaxed);
+                                }
+                                continue;
+                            }
+
+                            local_failures.push((index, failure.message));
+                        }
                         Ok(None) => {}
                         Err(payload) => {
                             local_failures.push((index, format_fixture_panic(fixture, payload)));
@@ -442,7 +584,10 @@ where
 
     let mut failures = failures.into_inner().unwrap();
     failures.sort_by_key(|(index, _)| *index);
-    failures.into_iter().map(|(_, failure)| failure).collect()
+    FixtureFailureCollection {
+        failures: failures.into_iter().map(|(_, failure)| failure).collect(),
+        timeout_cap_reached: timeout_cap_reached.load(Ordering::Relaxed),
+    }
 }
 
 fn format_fixture_panic(fixture: &LargeCorpusFixture, payload: Box<dyn Any + Send>) -> String {
@@ -468,20 +613,31 @@ fn evaluate_fixture_compatibility(
     fixture: &LargeCorpusFixture,
     shellcheck_cache: &ShellCheckCache,
     shellcheck_path: &str,
-    timeout: Duration,
+    shellcheck_timeout: Duration,
+    shuck_timeout: Duration,
     linter_settings: &shuck_linter::LinterSettings,
     shellcheck_index: &HashMap<String, String>,
     sc2034_allowlist: &[ShellCheckRuleAllowlistEntry],
     shellcheck_filter_codes: Option<&HashSet<u32>>,
-) -> Option<String> {
+) -> Option<FixtureFailure> {
+    let _progress = FixtureProgress::new(fixture);
     let mut issues: Vec<String> = Vec::new();
+    let mut failure_kind = FixtureFailureKind::Other;
 
-    let shuck_run = run_shuck(fixture, linter_settings);
+    let shuck_run = match run_shuck_with_timeout(fixture, linter_settings, shuck_timeout) {
+        Ok(run) => run,
+        Err(err) => {
+            return Some(FixtureFailure {
+                kind: fixture_failure_kind_for_message(&err, "shuck"),
+                message: format_fixture_failure(&fixture.path, &[err]),
+            });
+        }
+    };
     if let Some(ref err) = shuck_run.parse_error {
         issues.push(format!("shuck parse error: {err}"));
     }
 
-    match shellcheck_cache.run_fixture(fixture, shellcheck_path, timeout) {
+    match shellcheck_cache.run_fixture(fixture, shellcheck_path, shellcheck_timeout) {
         Ok(sc_run) => {
             let sc_run = apply_shellcheck_allowlist(
                 sc2034_allowlist,
@@ -510,11 +666,29 @@ fn evaluate_fixture_compatibility(
             }
         }
         Err(err) => {
+            if fixture_failure_kind_for_message(&err, "shellcheck") == FixtureFailureKind::Timeout {
+                failure_kind = FixtureFailureKind::Timeout;
+            }
             issues.push(format!("shellcheck error: {err}"));
         }
     }
 
-    (!issues.is_empty()).then(|| format_fixture_failure(&fixture.path, &issues))
+    (!issues.is_empty()).then(|| FixtureFailure {
+        kind: failure_kind,
+        message: format_fixture_failure(&fixture.path, &issues),
+    })
+}
+
+fn fixture_failure_kind_for_message(message: &str, label: &str) -> FixtureFailureKind {
+    if is_timeout_message(message, label) {
+        FixtureFailureKind::Timeout
+    } else {
+        FixtureFailureKind::Other
+    }
+}
+
+fn is_timeout_message(message: &str, label: &str) -> bool {
+    message.starts_with(label) && message.contains(" timed out after ")
 }
 
 fn filter_shellcheck_run(
@@ -658,8 +832,12 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
     for candidate in &candidates {
         if let Some(corpus_dir) = normalize_large_corpus_root(candidate) {
             let timeout_secs = positive_env_int(
-                LARGE_CORPUS_TIMEOUT_ENV,
-                LARGE_CORPUS_DEFAULT_TIMEOUT.as_secs() as usize,
+                LARGE_CORPUS_SHELLCHECK_TIMEOUT_ENV,
+                LARGE_CORPUS_DEFAULT_SHELLCHECK_TIMEOUT.as_secs() as usize,
+            );
+            let shuck_timeout_secs = positive_env_int(
+                LARGE_CORPUS_SHUCK_TIMEOUT_ENV,
+                LARGE_CORPUS_DEFAULT_SHUCK_TIMEOUT.as_secs() as usize,
             );
             let total_shards = positive_env_int(LARGE_CORPUS_SHARDS_ENV, 1);
             let shard_index = non_negative_env_int(LARGE_CORPUS_SHARD_ENV, 0);
@@ -674,7 +852,8 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
             return Some(LargeCorpusConfig {
                 corpus_dir,
                 cache_dir: default_root,
-                timeout: Duration::from_secs(timeout_secs as u64),
+                shellcheck_timeout: Duration::from_secs(timeout_secs as u64),
+                shuck_timeout: Duration::from_secs(shuck_timeout_secs as u64),
                 shard_index,
                 total_shards,
                 selected_rules,
@@ -994,6 +1173,18 @@ fn run_shuck(
     }
 }
 
+fn run_shuck_with_timeout(
+    fixture: &LargeCorpusFixture,
+    linter_settings: &shuck_linter::LinterSettings,
+    timeout: Duration,
+) -> Result<ShuckRun, String> {
+    let fixture = fixture.clone();
+    let linter_settings = linter_settings.clone();
+    run_with_timeout("shuck", timeout, move || {
+        run_shuck(&fixture, &linter_settings)
+    })
+}
+
 fn build_shellcheck_index() -> HashMap<String, String> {
     shuck_linter::ShellCheckCodeMap::default()
         .mappings()
@@ -1080,24 +1271,51 @@ fn run_shellcheck(
     path: &Path,
     shell: &str,
     shellcheck_path: &str,
-    _timeout: Duration,
+    timeout: Duration,
 ) -> Result<ShellCheckRun, String> {
-    let output = Command::new(shellcheck_path)
+    let mut child = Command::new(shellcheck_path)
         .args(["--norc", "-s", shell, "-f", "json1"])
         .arg(path)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("shellcheck exec: {e}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "shellcheck exec: failed to capture stdout".to_owned())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "shellcheck exec: failed to capture stderr".to_owned())?;
+    let stdout_reader = thread::spawn(move || read_shellcheck_pipe(stdout, "stdout"));
+    let stderr_reader = thread::spawn(move || read_shellcheck_pipe(stderr, "stderr"));
+    let status = match child
+        .wait_timeout(timeout)
+        .map_err(|e| format!("shellcheck wait: {e}"))?
+    {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(format_timeout_message("shellcheck", timeout));
+        }
+    };
+    let stdout = join_shellcheck_pipe(stdout_reader, "stdout")?;
+    let stderr = join_shellcheck_pipe(stderr_reader, "stderr")?;
 
     // shellcheck exits 1 when it finds issues, which is normal
-    if !output.status.success() {
-        let code = output.status.code().unwrap_or(-1);
+    if !status.success() {
+        let code = status.code().unwrap_or(-1);
         if code != 1 {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = String::from_utf8_lossy(&stderr);
             return Err(format!("shellcheck exit {code}: {stderr}"));
         }
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8_lossy(&stdout);
     if stdout.trim().is_empty() {
         return Ok(ShellCheckRun {
             diagnostics: Vec::new(),
@@ -1111,6 +1329,22 @@ fn run_shellcheck(
         diagnostics,
         parse_aborted,
     })
+}
+
+fn read_shellcheck_pipe<R: Read>(mut pipe: R, label: &str) -> Result<Vec<u8>, String> {
+    let mut data = Vec::new();
+    pipe.read_to_end(&mut data)
+        .map_err(|err| format!("shellcheck {label}: {err}"))?;
+    Ok(data)
+}
+
+fn join_shellcheck_pipe(
+    reader: thread::JoinHandle<Result<Vec<u8>, String>>,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    reader
+        .join()
+        .map_err(|_| format!("shellcheck {label} reader panicked"))?
 }
 
 fn decode_shellcheck_diagnostics(data: &[u8]) -> Result<Vec<ShellCheckDiagnostic>, String> {
@@ -1695,6 +1929,73 @@ mod tests {
     }
 
     #[test]
+    fn fixture_progress_label_uses_cache_relative_path() {
+        let fixture = fixture_at(
+            Path::new("/tmp/worktree-a/.cache/large-corpus/scripts/nested/example.sh"),
+            Path::new("nested/example.sh"),
+        );
+
+        assert_eq!(fixture_progress_label(&fixture), "nested/example.sh");
+    }
+
+    #[test]
+    fn format_fixture_elapsed_uses_millis_for_short_runs() {
+        assert_eq!(format_fixture_elapsed(Duration::from_millis(842)), "842ms");
+    }
+
+    #[test]
+    fn format_fixture_elapsed_uses_seconds_for_longer_runs() {
+        assert_eq!(
+            format_fixture_elapsed(Duration::from_millis(1_234)),
+            "1.234s"
+        );
+    }
+
+    #[test]
+    fn run_with_timeout_returns_completed_result() {
+        let result = run_with_timeout("test worker", Duration::from_millis(50), || 42).unwrap();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn run_with_timeout_reports_timeout() {
+        let err = run_with_timeout("test worker", Duration::from_millis(10), || {
+            thread::sleep(Duration::from_millis(50));
+            42
+        })
+        .unwrap_err();
+
+        assert_eq!(err, "test worker timed out after 10ms");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_shellcheck_reports_timeout() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture_path = tempdir.path().join("fixture.sh");
+        let shellcheck_path = tempdir.path().join("fake-shellcheck");
+
+        fs::write(&fixture_path, "echo hi\n").unwrap();
+        fs::write(&shellcheck_path, "#!/bin/sh\nsleep 1\nprintf '[]'\n").unwrap();
+
+        let mut permissions = fs::metadata(&shellcheck_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&shellcheck_path, permissions).unwrap();
+
+        let err = run_shellcheck(
+            &fixture_path,
+            "sh",
+            shellcheck_path.to_str().unwrap(),
+            Duration::from_millis(10),
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "shellcheck timed out after 10ms");
+    }
+
+    #[test]
     fn shard_fixtures_contiguous_split() {
         let fixtures: Vec<LargeCorpusFixture> = (0..100)
             .map(|i| LargeCorpusFixture {
@@ -2069,10 +2370,13 @@ mod tests {
 
         let failures = collect_fixture_failures(&fixtures, true, |fixture| {
             seen.lock().unwrap().push(fixture.path.clone());
-            Some(format_fixture_failure(
-                &fixture.path,
-                &[format!("{} failed", fixture.path.display())],
-            ))
+            Some(FixtureFailure {
+                kind: FixtureFailureKind::Other,
+                message: format_fixture_failure(
+                    &fixture.path,
+                    &[format!("{} failed", fixture.path.display())],
+                ),
+            })
         });
 
         let mut seen = seen.into_inner().unwrap();
@@ -2082,9 +2386,10 @@ mod tests {
             seen,
             vec![PathBuf::from("first.sh"), PathBuf::from("second.sh")]
         );
-        assert_eq!(failures.len(), 2);
-        assert!(failures[0].contains("first.sh"));
-        assert!(failures[1].contains("second.sh"));
+        assert!(!failures.timeout_cap_reached);
+        assert_eq!(failures.failures.len(), 2);
+        assert!(failures.failures[0].contains("first.sh"));
+        assert!(failures.failures[1].contains("second.sh"));
     }
 
     #[test]
@@ -2092,13 +2397,47 @@ mod tests {
         let fixture = fixture("panic.sh");
         let fixtures = vec![&fixture];
 
-        let failures = collect_fixture_failures(&fixtures, true, |_| -> Option<String> {
+        let failures = collect_fixture_failures(&fixtures, true, |_| -> Option<FixtureFailure> {
             panic!("boom");
         });
 
-        assert_eq!(failures.len(), 1);
-        assert!(failures[0].contains("panic.sh"));
-        assert!(failures[0].contains("fixture panic: boom"));
+        assert!(!failures.timeout_cap_reached);
+        assert_eq!(failures.failures.len(), 1);
+        assert!(failures.failures[0].contains("panic.sh"));
+        assert!(failures.failures[0].contains("fixture panic: boom"));
+    }
+
+    #[test]
+    fn keep_going_stops_after_five_timeouts() {
+        let fixtures: Vec<_> = (0..10)
+            .map(|i| fixture(&format!("timeout-{i}.sh")))
+            .collect();
+        let fixture_refs: Vec<_> = fixtures.iter().collect();
+        let seen = AtomicUsize::new(0);
+
+        let failures = collect_fixture_failures(&fixture_refs, true, |fixture| {
+            seen.fetch_add(1, Ordering::Relaxed);
+            Some(FixtureFailure {
+                kind: FixtureFailureKind::Timeout,
+                message: format_fixture_failure(
+                    &fixture.path,
+                    &[format!(
+                        "shuck error: {}",
+                        format_timeout_message("shuck", Duration::from_secs(30))
+                    )],
+                ),
+            })
+        });
+
+        assert!(failures.timeout_cap_reached);
+        assert_eq!(failures.failures.len(), LARGE_CORPUS_TIMEOUT_FAILURE_CAP);
+        assert!(seen.load(Ordering::Relaxed) <= fixture_refs.len());
+        assert!(
+            failures
+                .failures
+                .iter()
+                .all(|failure| failure.contains("timed out after"))
+        );
     }
 
     #[test]
