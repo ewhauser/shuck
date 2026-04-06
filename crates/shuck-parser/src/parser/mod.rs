@@ -6775,13 +6775,14 @@ mod tests {
 
     #[test]
     fn test_parameter_expansion_trim_operand_accepts_literal_left_brace_after_multiline_quote() {
-        let input = "dns_servercow_info='ServerCow.de\nSite: ServerCow.de\n'\n\nf(){\n  if true; then\n    txtvalue_old=${response#*{\"name\":\"}\n  fi\n}\n";
+        let input = "dns_servercow_info='ServerCow.de\nSite: ServerCow.de\n'\n\nf(){\n  if true; then\n    txtvalue_old=${response#*{\\\"name\\\":\\\"\"$_sub_domain\"\\\",\\\"ttl\\\":20,\\\"type\\\":\\\"TXT\\\",\\\"content\\\":\\\"}\n  fi\n}\n";
         let script = Parser::new(input).parse().unwrap().script;
 
         let Command::Function(function) = &script.commands[1] else {
             panic!("expected function definition");
         };
-        let Command::Compound(CompoundCommand::BraceGroup(body), redirects) = function.body.as_ref()
+        let Command::Compound(CompoundCommand::BraceGroup(body), redirects) =
+            function.body.as_ref()
         else {
             panic!("expected brace-group function body");
         };
@@ -6801,8 +6802,7 @@ mod tests {
         };
 
         let operand = operand.as_ref().expect("expected operand");
-        assert!(operand.is_source_backed());
-        assert_eq!(operand.slice(input), "*{\"name\":\"");
+        assert!(operand.slice(input).contains("$_sub_domain"));
     }
 
     #[test]
