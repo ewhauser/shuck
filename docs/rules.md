@@ -390,9 +390,9 @@ Proposed additions:
 
 Action items:
 
-- [ ] Define a metadata format for reviewed divergence and mapping notes.
-- [ ] Teach the large-corpus reporting pipeline to emit implementation diffs separately from noise and reviewed divergence.
-- [ ] Audit rules whose docs say the remaining work is mainly policy or mapping.
+- [x] Define a metadata format for reviewed divergence and mapping notes under `crates/shuck/tests/testdata/corpus-metadata/`.
+- [x] Teach the large-corpus reporting pipeline to emit implementation diffs separately from noise and reviewed divergence.
+- [x] Audit rules whose docs say the remaining work is mainly policy or mapping.
 
 Rules to refactor or reclassify through this helper:
 

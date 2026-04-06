@@ -1,0 +1,13 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__install__cronicle-install.sh"
+    line: 28
+    reason: "ShellCheck warns on source /dev/stdin here-strings even though the source target is fixed"
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__install__nginxproxymanager-install.sh"
+    line: 58
+    reason: "ShellCheck warns on source /dev/stdin here-strings even though the source target is fixed"
+  - side: shuck-only
+    labels:
+      - project-closure
+    reason: "project-closure helper sourcing remains reviewed policy divergence rather than an implementation bug"

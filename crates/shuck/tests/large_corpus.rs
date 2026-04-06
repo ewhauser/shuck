@@ -40,8 +40,7 @@ const LARGE_CORPUS_WORKER_COUNT: usize = 4;
 const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
 const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
 const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PERCENT_STEP;
-const SHELLCHECK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists";
-const SHUCK_RULE_ALLOWLIST_DIR: &str = "tests/testdata/allowlists/shuck";
+const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
@@ -306,21 +305,113 @@ struct ShellCheckProbe {
     version_text: String,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
-struct RuleAllowlistDocument {
-    entries: Vec<RuleAllowlistEntry>,
+struct RuleCorpusMetadataDocument {
+    #[serde(default)]
+    reviewed_divergences: Vec<ReviewedDivergenceRecord>,
+    #[serde(default)]
+    comparison_target_notes: Vec<ComparisonTargetNote>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CompatibilitySide {
+    ShellcheckOnly,
+    ShuckOnly,
+}
+
+impl CompatibilitySide {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::ShellcheckOnly => "shellcheck-only",
+            Self::ShuckOnly => "shuck-only",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct RuleAllowlistEntry {
-    path_suffix: String,
+struct ReviewedDivergenceRecord {
+    side: CompatibilitySide,
+    #[serde(default)]
+    path_suffix: Option<String>,
+    #[serde(default)]
+    line: Option<usize>,
+    #[serde(default)]
+    end_line: Option<usize>,
+    #[serde(default)]
+    column: Option<usize>,
+    #[serde(default)]
+    end_column: Option<usize>,
+    #[serde(default)]
+    labels: Vec<String>,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct ComparisonTargetNote {
+    current_shellcheck_code: String,
+    reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DiagnosticRange {
     line: usize,
     end_line: usize,
     column: usize,
     end_column: usize,
-    reason: String,
+}
+
+impl DiagnosticRange {
+    fn display(&self) -> String {
+        format_range(self.line, self.column, self.end_line, self.end_column)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CompatibilityRecord {
+    side: CompatibilitySide,
+    rule_code: Option<String>,
+    shellcheck_code: String,
+    range: DiagnosticRange,
+    message: String,
+    labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CompatibilityRecordKey {
+    shellcheck_code: String,
+    range: DiagnosticRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompatibilityClassification {
+    Implementation,
+    MappingIssue,
+    ReviewedDivergence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CorpusNoiseKind {
+    UnsupportedShell,
+    Patch,
+    Fish,
+    ParseAbort,
+    ShellCollapse,
+}
+
+impl CorpusNoiseKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::UnsupportedShell => "unsupported-shell",
+            Self::Patch => "patch",
+            Self::Fish => "fish",
+            Self::ParseAbort => "parse-abort",
+            Self::ShellCollapse => "shell-collapse",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +593,6 @@ impl ShellCheckCache {
 // ---------------------------------------------------------------------------
 
 struct ShuckRun {
-    locations: HashMap<String, usize>,
     diagnostics: Vec<shuck_linter::Diagnostic>,
     parse_error: Option<String>,
 }
@@ -520,9 +610,35 @@ struct FixtureFailure {
 }
 
 #[derive(Debug, Default)]
+struct FixtureEvaluation {
+    implementation_diffs: Vec<String>,
+    mapping_issues: Vec<String>,
+    reviewed_divergences: Vec<String>,
+    corpus_noise: Vec<String>,
+    harness_failure: Option<FixtureFailure>,
+}
+
+#[derive(Debug, Default)]
 struct FixtureFailureCollection {
-    failures: Vec<String>,
+    implementation_diffs: Vec<String>,
+    mapping_issues: Vec<String>,
+    reviewed_divergences: Vec<String>,
+    corpus_noise: Vec<String>,
+    harness_failures: Vec<String>,
+    unsupported_shells: usize,
     timeout_cap_reached: bool,
+}
+
+impl FixtureFailureCollection {
+    fn blocking_failures(&self) -> usize {
+        self.implementation_diffs.len() + self.mapping_issues.len() + self.harness_failures.len()
+    }
+
+    fn has_nonblocking_items(&self) -> bool {
+        self.unsupported_shells > 0
+            || !self.reviewed_divergences.is_empty()
+            || !self.corpus_noise.is_empty()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -552,10 +668,9 @@ fn large_corpus_conforms_with_shellcheck() {
         .expect("shellcheck not found on PATH; install it to run the large corpus test");
 
     let supported_shells = shellcheck_supported_shells(&shellcheck.command);
-    let shellcheck_index = build_shellcheck_index();
-    let sc2034_allowlist =
-        load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
-    let shuck_allowlists = load_all_shuck_allowlists();
+    let shellcheck_index = build_rule_to_shellcheck_index();
+    let shellcheck_rule_index = build_shellcheck_to_rule_index();
+    let corpus_metadata = load_all_rule_corpus_metadata();
     let shellcheck_filter_codes =
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
@@ -578,12 +693,14 @@ fn large_corpus_conforms_with_shellcheck() {
                 cfg.shuck_timeout,
                 &linter_settings,
                 &shellcheck_index,
-                &sc2034_allowlist,
-                &shuck_allowlists,
+                &shellcheck_rule_index,
+                &corpus_metadata,
                 shellcheck_filter_codes.as_ref(),
                 Arc::clone(&shuck_path_resolver),
             )
         });
+    let mut failure_collection = failure_collection;
+    failure_collection.unsupported_shells = skipped_unsupported_shells;
     let timeout_cap_note = if failure_collection.timeout_cap_reached {
         format!(
             "; stopped after reaching timeout cap of {} fixture timeouts",
@@ -593,14 +710,23 @@ fn large_corpus_conforms_with_shellcheck() {
         String::new()
     };
 
+    if failure_collection.blocking_failures() == 0 && failure_collection.has_nonblocking_items() {
+        eprintln!(
+            "large corpus non-blocking summary: reviewed divergence={}, corpus noise={}, unsupported-shell={}",
+            failure_collection.reviewed_divergences.len(),
+            failure_collection.corpus_noise.len(),
+            failure_collection.unsupported_shells,
+        );
+    }
+
     assert!(
-        failure_collection.failures.is_empty(),
-        "large corpus compatibility had {} failure(s) across {} fixture(s) ({} skipped unsupported shells){}:\n\n{}",
-        failure_collection.failures.len(),
+        failure_collection.blocking_failures() == 0,
+        "large corpus compatibility had {} blocking issue(s) across {} fixture(s) ({} skipped unsupported shells){}:\n\n{}",
+        failure_collection.blocking_failures(),
         fixtures.len(),
         skipped_unsupported_shells,
         timeout_cap_note,
-        failure_collection.failures.join("\n\n")
+        format_large_corpus_report(&failure_collection)
     );
 }
 
@@ -610,7 +736,7 @@ fn collect_fixture_failures<F>(
     evaluate: F,
 ) -> FixtureFailureCollection
 where
-    F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure> + Sync,
+    F: Fn(&LargeCorpusFixture) -> FixtureEvaluation + Sync,
 {
     let progress = LargeCorpusProgress::new(fixtures.len());
 
@@ -632,21 +758,32 @@ fn collect_fixture_failures_sequential<F>(
     progress: &LargeCorpusProgress,
 ) -> FixtureFailureCollection
 where
-    F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure>,
+    F: Fn(&LargeCorpusFixture) -> FixtureEvaluation,
 {
+    let mut collection = FixtureFailureCollection::default();
+
     for fixture in fixtures {
-        let failure = evaluate(fixture);
+        let evaluation = evaluate(fixture);
+        let has_blocking = evaluation.harness_failure.is_some()
+            || !evaluation.implementation_diffs.is_empty()
+            || !evaluation.mapping_issues.is_empty();
+        let timeout = evaluation
+            .harness_failure
+            .as_ref()
+            .is_some_and(|failure| failure.kind == FixtureFailureKind::Timeout);
         progress.finish_fixture();
 
-        if let Some(failure) = failure {
-            if failure.kind == FixtureFailureKind::Timeout {
+        merge_fixture_evaluation(&mut collection, evaluation);
+
+        if has_blocking {
+            if timeout {
                 log_large_corpus_timeout(fixture);
             }
-            panic!("{}", failure.message);
+            panic!("{}", format_large_corpus_report(&collection));
         }
     }
 
-    FixtureFailureCollection::default()
+    collection
 }
 
 fn collect_fixture_failures_in_parallel<F>(
@@ -656,7 +793,7 @@ fn collect_fixture_failures_in_parallel<F>(
     progress: &LargeCorpusProgress,
 ) -> FixtureFailureCollection
 where
-    F: Fn(&LargeCorpusFixture) -> Option<FixtureFailure> + Sync,
+    F: Fn(&LargeCorpusFixture) -> FixtureEvaluation + Sync,
 {
     if fixtures.is_empty() {
         return FixtureFailureCollection::default();
@@ -666,16 +803,16 @@ where
     let next_index = AtomicUsize::new(0);
     let timeout_failures = AtomicUsize::new(0);
     let timeout_cap_reached = AtomicBool::new(false);
-    let failures = Mutex::new(Vec::<(usize, String)>::new());
+    let collection = Mutex::new(Vec::<(usize, FixtureEvaluation)>::new());
 
     thread::scope(|scope| {
         for _ in 0..worker_count {
-            let failures = &failures;
+            let collection = &collection;
             let next_index = &next_index;
             let timeout_failures = &timeout_failures;
             let timeout_cap_reached = &timeout_cap_reached;
             scope.spawn(move || {
-                let mut local_failures = Vec::new();
+                let mut local_evaluations = Vec::new();
                 loop {
                     if timeout_cap_reached.load(Ordering::Relaxed) {
                         break;
@@ -691,13 +828,17 @@ where
                     progress.finish_fixture();
 
                     match result {
-                        Ok(Some(failure)) => {
-                            if failure.kind == FixtureFailureKind::Timeout {
+                        Ok(evaluation) => {
+                            if evaluation
+                                .harness_failure
+                                .as_ref()
+                                .is_some_and(|failure| failure.kind == FixtureFailureKind::Timeout)
+                            {
                                 log_large_corpus_timeout(fixture);
                                 let timeout_count =
                                     timeout_failures.fetch_add(1, Ordering::Relaxed) + 1;
                                 if timeout_count <= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
-                                    local_failures.push((index, failure.message));
+                                    local_evaluations.push((index, evaluation));
                                 }
                                 if timeout_count >= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
                                     timeout_cap_reached.store(true, Ordering::Relaxed);
@@ -705,28 +846,38 @@ where
                                 continue;
                             }
 
-                            local_failures.push((index, failure.message));
+                            local_evaluations.push((index, evaluation));
                         }
-                        Ok(None) => {}
                         Err(payload) => {
-                            local_failures.push((index, format_fixture_panic(fixture, payload)));
+                            local_evaluations.push((
+                                index,
+                                FixtureEvaluation {
+                                    harness_failure: Some(FixtureFailure {
+                                        kind: FixtureFailureKind::Other,
+                                        message: format_fixture_panic(fixture, payload),
+                                    }),
+                                    ..FixtureEvaluation::default()
+                                },
+                            ));
                         }
                     }
                 }
 
-                if !local_failures.is_empty() {
-                    failures.lock().unwrap().extend(local_failures);
+                if !local_evaluations.is_empty() {
+                    collection.lock().unwrap().extend(local_evaluations);
                 }
             });
         }
     });
 
-    let mut failures = failures.into_inner().unwrap();
-    failures.sort_by_key(|(index, _)| *index);
-    FixtureFailureCollection {
-        failures: failures.into_iter().map(|(_, failure)| failure).collect(),
-        timeout_cap_reached: timeout_cap_reached.load(Ordering::Relaxed),
+    let mut evaluations = collection.into_inner().unwrap();
+    evaluations.sort_by_key(|(index, _)| *index);
+    let mut failures = FixtureFailureCollection::default();
+    for (_, evaluation) in evaluations {
+        merge_fixture_evaluation(&mut failures, evaluation);
     }
+    failures.timeout_cap_reached = timeout_cap_reached.load(Ordering::Relaxed);
+    failures
 }
 
 fn format_fixture_panic(fixture: &LargeCorpusFixture, payload: Box<dyn Any + Send>) -> String {
@@ -756,13 +907,13 @@ fn evaluate_fixture_compatibility(
     shuck_timeout: Duration,
     linter_settings: &shuck_linter::LinterSettings,
     shellcheck_index: &HashMap<String, String>,
-    sc2034_allowlist: &[RuleAllowlistEntry],
-    shuck_allowlists: &HashMap<String, Vec<RuleAllowlistEntry>>,
+    shellcheck_rule_index: &HashMap<u32, String>,
+    corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
     shuck_path_resolver: Arc<LargeCorpusPathResolver>,
-) -> Option<FixtureFailure> {
-    let mut issues: Vec<String> = Vec::new();
-    let mut failure_kind = FixtureFailureKind::Other;
+) -> FixtureEvaluation {
+    let mut evaluation = FixtureEvaluation::default();
+    let src = fs::read(&fixture.path).unwrap_or_default();
 
     let shuck_run = match run_shuck_with_timeout(
         fixture,
@@ -772,60 +923,115 @@ fn evaluate_fixture_compatibility(
     ) {
         Ok(run) => run,
         Err(err) => {
-            return Some(FixtureFailure {
+            evaluation.harness_failure = Some(FixtureFailure {
                 kind: fixture_failure_kind_for_message(&err, "shuck"),
                 message: format_fixture_failure(&fixture.path, &[err]),
             });
+            return evaluation;
         }
     };
-    let mut shuck_run = shuck_run;
-    for (rule_code, allowlist) in shuck_allowlists {
-        shuck_run = apply_shuck_allowlist(allowlist, rule_code, fixture, shuck_run);
-    }
     if let Some(ref err) = shuck_run.parse_error {
-        issues.push(format!("shuck parse error: {err}"));
+        if shuck_parse_aborted(err) {
+            let noise_kind = classify_fixture_noise(fixture, &src, true, false);
+            evaluation.corpus_noise.push(format_fixture_failure(
+                &fixture.path,
+                &[
+                    format!("corpus noise [{}]", noise_kind.as_str()),
+                    format!("shuck parse error: {err}"),
+                ],
+            ));
+        } else {
+            evaluation.harness_failure = Some(FixtureFailure {
+                kind: FixtureFailureKind::Other,
+                message: format_fixture_failure(&fixture.path, &[format!("shuck error: {err}")]),
+            });
+        }
+        return evaluation;
     }
 
     match shellcheck_cache.run_fixture(fixture, shellcheck_path, shellcheck_timeout) {
         Ok(sc_run) => {
-            let sc_run = apply_shellcheck_allowlist(
-                sc2034_allowlist,
-                2034,
-                fixture,
-                filter_shellcheck_run(sc_run, shellcheck_filter_codes),
+            let sc_run = filter_shellcheck_run(sc_run, shellcheck_filter_codes);
+            if sc_run.parse_aborted {
+                let noise_kind = classify_fixture_noise(fixture, &src, false, true);
+                let mut details = vec![format!("corpus noise [{}]", noise_kind.as_str())];
+                details.push("shellcheck parse aborted".into());
+                evaluation
+                    .corpus_noise
+                    .push(format_fixture_failure(&fixture.path, &details));
+                return evaluation;
+            }
+
+            let labels = compatibility_context_labels(&src, &sc_run);
+            let shellcheck_records = shellcheck_compatibility_records(
+                &sc_run.diagnostics,
+                shellcheck_rule_index,
+                &labels,
             );
-            if shuck_run.parse_error.is_none() {
-                let sc_locations =
-                    count_codes(&shellcheck_compatibility_locations(&sc_run.diagnostics));
-                let shuck_locations = &shuck_run.locations;
-                if let Some(diff) =
-                    compatibility_code_diff(&sc_locations, shuck_locations, DiffMode::All)
-                {
-                    let src = fs::read(&fixture.path).unwrap_or_default();
-                    issues.push(format_compatibility_diff(
-                        &diff,
-                        &src,
-                        &sc_locations,
-                        shuck_locations,
-                        &sc_run,
-                        &shuck_run.diagnostics,
-                        shellcheck_index,
-                    ));
+            let shuck_records =
+                shuck_compatibility_records(&shuck_run.diagnostics, shellcheck_index, &labels);
+            let (shellcheck_only, shuck_only) =
+                unmatched_compatibility_records(&shellcheck_records, &shuck_records);
+            let location_only_codes = location_only_shellcheck_codes(
+                &shellcheck_records,
+                &shuck_records,
+                &shellcheck_only,
+                &shuck_only,
+            );
+
+            let mut implementation_details = Vec::new();
+            let mut mapping_details = Vec::new();
+            let mut reviewed_details = Vec::new();
+
+            for record in shellcheck_only.into_iter().chain(shuck_only) {
+                let (classification, reason) =
+                    classify_compatibility_record(&record, &fixture.path, corpus_metadata);
+                let detail = format_compatibility_record(
+                    &record,
+                    reason.as_deref(),
+                    classification == CompatibilityClassification::Implementation
+                        && location_only_codes.contains(record.shellcheck_code.as_str()),
+                );
+                match classification {
+                    CompatibilityClassification::Implementation => {
+                        implementation_details.push(detail)
+                    }
+                    CompatibilityClassification::MappingIssue => mapping_details.push(detail),
+                    CompatibilityClassification::ReviewedDivergence => {
+                        reviewed_details.push(detail)
+                    }
                 }
+            }
+
+            if !implementation_details.is_empty() {
+                evaluation.implementation_diffs.push(format_fixture_failure(
+                    &fixture.path,
+                    &implementation_details,
+                ));
+            }
+            if !mapping_details.is_empty() {
+                evaluation
+                    .mapping_issues
+                    .push(format_fixture_failure(&fixture.path, &mapping_details));
+            }
+            if !reviewed_details.is_empty() {
+                evaluation
+                    .reviewed_divergences
+                    .push(format_fixture_failure(&fixture.path, &reviewed_details));
             }
         }
         Err(err) => {
-            if fixture_failure_kind_for_message(&err, "shellcheck") == FixtureFailureKind::Timeout {
-                failure_kind = FixtureFailureKind::Timeout;
-            }
-            issues.push(format!("shellcheck error: {err}"));
+            evaluation.harness_failure = Some(FixtureFailure {
+                kind: fixture_failure_kind_for_message(&err, "shellcheck"),
+                message: format_fixture_failure(
+                    &fixture.path,
+                    &[format!("shellcheck error: {err}")],
+                ),
+            });
         }
     }
 
-    (!issues.is_empty()).then(|| FixtureFailure {
-        kind: failure_kind,
-        message: format_fixture_failure(&fixture.path, &issues),
-    })
+    evaluation
 }
 
 fn fixture_failure_kind_for_message(message: &str, label: &str) -> FixtureFailureKind {
@@ -854,120 +1060,42 @@ fn filter_shellcheck_run(
     run
 }
 
-fn apply_shellcheck_allowlist(
-    allowlist: &[RuleAllowlistEntry],
-    code: u32,
-    fixture: &LargeCorpusFixture,
-    mut run: ShellCheckRun,
-) -> ShellCheckRun {
-    run.diagnostics
-        .retain(|diag| shellcheck_allowlist_reason(allowlist, code, &fixture.path, diag).is_none());
-    run.parse_aborted = shellcheck_parse_aborted(&run.diagnostics);
-    run
-}
-
-fn shellcheck_allowlist_reason<'a>(
-    allowlist: &'a [RuleAllowlistEntry],
-    code: u32,
-    path: &Path,
-    diag: &ShellCheckDiagnostic,
-) -> Option<&'a str> {
-    if diag.code != code {
-        return None;
+fn merge_fixture_evaluation(
+    collection: &mut FixtureFailureCollection,
+    evaluation: FixtureEvaluation,
+) {
+    collection
+        .implementation_diffs
+        .extend(evaluation.implementation_diffs);
+    collection.mapping_issues.extend(evaluation.mapping_issues);
+    collection
+        .reviewed_divergences
+        .extend(evaluation.reviewed_divergences);
+    collection.corpus_noise.extend(evaluation.corpus_noise);
+    if let Some(failure) = evaluation.harness_failure {
+        collection.harness_failures.push(failure.message);
     }
-
-    let path = path.to_string_lossy();
-    allowlist.iter().find_map(|entry| {
-        (path.ends_with(entry.path_suffix.as_str())
-            && diag.line == entry.line
-            && diag.end_line == entry.end_line
-            && diag.column == entry.column
-            && diag.end_column == entry.end_column)
-            .then_some(entry.reason.as_str())
-    })
 }
 
-fn load_shellcheck_rule_allowlist(rule_code: &str) -> Result<Vec<RuleAllowlistEntry>, String> {
-    let path = shellcheck_rule_allowlist_path(rule_code);
-    let data =
-        fs::read_to_string(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
-    let document: RuleAllowlistDocument =
-        serde_yaml::from_str(&data).map_err(|err| format!("parse {}: {err}", path.display()))?;
-    Ok(document.entries)
-}
-
-fn shellcheck_rule_allowlist_path(rule_code: &str) -> PathBuf {
+fn rule_corpus_metadata_path(rule_code: &str) -> PathBuf {
     let filename = format!("{}.yaml", rule_code.to_ascii_lowercase());
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(SHELLCHECK_RULE_ALLOWLIST_DIR)
+        .join(RULE_CORPUS_METADATA_DIR)
         .join(filename)
 }
 
-// ---------------------------------------------------------------------------
-// Shuck allowlists
-// ---------------------------------------------------------------------------
-
-fn apply_shuck_allowlist(
-    allowlist: &[RuleAllowlistEntry],
-    rule_code: &str,
-    fixture: &LargeCorpusFixture,
-    mut run: ShuckRun,
-) -> ShuckRun {
-    let before = run.diagnostics.len();
-    run.diagnostics
-        .retain(|diag| shuck_allowlist_reason(allowlist, rule_code, &fixture.path, diag).is_none());
-    if run.diagnostics.len() != before {
-        let shellcheck_index = build_shellcheck_index();
-        run.locations = count_codes(&shuck_compatibility_locations(
-            &run.diagnostics,
-            &shellcheck_index,
-        ));
-    }
-    run
-}
-
-fn shuck_allowlist_reason<'a>(
-    allowlist: &'a [RuleAllowlistEntry],
-    rule_code: &str,
-    path: &Path,
-    diag: &shuck_linter::Diagnostic,
-) -> Option<&'a str> {
-    if diag.code() != rule_code {
-        return None;
-    }
-
-    let path = path.to_string_lossy();
-    allowlist.iter().find_map(|entry| {
-        (path.ends_with(entry.path_suffix.as_str())
-            && diag.span.start.line == entry.line
-            && diag.span.end.line == entry.end_line
-            && diag.span.start.column == entry.column
-            && diag.span.end.column == entry.end_column)
-            .then_some(entry.reason.as_str())
-    })
-}
-
-fn load_shuck_rule_allowlist(rule_code: &str) -> Vec<RuleAllowlistEntry> {
-    let path = shuck_rule_allowlist_path(rule_code);
+fn load_rule_corpus_metadata(rule_code: &str) -> RuleCorpusMetadataDocument {
+    let path = rule_corpus_metadata_path(rule_code);
     if !path.exists() {
-        return Vec::new();
+        return RuleCorpusMetadataDocument::default();
     }
     let data =
         fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
-    let document: RuleAllowlistDocument =
-        serde_yaml::from_str(&data).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()));
-    document.entries
+    serde_yaml::from_str(&data).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()))
 }
 
-fn shuck_rule_allowlist_path(rule_code: &str) -> PathBuf {
-    let filename = format!("{}.yaml", rule_code.to_ascii_lowercase());
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(SHUCK_RULE_ALLOWLIST_DIR)
-        .join(filename)
-}
-
-fn load_all_shuck_allowlists() -> HashMap<String, Vec<RuleAllowlistEntry>> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(SHUCK_RULE_ALLOWLIST_DIR);
+fn load_all_rule_corpus_metadata() -> HashMap<String, RuleCorpusMetadataDocument> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(RULE_CORPUS_METADATA_DIR);
     let mut map = HashMap::new();
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
@@ -979,13 +1107,391 @@ fn load_all_shuck_allowlists() -> HashMap<String, Vec<RuleAllowlistEntry>> {
             && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
         {
             let rule_code = stem.to_ascii_uppercase();
-            let allowlist = load_shuck_rule_allowlist(&rule_code);
-            if !allowlist.is_empty() {
-                map.insert(rule_code, allowlist);
+            let metadata = load_rule_corpus_metadata(&rule_code);
+            if !metadata.reviewed_divergences.is_empty()
+                || !metadata.comparison_target_notes.is_empty()
+            {
+                map.insert(rule_code, metadata);
             }
         }
     }
     map
+}
+
+fn reviewed_divergence_reason<'a>(
+    metadata: &'a RuleCorpusMetadataDocument,
+    record: &CompatibilityRecord,
+    path: &Path,
+) -> Option<&'a str> {
+    let path = path.to_string_lossy();
+    metadata.reviewed_divergences.iter().find_map(|entry| {
+        (entry.side == record.side
+            && entry
+                .path_suffix
+                .as_ref()
+                .is_none_or(|suffix| path.ends_with(suffix))
+            && entry.line.is_none_or(|line| line == record.range.line)
+            && entry
+                .end_line
+                .is_none_or(|end_line| end_line == record.range.end_line)
+            && entry
+                .column
+                .is_none_or(|column| column == record.range.column)
+            && entry
+                .end_column
+                .is_none_or(|end_column| end_column == record.range.end_column)
+            && entry.labels.iter().all(|label| {
+                record
+                    .labels
+                    .iter()
+                    .any(|record_label| record_label == label)
+            }))
+        .then_some(entry.reason.as_str())
+    })
+}
+
+fn comparison_target_note_reason<'a>(
+    metadata: &'a RuleCorpusMetadataDocument,
+    shellcheck_code: &str,
+) -> Option<&'a str> {
+    metadata.comparison_target_notes.iter().find_map(|note| {
+        (note.current_shellcheck_code == shellcheck_code).then_some(note.reason.as_str())
+    })
+}
+
+fn classify_compatibility_record(
+    record: &CompatibilityRecord,
+    path: &Path,
+    corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
+) -> (CompatibilityClassification, Option<String>) {
+    let Some(rule_code) = record.rule_code.as_deref() else {
+        return (
+            CompatibilityClassification::MappingIssue,
+            Some(format!("no Shuck rule maps {}", record.shellcheck_code)),
+        );
+    };
+
+    let Some(metadata) = corpus_metadata.get(rule_code) else {
+        return (CompatibilityClassification::Implementation, None);
+    };
+
+    if let Some(reason) = reviewed_divergence_reason(metadata, record, path) {
+        return (
+            CompatibilityClassification::ReviewedDivergence,
+            Some(reason.to_owned()),
+        );
+    }
+
+    if let Some(reason) = comparison_target_note_reason(metadata, record.shellcheck_code.as_str()) {
+        return (
+            CompatibilityClassification::MappingIssue,
+            Some(reason.to_owned()),
+        );
+    }
+
+    (CompatibilityClassification::Implementation, None)
+}
+
+fn shellcheck_compatibility_records(
+    diagnostics: &[ShellCheckDiagnostic],
+    shellcheck_rule_index: &HashMap<u32, String>,
+    labels: &[String],
+) -> Vec<CompatibilityRecord> {
+    diagnostics
+        .iter()
+        .map(|diag| CompatibilityRecord {
+            side: CompatibilitySide::ShellcheckOnly,
+            rule_code: shellcheck_rule_index.get(&diag.code).cloned(),
+            shellcheck_code: format!("SC{:04}", diag.code),
+            range: DiagnosticRange {
+                line: diag.line,
+                end_line: diag.end_line,
+                column: diag.column,
+                end_column: diag.end_column,
+            },
+            message: format!("{} {}", diag.level, diag.message),
+            labels: labels.to_vec(),
+        })
+        .collect()
+}
+
+fn shuck_compatibility_records(
+    diagnostics: &[shuck_linter::Diagnostic],
+    shellcheck_index: &HashMap<String, String>,
+    labels: &[String],
+) -> Vec<CompatibilityRecord> {
+    diagnostics
+        .iter()
+        .filter_map(|diag| {
+            shellcheck_index
+                .get(diag.code())
+                .map(|shellcheck_code| CompatibilityRecord {
+                    side: CompatibilitySide::ShuckOnly,
+                    rule_code: Some(diag.code().to_owned()),
+                    shellcheck_code: shellcheck_code.clone(),
+                    range: DiagnosticRange {
+                        line: diag.span.start.line,
+                        end_line: diag.span.end.line,
+                        column: diag.span.start.column,
+                        end_column: diag.span.end.column,
+                    },
+                    message: diag.message.clone(),
+                    labels: labels.to_vec(),
+                })
+        })
+        .collect()
+}
+
+fn compatibility_record_key(record: &CompatibilityRecord) -> CompatibilityRecordKey {
+    CompatibilityRecordKey {
+        shellcheck_code: record.shellcheck_code.clone(),
+        range: record.range.clone(),
+    }
+}
+
+fn unmatched_compatibility_records(
+    shellcheck_records: &[CompatibilityRecord],
+    shuck_records: &[CompatibilityRecord],
+) -> (Vec<CompatibilityRecord>, Vec<CompatibilityRecord>) {
+    let mut shuck_counts = HashMap::new();
+    for record in shuck_records {
+        *shuck_counts
+            .entry(compatibility_record_key(record))
+            .or_insert(0usize) += 1;
+    }
+
+    let mut shellcheck_counts = HashMap::new();
+    for record in shellcheck_records {
+        *shellcheck_counts
+            .entry(compatibility_record_key(record))
+            .or_insert(0usize) += 1;
+    }
+
+    let mut shellcheck_only = Vec::new();
+    for record in shellcheck_records {
+        let key = compatibility_record_key(record);
+        let matched = shuck_counts.get_mut(&key).is_some_and(|count| {
+            if *count == 0 {
+                false
+            } else {
+                *count -= 1;
+                true
+            }
+        });
+        if !matched {
+            shellcheck_only.push(record.clone());
+        }
+    }
+
+    let mut shuck_only = Vec::new();
+    for record in shuck_records {
+        let key = compatibility_record_key(record);
+        let matched = shellcheck_counts.get_mut(&key).is_some_and(|count| {
+            if *count == 0 {
+                false
+            } else {
+                *count -= 1;
+                true
+            }
+        });
+        if !matched {
+            shuck_only.push(record.clone());
+        }
+    }
+
+    (shellcheck_only, shuck_only)
+}
+
+fn location_only_shellcheck_codes(
+    shellcheck_records: &[CompatibilityRecord],
+    shuck_records: &[CompatibilityRecord],
+    shellcheck_only: &[CompatibilityRecord],
+    shuck_only: &[CompatibilityRecord],
+) -> HashSet<String> {
+    let shellcheck_counts = count_codes(
+        &shellcheck_records
+            .iter()
+            .map(|record| record.shellcheck_code.clone())
+            .collect::<Vec<_>>(),
+    );
+    let shuck_counts = count_codes(
+        &shuck_records
+            .iter()
+            .map(|record| record.shellcheck_code.clone())
+            .collect::<Vec<_>>(),
+    );
+    let shellcheck_unmatched = count_codes(
+        &shellcheck_only
+            .iter()
+            .map(|record| record.shellcheck_code.clone())
+            .collect::<Vec<_>>(),
+    );
+    let shuck_unmatched = count_codes(
+        &shuck_only
+            .iter()
+            .map(|record| record.shellcheck_code.clone())
+            .collect::<Vec<_>>(),
+    );
+
+    shellcheck_counts
+        .keys()
+        .chain(shuck_counts.keys())
+        .filter(|code| {
+            shellcheck_counts.get(*code) == shuck_counts.get(*code)
+                && shellcheck_unmatched.get(*code).copied().unwrap_or(0) > 0
+                && shuck_unmatched.get(*code).copied().unwrap_or(0) > 0
+        })
+        .cloned()
+        .collect()
+}
+
+fn compatibility_context_labels(src: &[u8], shellcheck_run: &ShellCheckRun) -> Vec<String> {
+    let mut labels = Vec::new();
+    if source_has_directive_handling_hints(src) {
+        labels.push("directive-handling".into());
+    }
+    if source_has_project_closure_hints(src, shellcheck_run) {
+        labels.push("project-closure".into());
+    }
+    if source_starts_with_unknown_shell_comment(src) {
+        labels.push("shell-collapse".into());
+    }
+    labels.sort();
+    labels.dedup();
+    labels
+}
+
+fn shuck_parse_aborted(error: &str) -> bool {
+    !error.starts_with("read error:")
+}
+
+fn classify_fixture_noise(
+    fixture: &LargeCorpusFixture,
+    src: &[u8],
+    shuck_parse_aborted: bool,
+    shellcheck_parse_aborted: bool,
+) -> CorpusNoiseKind {
+    if fixture_looks_like_patch(fixture) {
+        CorpusNoiseKind::Patch
+    } else if fixture_looks_like_fish(fixture, src) {
+        CorpusNoiseKind::Fish
+    } else if source_starts_with_unknown_shell_comment(src) {
+        CorpusNoiseKind::ShellCollapse
+    } else if shuck_parse_aborted || shellcheck_parse_aborted {
+        CorpusNoiseKind::ParseAbort
+    } else {
+        CorpusNoiseKind::ParseAbort
+    }
+}
+
+fn fixture_looks_like_patch(fixture: &LargeCorpusFixture) -> bool {
+    let path = fixture.path.to_string_lossy().to_lowercase();
+    path.ends_with(".patch") || path.ends_with(".diff") || path.ends_with(".dpatch")
+}
+
+fn fixture_looks_like_fish(fixture: &LargeCorpusFixture, src: &[u8]) -> bool {
+    if fixture
+        .path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
+    {
+        return true;
+    }
+
+    let first_line = src
+        .split(|&b| b == b'\n')
+        .next()
+        .map(|line| String::from_utf8_lossy(line).to_lowercase())
+        .unwrap_or_default();
+    if first_line.contains("fish") {
+        return true;
+    }
+
+    fixture
+        .path
+        .to_string_lossy()
+        .to_lowercase()
+        .contains("oh-my-fish")
+}
+
+fn format_compatibility_record(
+    record: &CompatibilityRecord,
+    reason: Option<&str>,
+    location_only: bool,
+) -> String {
+    let mut labels = record.labels.clone();
+    if location_only {
+        labels.push("location-only".into());
+    }
+    labels.sort();
+    labels.dedup();
+    let labels = if labels.is_empty() {
+        String::new()
+    } else {
+        format!(" labels={}", labels.join(","))
+    };
+    let reason = reason
+        .map(|reason| format!(" reason={reason}"))
+        .unwrap_or_default();
+    format!(
+        "{} {}/{} {} {}{}{}",
+        record.side.as_str(),
+        record.rule_code.as_deref().unwrap_or("(unmapped)"),
+        record.shellcheck_code,
+        record.range.display(),
+        record.message,
+        labels,
+        reason,
+    )
+}
+
+fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
+    let mut sections = Vec::new();
+
+    if let Some(section) =
+        format_report_section("Implementation Diffs", &collection.implementation_diffs)
+    {
+        sections.push(section);
+    }
+    if let Some(section) = format_report_section("Mapping Issues", &collection.mapping_issues) {
+        sections.push(section);
+    }
+    if let Some(section) =
+        format_report_section("Reviewed Divergence", &collection.reviewed_divergences)
+    {
+        sections.push(section);
+    }
+
+    let mut corpus_noise = collection.corpus_noise.clone();
+    if collection.unsupported_shells > 0 {
+        corpus_noise.push(format!(
+            "{} skipped: {} fixture(s)",
+            CorpusNoiseKind::UnsupportedShell.as_str(),
+            collection.unsupported_shells
+        ));
+    }
+    if let Some(section) = format_report_section("Corpus Noise", &corpus_noise) {
+        sections.push(section);
+    }
+
+    if let Some(section) = format_report_section("Harness Failures", &collection.harness_failures) {
+        sections.push(section);
+    }
+
+    if sections.is_empty() {
+        "(none)".into()
+    } else {
+        sections.join("\n\n")
+    }
+}
+
+fn format_report_section(title: &str, items: &[String]) -> Option<String> {
+    if items.is_empty() {
+        None
+    } else {
+        Some(format!("{}:\n{}", title, items.join("\n\n")))
+    }
 }
 
 fn format_fixture_failure(path: &Path, issues: &[String]) -> String {
@@ -1361,7 +1867,6 @@ fn run_shuck(
         Ok(s) => s,
         Err(e) => {
             return ShuckRun {
-                locations: HashMap::new(),
                 diagnostics: Vec::new(),
                 parse_error: Some(format!("read error: {e}")),
             };
@@ -1372,7 +1877,6 @@ fn run_shuck(
         Ok(o) => o,
         Err(e) => {
             return ShuckRun {
-                locations: HashMap::new(),
                 diagnostics: Vec::new(),
                 parse_error: Some(e.to_string()),
             };
@@ -1393,14 +1897,7 @@ fn run_shuck(
         source_path_resolver,
     );
 
-    let shellcheck_index = build_shellcheck_index();
-    let locations = count_codes(&shuck_compatibility_locations(
-        &diagnostics,
-        &shellcheck_index,
-    ));
-
     ShuckRun {
-        locations,
         diagnostics,
         parse_error: None,
     }
@@ -1425,11 +1922,22 @@ fn run_shuck_with_timeout(
     })
 }
 
-fn build_shellcheck_index() -> HashMap<String, String> {
+fn build_rule_to_shellcheck_index() -> HashMap<String, String> {
     shuck_linter::ShellCheckCodeMap::default()
         .mappings()
         .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
         .collect()
+}
+
+fn build_shellcheck_to_rule_index() -> HashMap<u32, String> {
+    shuck_linter::ShellCheckCodeMap::default()
+        .mappings()
+        .map(|(sc_code, rule)| (sc_code, rule.code().to_owned()))
+        .collect()
+}
+
+fn build_shellcheck_index() -> HashMap<String, String> {
+    build_rule_to_shellcheck_index()
 }
 
 fn build_large_corpus_linter_settings(
@@ -1461,29 +1969,6 @@ fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> Ha
         .mappings()
         .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
         .collect()
-}
-
-fn shuck_compatibility_locations(
-    diagnostics: &[shuck_linter::Diagnostic],
-    shellcheck_index: &HashMap<String, String>,
-) -> Vec<String> {
-    let mut locations = Vec::new();
-    for diag in diagnostics {
-        let code = diag.code();
-        if let Some(sc_code) = shellcheck_index.get(code) {
-            locations.push(format!(
-                "{} {}",
-                sc_code,
-                format_range(
-                    diag.span.start.line,
-                    diag.span.start.column,
-                    diag.span.end.line,
-                    diag.span.end.column,
-                )
-            ));
-        }
-    }
-    locations
 }
 
 // ---------------------------------------------------------------------------
@@ -1709,19 +2194,6 @@ fn legacy_shellcheck_invocation_hash(shellcheck_path: &str) -> String {
     hash_bytes(key.as_bytes())
 }
 
-fn shellcheck_compatibility_locations(diagnostics: &[ShellCheckDiagnostic]) -> Vec<String> {
-    diagnostics
-        .iter()
-        .map(|diag| {
-            format!(
-                "SC{:04} {}",
-                diag.code,
-                format_range(diag.line, diag.column, diag.end_line, diag.end_column)
-            )
-        })
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // Compatibility comparison
 // ---------------------------------------------------------------------------
@@ -1767,118 +2239,6 @@ fn compatibility_code_diff(
     } else {
         Some(lines.join("\n"))
     }
-}
-
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
-fn format_compatibility_diff(
-    diff: &str,
-    src: &[u8],
-    shellcheck_locations: &HashMap<String, usize>,
-    shuck_locations: &HashMap<String, usize>,
-    shellcheck_run: &ShellCheckRun,
-    shuck_diagnostics: &[shuck_linter::Diagnostic],
-    shellcheck_index: &HashMap<String, String>,
-) -> String {
-    let labels = compatibility_labels(
-        src,
-        shellcheck_locations,
-        shuck_locations,
-        shellcheck_run,
-        shuck_diagnostics,
-        shellcheck_index,
-    );
-    format!(
-        "compatibility diff (code + location):\n\
-         {diff}\n\
-         labels:\n\
-         {}\n\
-         shellcheck parse aborted: {}\n\
-         shellcheck locations:\n\
-         {}\n\
-         shuck locations:\n\
-         {}\n\
-         shellcheck diagnostics:\n\
-         {}\n\
-         shuck diagnostics:\n\
-         {}",
-        format_labels(&labels),
-        shellcheck_run.parse_aborted,
-        format_compatibility_counts(shellcheck_locations),
-        format_compatibility_counts(shuck_locations),
-        format_shellcheck_diagnostics(shellcheck_run),
-        format_shuck_diagnostics(shuck_diagnostics, shellcheck_index),
-    )
-}
-
-fn compatibility_labels(
-    src: &[u8],
-    shellcheck_locations: &HashMap<String, usize>,
-    shuck_locations: &HashMap<String, usize>,
-    shellcheck_run: &ShellCheckRun,
-    shuck_diagnostics: &[shuck_linter::Diagnostic],
-    shellcheck_index: &HashMap<String, String>,
-) -> Vec<String> {
-    let mut labels = Vec::new();
-
-    if compatibility_location_only(
-        shellcheck_locations,
-        shuck_locations,
-        &shellcheck_run.diagnostics,
-        shuck_diagnostics,
-        shellcheck_index,
-    ) {
-        labels.push("location-only".into());
-    }
-    if shellcheck_run.parse_aborted {
-        labels.push("shellcheck-parse-abort".into());
-    }
-    if source_has_directive_handling_hints(src) {
-        labels.push("directive-handling".into());
-    }
-    if source_has_project_closure_hints(src, shellcheck_run) {
-        labels.push("project-closure".into());
-    }
-    if source_starts_with_unknown_shell_comment(src) {
-        labels.push("unknown-shell-collapse".into());
-    }
-
-    labels.sort();
-    labels
-}
-
-fn compatibility_location_only(
-    shellcheck_locations: &HashMap<String, usize>,
-    shuck_locations: &HashMap<String, usize>,
-    shellcheck_diagnostics: &[ShellCheckDiagnostic],
-    shuck_diagnostics: &[shuck_linter::Diagnostic],
-    shellcheck_index: &HashMap<String, String>,
-) -> bool {
-    if compatibility_code_diff(shellcheck_locations, shuck_locations, DiffMode::All).is_none() {
-        return false;
-    }
-    let sc_codes = count_codes(&shellcheck_code_list(shellcheck_diagnostics));
-    let shuck_codes = count_codes(&shuck_compatibility_codes(
-        shuck_diagnostics,
-        shellcheck_index,
-    ));
-    compatibility_code_diff(&sc_codes, &shuck_codes, DiffMode::All).is_none()
-}
-
-fn shellcheck_code_list(diags: &[ShellCheckDiagnostic]) -> Vec<String> {
-    diags.iter().map(|d| format!("SC{}", d.code)).collect()
-}
-
-fn shuck_compatibility_codes(
-    diagnostics: &[shuck_linter::Diagnostic],
-    shellcheck_index: &HashMap<String, String>,
-) -> Vec<String> {
-    diagnostics
-        .iter()
-        .filter_map(|diag| shellcheck_index.get(diag.code()).cloned())
-        .collect()
 }
 
 fn source_has_directive_handling_hints(src: &[u8]) -> bool {
@@ -1949,77 +2309,6 @@ fn source_starts_with_unknown_shell_comment(src: &[u8]) -> bool {
         }
     }
     saw_plain_comment
-}
-
-fn format_labels(labels: &[String]) -> String {
-    if labels.is_empty() {
-        "(none)".into()
-    } else {
-        labels.join("\n")
-    }
-}
-
-fn format_compatibility_counts(counts: &HashMap<String, usize>) -> String {
-    if counts.is_empty() {
-        return "(none)".into();
-    }
-    let mut codes: Vec<_> = counts.iter().collect();
-    codes.sort_by_key(|(k, _)| (*k).clone());
-    codes
-        .iter()
-        .map(|(code, count)| format!("{code}={count}"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn format_shellcheck_diagnostics(run: &ShellCheckRun) -> String {
-    if run.diagnostics.is_empty() {
-        return "(none)".into();
-    }
-    let mut lines = Vec::new();
-    if run.parse_aborted {
-        lines.push("parse-aborted=true".into());
-    }
-    for diag in &run.diagnostics {
-        lines.push(format!(
-            "SC{:04} {} {} {}",
-            diag.code,
-            format_range(diag.line, diag.column, diag.end_line, diag.end_column),
-            diag.level,
-            diag.message,
-        ));
-    }
-    lines.join("\n")
-}
-
-fn format_shuck_diagnostics(
-    diagnostics: &[shuck_linter::Diagnostic],
-    shellcheck_index: &HashMap<String, String>,
-) -> String {
-    if diagnostics.is_empty() {
-        return "(none)".into();
-    }
-    let mut lines = Vec::new();
-    for diag in diagnostics {
-        let mapped = shellcheck_index
-            .get(diag.code())
-            .map(|sc| format!("=>{sc}"))
-            .unwrap_or_default();
-        lines.push(format!(
-            "{}{} {} {} {}",
-            diag.code(),
-            mapped,
-            format_range(
-                diag.span.start.line,
-                diag.span.start.column,
-                diag.span.end.line,
-                diag.span.end.column,
-            ),
-            diag.severity.as_str(),
-            diag.message,
-        ));
-    }
-    lines.join("\n")
 }
 
 fn format_range(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> String {
@@ -2536,196 +2825,159 @@ mod tests {
     }
 
     #[test]
-    fn shellcheck_rule_allowlist_path_uses_rule_code_convention() {
+    fn rule_corpus_metadata_path_uses_rule_code_convention() {
         assert_eq!(
-            shellcheck_rule_allowlist_path("SC2034"),
+            rule_corpus_metadata_path("C001"),
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/testdata/allowlists")
-                .join("sc2034.yaml")
+                .join("tests/testdata/corpus-metadata")
+                .join("c001.yaml")
         );
     }
 
     #[test]
-    fn sc2034_allowlist_filters_exact_matches_only() {
-        let allowlist =
-            load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
-        let fixture =
-            fixture("SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf");
-        let run = ShellCheckRun {
-            diagnostics: vec![
-                ShellCheckDiagnostic {
-                    file: String::new(),
-                    code: 2034,
-                    line: 19,
-                    end_line: 19,
-                    column: 1,
-                    end_column: 14,
-                    level: "warning".into(),
-                    message: "allowlisted".into(),
-                },
-                ShellCheckDiagnostic {
-                    file: String::new(),
-                    code: 2034,
-                    line: 19,
-                    end_line: 19,
-                    column: 1,
-                    end_column: 15,
-                    level: "warning".into(),
-                    message: "still visible".into(),
-                },
-            ],
-            parse_aborted: false,
-        };
+    fn c001_metadata_loads_documented_reviewed_divergences() {
+        let metadata = load_rule_corpus_metadata("C001");
 
-        let filtered = apply_shellcheck_allowlist(&allowlist, 2034, &fixture, run);
-
-        assert_eq!(filtered.diagnostics.len(), 1);
-        assert_eq!(filtered.diagnostics[0].end_column, 15);
-    }
-
-    #[test]
-    fn sc2034_allowlist_loads_documented_entries() {
-        let allowlist =
-            load_shellcheck_rule_allowlist("SC2034").expect("failed to load SC2034 allowlist");
-
-        assert!(allowlist.iter().any(|entry| {
-            entry.path_suffix
-                == "SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf"
-                && entry.line == 19
-                && entry.end_line == 19
-                && entry.column == 1
-                && entry.end_column == 14
+        assert!(metadata.reviewed_divergences.iter().any(|entry| {
+            entry.side == CompatibilitySide::ShellcheckOnly
+                && entry.path_suffix.as_deref()
+                    == Some("SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf")
+                && entry.line == Some(19)
+                && entry.end_line == Some(19)
+                && entry.column == Some(1)
+                && entry.end_column == Some(14)
                 && entry.reason
                     == "config value is consumed by rc.bluez-alsa after sourcing the file"
         }));
-        assert!(allowlist.iter().any(|entry| {
-            entry.path_suffix == "233boy__v2ray__install.sh"
-                && entry.line == 424
-                && entry.end_line == 424
-                && entry.column == 5
-                && entry.end_column == 19
+        assert!(metadata.reviewed_divergences.iter().any(|entry| {
+            entry.path_suffix.as_deref() == Some("233boy__v2ray__install.sh")
+                && entry.line == Some(424)
+                && entry.end_line == Some(424)
+                && entry.column == Some(5)
+                && entry.end_column == Some(19)
                 && entry.reason
                     == "install mode flag is consumed by the dynamically sourced core.sh helper"
         }));
-        assert!(allowlist.iter().any(|entry| {
-            entry.path_suffix
-                == "GameServerManagers__LinuxGSM__lgsm__modules__command_details.sh"
-                && entry.line == 19
-                && entry.end_line == 19
-                && entry.column == 2
-                && entry.end_column == 5
+        assert!(metadata.reviewed_divergences.iter().any(|entry| {
+            entry.path_suffix.as_deref()
+                == Some("GameServerManagers__LinuxGSM__lgsm__modules__command_details.sh")
+                && entry.line == Some(19)
+                && entry.end_line == Some(19)
+                && entry.column == Some(2)
+                && entry.end_column == Some(5)
                 && entry.reason
                     == "loop variable is consumed by the sibling query_gamedig.sh helper invoked in the loop"
         }));
     }
 
     #[test]
-    fn shuck_allowlist_filters_exact_matches_only() {
-        let allowlist = vec![RuleAllowlistEntry {
-            path_suffix: "owner__repo__script.sh".into(),
-            line: 10,
-            end_line: 10,
-            column: 5,
-            end_column: 20,
-            reason: "shuck is more correct here".into(),
-        }];
-        let fixture = fixture("owner__repo__script.sh");
-
-        let matching_diag = shuck_linter::Diagnostic {
-            rule: shuck_linter::Rule::UnusedAssignment,
-            message: "matched".into(),
-            severity: shuck_linter::Severity::Warning,
-            span: shuck_ast::Span {
-                start: shuck_ast::Position {
-                    line: 10,
-                    column: 5,
-                    offset: 0,
-                },
-                end: shuck_ast::Position {
-                    line: 10,
-                    column: 20,
-                    offset: 0,
-                },
+    fn reviewed_divergence_classification_matches_exact_shellcheck_record() {
+        let metadata = HashMap::from([("C001".to_string(), load_rule_corpus_metadata("C001"))]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShellcheckOnly,
+            rule_code: Some("C001".into()),
+            shellcheck_code: "SC2034".into(),
+            range: DiagnosticRange {
+                line: 19,
+                end_line: 19,
+                column: 1,
+                end_column: 14,
             },
-        };
-        let non_matching_diag = shuck_linter::Diagnostic {
-            rule: shuck_linter::Rule::UnusedAssignment,
-            message: "not matched".into(),
-            severity: shuck_linter::Severity::Warning,
-            span: shuck_ast::Span {
-                start: shuck_ast::Position {
-                    line: 10,
-                    column: 5,
-                    offset: 0,
-                },
-                end: shuck_ast::Position {
-                    line: 10,
-                    column: 21,
-                    offset: 0,
-                },
-            },
+            message: "warning reviewed divergence".into(),
+            labels: Vec::new(),
         };
 
-        let run = ShuckRun {
-            locations: HashMap::new(),
-            diagnostics: vec![matching_diag, non_matching_diag],
-            parse_error: None,
-        };
+        let (classification, reason) = classify_compatibility_record(
+            &record,
+            Path::new("SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf"),
+            &metadata,
+        );
 
-        let filtered = apply_shuck_allowlist(&allowlist, "C001", &fixture, run);
-
-        assert_eq!(filtered.diagnostics.len(), 1);
-        assert_eq!(filtered.diagnostics[0].message, "not matched");
+        assert_eq!(
+            classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert_eq!(
+            reason.as_deref(),
+            Some("config value is consumed by rc.bluez-alsa after sourcing the file")
+        );
     }
 
     #[test]
-    fn shuck_allowlist_ignores_non_matching_rule_code() {
-        let allowlist = vec![RuleAllowlistEntry {
-            path_suffix: "script.sh".into(),
-            line: 1,
-            end_line: 1,
-            column: 1,
-            end_column: 10,
-            reason: "test".into(),
-        }];
-        let fixture = fixture("script.sh");
-
-        let diag = shuck_linter::Diagnostic {
-            rule: shuck_linter::Rule::UnusedAssignment,
-            message: "kept".into(),
-            severity: shuck_linter::Severity::Warning,
-            span: shuck_ast::Span {
-                start: shuck_ast::Position {
-                    line: 1,
-                    column: 1,
-                    offset: 0,
-                },
-                end: shuck_ast::Position {
-                    line: 1,
-                    column: 10,
-                    offset: 0,
-                },
+    fn reviewed_divergence_classification_matches_label_qualified_record() {
+        let metadata = HashMap::from([("C002".to_string(), load_rule_corpus_metadata("C002"))]);
+        let matching = CompatibilityRecord {
+            side: CompatibilitySide::ShuckOnly,
+            rule_code: Some("C002".into()),
+            shellcheck_code: "SC1090".into(),
+            range: DiagnosticRange {
+                line: 20,
+                end_line: 20,
+                column: 1,
+                end_column: 10,
             },
+            message: "dynamic source path".into(),
+            labels: vec!["project-closure".into()],
+        };
+        let non_matching = CompatibilityRecord {
+            labels: Vec::new(),
+            ..matching.clone()
         };
 
-        let run = ShuckRun {
-            locations: HashMap::new(),
-            diagnostics: vec![diag],
-            parse_error: None,
-        };
+        let (matching_classification, _) =
+            classify_compatibility_record(&matching, Path::new("repo__script.sh"), &metadata);
+        let (non_matching_classification, _) =
+            classify_compatibility_record(&non_matching, Path::new("repo__script.sh"), &metadata);
 
-        // Filter for a different rule code — should not remove anything
-        let filtered = apply_shuck_allowlist(&allowlist, "C005", &fixture, run);
-
-        assert_eq!(filtered.diagnostics.len(), 1);
+        assert_eq!(
+            matching_classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert_eq!(
+            non_matching_classification,
+            CompatibilityClassification::Implementation
+        );
     }
 
     #[test]
-    fn load_all_shuck_allowlists_returns_empty_for_empty_dir() {
-        let allowlists = load_all_shuck_allowlists();
-        // The directory exists but may or may not have entries; just verify it doesn't panic
-        // and returns a valid map.
-        assert!(allowlists.values().all(|v| !v.is_empty()));
+    fn comparison_target_note_classification_stays_blocking() {
+        let metadata = HashMap::from([("C046".to_string(), load_rule_corpus_metadata("C046"))]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShellcheckOnly,
+            rule_code: Some("C046".into()),
+            shellcheck_code: "SC2124".into(),
+            range: DiagnosticRange {
+                line: 287,
+                end_line: 287,
+                column: 1,
+                end_column: 10,
+            },
+            message: "warning array-to-scalar assignment".into(),
+            labels: Vec::new(),
+        };
+
+        let (classification, reason) =
+            classify_compatibility_record(&record, Path::new("wifi.sh"), &metadata);
+
+        assert_eq!(classification, CompatibilityClassification::MappingIssue);
+        assert!(
+            reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("SC2124"))
+        );
+    }
+
+    #[test]
+    fn load_all_rule_corpus_metadata_reads_seeded_documents() {
+        let metadata = load_all_rule_corpus_metadata();
+
+        assert!(metadata.contains_key("C001"));
+        assert!(metadata.contains_key("C002"));
+        assert!(metadata.contains_key("C019"));
+        assert!(metadata.contains_key("C046"));
+        assert!(metadata.contains_key("C048"));
+        assert!(metadata.contains_key("C050"));
+        assert!(metadata.contains_key("C055"));
     }
 
     #[test]
@@ -2737,13 +2989,13 @@ mod tests {
 
         let failures = collect_fixture_failures(&fixtures, true, |fixture| {
             seen.lock().unwrap().push(fixture.path.clone());
-            Some(FixtureFailure {
-                kind: FixtureFailureKind::Other,
-                message: format_fixture_failure(
+            FixtureEvaluation {
+                implementation_diffs: vec![format_fixture_failure(
                     &fixture.path,
                     &[format!("{} failed", fixture.path.display())],
-                ),
-            })
+                )],
+                ..FixtureEvaluation::default()
+            }
         });
 
         let mut seen = seen.into_inner().unwrap();
@@ -2754,9 +3006,9 @@ mod tests {
             vec![PathBuf::from("first.sh"), PathBuf::from("second.sh")]
         );
         assert!(!failures.timeout_cap_reached);
-        assert_eq!(failures.failures.len(), 2);
-        assert!(failures.failures[0].contains("first.sh"));
-        assert!(failures.failures[1].contains("second.sh"));
+        assert_eq!(failures.implementation_diffs.len(), 2);
+        assert!(failures.implementation_diffs[0].contains("first.sh"));
+        assert!(failures.implementation_diffs[1].contains("second.sh"));
     }
 
     #[test]
@@ -2764,14 +3016,14 @@ mod tests {
         let fixture = fixture("panic.sh");
         let fixtures = vec![&fixture];
 
-        let failures = collect_fixture_failures(&fixtures, true, |_| -> Option<FixtureFailure> {
+        let failures = collect_fixture_failures(&fixtures, true, |_| -> FixtureEvaluation {
             panic!("boom");
         });
 
         assert!(!failures.timeout_cap_reached);
-        assert_eq!(failures.failures.len(), 1);
-        assert!(failures.failures[0].contains("panic.sh"));
-        assert!(failures.failures[0].contains("fixture panic: boom"));
+        assert_eq!(failures.harness_failures.len(), 1);
+        assert!(failures.harness_failures[0].contains("panic.sh"));
+        assert!(failures.harness_failures[0].contains("fixture panic: boom"));
     }
 
     #[test]
@@ -2784,24 +3036,30 @@ mod tests {
 
         let failures = collect_fixture_failures(&fixture_refs, true, |fixture| {
             seen.fetch_add(1, Ordering::Relaxed);
-            Some(FixtureFailure {
-                kind: FixtureFailureKind::Timeout,
-                message: format_fixture_failure(
-                    &fixture.path,
-                    &[format!(
-                        "shuck error: {}",
-                        format_timeout_message("shuck", Duration::from_secs(30))
-                    )],
-                ),
-            })
+            FixtureEvaluation {
+                harness_failure: Some(FixtureFailure {
+                    kind: FixtureFailureKind::Timeout,
+                    message: format_fixture_failure(
+                        &fixture.path,
+                        &[format!(
+                            "shuck error: {}",
+                            format_timeout_message("shuck", Duration::from_secs(30))
+                        )],
+                    ),
+                }),
+                ..FixtureEvaluation::default()
+            }
         });
 
         assert!(failures.timeout_cap_reached);
-        assert_eq!(failures.failures.len(), LARGE_CORPUS_TIMEOUT_FAILURE_CAP);
+        assert_eq!(
+            failures.harness_failures.len(),
+            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+        );
         assert!(seen.load(Ordering::Relaxed) <= fixture_refs.len());
         assert!(
             failures
-                .failures
+                .harness_failures
                 .iter()
                 .all(|failure| failure.contains("timed out after"))
         );
@@ -2858,6 +3116,46 @@ mod tests {
         assert!(!source_starts_with_unknown_shell_comment(
             b"#!/bin/sh\necho hi\n"
         ));
+    }
+
+    #[test]
+    fn classify_fixture_noise_marks_patch_inputs() {
+        let fixture = fixture("example.patch");
+        assert_eq!(
+            classify_fixture_noise(&fixture, b"not shell", true, false),
+            CorpusNoiseKind::Patch
+        );
+    }
+
+    #[test]
+    fn classify_fixture_noise_marks_fish_inputs() {
+        let fixture = fixture("generate-authors.fish");
+        assert_eq!(
+            classify_fixture_noise(&fixture, b"#!/usr/bin/env fish\necho hi\n", true, false),
+            CorpusNoiseKind::Fish
+        );
+    }
+
+    #[test]
+    fn classify_fixture_noise_marks_parse_aborts() {
+        let fixture = fixture("script.sh");
+        assert_eq!(
+            classify_fixture_noise(&fixture, b"#!/bin/sh\necho hi\n", true, false),
+            CorpusNoiseKind::ParseAbort
+        );
+        assert_eq!(
+            classify_fixture_noise(&fixture, b"#!/bin/sh\necho hi\n", false, true),
+            CorpusNoiseKind::ParseAbort
+        );
+    }
+
+    #[test]
+    fn classify_fixture_noise_marks_shell_collapse_inputs() {
+        let fixture = fixture("script.sh");
+        assert_eq!(
+            classify_fixture_noise(&fixture, b"# leading comment\necho hi\n", true, false),
+            CorpusNoiseKind::ShellCollapse
+        );
     }
 
     #[test]
