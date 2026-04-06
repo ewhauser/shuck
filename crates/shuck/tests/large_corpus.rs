@@ -1507,6 +1507,7 @@ fn fixture_supported_for_large_corpus(
 ) -> bool {
     if fixture_looks_like_zsh(fixture)
         || path_is_sample_file(&fixture.path)
+        || path_is_fish_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -1540,6 +1541,12 @@ fn path_is_sample_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with(".sample"))
+}
+
+fn path_is_fish_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
 }
 
 fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
@@ -1758,7 +1765,7 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
         }
 
         let path = entry.path().to_path_buf();
-        if path_is_sample_file(&path) {
+        if path_is_sample_file(&path) || path_is_fish_file(&path) {
             continue;
         }
         let cache_rel_path = path
@@ -2662,6 +2669,19 @@ mod tests {
     }
 
     #[test]
+    fn fish_files_are_skipped_for_large_corpus() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("functions/prompt.fish"),
+            cache_rel_path: PathBuf::from("functions/prompt.fish"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_fish_file(&fixture.path));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+    }
+
+    #[test]
     fn shellcheck_parse_abort_classification() {
         let aborted = vec![
             ShellCheckDiagnostic {
@@ -3331,15 +3351,25 @@ mod tests {
     }
 
     #[test]
-    fn collect_fixtures_skips_sample_files() {
+    fn collect_fixtures_skips_sample_and_fish_files() {
         let tempdir = tempfile::tempdir().unwrap();
         let scripts_dir = tempdir.path().join("scripts");
         let nested_dir = scripts_dir.join("nested");
         fs::create_dir_all(&nested_dir).unwrap();
 
         fs::write(scripts_dir.join("keep.sh"), "#!/bin/sh\necho keep\n").unwrap();
-        fs::write(scripts_dir.join("pre-commit.sample"), "#!/bin/sh\necho skip\n").unwrap();
-        fs::write(nested_dir.join("post-checkout.sample"), "#!/bin/sh\necho skip\n").unwrap();
+        fs::write(
+            scripts_dir.join("pre-commit.sample"),
+            "#!/bin/sh\necho skip\n",
+        )
+        .unwrap();
+        fs::write(scripts_dir.join("config.fish"), "echo skip\n").unwrap();
+        fs::write(
+            nested_dir.join("post-checkout.sample"),
+            "#!/bin/sh\necho skip\n",
+        )
+        .unwrap();
+        fs::write(nested_dir.join("prompt.fish"), "echo skip\n").unwrap();
 
         let fixtures = collect_fixtures(tempdir.path());
         let collected_paths: Vec<_> = fixtures
