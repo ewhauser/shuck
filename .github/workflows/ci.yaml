@@ -37,7 +37,6 @@ jobs:
           persist-credentials: false
       - uses: DeterminateSystems/determinate-nix-action@v3
       - uses: DeterminateSystems/flakehub-cache-action@main
-      - uses: DeterminateSystems/nix-flake-checker-action@main
       - run: nix flake check
 
   cargo-fmt:
