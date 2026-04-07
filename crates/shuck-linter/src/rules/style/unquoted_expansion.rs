@@ -1,5 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{AssignmentValue, DeclOperand, Name, Span, Word, WordPart};
+use shuck_ast::{AssignmentValue, DeclOperand, Name, Span, SubscriptSelector, VarRef, Word, WordPart};
 use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
 
 use crate::rules::common::{
@@ -104,7 +104,7 @@ impl<'a> SafeValueIndex<'a> {
                 let AssignmentValue::Scalar(word) = &assignment.value else {
                     continue;
                 };
-                scalar_bindings.insert(SpanKey::new(assignment.name_span), word);
+                scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
             }
 
             for operand in query::declaration_operands(visit.command) {
@@ -114,7 +114,7 @@ impl<'a> SafeValueIndex<'a> {
                 let AssignmentValue::Scalar(word) = &assignment.value else {
                     continue;
                 };
-                scalar_bindings.insert(SpanKey::new(assignment.name_span), word);
+                scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
             }
         }
 
@@ -146,7 +146,7 @@ impl<'a> SafeValueIndex<'a> {
             WordPart::Length(_) | WordPart::ArrayLength(_) => true,
             WordPart::CommandSubstitution { .. }
             | WordPart::ParameterExpansion { .. }
-            | WordPart::ArrayAccess { .. }
+            | WordPart::ArrayAccess(_)
             | WordPart::ArrayIndices(_)
             | WordPart::Substring { .. }
             | WordPart::ArraySlice { .. }
@@ -215,7 +215,7 @@ fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
         | WordPart::IndirectExpansion { .. }
         | WordPart::PrefixMatch(_)
         | WordPart::Transformation { .. } => true,
-        WordPart::ArrayAccess { index, .. } => !matches!(index.slice(source), "@" | "*"),
+        WordPart::ArrayAccess(reference) => !reference_has_array_selector(reference, source),
         WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => false,
     }
 }
@@ -228,6 +228,15 @@ fn literal_is_field_safe(text: &str) -> bool {
 
 fn safe_special_parameter(name: &Name) -> bool {
     matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
+}
+
+fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
+    matches!(
+        reference.subscript.as_ref().map(|subscript| subscript.kind),
+        Some(shuck_ast::SubscriptKind::Selector(
+            SubscriptSelector::At | SubscriptSelector::Star
+        ))
+    )
 }
 
 fn report_word_expansions(

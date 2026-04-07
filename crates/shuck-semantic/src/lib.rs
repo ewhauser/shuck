@@ -1650,6 +1650,19 @@ printf '%s\\n' \"${arr[@]}\"
     }
 
     #[test]
+    fn associative_compound_declaration_marks_binding_assoc_and_array() {
+        let model = model("#!/bin/bash\ndeclare -A assoc=(one [foo]=bar [bar]+=baz)\n");
+
+        let assoc = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "assoc")
+            .expect("expected assoc binding");
+        assert!(assoc.attributes.contains(BindingAttributes::ARRAY));
+        assert!(assoc.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
     fn read_implicitly_consumes_visible_ifs_binding() {
         let source = "\
 #!/bin/bash

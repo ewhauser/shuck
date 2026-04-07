@@ -290,7 +290,19 @@ fn collect_assignment(
     let context = context.with_assignment_target(assignment_target_name(assignment));
     match &assignment.value {
         AssignmentValue::Scalar(word) => collect_word(word, indexer, source, spans, context),
-        AssignmentValue::Array(words) => collect_words(words, indexer, source, spans, context),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    shuck_ast::ArrayElem::Sequential(word) => {
+                        collect_word(word, indexer, source, spans, context)
+                    }
+                    shuck_ast::ArrayElem::Keyed { value, .. }
+                    | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
+                        collect_word(value, indexer, source, spans, context)
+                    }
+                }
+            }
+        }
     }
 }
 

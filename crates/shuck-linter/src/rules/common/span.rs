@@ -1,11 +1,11 @@
 use shuck_ast::{
     ArithmeticExpansionSyntax, Assignment, CommandListItem, CommandSubstitutionSyntax, Position,
-    Redirect, Span, TextRange, TextSize, Word, WordPart, WordPartNode,
+    Redirect, Span, SubscriptSelector, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::{Indexer, RegionKind};
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
-    assignment.name_span
+    assignment.target.name_span
 }
 
 pub fn list_item_operator_span(item: &CommandListItem) -> Span {
@@ -164,8 +164,8 @@ fn collect_array_expansion_spans(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_array_expansion_spans(parts, source, true, only_unquoted, spans)
             }
-            WordPart::ArrayAccess { index, .. }
-                if matches!(index.slice(source), "@" | "*") && (!quoted || !only_unquoted) =>
+            WordPart::ArrayAccess(reference)
+                if reference_has_array_selector(reference, source) && (!quoted || !only_unquoted) =>
             {
                 spans.push(part.span);
             }
@@ -189,7 +189,7 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
             | WordPart::ArithmeticExpansion { .. }
             | WordPart::ParameterExpansion { .. }
             | WordPart::Length(_)
-            | WordPart::ArrayAccess { .. }
+            | WordPart::ArrayAccess(_)
             | WordPart::ArrayLength(_)
             | WordPart::ArrayIndices(_)
             | WordPart::Substring { .. }
@@ -219,8 +219,8 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], source: &str, spans: &
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch(_)
             | WordPart::Transformation { .. } => spans.push(part.span),
-            WordPart::ArrayAccess { index, .. } => {
-                if !matches!(index.slice(source), "@" | "*") {
+            WordPart::ArrayAccess(reference) => {
+                if !reference_has_array_selector(reference, source) {
                     spans.push(part.span);
                 }
             }
@@ -257,6 +257,13 @@ fn collect_legacy_arithmetic_spans(parts: &[WordPartNode], spans: &mut Vec<Span>
             _ => {}
         }
     }
+}
+
+fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
+    matches!(
+        reference.subscript.as_ref().and_then(|subscript| subscript.selector()),
+        Some(SubscriptSelector::At | SubscriptSelector::Star)
+    )
 }
 
 #[cfg(test)]

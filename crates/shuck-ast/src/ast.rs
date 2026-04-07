@@ -9,7 +9,7 @@ use crate::{
     Name,
     span::{Position, Span, TextRange},
 };
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
 /// Source-backed text for AST nodes that need stable spans but only occasionally
 /// need owned cooked text.
@@ -208,24 +208,86 @@ pub enum DeclOperand {
     /// A literal option word such as `-a` or `+x`.
     Flag(Word),
     /// A bare variable name or indexed reference.
-    Name(DeclName),
+    Name(VarRef),
     /// A typed assignment operand.
     Assignment(Assignment),
     /// A word whose runtime expansion may produce a flag, name, or assignment.
     Dynamic(Word),
 }
 
-/// A bare declaration name or indexed reference.
+/// How a subscript should be interpreted by downstream consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptInterpretation {
+    Indexed,
+    Associative,
+    Contextual,
+}
+
+/// The syntactic shape of a parsed subscript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptKind {
+    Ordinary,
+    Selector(SubscriptSelector),
+}
+
+/// Array selector variants like `[@]` and `[*]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptSelector {
+    At,
+    Star,
+}
+
+impl SubscriptSelector {
+    pub const fn as_char(self) -> char {
+        match self {
+            Self::At => '@',
+            Self::Star => '*',
+        }
+    }
+}
+
+/// A typed array subscript or selector.
 #[derive(Debug, Clone)]
-pub struct DeclName {
+pub struct Subscript {
+    pub text: SourceText,
+    pub kind: SubscriptKind,
+    pub interpretation: SubscriptInterpretation,
+    /// Typed arithmetic view of this subscript when it parses as arithmetic.
+    pub arithmetic_ast: Option<ArithmeticExprNode>,
+}
+
+impl Subscript {
+    pub fn span(&self) -> Span {
+        self.text.span()
+    }
+
+    pub fn selector(&self) -> Option<SubscriptSelector> {
+        match self.kind {
+            SubscriptKind::Ordinary => None,
+            SubscriptKind::Selector(selector) => Some(selector),
+        }
+    }
+
+    pub fn is_source_backed(&self) -> bool {
+        self.text.is_source_backed()
+    }
+}
+
+/// A variable reference with an optional typed subscript.
+#[derive(Debug, Clone)]
+pub struct VarRef {
     pub name: Name,
     pub name_span: Span,
-    /// Optional array index for indexed references like `arr[0]`.
-    pub index: Option<SourceText>,
-    /// Typed arithmetic view of `index` when the operand parses as arithmetic.
-    pub index_ast: Option<ArithmeticExprNode>,
-    /// Source span of this declaration name operand.
+    pub subscript: Option<Subscript>,
     pub span: Span,
+}
+
+impl VarRef {
+    pub fn is_source_backed(&self) -> bool {
+        self.subscript
+            .as_ref()
+            .is_none_or(Subscript::is_source_backed)
+    }
 }
 
 /// Builtin commands with dedicated AST nodes.
@@ -420,15 +482,6 @@ pub struct ConditionalCommand {
     pub right_bracket_span: Span,
 }
 
-/// A direct variable-reference operand inside `[[ -v ... ]]` or `[[ -R ... ]]`.
-#[derive(Debug, Clone)]
-pub struct ConditionalVarRef {
-    pub name: Name,
-    pub name_span: Span,
-    pub index: Option<SourceText>,
-    pub span: Span,
-}
-
 /// A node within a `[[ ... ]]` conditional expression.
 #[derive(Debug, Clone)]
 pub enum ConditionalExpr {
@@ -438,7 +491,7 @@ pub enum ConditionalExpr {
     Word(Word),
     Pattern(Pattern),
     Regex(Word),
-    VarRef(ConditionalVarRef),
+    VarRef(VarRef),
 }
 
 impl ConditionalExpr {
@@ -1111,6 +1164,26 @@ fn display_source_text<'a>(text: Option<&'a SourceText>, source: Option<&'a str>
     }
 }
 
+fn display_subscript_text<'a>(subscript: &'a Subscript, source: Option<&'a str>) -> Cow<'a, str> {
+    match (source, subscript.selector()) {
+        (Some(source), _) => Cow::Borrowed(subscript.text.slice(source)),
+        (None, Some(selector)) => Cow::Owned(selector.as_char().to_string()),
+        (None, None) => Cow::Borrowed(display_source_text(Some(&subscript.text), source)),
+    }
+}
+
+fn fmt_var_ref_with_source(
+    f: &mut impl fmt::Write,
+    reference: &VarRef,
+    source: Option<&str>,
+) -> fmt::Result {
+    write!(f, "{}", reference.name)?;
+    if let Some(subscript) = &reference.subscript {
+        write!(f, "[{}]", display_subscript_text(subscript, source))?;
+    }
+    Ok(())
+}
+
 /// Parts of a word.
 #[derive(Debug, Clone)]
 pub enum WordPart {
@@ -1140,27 +1213,22 @@ pub enum WordPart {
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.
     /// `colon_variant` distinguishes `:-` (unset-or-empty) from `-` (unset-only).
     ParameterExpansion {
-        name: Name,
+        reference: VarRef,
         operator: ParameterOp,
         operand: Option<SourceText>,
         colon_variant: bool,
     },
     /// Length expansion ${#var}
-    Length(Name),
+    Length(VarRef),
     /// Array element access `${arr[index]}` or `${arr[@]}` or `${arr[*]}`
-    ArrayAccess {
-        name: Name,
-        index: SourceText,
-        /// Typed arithmetic view of `index` when the operand parses as arithmetic.
-        index_ast: Option<ArithmeticExprNode>,
-    },
+    ArrayAccess(VarRef),
     /// Array length `${#arr[@]}` or `${#arr[*]}`
-    ArrayLength(Name),
+    ArrayLength(VarRef),
     /// Array indices `${!arr[@]}` or `${!arr[*]}`
-    ArrayIndices(Name),
+    ArrayIndices(VarRef),
     /// Substring extraction `${var:offset}` or `${var:offset:length}`
     Substring {
-        name: Name,
+        reference: VarRef,
         offset: SourceText,
         /// Typed arithmetic view of `offset` when it parses as arithmetic.
         offset_ast: Option<ArithmeticExprNode>,
@@ -1170,7 +1238,7 @@ pub enum WordPart {
     },
     /// Array slice `${arr[@]:offset:length}`
     ArraySlice {
-        name: Name,
+        reference: VarRef,
         offset: SourceText,
         /// Typed arithmetic view of `offset` when it parses as arithmetic.
         offset_ast: Option<ArithmeticExprNode>,
@@ -1196,7 +1264,51 @@ pub enum WordPart {
         is_input: bool,
     },
     /// Parameter transformation `${var@op}` where op is Q, E, P, A, K, a, u, U, L
-    Transformation { name: Name, operator: char },
+    Transformation {
+        reference: VarRef,
+        operator: char,
+    },
+}
+
+/// Compound array literal assigned with `(...)`.
+#[derive(Debug, Clone)]
+pub struct ArrayExpr {
+    pub kind: ArrayKind,
+    pub elements: Vec<ArrayElem>,
+    pub span: Span,
+}
+
+/// The array flavor implied by the current parse context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrayKind {
+    Indexed,
+    Associative,
+    Contextual,
+}
+
+/// An element inside a compound array literal.
+#[derive(Debug, Clone)]
+pub enum ArrayElem {
+    Sequential(Word),
+    Keyed {
+        key: Subscript,
+        value: Word,
+    },
+    KeyedAppend {
+        key: Subscript,
+        value: Word,
+    },
+}
+
+impl ArrayElem {
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Sequential(word) => word.span,
+            Self::Keyed { key, value } | Self::KeyedAppend { key, value } => {
+                key.span().merge(value.span)
+            }
+        }
+    }
 }
 
 fn fmt_literal_text(
@@ -1286,68 +1398,80 @@ fn fmt_word_part_with_source(
             },
         },
         WordPart::ParameterExpansion {
-            name,
+            reference,
             operator,
             operand,
             colon_variant,
         } => match operator {
             ParameterOp::UseDefault => {
                 let c = if *colon_variant { ":" } else { "" };
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
                 write!(
                     f,
-                    "${{{}{}-{}}}",
-                    name,
+                    "{}-{}}}",
                     c,
                     display_source_text(operand.as_ref(), source)
                 )?
             }
             ParameterOp::AssignDefault => {
                 let c = if *colon_variant { ":" } else { "" };
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
                 write!(
                     f,
-                    "${{{}{}={}}}",
-                    name,
+                    "{}={}}}",
                     c,
                     display_source_text(operand.as_ref(), source)
                 )?
             }
             ParameterOp::UseReplacement => {
                 let c = if *colon_variant { ":" } else { "" };
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
                 write!(
                     f,
-                    "${{{}{}+{}}}",
-                    name,
+                    "{}+{}}}",
                     c,
                     display_source_text(operand.as_ref(), source)
                 )?
             }
             ParameterOp::Error => {
                 let c = if *colon_variant { ":" } else { "" };
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
                 write!(
                     f,
-                    "${{{}{}?{}}}",
-                    name,
+                    "{}?{}}}",
                     c,
                     display_source_text(operand.as_ref(), source)
                 )?
             }
             ParameterOp::RemovePrefixShort { pattern } => {
-                write!(f, "${{{}#", name)?;
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("#")?;
                 pattern.fmt_with_source(f, source)?;
                 f.write_str("}")?;
             }
             ParameterOp::RemovePrefixLong { pattern } => {
-                write!(f, "${{{}##", name)?;
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("##")?;
                 pattern.fmt_with_source(f, source)?;
                 f.write_str("}")?;
             }
             ParameterOp::RemoveSuffixShort { pattern } => {
-                write!(f, "${{{}%", name)?;
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("%")?;
                 pattern.fmt_with_source(f, source)?;
                 f.write_str("}")?;
             }
             ParameterOp::RemoveSuffixLong { pattern } => {
-                write!(f, "${{{}%%", name)?;
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("%%")?;
                 pattern.fmt_with_source(f, source)?;
                 f.write_str("}")?;
             }
@@ -1355,7 +1479,9 @@ fn fmt_word_part_with_source(
                 pattern,
                 replacement,
             } => {
-                write!(f, "${{{}/", name)?;
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("/")?;
                 pattern.fmt_with_source(f, source)?;
                 write!(f, "/{}}}", display_source_text(Some(replacement), source))?;
             }
@@ -1363,68 +1489,93 @@ fn fmt_word_part_with_source(
                 pattern,
                 replacement,
             } => {
-                write!(f, "${{{}//", name)?;
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("//")?;
                 pattern.fmt_with_source(f, source)?;
                 write!(f, "/{}}}", display_source_text(Some(replacement), source))?;
             }
-            ParameterOp::UpperFirst => write!(f, "${{{}^}}", name)?,
-            ParameterOp::UpperAll => write!(f, "${{{}^^}}", name)?,
-            ParameterOp::LowerFirst => write!(f, "${{{},}}", name)?,
-            ParameterOp::LowerAll => write!(f, "${{{},,}}", name)?,
+            ParameterOp::UpperFirst => {
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("^}")?;
+            }
+            ParameterOp::UpperAll => {
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("^^}")?;
+            }
+            ParameterOp::LowerFirst => {
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str(",}")?;
+            }
+            ParameterOp::LowerAll => {
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str(",,}")?;
+            }
         },
-        WordPart::Length(name) => write!(f, "${{#{}}}", name)?,
-        WordPart::ArrayAccess { name, index, .. } => write!(
-            f,
-            "${{{}[{}]}}",
-            name,
-            display_source_text(Some(index), source)
-        )?,
-        WordPart::ArrayLength(name) => write!(f, "${{#{}[@]}}", name)?,
-        WordPart::ArrayIndices(name) => write!(f, "${{!{}[@]}}", name)?,
+        WordPart::Length(reference) => {
+            write!(f, "${{#")?;
+            fmt_var_ref_with_source(f, reference, source)?;
+            f.write_str("}")?;
+        }
+        WordPart::ArrayAccess(reference) => {
+            write!(f, "${{")?;
+            fmt_var_ref_with_source(f, reference, source)?;
+            f.write_str("}")?;
+        }
+        WordPart::ArrayLength(reference) => {
+            write!(f, "${{#")?;
+            fmt_var_ref_with_source(f, reference, source)?;
+            f.write_str("}")?;
+        }
+        WordPart::ArrayIndices(reference) => {
+            write!(f, "${{!")?;
+            fmt_var_ref_with_source(f, reference, source)?;
+            f.write_str("}")?;
+        }
         WordPart::Substring {
-            name,
+            reference,
             offset,
             length,
             ..
         } => {
             if let Some(length) = length {
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
                 write!(
                     f,
-                    "${{{}:{}:{}}}",
-                    name,
+                    ":{}:{}}}",
                     display_source_text(Some(offset), source),
                     display_source_text(Some(length), source)
                 )?
             } else {
-                write!(
-                    f,
-                    "${{{}:{}}}",
-                    name,
-                    display_source_text(Some(offset), source)
-                )?
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                write!(f, ":{}}}", display_source_text(Some(offset), source))?
             }
         }
         WordPart::ArraySlice {
-            name,
+            reference,
             offset,
             length,
             ..
         } => {
             if let Some(length) = length {
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
                 write!(
                     f,
-                    "${{{}[@]:{}:{}}}",
-                    name,
+                    ":{}:{}}}",
                     display_source_text(Some(offset), source),
                     display_source_text(Some(length), source)
                 )?
             } else {
-                write!(
-                    f,
-                    "${{{}[@]:{}}}",
-                    name,
-                    display_source_text(Some(offset), source)
-                )?
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                write!(f, ":{}}}", display_source_text(Some(offset), source))?
             }
         }
         WordPart::IndirectExpansion {
@@ -1462,7 +1613,14 @@ fn fmt_word_part_with_source(
                 write!(f, "{}({:?})", prefix, commands)?
             }
         },
-        WordPart::Transformation { name, operator } => write!(f, "${{{}@{}}}", name, operator)?,
+        WordPart::Transformation {
+            reference,
+            operator,
+        } => {
+            write!(f, "${{")?;
+            fmt_var_ref_with_source(f, reference, source)?;
+            write!(f, "@{}}}", operator)?;
+        }
     }
 
     Ok(())
@@ -1477,25 +1635,37 @@ fn part_is_source_backed(part: &WordPart) -> bool {
         }
         WordPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
         WordPart::ParameterExpansion {
-            operand, operator, ..
+            reference,
+            operand,
+            operator,
+            ..
         } => {
-            operator_is_source_backed(operator)
+            reference.is_source_backed()
+                && operator_is_source_backed(operator)
                 && operand.as_ref().is_none_or(SourceText::is_source_backed)
         }
-        WordPart::ArrayAccess { index, .. }
-        | WordPart::Substring { offset: index, .. }
-        | WordPart::ArraySlice { offset: index, .. } => index.is_source_backed(),
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => reference.is_source_backed(),
+        WordPart::Substring {
+            reference,
+            offset: index,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset: index,
+            ..
+        } => reference.is_source_backed() && index.is_source_backed(),
         WordPart::IndirectExpansion {
             operand, operator, ..
         } => operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed),
         WordPart::CommandSubstitution { .. }
         | WordPart::Variable(_)
-        | WordPart::Length(_)
-        | WordPart::ArrayLength(_)
-        | WordPart::ArrayIndices(_)
         | WordPart::PrefixMatch(_)
-        | WordPart::ProcessSubstitution { .. }
-        | WordPart::Transformation { .. } => true,
+        | WordPart::ProcessSubstitution { .. } => true,
     }
 }
 
@@ -1680,12 +1850,7 @@ pub enum RedirectKind {
 /// Variable assignment.
 #[derive(Debug, Clone)]
 pub struct Assignment {
-    pub name: Name,
-    pub name_span: Span,
-    /// Optional array index for indexed assignments like `arr[0]=value`
-    pub index: Option<SourceText>,
-    /// Typed arithmetic view of `index` when the operand parses as arithmetic.
-    pub index_ast: Option<ArithmeticExprNode>,
+    pub target: VarRef,
     pub value: AssignmentValue,
     /// Whether this is an append assignment (+=)
     pub append: bool,
@@ -1699,7 +1864,7 @@ pub enum AssignmentValue {
     /// Scalar value: VAR=value
     Scalar(Word),
     /// Array value: VAR=(a b c)
-    Array(Vec<Word>),
+    Compound(ArrayExpr),
 }
 
 #[cfg(test)]
@@ -1725,6 +1890,55 @@ mod tests {
                 .map(|part| PatternPartNode::new(part, span))
                 .collect(),
             span,
+        }
+    }
+
+    fn plain_ref(name: &str) -> VarRef {
+        let span = Span::new();
+        VarRef {
+            name: name.into(),
+            name_span: span,
+            subscript: None,
+            span,
+        }
+    }
+
+    fn indexed_ref(name: &str, index: &str) -> VarRef {
+        let span = Span::new();
+        VarRef {
+            name: name.into(),
+            name_span: span,
+            subscript: Some(Subscript {
+                text: index.into(),
+                kind: SubscriptKind::Ordinary,
+                interpretation: SubscriptInterpretation::Contextual,
+                arithmetic_ast: None,
+            }),
+            span,
+        }
+    }
+
+    fn selector_ref(name: &str, selector: SubscriptSelector) -> VarRef {
+        let span = Span::new();
+        VarRef {
+            name: name.into(),
+            name_span: span,
+            subscript: Some(Subscript {
+                text: selector.as_char().to_string().into(),
+                kind: SubscriptKind::Selector(selector),
+                interpretation: SubscriptInterpretation::Contextual,
+                arithmetic_ast: None,
+            }),
+            span,
+        }
+    }
+
+    fn assignment(target: VarRef, value: AssignmentValue) -> Assignment {
+        Assignment {
+            target,
+            value,
+            append: false,
+            span: Span::new(),
         }
     }
 
@@ -1778,36 +1992,38 @@ mod tests {
 
     #[test]
     fn word_display_length() {
-        let w = word(vec![WordPart::Length("var".into())]);
+        let w = word(vec![WordPart::Length(plain_ref("var"))]);
         assert_eq!(format!("{w}"), "${#var}");
     }
 
     #[test]
     fn word_display_array_access() {
-        let w = word(vec![WordPart::ArrayAccess {
-            name: "arr".into(),
-            index: "0".into(),
-            index_ast: None,
-        }]);
+        let w = word(vec![WordPart::ArrayAccess(indexed_ref("arr", "0"))]);
         assert_eq!(format!("{w}"), "${arr[0]}");
     }
 
     #[test]
     fn word_display_array_length() {
-        let w = word(vec![WordPart::ArrayLength("arr".into())]);
+        let w = word(vec![WordPart::ArrayLength(selector_ref(
+            "arr",
+            SubscriptSelector::At,
+        ))]);
         assert_eq!(format!("{w}"), "${#arr[@]}");
     }
 
     #[test]
     fn word_display_array_indices() {
-        let w = word(vec![WordPart::ArrayIndices("arr".into())]);
+        let w = word(vec![WordPart::ArrayIndices(selector_ref(
+            "arr",
+            SubscriptSelector::At,
+        ))]);
         assert_eq!(format!("{w}"), "${!arr[@]}");
     }
 
     #[test]
     fn word_display_substring_with_length() {
         let w = word(vec![WordPart::Substring {
-            name: "var".into(),
+            reference: plain_ref("var"),
             offset: "2".into(),
             offset_ast: None,
             length: Some("3".into()),
@@ -1819,7 +2035,7 @@ mod tests {
     #[test]
     fn word_display_substring_without_length() {
         let w = word(vec![WordPart::Substring {
-            name: "var".into(),
+            reference: plain_ref("var"),
             offset: "2".into(),
             offset_ast: None,
             length: None,
@@ -1831,7 +2047,7 @@ mod tests {
     #[test]
     fn word_display_array_slice_with_length() {
         let w = word(vec![WordPart::ArraySlice {
-            name: "arr".into(),
+            reference: selector_ref("arr", SubscriptSelector::At),
             offset: "1".into(),
             offset_ast: None,
             length: Some("2".into()),
@@ -1843,7 +2059,7 @@ mod tests {
     #[test]
     fn word_display_array_slice_without_length() {
         let w = word(vec![WordPart::ArraySlice {
-            name: "arr".into(),
+            reference: selector_ref("arr", SubscriptSelector::At),
             offset: "1".into(),
             offset_ast: None,
             length: None,
@@ -1872,7 +2088,7 @@ mod tests {
     #[test]
     fn word_display_transformation() {
         let w = word(vec![WordPart::Transformation {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: 'Q',
         }]);
         assert_eq!(format!("{w}"), "${var@Q}");
@@ -1912,7 +2128,7 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_use_default_colon() {
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::UseDefault,
             operand: Some("fallback".into()),
             colon_variant: true,
@@ -1923,7 +2139,7 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_use_default_no_colon() {
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::UseDefault,
             operand: Some("fallback".into()),
             colon_variant: false,
@@ -1934,7 +2150,7 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_assign_default() {
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::AssignDefault,
             operand: Some("val".into()),
             colon_variant: true,
@@ -1945,7 +2161,7 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_use_replacement() {
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::UseReplacement,
             operand: Some("alt".into()),
             colon_variant: true,
@@ -1956,7 +2172,7 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_error() {
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::Error,
             operand: Some("msg".into()),
             colon_variant: true,
@@ -1968,7 +2184,7 @@ mod tests {
     fn word_display_parameter_expansion_prefix_suffix() {
         // RemovePrefixShort
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::RemovePrefixShort {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
@@ -1979,7 +2195,7 @@ mod tests {
 
         // RemovePrefixLong
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::RemovePrefixLong {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
@@ -1990,7 +2206,7 @@ mod tests {
 
         // RemoveSuffixShort
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::RemoveSuffixShort {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
@@ -2001,7 +2217,7 @@ mod tests {
 
         // RemoveSuffixLong
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::RemoveSuffixLong {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
@@ -2014,7 +2230,7 @@ mod tests {
     #[test]
     fn word_display_parameter_expansion_replace() {
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::ReplaceFirst {
                 pattern: pattern(vec![PatternPart::Literal("old".into())]),
                 replacement: "new".into(),
@@ -2025,7 +2241,7 @@ mod tests {
         assert_eq!(format!("{w}"), "${var/old/new}");
 
         let w = word(vec![WordPart::ParameterExpansion {
-            name: "var".into(),
+            reference: plain_ref("var"),
             operator: ParameterOp::ReplaceAll {
                 pattern: pattern(vec![PatternPart::Literal("old".into())]),
                 replacement: "new".into(),
@@ -2040,7 +2256,7 @@ mod tests {
     fn word_display_parameter_expansion_case() {
         let check = |op: ParameterOp, expected: &str| {
             let w = word(vec![WordPart::ParameterExpansion {
-                name: "var".into(),
+                reference: plain_ref("var"),
                 operator: op,
                 operand: None,
                 colon_variant: false,
@@ -2095,19 +2311,14 @@ mod tests {
             name: Word::literal("env"),
             args: vec![],
             redirects: vec![],
-            assignments: vec![Assignment {
-                name: "FOO".into(),
-                name_span: Span::new(),
-                index: None,
-                index_ast: None,
-                value: AssignmentValue::Scalar(Word::literal("bar")),
-                append: false,
-                span: Span::new(),
-            }],
+            assignments: vec![assignment(
+                plain_ref("FOO"),
+                AssignmentValue::Scalar(Word::literal("bar")),
+            )],
             span: Span::new(),
         };
         assert_eq!(cmd.assignments.len(), 1);
-        assert_eq!(cmd.assignments[0].name, "FOO");
+        assert_eq!(cmd.assignments[0].target.name, "FOO");
         assert!(!cmd.assignments[0].append);
     }
 
@@ -2145,15 +2356,10 @@ mod tests {
                 span: Span::new(),
                 target: RedirectTarget::Word(Word::literal("out.txt")),
             }],
-            assignments: vec![Assignment {
-                name: "FOO".into(),
-                name_span: Span::new(),
-                index: None,
-                index_ast: None,
-                value: AssignmentValue::Scalar(Word::literal("bar")),
-                append: false,
-                span: Span::new(),
-            }],
+            assignments: vec![assignment(
+                plain_ref("FOO"),
+                AssignmentValue::Scalar(Word::literal("bar")),
+            )],
             span: Span::new(),
         });
 
@@ -2326,68 +2532,56 @@ mod tests {
 
     #[test]
     fn assignment_scalar() {
-        let a = Assignment {
-            name: "X".into(),
-            name_span: Span::new(),
-            index: None,
-            index_ast: None,
-            value: AssignmentValue::Scalar(Word::literal("1")),
-            append: false,
-            span: Span::new(),
-        };
-        assert_eq!(a.name, "X");
-        assert!(a.index.is_none());
+        let a = assignment(plain_ref("X"), AssignmentValue::Scalar(Word::literal("1")));
+        assert_eq!(a.target.name, "X");
+        assert!(a.target.subscript.is_none());
         assert!(!a.append);
     }
 
     #[test]
     fn assignment_array() {
-        let a = Assignment {
-            name: "ARR".into(),
-            name_span: Span::new(),
-            index: None,
-            index_ast: None,
-            value: AssignmentValue::Array(vec![
-                Word::literal("a"),
-                Word::literal("b"),
-                Word::literal("c"),
-            ]),
-            append: false,
-            span: Span::new(),
-        };
-        if let AssignmentValue::Array(words) = &a.value {
-            assert_eq!(words.len(), 3);
+        let a = assignment(
+            plain_ref("ARR"),
+            AssignmentValue::Compound(ArrayExpr {
+                kind: ArrayKind::Indexed,
+                elements: vec![
+                    ArrayElem::Sequential(Word::literal("a")),
+                    ArrayElem::Sequential(Word::literal("b")),
+                    ArrayElem::Sequential(Word::literal("c")),
+                ],
+                span: Span::new(),
+            }),
+        );
+        if let AssignmentValue::Compound(array) = &a.value {
+            assert_eq!(array.elements.len(), 3);
         } else {
-            panic!("expected Array");
+            panic!("expected Compound");
         }
     }
 
     #[test]
     fn assignment_append() {
-        let a = Assignment {
-            name: "PATH".into(),
-            name_span: Span::new(),
-            index: None,
-            index_ast: None,
-            value: AssignmentValue::Scalar(Word::literal("/usr/bin")),
-            append: true,
-            span: Span::new(),
-        };
+        let mut a = assignment(
+            plain_ref("PATH"),
+            AssignmentValue::Scalar(Word::literal("/usr/bin")),
+        );
+        a.append = true;
         assert!(a.append);
     }
 
     #[test]
     fn assignment_indexed() {
-        let a = Assignment {
-            name: "arr".into(),
-            name_span: Span::new(),
-            index: Some("0".into()),
-            index_ast: None,
-            value: AssignmentValue::Scalar(Word::literal("val")),
-            append: false,
-            span: Span::new(),
-        };
-        assert_eq!(a.index.as_ref().map(|index| index.slice("")), Some("0"));
+        let a = assignment(
+            indexed_ref("arr", "0"),
+            AssignmentValue::Scalar(Word::literal("val")),
+        );
+        assert_eq!(
+            a.target
+                .subscript
+                .as_ref()
+                .map(|subscript| subscript.text.slice("")),
+            Some("0")
+        );
     }
 
     // --- CaseTerminator ---

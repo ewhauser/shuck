@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment, AssignmentValue,
-    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Name,
-    Pattern, PatternPart, PatternPartNode, Redirect, Script, SourceText, Span, Word, WordPart,
-    WordPartNode,
+    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment,
+    AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand,
+    FunctionDef, Name, Pattern, PatternPart, PatternPartNode, Redirect, Script, SourceText, Span,
+    VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -231,7 +231,7 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                         walk_word(word, model, source, facts);
                     }
                     DeclOperand::Name(name) => {
-                        if let Some(expr) = &name.index_ast {
+                        if let Some(expr) = var_ref_subscript_expr(name) {
                             walk_arithmetic_expr(expr, model, source, facts);
                         }
                     }
@@ -349,12 +349,24 @@ fn walk_assignment(
     source: &str,
     facts: &mut AstFacts,
 ) {
-    if let Some(expr) = &assignment.index_ast {
+    if let Some(expr) = var_ref_subscript_expr(&assignment.target) {
         walk_arithmetic_expr(expr, model, source, facts);
     }
     match &assignment.value {
         AssignmentValue::Scalar(word) => walk_word(word, model, source, facts),
-        AssignmentValue::Array(words) => walk_words(words, model, source, facts),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => walk_word(word, model, source, facts),
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        if let Some(expr) = &key.arithmetic_ast {
+                            walk_arithmetic_expr(expr, model, source, facts);
+                        }
+                        walk_word(value, model, source, facts);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -398,8 +410,12 @@ fn walk_word_parts(
                 }
             }
             WordPart::ParameterExpansion {
+                reference,
                 operator, operand, ..
             } => {
+                if let Some(expr) = var_ref_subscript_expr(reference) {
+                    walk_arithmetic_expr(expr, model, source, facts);
+                }
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
                 }
@@ -423,15 +439,20 @@ fn walk_word_parts(
                 }
             }
             WordPart::Substring {
+                reference,
                 offset_ast,
                 length_ast,
                 ..
             }
             | WordPart::ArraySlice {
+                reference,
                 offset_ast,
                 length_ast,
                 ..
             } => {
+                if let Some(expr) = var_ref_subscript_expr(reference) {
+                    walk_arithmetic_expr(expr, model, source, facts);
+                }
                 if let Some(offset_ast) = offset_ast {
                     walk_arithmetic_expr(offset_ast, model, source, facts);
                 }
@@ -439,8 +460,8 @@ fn walk_word_parts(
                     walk_arithmetic_expr(length_ast, model, source, facts);
                 }
             }
-            WordPart::ArrayAccess { index_ast, .. } => {
-                if let Some(index_ast) = index_ast {
+            WordPart::ArrayAccess(reference) => {
+                if let Some(index_ast) = var_ref_subscript_expr(reference) {
                     walk_arithmetic_expr(index_ast, model, source, facts);
                 }
             }
@@ -449,12 +470,16 @@ fn walk_word_parts(
                     walk_source_text(operand, model, source, facts);
                 }
             }
-            WordPart::Transformation { .. }
-            | WordPart::Literal(_)
+            WordPart::Transformation { reference, .. }
+            | WordPart::Length(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference) => {
+                if let Some(expr) = var_ref_subscript_expr(reference) {
+                    walk_arithmetic_expr(expr, model, source, facts);
+                }
+            }
+            WordPart::Literal(_)
             | WordPart::Variable(_)
-            | WordPart::Length(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
             | WordPart::PrefixMatch(_) => {}
         }
     }
@@ -571,8 +596,8 @@ fn walk_conditional_expr(
         }
         ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, model, source, facts),
         ConditionalExpr::VarRef(var_ref) => {
-            if let Some(index) = &var_ref.index {
-                walk_source_text(index, model, source, facts);
+            if let Some(index) = &var_ref.subscript {
+                walk_source_text(&index.text, model, source, facts);
             }
         }
     }
@@ -653,8 +678,8 @@ fn collect_source_template_parts(
                     return false;
                 }
             }
-            WordPart::ArrayAccess { name, index, .. }
-                if bash_runtime_vars_enabled && is_bash_source_index(name, index, source) =>
+            WordPart::ArrayAccess(reference)
+                if bash_runtime_vars_enabled && is_bash_source_index_ref(reference, source) =>
             {
                 *saw_dynamic = true;
                 parts.push(TemplatePart::SourceFile);
@@ -692,8 +717,19 @@ fn is_bash_source_var(name: &Name) -> bool {
     name.as_str() == "BASH_SOURCE"
 }
 
-fn is_bash_source_index(name: &Name, index: &SourceText, source: &str) -> bool {
-    is_bash_source_var(name) && index.slice(source).trim() == "0"
+fn var_ref_subscript_expr(reference: &VarRef) -> Option<&ArithmeticExprNode> {
+    reference
+        .subscript
+        .as_ref()
+        .and_then(|subscript| subscript.arithmetic_ast.as_ref())
+}
+
+fn is_bash_source_index_ref(reference: &VarRef, source: &str) -> bool {
+    is_bash_source_var(&reference.name)
+        && reference
+            .subscript
+            .as_ref()
+            .is_some_and(|subscript| subscript.text.slice(source).trim() == "0")
 }
 
 fn dirname_source_template_part(commands: &[Command], source: &str) -> Option<TemplatePart> {
@@ -719,7 +755,7 @@ fn current_source_file_word(word: &Word, source: &str) -> bool {
 fn is_current_source_part(part: &WordPart, source: &str) -> bool {
     match part {
         WordPart::Variable(name) => is_bash_source_var(name),
-        WordPart::ArrayAccess { name, index, .. } => is_bash_source_index(name, index, source),
+        WordPart::ArrayAccess(reference) => is_bash_source_index_ref(reference, source),
         WordPart::DoubleQuoted { parts, .. } => {
             matches!(parts.as_slice(), [part] if is_current_source_part(&part.kind, source))
         }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use shuck_ast::{
-    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, Word, WordPart,
-    WordPartNode,
+    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, SubscriptSelector,
+    VarRef, Word, WordPart, WordPartNode,
 };
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
@@ -212,9 +212,9 @@ fn classify_parts(parts: &[WordPartNode], source: &str, summary: &mut PartSummar
                 summary.has_non_literal = true;
                 summary.has_scalar_expansion = true;
             }
-            WordPart::ArrayAccess { index, .. } => {
+            WordPart::ArrayAccess(reference) => {
                 summary.has_non_literal = true;
-                if matches!(index.slice(source), "@" | "*") {
+                if reference_has_array_selector(reference, source) {
                     summary.has_array_expansion = true;
                 } else {
                     summary.has_scalar_expansion = true;
@@ -234,6 +234,13 @@ fn classify_parts(parts: &[WordPartNode], source: &str, summary: &mut PartSummar
             }
         }
     }
+}
+
+fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
+    matches!(
+        reference.subscript.as_ref().and_then(|subscript| subscript.selector()),
+        Some(SubscriptSelector::At | SubscriptSelector::Star)
+    )
 }
 
 fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
@@ -616,7 +623,9 @@ mod tests {
             let substitution =
                 iter_word_command_substitutions(match &command.assignments[0].value {
                     shuck_ast::AssignmentValue::Scalar(word) => word,
-                    shuck_ast::AssignmentValue::Array(_) => panic!("expected scalar assignment"),
+                    shuck_ast::AssignmentValue::Compound(_) => {
+                        panic!("expected scalar assignment")
+                    }
                 })
                 .next()
                 .expect("expected command substitution");

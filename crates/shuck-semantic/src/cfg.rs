@@ -389,7 +389,7 @@ fn convert_command(
                                      commands,
                                      terminator,
                                  }| {
-                                    let pattern_regions = collect_regions_from_words(
+                                    let pattern_regions = collect_regions_from_patterns(
                                         patterns,
                                         scopes,
                                         function_bodies,
@@ -648,7 +648,7 @@ fn collect_regions_from_command(
                         function_bodies,
                     ));
                     for case in &command.cases {
-                        regions.extend(collect_regions_from_words(
+                        regions.extend(collect_regions_from_patterns(
                             &case.patterns,
                             scopes,
                             function_bodies,
@@ -901,8 +901,18 @@ fn collect_regions_from_assignments(
             shuck_ast::AssignmentValue::Scalar(word) => {
                 regions.extend(collect_regions_from_word(word, scopes, function_bodies));
             }
-            shuck_ast::AssignmentValue::Array(words) => {
-                regions.extend(collect_regions_from_words(words, scopes, function_bodies));
+            shuck_ast::AssignmentValue::Compound(array) => {
+                for element in &array.elements {
+                    match element {
+                        shuck_ast::ArrayElem::Sequential(word) => {
+                            regions.extend(collect_regions_from_word(word, scopes, function_bodies));
+                        }
+                        shuck_ast::ArrayElem::Keyed { value, .. }
+                        | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
+                            regions.extend(collect_regions_from_word(value, scopes, function_bodies));
+                        }
+                    }
+                }
             }
         }
     }

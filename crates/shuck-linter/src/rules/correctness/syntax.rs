@@ -8,7 +8,7 @@ fn simple_command_name(command: &SimpleCommand, source: &str) -> Option<String> 
 }
 
 pub fn assignment_target_name(assignment: &Assignment) -> &str {
-    assignment.name.as_str()
+    assignment.target.name.as_str()
 }
 
 pub fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<&'a [Word]> {

@@ -577,7 +577,7 @@ mod tests {
                 declaration
                     .assignment_operands
                     .iter()
-                    .map(|assignment| assignment.name.as_str())
+                    .map(|assignment| assignment.target.name.as_str())
                     .collect::<Vec<_>>(),
                 assignment_names
             );

@@ -442,9 +442,15 @@ impl RegionCollector {
     fn visit_assignment(&mut self, assignment: &Assignment) {
         match &assignment.value {
             AssignmentValue::Scalar(word) => self.visit_word(word, true),
-            AssignmentValue::Array(words) => {
-                for word in words {
-                    self.visit_word(word, true);
+            AssignmentValue::Compound(array) => {
+                for element in &array.elements {
+                    match element {
+                        shuck_ast::ArrayElem::Sequential(word) => self.visit_word(word, true),
+                        shuck_ast::ArrayElem::Keyed { value, .. }
+                        | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
+                            self.visit_word(value, true);
+                        }
+                    }
                 }
             }
         }
@@ -499,7 +505,7 @@ impl RegionCollector {
                 | WordPart::Variable(_)
                 | WordPart::ParameterExpansion { .. }
                 | WordPart::Length(_)
-                | WordPart::ArrayAccess { .. }
+                | WordPart::ArrayAccess(_)
                 | WordPart::ArrayLength(_)
                 | WordPart::ArrayIndices(_)
                 | WordPart::Substring { .. }

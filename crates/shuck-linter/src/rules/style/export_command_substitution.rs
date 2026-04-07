@@ -52,7 +52,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
                 if classify_word(word, checker.source()).has_command_substitution() {
                     checker.report_dedup(
                         ExportCommandSubstitution {
-                            name: assignment.name.to_string(),
+                            name: assignment.target.name.to_string(),
                         },
                         span::assignment_name_span(assignment),
                     );

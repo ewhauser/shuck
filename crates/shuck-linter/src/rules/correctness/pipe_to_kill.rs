@@ -185,7 +185,17 @@ fn collect_assignments(assignments: &[Assignment], source: &str, spans: &mut Vec
 fn collect_assignment(assignment: &Assignment, source: &str, spans: &mut Vec<Span>) {
     match &assignment.value {
         AssignmentValue::Scalar(word) => collect_word(word, source, spans),
-        AssignmentValue::Array(words) => collect_words(words, source, spans),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    shuck_ast::ArrayElem::Sequential(word) => collect_word(word, source, spans),
+                    shuck_ast::ArrayElem::Keyed { value, .. }
+                    | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
+                        collect_word(value, source, spans)
+                    }
+                }
+            }
+        }
     }
 }
 

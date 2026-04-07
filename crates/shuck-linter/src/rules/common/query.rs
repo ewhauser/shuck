@@ -1,7 +1,7 @@
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, RedirectKind,
-    Span, Word, WordPart, WordPartNode,
+    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList,
+    CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect,
+    RedirectKind, Span, Word, WordPart, WordPartNode,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -451,7 +451,18 @@ fn collect_assignment_visit<'a>(
 ) {
     match &assignment.value {
         AssignmentValue::Scalar(word) => collect_word_visits(word, options, context, visits),
-        AssignmentValue::Array(words) => collect_word_slice_visits(words, options, context, visits),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_word_visits(word, options, context, visits);
+                    }
+                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                        collect_word_visits(value, options, context, visits);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -725,7 +736,15 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
     fn walk_assignment(&mut self, assignment: &Assignment, context: WalkContext) {
         match &assignment.value {
             AssignmentValue::Scalar(word) => self.walk_word(word, context),
-            AssignmentValue::Array(words) => self.walk_words(words, context),
+            AssignmentValue::Compound(array) => {
+                for element in &array.elements {
+                    match element {
+                        ArrayElem::Sequential(word) => self.walk_word(word, context),
+                        ArrayElem::Keyed { value, .. }
+                        | ArrayElem::KeyedAppend { value, .. } => self.walk_word(value, context),
+                    }
+                }
+            }
         }
     }
 
@@ -948,7 +967,15 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
     fn walk_assignment(&mut self, assignment: &Assignment) {
         match &assignment.value {
             AssignmentValue::Scalar(word) => self.walk_word(word),
-            AssignmentValue::Array(words) => self.walk_words(words),
+            AssignmentValue::Compound(array) => {
+                for element in &array.elements {
+                    match element {
+                        ArrayElem::Sequential(word) => self.walk_word(word),
+                        ArrayElem::Keyed { value, .. }
+                        | ArrayElem::KeyedAppend { value, .. } => self.walk_word(value),
+                    }
+                }
+            }
         }
     }
 
@@ -1096,7 +1123,16 @@ fn collect_assignments_words<'a>(assignments: &'a [Assignment], words: &mut Vec<
 fn collect_assignment_words<'a>(assignment: &'a Assignment, words: &mut Vec<&'a Word>) {
     match &assignment.value {
         AssignmentValue::Scalar(word) => words.push(word),
-        AssignmentValue::Array(array_words) => collect_words(array_words, words),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => words.push(word),
+                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                        words.push(value);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1348,7 +1384,7 @@ foo=1 export foo=1 >decl\nfor item in foo bar; do :; done >compound\n";
             .map(|command| {
                 command_assignments(command)
                     .iter()
-                    .map(|assignment| assignment.name.as_str().to_owned())
+                    .map(|assignment| assignment.target.name.as_str().to_owned())
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();

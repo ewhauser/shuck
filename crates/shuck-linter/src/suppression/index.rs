@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
+    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
     ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, Script, Span,
     TextSize, Word, WordPart, WordPartNode,
 };
@@ -342,7 +342,16 @@ where
 {
     match &assignment.value {
         AssignmentValue::Scalar(word) => walk_word(word, visit),
-        AssignmentValue::Array(words) => walk_words(words, visit),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => walk_word(word, visit),
+                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                        walk_word(value, visit)
+                    }
+                }
+            }
+        }
     }
 }
 

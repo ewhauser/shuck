@@ -22,16 +22,17 @@ pub use lexer::{
 
 use shuck_ast::{
     ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
-    ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BreakCommand,
-    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CommandListItem,
-    CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalBinaryExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ConditionalVarRef,
-    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ContinueCommand, CoprocCommand,
-    DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc,
+    ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
+    AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator,
+    Command, CommandList, CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand,
+    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand,
+    CoprocCommand, DeclClause, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc,
     HeredocDelimiter, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Pipeline, Position, Redirect, RedirectKind,
     RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
-    TextSize, TimeCommand, TokenKind, UntilCommand, WhileCommand, Word, WordPart, WordPartNode,
+    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand,
+    TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -836,14 +837,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
-        if let Some(word) = self.simple_word_from_token(token, span) {
-            return Some(word);
-        }
-
-        self.decode_word_from_token(token, span)
-    }
-
     fn word_text_needs_parse(text: &str) -> bool {
         text.contains(['$', '`', '\x00'])
     }
@@ -1406,18 +1399,37 @@ impl<'a> Parser<'a> {
                 DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                     Self::rebase_word(word, base);
                 }
-                DeclOperand::Name(name) => {
-                    name.span = name.span.rebased(base);
-                    name.name_span = name.name_span.rebased(base);
-                    if let Some(index) = &mut name.index {
-                        index.rebased(base);
-                    }
-                    if let Some(expr) = &mut name.index_ast {
-                        Self::rebase_arithmetic_expr(expr, base);
-                    }
-                }
+                DeclOperand::Name(name) => Self::rebase_var_ref(name, base),
                 DeclOperand::Assignment(assignment) => {
                     Self::rebase_assignments(std::slice::from_mut(assignment), base);
+                }
+            }
+        }
+    }
+
+    fn rebase_subscript(subscript: &mut Subscript, base: Position) {
+        subscript.text.rebased(base);
+        if let Some(expr) = &mut subscript.arithmetic_ast {
+            Self::rebase_arithmetic_expr(expr, base);
+        }
+    }
+
+    fn rebase_var_ref(reference: &mut VarRef, base: Position) {
+        reference.span = reference.span.rebased(base);
+        reference.name_span = reference.name_span.rebased(base);
+        if let Some(subscript) = &mut reference.subscript {
+            Self::rebase_subscript(subscript, base);
+        }
+    }
+
+    fn rebase_array_expr(array: &mut ArrayExpr, base: Position) {
+        array.span = array.span.rebased(base);
+        for element in &mut array.elements {
+            match element {
+                ArrayElem::Sequential(word) => Self::rebase_word(word, base),
+                ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                    Self::rebase_subscript(key, base);
+                    Self::rebase_word(value, base);
                 }
             }
         }
@@ -1567,8 +1579,12 @@ impl<'a> Parser<'a> {
             WordPart::SingleQuoted { value, .. } => value.rebased(base),
             WordPart::DoubleQuoted { parts, .. } => Self::rebase_word_parts(parts, base),
             WordPart::ParameterExpansion {
-                operator, operand, ..
+                reference,
+                operator,
+                operand,
+                ..
             } => {
+                Self::rebase_var_ref(reference, base);
                 match operator {
                     ParameterOp::RemovePrefixShort { pattern }
                     | ParameterOp::RemovePrefixLong { pattern }
@@ -1600,15 +1616,13 @@ impl<'a> Parser<'a> {
                     operand.rebased(base);
                 }
             }
-            WordPart::ArrayAccess {
-                index, index_ast, ..
-            } => {
-                index.rebased(base);
-                if let Some(expr) = index_ast {
-                    Self::rebase_arithmetic_expr(expr, base);
-                }
-            }
+            WordPart::ArrayAccess(reference)
+            | WordPart::Length(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Transformation { reference, .. } => Self::rebase_var_ref(reference, base),
             WordPart::Substring {
+                reference,
                 offset,
                 offset_ast,
                 length,
@@ -1616,12 +1630,14 @@ impl<'a> Parser<'a> {
                 ..
             }
             | WordPart::ArraySlice {
+                reference,
                 offset,
                 offset_ast,
                 length,
                 length_ast,
                 ..
             } => {
+                Self::rebase_var_ref(reference, base);
                 offset.rebased(base);
                 if let Some(expr) = offset_ast {
                     Self::rebase_arithmetic_expr(expr, base);
@@ -1654,11 +1670,8 @@ impl<'a> Parser<'a> {
             }
             WordPart::Literal(_)
             | WordPart::Variable(_)
-            | WordPart::Length(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
             | WordPart::PrefixMatch(_)
-            | WordPart::Transformation { .. } => {}
+            => {}
         }
     }
 
@@ -1682,13 +1695,7 @@ impl<'a> Parser<'a> {
                 Self::rebase_word(word, base);
             }
             ConditionalExpr::Pattern(pattern) => Self::rebase_pattern(pattern, base),
-            ConditionalExpr::VarRef(var_ref) => {
-                var_ref.span = var_ref.span.rebased(base);
-                var_ref.name_span = var_ref.name_span.rebased(base);
-                if let Some(index) = &mut var_ref.index {
-                    index.rebased(base);
-                }
-            }
+            ConditionalExpr::VarRef(var_ref) => Self::rebase_var_ref(var_ref, base),
         }
     }
 
@@ -1778,6 +1785,84 @@ impl<'a> Parser<'a> {
 
     fn empty_source_text(&self, pos: Position) -> SourceText {
         SourceText::source(Span::from_positions(pos, pos))
+    }
+
+    fn subscript_source_text(&self, raw: &str, span: Span) -> SourceText {
+        let text = if raw.len() >= 2
+            && ((raw.starts_with('"') && raw.ends_with('"'))
+                || (raw.starts_with('\'') && raw.ends_with('\'')))
+        {
+            raw[1..raw.len() - 1].to_string()
+        } else {
+            raw.to_string()
+        };
+        self.source_text(text, span.start, span.end)
+    }
+
+    fn subscript_from_source_text(
+        &self,
+        text: SourceText,
+        interpretation: SubscriptInterpretation,
+    ) -> Subscript {
+        let kind = match text.slice(self.input).trim() {
+            "@" => SubscriptKind::Selector(SubscriptSelector::At),
+            "*" => SubscriptKind::Selector(SubscriptSelector::Star),
+            _ => SubscriptKind::Ordinary,
+        };
+        let arithmetic_ast = if matches!(kind, SubscriptKind::Ordinary) {
+            self.maybe_parse_source_text_as_arithmetic(&text)
+        } else {
+            None
+        };
+        Subscript {
+            text,
+            kind,
+            interpretation,
+            arithmetic_ast,
+        }
+    }
+
+    fn subscript_from_text(
+        &self,
+        raw: &str,
+        span: Span,
+        interpretation: SubscriptInterpretation,
+    ) -> Subscript {
+        let text = self.subscript_source_text(raw, span);
+        self.subscript_from_source_text(text, interpretation)
+    }
+
+    fn var_ref(
+        &self,
+        name: impl Into<Name>,
+        name_span: Span,
+        subscript: Option<Subscript>,
+        span: Span,
+    ) -> VarRef {
+        VarRef {
+            name: name.into(),
+            name_span,
+            subscript,
+            span,
+        }
+    }
+
+    fn parameter_var_ref(
+        &self,
+        part_start: Position,
+        prefix: &str,
+        name: &str,
+        subscript: Option<Subscript>,
+        part_end: Position,
+    ) -> VarRef {
+        let name_start = part_start.advanced_by(prefix);
+        let name_span = Span::from_positions(name_start, name_start.advanced_by(name));
+        self.var_ref(
+            Name::from(name),
+            name_span,
+            subscript,
+            Span::from_positions(part_start, part_end),
+        )
     }
 
     fn parse_explicit_arithmetic_span(
@@ -2230,16 +2315,10 @@ impl<'a> Parser<'a> {
     fn rebase_assignments(assignments: &mut [Assignment], base: Position) {
         for assignment in assignments {
             assignment.span = assignment.span.rebased(base);
-            assignment.name_span = assignment.name_span.rebased(base);
-            if let Some(index) = &mut assignment.index {
-                index.rebased(base);
-            }
-            if let Some(expr) = &mut assignment.index_ast {
-                Self::rebase_arithmetic_expr(expr, base);
-            }
+            Self::rebase_var_ref(&mut assignment.target, base);
             match &mut assignment.value {
                 AssignmentValue::Scalar(word) => Self::rebase_word(word, base),
-                AssignmentValue::Array(words) => Self::rebase_words(words, base),
+                AssignmentValue::Compound(array) => Self::rebase_array_expr(array, base),
             }
         }
     }
@@ -3238,10 +3317,7 @@ impl<'a> Parser<'a> {
             return Command::Decl(DeclClause {
                 variant,
                 variant_span: name.span,
-                operands: args
-                    .into_iter()
-                    .map(|word| self.classify_decl_operand(word))
-                    .collect(),
+                operands: self.classify_decl_operands(args),
                 redirects,
                 assignments,
                 span,
@@ -4352,7 +4428,7 @@ impl<'a> Parser<'a> {
             .unwrap_or(ConditionalExpr::Word(word))
     }
 
-    fn try_parse_conditional_var_ref(&self, word: &Word) -> Option<ConditionalVarRef> {
+    fn try_parse_conditional_var_ref(&self, word: &Word) -> Option<VarRef> {
         if word.span.end.offset > self.input.len() {
             return None;
         }
@@ -4375,12 +4451,7 @@ impl<'a> Parser<'a> {
         let name_span = Span::from_positions(word.span.start, word.span.start.advanced_by(&text[..name_end]));
 
         if name_end == text.len() {
-            return Some(ConditionalVarRef {
-                name,
-                name_span,
-                index: None,
-                span: word.span,
-            });
+            return Some(self.var_ref(name, name_span, None, word.span));
         }
 
         if !text[name_end..].starts_with('[') {
@@ -4401,16 +4472,12 @@ impl<'a> Parser<'a> {
 
                 let index_start = word.span.start.advanced_by(&text[..index_start_offset]);
                 let index_end = word.span.start.advanced_by(&text[..cursor]);
-                return Some(ConditionalVarRef {
-                    name,
-                    name_span,
-                    index: Some(self.source_text(
-                        text[index_start_offset..cursor].to_string(),
-                        index_start,
-                        index_end,
-                    )),
-                    span: word.span,
-                });
+                let subscript = self.subscript_from_text(
+                    &text[index_start_offset..cursor],
+                    Span::from_positions(index_start, index_end),
+                    SubscriptInterpretation::Contextual,
+                );
+                return Some(self.var_ref(name, name_span, Some(subscript), word.span));
             }
 
             match ch {
@@ -4938,58 +5005,75 @@ impl<'a> Parser<'a> {
     /// Check if a word is an assignment (NAME=value, NAME+=value, or NAME[index]=value)
     /// Returns (name, optional_index, value, is_append)
     fn is_assignment(word: &str) -> Option<(&str, Option<&str>, &str, bool)> {
-        // Check for += append operator first
-        let (eq_pos, is_append) = if let Some(pos) = word.find("+=") {
-            (pos, true)
-        } else if let Some(pos) = word.find('=') {
-            (pos, false)
+        let mut ident_end = 0;
+        let mut chars = word.char_indices();
+        let (_, first) = chars.next()?;
+        if !first.is_ascii_alphabetic() && first != '_' {
+            return None;
+        }
+        ident_end += first.len_utf8();
+        for (index, ch) in chars {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ident_end = index + ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+
+        let name = &word[..ident_end];
+        let mut cursor = ident_end;
+        let mut index = None;
+
+        if word[cursor..].starts_with('[') {
+            let mut close_index = None;
+            let mut bracket_depth = 0_i32;
+            let mut brace_depth = 0_i32;
+            let mut paren_depth = 0_i32;
+            let mut in_single = false;
+            let mut in_double = false;
+            let mut escaped = false;
+
+            for (relative, ch) in word[cursor + 1..].char_indices() {
+                let absolute = cursor + 1 + relative;
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+
+                match ch {
+                    '\\' if !in_single => escaped = true,
+                    '\'' if !in_double => in_single = !in_single,
+                    '"' if !in_single => in_double = !in_double,
+                    '[' if !in_single && !in_double => bracket_depth += 1,
+                    ']' if !in_single && !in_double => {
+                        if bracket_depth == 0 && brace_depth == 0 && paren_depth == 0 {
+                            close_index = Some(absolute);
+                            break;
+                        }
+                        bracket_depth -= 1;
+                    }
+                    '{' if !in_single && !in_double => brace_depth += 1,
+                    '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                    '(' if !in_single && !in_double => paren_depth += 1,
+                    ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                    _ => {}
+                }
+            }
+
+            let close_index = close_index?;
+            index = Some(&word[cursor + 1..close_index]);
+            cursor = close_index + 1;
+        }
+
+        let (is_append, value) = if word[cursor..].starts_with("+=") {
+            (true, &word[cursor + 2..])
+        } else if word[cursor..].starts_with('=') {
+            (false, &word[cursor + 1..])
         } else {
             return None;
         };
 
-        let lhs = &word[..eq_pos];
-        let value = &word[eq_pos + if is_append { 2 } else { 1 }..];
-
-        // Check for array subscript: name[index]
-        if let Some(bracket_pos) = lhs.find('[') {
-            let name = &lhs[..bracket_pos];
-            // Validate name
-            if name.is_empty() {
-                return None;
-            }
-            let mut chars = name.chars();
-            let first = chars.next().unwrap();
-            if !first.is_ascii_alphabetic() && first != '_' {
-                return None;
-            }
-            for c in chars {
-                if !c.is_ascii_alphanumeric() && c != '_' {
-                    return None;
-                }
-            }
-            // Extract index (everything between [ and ])
-            if lhs.ends_with(']') {
-                let index = &lhs[bracket_pos + 1..lhs.len() - 1];
-                return Some((name, Some(index), value, is_append));
-            }
-        } else {
-            // Name must be valid identifier: starts with letter or _, followed by alnum or _
-            if lhs.is_empty() {
-                return None;
-            }
-            let mut chars = lhs.chars();
-            let first = chars.next().unwrap();
-            if !first.is_ascii_alphabetic() && first != '_' {
-                return None;
-            }
-            for c in chars {
-                if !c.is_ascii_alphanumeric() && c != '_' {
-                    return None;
-                }
-            }
-            return Some((lhs, None, value, is_append));
-        }
-        None
+        Some((name, index, value, is_append))
     }
 
     fn scan_split_indexed_assignment(&self, start: Position) -> Option<(String, Position)> {
@@ -5108,7 +5192,12 @@ impl<'a> Parser<'a> {
         let start = self.current_span.start;
         let (text, end) = self.scan_split_indexed_assignment(start)?;
         let span = Span::from_positions(start, end);
-        let assignment = self.parse_assignment_from_text(&text, span)?;
+        let assignment = self.parse_assignment_from_text(
+            &text,
+            span,
+            None,
+            SubscriptInterpretation::Contextual,
+        )?;
 
         while self.current_token.is_some() && self.current_span.start.offset < end.offset {
             self.advance();
@@ -5117,11 +5206,218 @@ impl<'a> Parser<'a> {
         Some(assignment)
     }
 
-    /// Parse a simple command with redirections
-    /// Collect array elements between `(` and `)` tokens into a `Vec<Word>`.
-    fn collect_array_elements(&mut self) -> (Vec<Word>, Span) {
-        let mut elements = Vec::new();
+    fn infer_array_expr_kind(explicit_kind: Option<ArrayKind>, elements: &[ArrayElem]) -> ArrayKind {
+        explicit_kind.unwrap_or_else(|| {
+            if elements
+                .iter()
+                .any(|element| !matches!(element, ArrayElem::Sequential(_)))
+            {
+                ArrayKind::Contextual
+            } else {
+                ArrayKind::Indexed
+            }
+        })
+    }
+
+    fn subscript_interpretation_from_array_kind(
+        explicit_kind: Option<ArrayKind>,
+    ) -> SubscriptInterpretation {
+        match explicit_kind {
+            Some(ArrayKind::Indexed) => SubscriptInterpretation::Indexed,
+            Some(ArrayKind::Associative) => SubscriptInterpretation::Associative,
+            _ => SubscriptInterpretation::Contextual,
+        }
+    }
+
+    fn word_from_raw_text(&mut self, raw: &str, span: Span) -> Word {
+        if raw.is_empty() {
+            return Word::literal_with_span("", span);
+        }
+
+        self.parse_word_with_context(raw, span, span.start, self.source_matches(span, raw))
+    }
+
+    fn split_compound_array_elements(&self, inner: &str) -> Vec<(usize, usize)> {
+        let mut ranges = Vec::new();
+        let mut start: Option<usize> = None;
+        let mut bracket_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut paren_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        for (index, ch) in inner.char_indices() {
+            if start.is_none() {
+                if ch.is_whitespace() {
+                    continue;
+                }
+                start = Some(index);
+            }
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '[' if !in_single && !in_double => bracket_depth += 1,
+                ']' if !in_single && !in_double && bracket_depth > 0 => bracket_depth -= 1,
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                '(' if !in_single && !in_double => paren_depth += 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                ch if ch.is_whitespace()
+                    && !in_single
+                    && !in_double
+                    && bracket_depth == 0
+                    && brace_depth == 0
+                    && paren_depth == 0 =>
+                {
+                    if let Some(start) = start.take() {
+                        ranges.push((start, index));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(start) = start {
+            ranges.push((start, inner.len()));
+        }
+
+        ranges
+    }
+
+    fn split_compound_array_key_value<'b>(
+        &self,
+        raw: &'b str,
+    ) -> Option<(&'b str, &'b str, bool, usize, usize)> {
+        if !raw.starts_with('[') {
+            return None;
+        }
+
+        let mut close_index = None;
+        let mut bracket_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut paren_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        for (index, ch) in raw.char_indices().skip(1) {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '[' if !in_single && !in_double => bracket_depth += 1,
+                ']' if !in_single && !in_double => {
+                    if bracket_depth == 0 && brace_depth == 0 && paren_depth == 0 {
+                        close_index = Some(index);
+                        break;
+                    }
+                    bracket_depth -= 1;
+                }
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                '(' if !in_single && !in_double => paren_depth += 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                _ => {}
+            }
+        }
+
+        let close_index = close_index?;
+        let tail = &raw[close_index + 1..];
+        let (append, value_offset) = if tail.starts_with("+=") {
+            (true, 2)
+        } else if tail.starts_with('=') {
+            (false, 1)
+        } else {
+            return None;
+        };
+
+        Some((&raw[1..close_index], &tail[value_offset..], append, close_index, value_offset))
+    }
+
+    fn parse_compound_array_element(
+        &mut self,
+        raw: &str,
+        span: Span,
+        interpretation: SubscriptInterpretation,
+    ) -> ArrayElem {
+        if let Some((key_raw, value_raw, append, close_index, value_offset)) =
+            self.split_compound_array_key_value(raw)
+        {
+            let key_start = span.start.advanced_by("[");
+            let key_end = span.start.advanced_by(&raw[..close_index]);
+            let key = self.subscript_from_text(
+                key_raw,
+                Span::from_positions(key_start, key_end),
+                interpretation,
+            );
+            let value_start = span.start.advanced_by(&raw[..close_index + 1 + value_offset]);
+            let value_span = Span::from_positions(value_start, span.end);
+            let value = self.word_from_raw_text(value_raw, value_span);
+            return if append {
+                ArrayElem::KeyedAppend { key, value }
+            } else {
+                ArrayElem::Keyed { key, value }
+            };
+        }
+
+        ArrayElem::Sequential(self.word_from_raw_text(raw, span))
+    }
+
+    fn parse_array_expr_from_text(
+        &mut self,
+        inner: &str,
+        base: Position,
+        explicit_kind: Option<ArrayKind>,
+    ) -> ArrayExpr {
+        let interpretation = Self::subscript_interpretation_from_array_kind(explicit_kind);
+        let elements = self
+            .split_compound_array_elements(inner)
+            .into_iter()
+            .map(|(start, end)| {
+                let span = Span::from_positions(
+                    base.advanced_by(&inner[..start]),
+                    base.advanced_by(&inner[..end]),
+                );
+                self.parse_compound_array_element(&inner[start..end], span, interpretation)
+            })
+            .collect::<Vec<_>>();
+
+        let span = if let (Some(first), Some(last)) = (elements.first(), elements.last()) {
+            first.span().merge(last.span())
+        } else {
+            Span::from_positions(base, base)
+        };
+
+        ArrayExpr {
+            kind: Self::infer_array_expr_kind(explicit_kind, &elements),
+            elements,
+            span,
+        }
+    }
+
+    /// Parse a simple command with redirections.
+    fn collect_compound_array(
+        &mut self,
+        open_paren_span: Span,
+        explicit_kind: Option<ArrayKind>,
+    ) -> (ArrayExpr, Span) {
+        let inner_start = open_paren_span.end;
         let mut closing_span = Span::new();
+        let mut fallback = String::new();
+
         loop {
             match self.current_token_kind {
                 Some(TokenKind::RightParen) => {
@@ -5130,35 +5426,35 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Some(kind) if kind.is_word_like() => {
-                    if let Some(word) = self.current_word() {
-                        elements.push(word);
+                    if !fallback.is_empty() {
+                        fallback.push(' ');
+                    }
+                    if let Some(word) = self.current_source_like_word_text() {
+                        fallback.push_str(&word);
                     }
                     self.advance();
                 }
                 None => break,
-                _ => {
-                    self.advance();
-                }
-            }
-        }
-        (elements, closing_span)
-    }
-
-    fn parse_array_words_from_text(&mut self, inner: &str, base: Position) -> Vec<Word> {
-        let mut lexer =
-            Lexer::with_max_subst_depth(inner, self.max_depth.saturating_sub(self.current_depth));
-        let mut elements = Vec::new();
-
-        while let Some(token) = lexer.next_lexed_token() {
-            if token.kind.is_word_like() {
-                let span = token.span.rebased(base);
-                if let Some(word) = self.word_from_token(&token, span) {
-                    elements.push(word);
-                }
+                _ => self.advance(),
             }
         }
 
-        elements
+        let inner = if closing_span != Span::new()
+            && inner_start.offset <= closing_span.start.offset
+            && closing_span.start.offset <= self.input.len()
+        {
+            self.input[inner_start.offset..closing_span.start.offset].to_string()
+        } else {
+            fallback
+        };
+
+        let mut array = self.parse_array_expr_from_text(&inner, inner_start, explicit_kind);
+        array.span = if closing_span == Span::new() {
+            open_paren_span
+        } else {
+            open_paren_span.merge(closing_span)
+        };
+        (array, closing_span)
     }
 
     fn raw_value_is_fully_quoted(raw: &str) -> bool {
@@ -5319,7 +5615,12 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_assignment_from_current_token(&mut self, raw: &str) -> Option<Assignment> {
+    fn parse_assignment_from_current_token(
+        &mut self,
+        raw: &str,
+        explicit_array_kind: Option<ArrayKind>,
+        subscript_interpretation: SubscriptInterpretation,
+    ) -> Option<Assignment> {
         let token = self.current_token.take()?;
         let assignment = (|| {
             let assignment_span = token.span;
@@ -5328,9 +5629,10 @@ impl<'a> Parser<'a> {
                 assignment_span.start,
                 assignment_span.start.advanced_by(name),
             );
-            let index_span = index.map(|index| {
+            let subscript = index.map(|index| {
                 let start = name_span.end.advanced_by("[");
-                Span::from_positions(start, start.advanced_by(index))
+                let span = Span::from_positions(start, start.advanced_by(index));
+                self.subscript_from_text(index, span, subscript_interpretation)
             });
             let value_start_offset = if let Some(pos) = raw.find("+=") {
                 pos + 2
@@ -5341,19 +5643,15 @@ impl<'a> Parser<'a> {
                 .start
                 .advanced_by(&raw[..value_start_offset]);
             let value_span = Span::from_positions(value_start, assignment_span.end);
-            let name = Name::from(name);
-            let index = index
-                .zip(index_span)
-                .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
-            let index_ast = index
-                .as_ref()
-                .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index));
+            let target = self.var_ref(Name::from(name), name_span, subscript, assignment_span);
 
             let value = if value.starts_with('(') && value.ends_with(')') {
                 let inner = &value[1..value.len() - 1];
-                AssignmentValue::Array(
-                    self.parse_array_words_from_text(inner, value_start.advanced_by("(")),
-                )
+                AssignmentValue::Compound(self.parse_array_expr_from_text(
+                    inner,
+                    value_start.advanced_by("("),
+                    explicit_array_kind,
+                ))
             } else if value.is_empty() {
                 AssignmentValue::Scalar(Word::literal_with_span("", value_span))
             } else {
@@ -5365,10 +5663,7 @@ impl<'a> Parser<'a> {
             };
 
             Some(Assignment {
-                name,
-                name_span,
-                index,
-                index_ast,
+                target,
                 value,
                 append: is_append,
                 span: assignment_span,
@@ -5378,16 +5673,23 @@ impl<'a> Parser<'a> {
         assignment
     }
 
-    fn parse_assignment_from_word(&mut self, word: Word, raw: &str) -> Option<Assignment> {
+    fn parse_assignment_from_word(
+        &mut self,
+        word: Word,
+        raw: &str,
+        explicit_array_kind: Option<ArrayKind>,
+        subscript_interpretation: SubscriptInterpretation,
+    ) -> Option<Assignment> {
         let assignment_span = word.span;
         let (name, index, value, is_append) = Self::is_assignment(raw)?;
         let name_span = Span::from_positions(
             assignment_span.start,
             assignment_span.start.advanced_by(name),
         );
-        let index_span = index.map(|index| {
+        let subscript = index.map(|index| {
             let start = name_span.end.advanced_by("[");
-            Span::from_positions(start, start.advanced_by(index))
+            let span = Span::from_positions(start, start.advanced_by(index));
+            self.subscript_from_text(index, span, subscript_interpretation)
         });
         let value_start_offset = if let Some(pos) = raw.find("+=") {
             pos + 2
@@ -5397,19 +5699,15 @@ impl<'a> Parser<'a> {
         let value_start = assignment_span
             .start
             .advanced_by(&raw[..value_start_offset]);
-        let name = Name::from(name);
-        let index = index
-            .zip(index_span)
-            .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
-        let index_ast = index
-            .as_ref()
-            .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index));
+        let target = self.var_ref(Name::from(name), name_span, subscript, assignment_span);
 
         let value = if value.starts_with('(') && value.ends_with(')') {
             let inner = &value[1..value.len() - 1];
-            AssignmentValue::Array(
-                self.parse_array_words_from_text(inner, value_start.advanced_by("(")),
-            )
+            AssignmentValue::Compound(self.parse_array_expr_from_text(
+                inner,
+                value_start.advanced_by("("),
+                explicit_array_kind,
+            ))
         } else if value.is_empty() {
             let value_span = Span::from_positions(value_start, assignment_span.end);
             AssignmentValue::Scalar(Word::literal_with_span("", value_span))
@@ -5417,31 +5715,40 @@ impl<'a> Parser<'a> {
             let scalar =
                 self.split_word_at(word, value_start, Self::raw_value_is_fully_quoted(value));
             if scalar.parts.is_empty() {
-                return self.parse_assignment_from_text(raw, assignment_span);
+                return self.parse_assignment_from_text(
+                    raw,
+                    assignment_span,
+                    explicit_array_kind,
+                    subscript_interpretation,
+                );
             }
             AssignmentValue::Scalar(scalar)
         };
 
         Some(Assignment {
-            name,
-            name_span,
-            index,
-            index_ast,
+            target,
             value,
             append: is_append,
             span: assignment_span,
         })
     }
 
-    fn parse_assignment_from_text(&mut self, w: &str, assignment_span: Span) -> Option<Assignment> {
+    fn parse_assignment_from_text(
+        &mut self,
+        w: &str,
+        assignment_span: Span,
+        explicit_array_kind: Option<ArrayKind>,
+        subscript_interpretation: SubscriptInterpretation,
+    ) -> Option<Assignment> {
         let (name, index, value, is_append) = Self::is_assignment(w)?;
         let name_span = Span::from_positions(
             assignment_span.start,
             assignment_span.start.advanced_by(name),
         );
-        let index_span = index.map(|index| {
+        let subscript = index.map(|index| {
             let start = name_span.end.advanced_by("[");
-            Span::from_positions(start, start.advanced_by(index))
+            let span = Span::from_positions(start, start.advanced_by(index));
+            self.subscript_from_text(index, span, subscript_interpretation)
         });
         let value_start_offset = if let Some(pos) = w.find("+=") {
             pos + 2
@@ -5450,20 +5757,16 @@ impl<'a> Parser<'a> {
         };
         let value_start = assignment_span.start.advanced_by(&w[..value_start_offset]);
         let value_span = Span::from_positions(value_start, assignment_span.end);
-        let name = Name::from(name);
-        let index = index
-            .zip(index_span)
-            .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
-        let index_ast = index
-            .as_ref()
-            .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index));
+        let target = self.var_ref(Name::from(name), name_span, subscript, assignment_span);
         let value_str = value.to_string();
 
         let value = if value_str.starts_with('(') && value_str.ends_with(')') {
             let inner = &value_str[1..value_str.len() - 1];
-            AssignmentValue::Array(
-                self.parse_array_words_from_text(inner, value_start.advanced_by("(")),
-            )
+            AssignmentValue::Compound(self.parse_array_expr_from_text(
+                inner,
+                value_start.advanced_by("("),
+                explicit_array_kind,
+            ))
         } else if value_str.is_empty() {
             AssignmentValue::Scalar(Word::literal_with_span("", value_span))
         } else if value_str.starts_with('"') && value_str.ends_with('"') {
@@ -5506,17 +5809,19 @@ impl<'a> Parser<'a> {
         };
 
         Some(Assignment {
-            name,
-            name_span,
-            index,
-            index_ast,
+            target,
             value,
             append: is_append,
             span: assignment_span,
         })
     }
 
-    fn parse_decl_name_from_text(&self, word: &str, span: Span) -> Option<DeclName> {
+    fn parse_var_ref_from_text(
+        &self,
+        word: &str,
+        span: Span,
+        interpretation: SubscriptInterpretation,
+    ) -> Option<VarRef> {
         if let Some(bracket_pos) = word.find('[') {
             let name = &word[..bracket_pos];
             if !Self::is_valid_identifier(name) || !word.ends_with(']') {
@@ -5528,27 +5833,15 @@ impl<'a> Parser<'a> {
             let index_start = name_span.end.advanced_by("[");
             let index_span = Span::from_positions(index_start, index_start.advanced_by(index));
 
-            let index = SourceText::source(index_span);
-            return Some(DeclName {
-                name: Name::from(name),
-                name_span,
-                index_ast: self.maybe_parse_source_text_as_arithmetic(&index),
-                index: Some(index),
-                span,
-            });
+            let subscript = self.subscript_from_text(index, index_span, interpretation);
+            return Some(self.var_ref(Name::from(name), name_span, Some(subscript), span));
         }
 
         if !Self::is_valid_identifier(word) {
             return None;
         }
 
-        Some(DeclName {
-            name: Name::from(word),
-            name_span: span,
-            index_ast: None,
-            index: None,
-            span,
-        })
+        Some(self.var_ref(Name::from(word), span, None, span))
     }
 
     fn is_valid_identifier(name: &str) -> bool {
@@ -5601,22 +5894,60 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn classify_decl_operand(&mut self, word: Word) -> DeclOperand {
+    fn classify_decl_operand(&mut self, word: Word, explicit_array_kind: Option<ArrayKind>) -> DeclOperand {
         let raw = self.word_source_text(&word);
+        let interpretation = Self::subscript_interpretation_from_array_kind(explicit_array_kind);
 
         if Self::is_literal_flag_word(&word, &raw) {
             return DeclOperand::Flag(word);
         }
 
-        if let Some(assignment) = self.parse_assignment_from_word(word.clone(), &raw) {
+        if let Some(assignment) =
+            self.parse_assignment_from_word(word.clone(), &raw, explicit_array_kind, interpretation)
+        {
             return DeclOperand::Assignment(assignment);
         }
 
-        if let Some(name) = self.parse_decl_name_from_text(&raw, word.span) {
+        if let Some(name) = self.parse_var_ref_from_text(&raw, word.span, interpretation) {
             return DeclOperand::Name(name);
         }
 
         DeclOperand::Dynamic(word)
+    }
+
+    fn explicit_array_kind_from_flag_text(text: &str) -> Option<ArrayKind> {
+        if !text.starts_with('-') {
+            return None;
+        }
+
+        let mut explicit_kind = None;
+        for flag in text.chars().skip(1) {
+            match flag {
+                'a' => explicit_kind = Some(ArrayKind::Indexed),
+                'A' => explicit_kind = Some(ArrayKind::Associative),
+                _ => {}
+            }
+        }
+        explicit_kind
+    }
+
+    fn classify_decl_operands(&mut self, words: Vec<Word>) -> Vec<DeclOperand> {
+        let mut explicit_array_kind = None;
+        let mut operands = Vec::with_capacity(words.len());
+
+        for word in words {
+            let raw = self.word_source_text(&word);
+            if Self::is_literal_flag_word(&word, &raw) {
+                explicit_array_kind =
+                    Self::explicit_array_kind_from_flag_text(&raw).or(explicit_array_kind);
+                operands.push(DeclOperand::Flag(word));
+                continue;
+            }
+
+            operands.push(self.classify_decl_operand(word, explicit_array_kind));
+        }
+
+        operands
     }
 
     /// Parse the value side of an assignment (`VAR=value`).
@@ -5633,30 +5964,21 @@ impl<'a> Parser<'a> {
                 assignment_span.start,
                 assignment_span.start.advanced_by(name),
             );
-            let index_span = index.map(|index| {
+            let subscript = index.map(|index| {
                 let start = name_span.end.advanced_by("[");
-                Span::from_positions(start, start.advanced_by(index))
+                let span = Span::from_positions(start, start.advanced_by(index));
+                self.subscript_from_text(index, span, SubscriptInterpretation::Contextual)
             });
+            let target = self.var_ref(Name::from(name), name_span, subscript, assignment_span);
             self.advance();
             if self.at(TokenKind::LeftParen) {
                 let open_paren_span = self.current_span;
                 self.advance(); // consume '('
-                let (elements, close_span) = self.collect_array_elements();
+                let (array, close_span) = self.collect_compound_array(open_paren_span, None);
                 return Some((
                     Assignment {
-                        name: Name::from(name),
-                        name_span,
-                        index: index.zip(index_span).map(|(index, span)| {
-                            self.source_text(index.to_string(), span.start, span.end)
-                        }),
-                        index_ast: index
-                            .zip(index_span)
-                            .map(|(index, span)| {
-                                self.source_text(index.to_string(), span.start, span.end)
-                            })
-                            .as_ref()
-                            .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index)),
-                        value: AssignmentValue::Array(elements),
+                        target,
+                        value: AssignmentValue::Compound(array),
                         append: is_append,
                         span: Self::merge_optional_span(
                             assignment_span,
@@ -5680,18 +6002,7 @@ impl<'a> Parser<'a> {
             );
             return Some((
                 Assignment {
-                    name: Name::from(name),
-                    name_span,
-                    index: index.zip(index_span).map(|(index, span)| {
-                        self.source_text(index.to_string(), span.start, span.end)
-                    }),
-                    index_ast: index
-                        .zip(index_span)
-                        .map(|(index, span)| {
-                            self.source_text(index.to_string(), span.start, span.end)
-                        })
-                        .as_ref()
-                        .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index)),
+                    target,
                     value: AssignmentValue::Scalar(Word::literal_with_span("", value_span)),
                     append: is_append,
                     span: assignment_span,
@@ -5700,10 +6011,21 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        self.parse_assignment_from_current_token(raw)
+        self.parse_assignment_from_current_token(
+            raw,
+            None,
+            SubscriptInterpretation::Contextual,
+        )
             .or_else(|| {
                 self.current_word()
-                    .and_then(|word| self.parse_assignment_from_word(word, raw))
+                    .and_then(|word| {
+                        self.parse_assignment_from_word(
+                            word,
+                            raw,
+                            None,
+                            SubscriptInterpretation::Contextual,
+                        )
+                    })
             })
             .map(|assignment| (assignment, true))
     }
@@ -6486,19 +6808,32 @@ impl<'a> Parser<'a> {
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                         let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        let part = if matches!(index.slice(self.input), "@" | "*") {
-                            WordPart::ArrayLength(var_name.into())
+                        let subscript =
+                            self.subscript_from_source_text(index, SubscriptInterpretation::Contextual);
+                        let reference =
+                            self.parameter_var_ref(part_start, "${#", &var_name, Some(subscript), cursor);
+                        let part = if reference
+                            .subscript
+                            .as_ref()
+                            .and_then(Subscript::selector)
+                            .is_some()
+                        {
+                            WordPart::ArrayLength(reference)
                         } else {
-                            WordPart::Length(
-                                format!("{}[{}]", var_name, index.slice(self.input)).into(),
-                            )
+                            WordPart::Length(reference)
                         };
                         Self::push_word_part(parts, part, part_start, cursor);
                     } else {
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                         Self::push_word_part(
                             parts,
-                            WordPart::Length(var_name.into()),
+                            WordPart::Length(self.parameter_var_ref(
+                                part_start,
+                                "${#",
+                                &var_name,
+                                None,
+                                cursor,
+                            )),
                             part_start,
                             cursor,
                         );
@@ -6515,11 +6850,29 @@ impl<'a> Parser<'a> {
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                         let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        let part = if matches!(index.slice(self.input), "@" | "*") {
-                            WordPart::ArrayIndices(var_name.into())
+                        let subscript =
+                            self.subscript_from_source_text(index, SubscriptInterpretation::Contextual);
+                        let reference =
+                            self.parameter_var_ref(part_start, "${!", &var_name, Some(subscript), cursor);
+                        let part = if reference
+                            .subscript
+                            .as_ref()
+                            .and_then(Subscript::selector)
+                            .is_some()
+                        {
+                            WordPart::ArrayIndices(reference)
                         } else {
                             WordPart::Variable(
-                                format!("!{}[{}]", var_name, index.slice(self.input)).into(),
+                                format!(
+                                    "!{}[{}]",
+                                    var_name,
+                                    reference
+                                        .subscript
+                                        .as_ref()
+                                        .map(|subscript| subscript.text.slice(self.input))
+                                        .unwrap_or_default()
+                                )
+                                .into(),
                             )
                         };
                         Self::push_word_part(parts, part, part_start, cursor);
@@ -6635,6 +6988,8 @@ impl<'a> Parser<'a> {
 
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                     let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
+                    let subscript =
+                        self.subscript_from_source_text(index, SubscriptInterpretation::Contextual);
 
                     let part = if let Some(next_c) = chars.peek().copied() {
                         if next_c == ':' {
@@ -6646,7 +7001,6 @@ impl<'a> Parser<'a> {
                             );
                             if is_param_op {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                                let arr_name = format!("{}[{}]", var_name, index.slice(self.input));
                                 let op_char = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 let operand =
                                     self.read_brace_operand(&mut chars, &mut cursor, source_backed);
@@ -6658,7 +7012,13 @@ impl<'a> Parser<'a> {
                                     _ => unreachable!(),
                                 };
                                 WordPart::ParameterExpansion {
-                                    name: arr_name.into(),
+                                    reference: self.parameter_var_ref(
+                                        part_start,
+                                        "${",
+                                        &var_name,
+                                        Some(subscript.clone()),
+                                        cursor,
+                                    ),
                                     operator,
                                     operand: Some(operand),
                                     colon_variant: true,
@@ -6689,7 +7049,13 @@ impl<'a> Parser<'a> {
                                     self.maybe_parse_source_text_as_arithmetic(length)
                                 });
                                 WordPart::ArraySlice {
-                                    name: var_name.into(),
+                                    reference: self.parameter_var_ref(
+                                        part_start,
+                                        "${",
+                                        &var_name,
+                                        Some(subscript.clone()),
+                                        cursor,
+                                    ),
                                     offset,
                                     offset_ast,
                                     length,
@@ -6697,7 +7063,6 @@ impl<'a> Parser<'a> {
                                 }
                             }
                         } else if matches!(next_c, '-' | '+' | '=' | '?') {
-                            let arr_name = format!("{}[{}]", var_name, index.slice(self.input));
                             let op_char = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let operand =
                                 self.read_brace_operand(&mut chars, &mut cursor, source_backed);
@@ -6709,27 +7074,60 @@ impl<'a> Parser<'a> {
                                 _ => unreachable!(),
                             };
                             WordPart::ParameterExpansion {
-                                name: arr_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    Some(subscript.clone()),
+                                    cursor,
+                                ),
                                 operator,
                                 operand: Some(operand),
                                 colon_variant: false,
                             }
+                        } else if next_c == '@' {
+                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            if chars.peek().is_some() {
+                                let operator = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                                WordPart::Transformation {
+                                    reference: self.parameter_var_ref(
+                                        part_start,
+                                        "${",
+                                        &var_name,
+                                        Some(subscript.clone()),
+                                        cursor,
+                                    ),
+                                    operator,
+                                }
+                            } else {
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                                WordPart::ArrayAccess(self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    Some(subscript.clone()),
+                                    cursor,
+                                ))
+                            }
                         } else {
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                            let index_ast = self.maybe_parse_source_text_as_arithmetic(&index);
-                            WordPart::ArrayAccess {
-                                name: var_name.into(),
-                                index,
-                                index_ast,
-                            }
+                            WordPart::ArrayAccess(self.parameter_var_ref(
+                                part_start,
+                                "${",
+                                &var_name,
+                                Some(subscript.clone()),
+                                cursor,
+                            ))
                         }
                     } else {
-                        let index_ast = self.maybe_parse_source_text_as_arithmetic(&index);
-                        WordPart::ArrayAccess {
-                            name: var_name.into(),
-                            index,
-                            index_ast,
-                        }
+                        WordPart::ArrayAccess(self.parameter_var_ref(
+                            part_start,
+                            "${",
+                            &var_name,
+                            Some(subscript),
+                            cursor,
+                        ))
                     };
 
                     Self::push_word_part(parts, part, part_start, cursor);
@@ -6758,7 +7156,13 @@ impl<'a> Parser<'a> {
                                         _ => unreachable!(),
                                     };
                                     WordPart::ParameterExpansion {
-                                        name: var_name.into(),
+                                        reference: self.parameter_var_ref(
+                                            part_start,
+                                            "${",
+                                            &var_name,
+                                            None,
+                                            cursor,
+                                        ),
                                         operator,
                                         operand: Some(operand),
                                         colon_variant: true,
@@ -6790,7 +7194,13 @@ impl<'a> Parser<'a> {
                                         self.maybe_parse_source_text_as_arithmetic(length)
                                     });
                                     WordPart::Substring {
-                                        name: var_name.into(),
+                                        reference: self.parameter_var_ref(
+                                            part_start,
+                                            "${",
+                                            &var_name,
+                                            None,
+                                            cursor,
+                                        ),
                                         offset,
                                         offset_ast,
                                         length,
@@ -6811,7 +7221,13 @@ impl<'a> Parser<'a> {
                                 _ => unreachable!(),
                             };
                             WordPart::ParameterExpansion {
-                                name: var_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    None,
+                                    cursor,
+                                ),
                                 operator,
                                 operand: Some(operand),
                                 colon_variant: false,
@@ -6833,7 +7249,13 @@ impl<'a> Parser<'a> {
                                 ParameterOp::RemovePrefixShort { pattern }
                             };
                             WordPart::ParameterExpansion {
-                                name: var_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    None,
+                                    cursor,
+                                ),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -6855,7 +7277,13 @@ impl<'a> Parser<'a> {
                                 ParameterOp::RemoveSuffixShort { pattern }
                             };
                             WordPart::ParameterExpansion {
-                                name: var_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    None,
+                                    cursor,
+                                ),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -6895,7 +7323,13 @@ impl<'a> Parser<'a> {
                                 }
                             };
                             WordPart::ParameterExpansion {
-                                name: var_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    None,
+                                    cursor,
+                                ),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -6911,7 +7345,13 @@ impl<'a> Parser<'a> {
                                 };
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             WordPart::ParameterExpansion {
-                                name: var_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    None,
+                                    cursor,
+                                ),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -6927,7 +7367,13 @@ impl<'a> Parser<'a> {
                                 };
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             WordPart::ParameterExpansion {
-                                name: var_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    None,
+                                    cursor,
+                                ),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -6939,7 +7385,13 @@ impl<'a> Parser<'a> {
                                 let operator = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 WordPart::Transformation {
-                                    name: var_name.into(),
+                                    reference: self.parameter_var_ref(
+                                        part_start,
+                                        "${",
+                                        &var_name,
+                                        None,
+                                        cursor,
+                                    ),
                                     operator,
                                 }
                             } else {
@@ -7351,6 +7803,15 @@ mod tests {
         assert_eq!(word.render(input), expected);
     }
 
+    fn expect_subscript<'a>(reference: &'a VarRef, input: &str, expected: &str) -> &'a Subscript {
+        let subscript = reference
+            .subscript
+            .as_ref()
+            .expect("expected subscripted reference");
+        assert_eq!(subscript.text.slice(input), expected);
+        subscript
+    }
+
     #[test]
     fn test_current_word_cache_tracks_token_changes() {
         let input = "\"$foo\" bar\n";
@@ -7439,7 +7900,7 @@ mod tests {
 
         assert_eq!(command.code.as_ref().unwrap().render(input), "42");
         assert_eq!(command.assignments.len(), 1);
-        assert_eq!(command.assignments[0].name, "FOO");
+        assert_eq!(command.assignments[0].target.name, "FOO");
         assert_eq!(command.redirects.len(), 1);
         assert_eq!(
             redirect_word_target(&command.redirects[0]).render(input),
@@ -8151,8 +8612,15 @@ mod tests {
             let has_array_access = arg.parts.iter().any(|p| {
                 matches!(
                     &p.kind,
-                    WordPart::ArrayAccess { name, index, .. }
-                    if name == "arr" && index.slice(input).contains("${#arr[@]}")
+                    WordPart::ArrayAccess(reference)
+                    if reference.name == "arr"
+                        && reference
+                            .subscript
+                            .as_ref()
+                            .is_some_and(|subscript| subscript
+                                .text
+                                .slice(input)
+                                .contains("${#arr[@]}"))
                 )
             });
             assert!(
@@ -8184,11 +8652,8 @@ mod tests {
             panic!("expected simple command");
         };
         assert_eq!(command.assignments.len(), 1);
-        assert_eq!(command.assignments[0].name, "a");
-        assert_eq!(
-            command.assignments[0].index.as_ref().unwrap().slice(input),
-            "1 + 2"
-        );
+        assert_eq!(command.assignments[0].target.name, "a");
+        expect_subscript(&command.assignments[0].target, input, "1 + 2");
         assert!(command.name.render(input).is_empty());
     }
 
@@ -8201,11 +8666,8 @@ mod tests {
             panic!("expected simple command");
         };
         assert_eq!(command.assignments.len(), 1);
-        assert_eq!(command.assignments[0].name, "a");
-        assert_eq!(
-            command.assignments[0].index.as_ref().unwrap().slice(input),
-            "(1+2)*3"
-        );
+        assert_eq!(command.assignments[0].target.name, "a");
+        expect_subscript(&command.assignments[0].target, input, "(1+2)*3");
         assert!(command.name.render(input).is_empty());
     }
 
@@ -8218,16 +8680,19 @@ mod tests {
             panic!("expected simple command");
         };
         let assignment = &command.assignments[0];
-        let expr = assignment
-            .index_ast
+        let subscript_ast = assignment
+            .target
+            .subscript
             .as_ref()
+            .and_then(|subscript| subscript.arithmetic_ast.as_ref());
+        let expr = subscript_ast
             .expect("expected arithmetic subscript AST");
         let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
             panic!("expected additive subscript");
         };
         assert_eq!(*op, ArithmeticBinaryOp::Add);
-        expect_variable(left, "i");
-        expect_number(right, input, "1");
+        expect_variable(left.as_ref(), "i");
+        expect_number(right.as_ref(), input, "1");
     }
 
     #[test]
@@ -8241,34 +8706,37 @@ mod tests {
         let DeclOperand::Name(name) = &command.operands[0] else {
             panic!("expected declaration name operand");
         };
-        let expr = name
-            .index_ast
+        let subscript_ast = name
+            .subscript
             .as_ref()
+            .and_then(|subscript| subscript.arithmetic_ast.as_ref());
+        let expr = subscript_ast
             .expect("expected declaration index AST");
         let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
             panic!("expected additive expression in declaration index");
         };
         assert_eq!(*op, ArithmeticBinaryOp::Add);
-        expect_number(left, input, "1");
-        expect_number(right, input, "2");
+        expect_number(left.as_ref(), input, "1");
+        expect_number(right.as_ref(), input, "2");
 
         let Command::Simple(command) = &script.commands[1] else {
             panic!("expected simple command");
         };
-        let WordPart::ArrayAccess {
-            index, index_ast, ..
-        } = &command.args[0].parts[0].kind
-        else {
+        let WordPart::ArrayAccess(reference) = &command.args[0].parts[0].kind else {
             panic!("expected array access word part");
         };
-        assert_eq!(index.slice(input), "i+1");
-        let expr = index_ast.as_ref().expect("expected array access index AST");
+        expect_subscript(reference, input, "i+1");
+        let expr = reference
+            .subscript
+            .as_ref()
+            .and_then(|subscript| subscript.arithmetic_ast.as_ref())
+            .expect("expected array access index AST");
         let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
             panic!("expected additive array index");
         };
         assert_eq!(*op, ArithmeticBinaryOp::Add);
-        expect_variable(left, "i");
-        expect_number(right, input, "1");
+        expect_variable(left.as_ref(), "i");
+        expect_number(right.as_ref(), input, "1");
     }
 
     #[test]
@@ -8339,20 +8807,161 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let WordPart::ArrayAccess { index_ast, .. } = &command.args[0].parts[0].kind else {
+        let WordPart::ArrayAccess(reference) = &command.args[0].parts[0].kind else {
             panic!("expected first array access");
         };
-        assert!(index_ast.is_none());
+        let subscript = reference
+            .subscript
+            .as_ref()
+            .expect("expected first array subscript");
+        assert_eq!(subscript.selector(), Some(SubscriptSelector::At));
+        assert!(subscript.arithmetic_ast.is_none());
 
-        let WordPart::ArrayAccess { index_ast, .. } = &command.args[1].parts[0].kind else {
+        let WordPart::ArrayAccess(reference) = &command.args[1].parts[0].kind else {
             panic!("expected second array access");
         };
-        assert!(index_ast.is_none());
+        let subscript = reference
+            .subscript
+            .as_ref()
+            .expect("expected second array subscript");
+        assert_eq!(subscript.selector(), Some(SubscriptSelector::Star));
+        assert!(subscript.arithmetic_ast.is_none());
 
-        let WordPart::ArrayAccess { index_ast, .. } = &command.args[2].parts[0].kind else {
+        let WordPart::ArrayAccess(reference) = &command.args[2].parts[0].kind else {
             panic!("expected quoted-key array access");
         };
-        assert!(index_ast.is_none());
+        let subscript = reference
+            .subscript
+            .as_ref()
+            .expect("expected third array subscript");
+        assert_eq!(subscript.selector(), None);
+        assert!(subscript.arithmetic_ast.is_none());
+    }
+
+    #[test]
+    fn test_parameter_forms_preserve_selector_kinds() {
+        let input = "echo ${arr[@]} ${arr[*]} ${#arr[@]} ${!arr[*]} ${arr[@]:1:2}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        let WordPart::ArrayAccess(reference) = &command.args[0].parts[0].kind else {
+            panic!("expected array access");
+        };
+        assert_eq!(
+            reference
+                .subscript
+                .as_ref()
+                .and_then(Subscript::selector),
+            Some(SubscriptSelector::At)
+        );
+
+        let WordPart::ArrayAccess(reference) = &command.args[1].parts[0].kind else {
+            panic!("expected array access");
+        };
+        assert_eq!(
+            reference
+                .subscript
+                .as_ref()
+                .and_then(Subscript::selector),
+            Some(SubscriptSelector::Star)
+        );
+
+        let WordPart::ArrayLength(reference) = &command.args[2].parts[0].kind else {
+            panic!("expected array length");
+        };
+        assert_eq!(
+            reference
+                .subscript
+                .as_ref()
+                .and_then(Subscript::selector),
+            Some(SubscriptSelector::At)
+        );
+
+        let WordPart::ArrayIndices(reference) = &command.args[3].parts[0].kind else {
+            panic!("expected array indices");
+        };
+        assert_eq!(
+            reference
+                .subscript
+                .as_ref()
+                .and_then(Subscript::selector),
+            Some(SubscriptSelector::Star)
+        );
+
+        let WordPart::ArraySlice { reference, .. } = &command.args[4].parts[0].kind else {
+            panic!("expected array slice");
+        };
+        assert_eq!(
+            reference
+                .subscript
+                .as_ref()
+                .and_then(Subscript::selector),
+            Some(SubscriptSelector::At)
+        );
+    }
+
+    #[test]
+    fn test_compound_array_assignment_preserves_mixed_element_kinds() {
+        let input = "arr=(one [two]=2 [three]+=3 four)\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let assignment = &command.assignments[0];
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound array assignment");
+        };
+
+        assert_eq!(array.kind, ArrayKind::Contextual);
+        assert_eq!(array.elements.len(), 4);
+
+        let ArrayElem::Sequential(first) = &array.elements[0] else {
+            panic!("expected first sequential element");
+        };
+        assert_eq!(first.span.slice(input), "one");
+
+        let ArrayElem::Keyed { key, value } = &array.elements[1] else {
+            panic!("expected keyed element");
+        };
+        assert_eq!(key.text.slice(input), "two");
+        assert_eq!(key.interpretation, SubscriptInterpretation::Contextual);
+        assert_eq!(value.span.slice(input), "2");
+
+        let ArrayElem::KeyedAppend { key, value } = &array.elements[2] else {
+            panic!("expected keyed append element");
+        };
+        assert_eq!(key.text.slice(input), "three");
+        assert_eq!(key.interpretation, SubscriptInterpretation::Contextual);
+        assert_eq!(value.span.slice(input), "3");
+
+        let ArrayElem::Sequential(last) = &array.elements[3] else {
+            panic!("expected trailing sequential element");
+        };
+        assert_eq!(last.span.slice(input), "four");
+    }
+
+    #[test]
+    fn test_assignment_append_and_keyed_append_stay_distinct() {
+        let input = "arr+=one\nassoc=(one [key]+=value)\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(first) = &script.commands[0] else {
+            panic!("expected first simple command");
+        };
+        assert!(first.assignments[0].append);
+
+        let Command::Simple(second) = &script.commands[1] else {
+            panic!("expected second simple command");
+        };
+        assert!(!second.assignments[0].append);
+        let AssignmentValue::Compound(array) = &second.assignments[0].value else {
+            panic!("expected compound assignment");
+        };
+        assert!(matches!(array.elements[1], ArrayElem::KeyedAppend { .. }));
     }
 
     #[test]
@@ -8574,11 +9183,15 @@ mod tests {
             "${arr[$RANDOM % ${#arr[@]}]}"
         );
 
-        let WordPart::ArrayAccess { index, .. } = &word.parts[0].kind else {
+        let WordPart::ArrayAccess(reference) = &word.parts[0].kind else {
             panic!("expected array access");
         };
-        assert!(index.is_source_backed());
-        assert_eq!(index.slice(input), "$RANDOM % ${#arr[@]}");
+        let subscript = reference
+            .subscript
+            .as_ref()
+            .expect("expected subscript");
+        assert!(subscript.is_source_backed());
+        assert_eq!(subscript.text.slice(input), "$RANDOM % ${#arr[@]}");
     }
 
     #[test]
@@ -9564,11 +10177,8 @@ coproc worker { true; }
         let Command::Simple(command) = &script.commands[3] else {
             panic!("expected assignment-only simple command");
         };
-        assert_eq!(command.assignments[0].name_span.slice(input), "foo");
-        assert_eq!(
-            command.assignments[0].index.as_ref().unwrap().slice(input),
-            "10"
-        );
+        assert_eq!(command.assignments[0].target.name_span.slice(input), "foo");
+        expect_subscript(&command.assignments[0].target, input, "10");
 
         let Command::Simple(command) = &script.commands[4] else {
             panic!("expected exec simple command");
@@ -9755,7 +10365,7 @@ coproc worker { true; }
         };
         assert_eq!(var_ref.name.as_str(), "assoc");
         assert_eq!(var_ref.name_span.slice(input), "assoc");
-        assert_eq!(var_ref.index.as_ref().unwrap().slice(input), "$key");
+        expect_subscript(var_ref, input, "$key");
     }
 
     #[test]
@@ -10061,7 +10671,7 @@ echo "${var-"}"}"
         assert_eq!(command.variant, "declare");
         assert_eq!(command.variant_span.slice(input), "declare");
         assert_eq!(command.assignments.len(), 1);
-        assert_eq!(command.assignments[0].name, "FOO");
+        assert_eq!(command.assignments[0].target.name, "FOO");
         assert_eq!(command.redirects.len(), 1);
         assert_eq!(
             redirect_word_target(&command.redirects[0])
@@ -10079,19 +10689,61 @@ echo "${var-"}"}"
         let DeclOperand::Assignment(assignment) = &command.operands[1] else {
             panic!("expected assignment operand");
         };
-        assert_eq!(assignment.name, "arr");
-        let AssignmentValue::Array(elements) = &assignment.value else {
-            panic!("expected array assignment");
+        assert_eq!(assignment.target.name, "arr");
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound array assignment");
         };
-        assert_eq!(elements.len(), 2);
-        assert!(is_fully_quoted(&elements[0]));
-        assert_eq!(elements[0].span.slice(input), "\"hello world\"");
-        assert_eq!(elements[1].span.slice(input), "two");
+        assert_eq!(array.kind, ArrayKind::Indexed);
+        assert_eq!(array.elements.len(), 2);
+        let ArrayElem::Sequential(first) = &array.elements[0] else {
+            panic!("expected first sequential element");
+        };
+        assert!(is_fully_quoted(first));
+        assert_eq!(first.span.slice(input), "\"hello world\"");
+        let ArrayElem::Sequential(second) = &array.elements[1] else {
+            panic!("expected second sequential element");
+        };
+        assert_eq!(second.span.slice(input), "two");
 
         let DeclOperand::Name(name) = &command.operands[2] else {
             panic!("expected bare name operand");
         };
         assert_eq!(name.name, "bar");
+    }
+
+    #[test]
+    fn test_parse_declare_a_threads_associative_kind_into_compound_array() {
+        let input = "declare -A assoc=(one [foo]=bar [bar]+=baz two)\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Decl(command) = &script.commands[0] else {
+            panic!("expected declaration clause");
+        };
+
+        let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+            panic!("expected assignment operand, got {:#?}", command.operands);
+        };
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound array assignment");
+        };
+
+        assert_eq!(array.kind, ArrayKind::Associative);
+        assert_eq!(array.elements.len(), 4);
+        assert!(matches!(array.elements[0], ArrayElem::Sequential(_)));
+
+        let ArrayElem::Keyed { key, .. } = &array.elements[1] else {
+            panic!("expected keyed element");
+        };
+        assert_eq!(key.text.slice(input), "foo");
+        assert_eq!(key.interpretation, SubscriptInterpretation::Associative);
+
+        let ArrayElem::KeyedAppend { key, .. } = &array.elements[2] else {
+            panic!("expected keyed append element");
+        };
+        assert_eq!(key.text.slice(input), "bar");
+        assert_eq!(key.interpretation, SubscriptInterpretation::Associative);
+
+        assert!(matches!(array.elements[3], ArrayElem::Sequential(_)));
     }
 
     #[test]
@@ -10137,7 +10789,7 @@ echo "${var-"}"}"
         let DeclOperand::Assignment(assignment) = &command.operands[1] else {
             panic!("expected assignment operand");
         };
-        assert_eq!(assignment.name, "VAR");
+        assert_eq!(assignment.target.name, "VAR");
         assert!(
             matches!(&assignment.value, AssignmentValue::Scalar(value) if value.span.slice(input) == "value")
         );
