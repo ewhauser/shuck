@@ -1,10 +1,11 @@
 use shuck_ast::{
-    ArithmeticCommand, ArithmeticForCommand, ArrayElem, Assignment, AssignmentValue, BinaryCommand,
-    BinaryOp, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand,
-    ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, CoprocCommand, DeclClause, DeclOperand, ForCommand, FunctionDef,
-    IfCommand, Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt,
-    StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef, WhileCommand,
+    AlwaysCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem, Assignment,
+    AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand,
+    CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
+    ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr,
+    CoprocCommand, DeclClause, DeclOperand, ForCommand, FunctionDef, IfCommand, IfSyntax, Redirect,
+    RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef, WhileCommand,
 };
 use shuck_format::{
     Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, verbatim,
@@ -52,8 +53,11 @@ impl FormatNodeRule<Stmt> for FormatStatement {
 
         emit_heredocs(&stmt.redirects, formatter)?;
 
-        if stmt.terminator == Some(StmtTerminator::Background) {
-            write!(formatter, [text(" &")])?;
+        if let Some(StmtTerminator::Background(operator)) = stmt.terminator {
+            write!(
+                formatter,
+                [text(format!(" {}", render_background_operator(operator)))]
+            )?;
         }
 
         Ok(())
@@ -93,6 +97,7 @@ impl FormatNodeRule<CompoundCommand> for FormatCompoundCommand {
             CompoundCommand::Time(command) => format_time(command, formatter),
             CompoundCommand::Conditional(command) => format_conditional(command, formatter),
             CompoundCommand::Coproc(command) => format_coproc(command, formatter),
+            CompoundCommand::Always(command) => format_always(command, formatter),
         }
     }
 }
@@ -190,7 +195,7 @@ fn format_stmt_sequence_with_upper_bound(
             emit_trailing_comments(attachment.trailing_for(index), formatter)?;
         }
         if index + 1 < statements.len() {
-            if stmt.terminator == Some(StmtTerminator::Background) {
+            if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
                 if background_has_explicit_line_break(
                     stmt,
                     &statements[index + 1],
@@ -575,6 +580,16 @@ fn collect_command_list_first<'a>(
 }
 
 fn format_if(command: &IfCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+    match command.syntax {
+        IfSyntax::ThenFi { .. } => format_then_fi_if(command, formatter),
+        IfSyntax::Brace { .. } => format_brace_if(command, formatter),
+    }
+}
+
+fn format_then_fi_if(
+    command: &IfCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     let upper_bound = Some(command.span.end.offset);
     write!(formatter, [text("if ")])?;
     format_inline_stmts(&command.condition, formatter)?;
@@ -613,6 +628,31 @@ fn format_if(command: &IfCommand, formatter: &mut ShellFormatter<'_, '_>) -> For
     } else {
         write!(formatter, [hard_line_break(), text("fi")])
     }
+}
+
+fn format_brace_if(
+    command: &IfCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    let upper_bound = Some(command.span.end.offset);
+    write!(formatter, [text("if ")])?;
+    format_inline_stmts(&command.condition, formatter)?;
+    write!(formatter, [space()])?;
+    format_brace_group(&command.then_branch, formatter, upper_bound)?;
+
+    for (condition, body) in &command.elif_branches {
+        write!(formatter, [text(" elif ")])?;
+        format_inline_stmts(condition, formatter)?;
+        write!(formatter, [space()])?;
+        format_brace_group(body, formatter, upper_bound)?;
+    }
+
+    if let Some(body) = &command.else_branch {
+        write!(formatter, [text(" else ")])?;
+        format_brace_group(body, formatter, upper_bound)?;
+    }
+
+    Ok(())
 }
 
 fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
@@ -885,6 +925,15 @@ fn format_coproc(
     command.body.format().fmt(formatter)
 }
 
+fn format_always(
+    command: &AlwaysCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    format_brace_group(&command.body, formatter, Some(command.span.end.offset))?;
+    write!(formatter, [text(" always ")])?;
+    format_brace_group(&command.always_body, formatter, Some(command.span.end.offset))
+}
+
 fn format_function(
     function: &FunctionDef,
     formatter: &mut ShellFormatter<'_, '_>,
@@ -942,7 +991,10 @@ fn format_inline_stmts(
 ) -> FormatResult<()> {
     for (index, stmt) in commands.iter().enumerate() {
         if index > 0 {
-            if commands[index - 1].terminator == Some(StmtTerminator::Background) {
+            if matches!(
+                commands[index - 1].terminator,
+                Some(StmtTerminator::Background(_))
+            ) {
                 write!(formatter, [space()])?;
             } else {
                 write!(formatter, [text("; ")])?;
@@ -1167,6 +1219,9 @@ fn compound_has_heredoc(command: &CompoundCommand) -> bool {
         CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
         CompoundCommand::Time(command) => command.command.as_deref().is_some_and(has_heredoc),
         CompoundCommand::Coproc(command) => has_heredoc(&command.body),
+        CompoundCommand::Always(command) => {
+            stmt_seq_has_heredoc(&command.body) || stmt_seq_has_heredoc(&command.always_body)
+        }
     }
 }
 
@@ -1199,7 +1254,7 @@ fn stmt_verbatim_span(stmt: &Stmt, source: &str) -> Span {
     if stmt.negated {
         span = merge_non_empty_span(stmt.span, span);
     }
-    if stmt.terminator == Some(StmtTerminator::Background)
+    if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
         && let Some(terminator_span) = stmt.terminator_span
     {
         span = merge_non_empty_span(span, terminator_span);
@@ -1245,7 +1300,7 @@ fn stmt_span(stmt: &Stmt) -> Span {
     for redirect in &stmt.redirects {
         span = merge_non_empty_span(span, redirect.span);
     }
-    if stmt.terminator == Some(StmtTerminator::Background)
+    if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
         && let Some(terminator_span) = stmt.terminator_span
     {
         span = merge_non_empty_span(span, terminator_span);
@@ -1271,6 +1326,7 @@ fn compound_span(command: &CompoundCommand) -> Span {
         CompoundCommand::Time(command) => command.span,
         CompoundCommand::Conditional(command) => command.span,
         CompoundCommand::Coproc(command) => command.span,
+        CompoundCommand::Always(command) => command.span,
     }
 }
 
@@ -1323,6 +1379,10 @@ fn compound_verbatim_span(command: &CompoundCommand, source: &str) -> Span {
             .unwrap_or(command.span),
         CompoundCommand::Conditional(command) => command.span,
         CompoundCommand::Coproc(command) => command.span.merge(stmt_verbatim_span(&command.body, source)),
+        CompoundCommand::Always(command) => {
+            let span = merge_stmt_sequence_verbatim_span(command.span, &command.body, source);
+            merge_stmt_sequence_verbatim_span(span, &command.always_body, source)
+        }
     }
 }
 
@@ -1532,7 +1592,7 @@ fn stmt_format_span(stmt: &Stmt) -> Span {
     for redirect in &stmt.redirects {
         span = merge_non_empty_span(span, redirect.span);
     }
-    if stmt.terminator == Some(StmtTerminator::Background)
+    if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
         && let Some(terminator_span) = stmt.terminator_span
     {
         span = merge_non_empty_span(span, terminator_span);
@@ -1654,7 +1714,7 @@ fn can_inline_body(
     let [command] = commands.as_slice() else {
         return false;
     };
-    if command.terminator == Some(StmtTerminator::Background)
+    if matches!(command.terminator, Some(StmtTerminator::Background(_)))
         || !can_inline_stmt(command, formatter)
     {
         return false;
@@ -1866,12 +1926,20 @@ fn stmt_token_spans(stmt: &Stmt) -> Vec<Span> {
     };
     spans.extend(command_token_spans(&stmt.command));
     spans.extend(stmt.redirects.iter().map(|redirect| redirect.span));
-    if stmt.terminator == Some(StmtTerminator::Background)
+    if matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
         && let Some(terminator_span) = stmt.terminator_span
     {
         spans.push(terminator_span);
     }
     spans
+}
+
+fn render_background_operator(operator: BackgroundOperator) -> &'static str {
+    match operator {
+        BackgroundOperator::Plain => "&",
+        BackgroundOperator::Pipe => "&|",
+        BackgroundOperator::Bang => "&!",
+    }
 }
 
 fn background_has_explicit_line_break(

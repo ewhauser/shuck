@@ -1,9 +1,10 @@
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclOperand,
-    File, FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, RedirectTarget, SourceText,
-    Stmt, StmtSeq, VarRef, Word, WordPart, WordPartNode,
+    ArrayElem, Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command,
+    CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
+    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause,
+    DeclOperand, File, FunctionDef, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
+    Pattern, PatternPart, Redirect, RedirectTarget, SourceText, Stmt, StmtSeq, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -365,6 +366,10 @@ fn walk_compound(
             count
         }
         CompoundCommand::Coproc(command) => walk_stmt(command.body.as_mut(), source, visitor),
+        CompoundCommand::Always(command) => {
+            walk_stmt_seq(&mut command.body, source, visitor)
+                + walk_stmt_seq(&mut command.always_body, source, visitor)
+        }
     }
 }
 
@@ -560,6 +565,10 @@ fn rewrite_compound_words(
             })
         }
         CompoundCommand::Coproc(command) => rewrite_stmt_words(command.body.as_mut(), source, visitor),
+        CompoundCommand::Always(command) => {
+            rewrite_stmt_seq_words(&mut command.body, source, visitor)
+                + rewrite_stmt_seq_words(&mut command.always_body, source, visitor)
+        }
     }
 }
 
@@ -899,6 +908,10 @@ fn rewrite_compound_source_texts(
         CompoundCommand::Coproc(command) => {
             rewrite_stmt_source_texts(command.body.as_mut(), source, visitor)
         }
+        CompoundCommand::Always(command) => {
+            rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
+                + rewrite_stmt_seq_source_texts(&mut command.always_body, source, visitor)
+        }
     }
 }
 
@@ -1058,6 +1071,9 @@ fn rewrite_word_part_source_texts(
             .sum(),
         WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => 0,
         WordPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
+        WordPart::Parameter(parameter) => {
+            rewrite_parameter_source_texts(parameter, source, visitor)
+        }
         WordPart::ParameterExpansion {
             reference,
             operator,
@@ -1104,6 +1120,288 @@ fn rewrite_word_part_source_texts(
                 })
         }
         WordPart::PrefixMatch { .. } => 0,
+    }
+}
+
+fn rewrite_parameter_source_texts(
+    parameter: &mut ParameterExpansion,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    let count = match &mut parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                rewrite_var_ref_source_texts(reference, source, visitor)
+            }
+            BourneParameterExpansion::Indirect {
+                operator, operand, ..
+            } => {
+                operand
+                    .as_mut()
+                    .map_or(0, |operand| visitor(operand, source))
+                    + operator.as_mut().map_or(0, |operator| {
+                        rewrite_parameter_op_source_texts(operator, source, visitor)
+                    })
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => 0,
+            BourneParameterExpansion::Slice {
+                reference,
+                offset,
+                length,
+                ..
+            } => {
+                rewrite_var_ref_source_texts(reference, source, visitor)
+                    + visitor(offset, source)
+                    + length.as_mut().map_or(0, |length| visitor(length, source))
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand,
+                ..
+            } => {
+                rewrite_var_ref_source_texts(reference, source, visitor)
+                    + operand
+                        .as_mut()
+                        .map_or(0, |operand| visitor(operand, source))
+                    + rewrite_parameter_op_source_texts(operator, source, visitor)
+            }
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            let mut count = match &mut syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    rewrite_var_ref_source_texts(reference, source, visitor)
+                }
+                ZshExpansionTarget::Nested(parameter) => {
+                    rewrite_parameter_source_texts(parameter, source, visitor)
+                }
+                ZshExpansionTarget::Empty => 0,
+            };
+            if let Some(operation) = &mut syntax.operation {
+                count += match operation {
+                    ZshExpansionOperation::PatternOperation { .. }
+                    | ZshExpansionOperation::Defaulting { .. }
+                    | ZshExpansionOperation::Raw(_) => 0,
+                };
+            }
+            count
+        }
+    };
+
+    if count > 0 {
+        parameter.raw_body = SourceText::cooked(
+            parameter.raw_body.span(),
+            render_parameter_raw_body(parameter, source),
+        );
+    }
+
+    count
+}
+
+fn render_parameter_raw_body(parameter: &ParameterExpansion, source: &str) -> String {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => render_bourne_parameter_raw_body(syntax, source),
+        ParameterExpansionSyntax::Zsh(syntax) => render_zsh_parameter_raw_body(syntax, source),
+    }
+}
+
+fn render_bourne_parameter_raw_body(
+    syntax: &BourneParameterExpansion,
+    source: &str,
+) -> String {
+    match syntax {
+        BourneParameterExpansion::Access { reference } => render_var_ref_syntax(reference, source),
+        BourneParameterExpansion::Length { reference } => {
+            format!("#{}", render_var_ref_syntax(reference, source))
+        }
+        BourneParameterExpansion::Indices { reference } => {
+            format!("!{}", render_var_ref_syntax(reference, source))
+        }
+        BourneParameterExpansion::Indirect {
+            name,
+            operator,
+            operand,
+            colon_variant,
+        } => {
+            let mut rendered = format!("!{name}");
+            if let Some(operator) = operator {
+                if *colon_variant {
+                    rendered.push(':');
+                }
+                rendered.push_str(parameter_op_operator_text(operator));
+                if let Some(operand) = operand {
+                    rendered.push_str(operand.slice(source));
+                }
+            }
+            rendered
+        }
+        BourneParameterExpansion::PrefixMatch { prefix, kind } => {
+            format!("!{}{}", prefix, kind.as_char())
+        }
+        BourneParameterExpansion::Slice {
+            reference,
+            offset,
+            length,
+            ..
+        } => {
+            let mut rendered = format!(
+                "{}:{}",
+                render_var_ref_syntax(reference, source),
+                offset.slice(source)
+            );
+            if let Some(length) = length {
+                rendered.push(':');
+                rendered.push_str(length.slice(source));
+            }
+            rendered
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            operand,
+            colon_variant,
+        } => {
+            let mut rendered = render_var_ref_syntax(reference, source);
+            match operator {
+                ParameterOp::UseDefault
+                | ParameterOp::AssignDefault
+                | ParameterOp::UseReplacement
+                | ParameterOp::Error => {
+                    if *colon_variant {
+                        rendered.push(':');
+                    }
+                    rendered.push_str(parameter_op_operator_text(operator));
+                    if let Some(operand) = operand {
+                        rendered.push_str(operand.slice(source));
+                    }
+                }
+                ParameterOp::RemovePrefixShort { pattern } => {
+                    rendered.push('#');
+                    rendered.push_str(&pattern.render_syntax(source));
+                }
+                ParameterOp::RemovePrefixLong { pattern } => {
+                    rendered.push_str("##");
+                    rendered.push_str(&pattern.render_syntax(source));
+                }
+                ParameterOp::RemoveSuffixShort { pattern } => {
+                    rendered.push('%');
+                    rendered.push_str(&pattern.render_syntax(source));
+                }
+                ParameterOp::RemoveSuffixLong { pattern } => {
+                    rendered.push_str("%%");
+                    rendered.push_str(&pattern.render_syntax(source));
+                }
+                ParameterOp::ReplaceFirst {
+                    pattern,
+                    replacement,
+                } => {
+                    rendered.push('/');
+                    rendered.push_str(&pattern.render_syntax(source));
+                    rendered.push('/');
+                    rendered.push_str(replacement.slice(source));
+                }
+                ParameterOp::ReplaceAll {
+                    pattern,
+                    replacement,
+                } => {
+                    rendered.push_str("//");
+                    rendered.push_str(&pattern.render_syntax(source));
+                    rendered.push('/');
+                    rendered.push_str(replacement.slice(source));
+                }
+                ParameterOp::UpperFirst => rendered.push('^'),
+                ParameterOp::UpperAll => rendered.push_str("^^"),
+                ParameterOp::LowerFirst => rendered.push(','),
+                ParameterOp::LowerAll => rendered.push_str(",,"),
+            }
+            rendered
+        }
+        BourneParameterExpansion::Transformation {
+            reference,
+            operator,
+        } => format!("{}@{}", render_var_ref_syntax(reference, source), operator),
+    }
+}
+
+fn render_zsh_parameter_raw_body(
+    syntax: &shuck_ast::ZshParameterExpansion,
+    source: &str,
+) -> String {
+    let mut rendered = String::new();
+
+    for modifier in &syntax.modifiers {
+        rendered.push('(');
+        rendered.push(modifier.name);
+        if let Some(delimiter) = modifier.argument_delimiter {
+            rendered.push(delimiter);
+        }
+        if let Some(argument) = &modifier.argument {
+            rendered.push_str(argument.slice(source));
+        }
+        rendered.push(')');
+    }
+
+    match &syntax.target {
+        ZshExpansionTarget::Reference(reference) => {
+            rendered.push_str(&render_var_ref_syntax(reference, source));
+        }
+        ZshExpansionTarget::Nested(parameter) => {
+            rendered.push_str("${");
+            rendered.push_str(&render_parameter_raw_body(parameter, source));
+            rendered.push('}');
+        }
+        ZshExpansionTarget::Empty => {}
+    }
+
+    if let Some(operation) = &syntax.operation {
+        match operation {
+            ZshExpansionOperation::PatternOperation { operand, .. } => {
+                rendered.push_str(":#");
+                rendered.push_str(operand.slice(source));
+            }
+            ZshExpansionOperation::Defaulting {
+                kind,
+                operand,
+                colon_variant,
+            } => {
+                if *colon_variant {
+                    rendered.push(':');
+                }
+                rendered.push_str(match kind {
+                    shuck_ast::ZshDefaultingOp::UseDefault => "-",
+                    shuck_ast::ZshDefaultingOp::AssignDefault => "=",
+                    shuck_ast::ZshDefaultingOp::UseReplacement => "+",
+                    shuck_ast::ZshDefaultingOp::Error => "?",
+                });
+                rendered.push_str(operand.slice(source));
+            }
+            ZshExpansionOperation::Raw(text) => rendered.push_str(text.slice(source)),
+        }
+    }
+
+    rendered
+}
+
+fn render_var_ref_syntax(reference: &VarRef, source: &str) -> String {
+    let mut rendered = reference.name.to_string();
+    if let Some(subscript) = &reference.subscript {
+        rendered.push('[');
+        rendered.push_str(subscript.syntax_text(source));
+        rendered.push(']');
+    }
+    rendered
+}
+
+fn parameter_op_operator_text(operator: &ParameterOp) -> &'static str {
+    match operator {
+        ParameterOp::UseDefault => "-",
+        ParameterOp::AssignDefault => "=",
+        ParameterOp::UseReplacement => "+",
+        ParameterOp::Error => "?",
+        _ => "",
     }
 }
 
