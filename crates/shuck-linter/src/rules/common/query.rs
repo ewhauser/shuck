@@ -1,8 +1,8 @@
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef,
-    ParameterOp, Pattern, PatternPart, Redirect, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
-    WordPart, WordPartNode,
+    BinaryCommand, BinaryOp, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
+    DeclOperand, FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, Span, Stmt, StmtSeq,
+    Subscript, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_parser::parser::Parser;
 
@@ -56,6 +56,19 @@ pub fn iter_commands<'a>(
     let mut visits = Vec::new();
     collect_command_visits(commands, options, WalkContext::default(), &mut visits);
     visits.into_iter()
+}
+
+pub fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
+    let Command::Binary(command) = command else {
+        return None;
+    };
+    if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    collect_pipeline_segments(command, &mut segments);
+    Some(segments)
 }
 
 pub fn walk_words(
@@ -741,6 +754,22 @@ fn collect_command_visit<'a>(
     }
 
     collect_redirect_visits(&stmt.redirects, options, context, visits);
+}
+
+fn collect_pipeline_segments<'a>(command: &'a BinaryCommand, segments: &mut Vec<&'a Stmt>) {
+    match &command.left.command {
+        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_segments(left, segments);
+        }
+        _ => segments.push(&command.left),
+    }
+
+    match &command.right.command {
+        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_segments(right, segments);
+        }
+        _ => segments.push(&command.right),
+    }
 }
 
 fn collect_builtin_visits<'a>(
@@ -1767,7 +1796,7 @@ mod tests {
     use super::{
         CommandSubstitutionKind, CommandVisit, CommandWalkOptions, command_assignments,
         command_redirects, declaration_operands, iter_command_substitutions, iter_command_words,
-        iter_commands, iter_expansion_words, iter_word_command_substitutions,
+        iter_commands, iter_expansion_words, iter_word_command_substitutions, pipeline_segments,
         visit_expansion_words,
     };
     use crate::rules::common::expansion::ExpansionContext;
@@ -2009,6 +2038,26 @@ foo=1 export foo=1 >decl\nfor item in foo bar; do :; done >compound\n";
                 .iter()
                 .all(|(_, _, span)| span.start.offset < span.end.offset)
         );
+    }
+
+    #[test]
+    fn pipeline_segments_flattens_pipe_chains() {
+        let source = "printf '%s\\n' a | command kill 0 | tee out.txt\n";
+        let commands = parse_commands(source);
+        let Command::Binary(command) = &commands[0].command else {
+            panic!("expected binary command");
+        };
+
+        let segments = pipeline_segments(&Command::Binary(command.clone()))
+            .expect("expected pipeline segments")
+            .into_iter()
+            .map(|stmt| match &stmt.command {
+                Command::Simple(command) => static_word_text(&command.name, source).unwrap(),
+                _ => "<non-simple>".to_owned(),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(segments, vec!["printf", "command", "tee"]);
     }
 
     #[test]

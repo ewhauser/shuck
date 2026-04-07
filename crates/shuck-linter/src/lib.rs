@@ -19,7 +19,11 @@ pub use context::{
     ContextRegion, ContextRegionKind, FileContext, FileContextTag, classify_file_context,
 };
 pub use diagnostic::{Diagnostic, Severity};
-pub use facts::{CommandFact, FactSpan, LinterFacts};
+pub use facts::{
+    CommandFact, CommandOptionFacts, ExitCommandFacts, FactSpan, FindCommandFacts, LinterFacts,
+    PrintfCommandFacts, ReadCommandFacts, SudoFamilyCommandFacts, SudoFamilyInvoker,
+    UnsetCommandFacts, XargsCommandFacts,
+};
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;

@@ -1,11 +1,6 @@
 use shuck_semantic::{OverwrittenFunction as SemanticOverwrittenFunction, ScopeKind};
 
 use crate::context::FileContextTag;
-use crate::rules::common::{
-    command,
-    query::{self, CommandWalkOptions},
-    word::static_word_text,
-};
 use crate::{Checker, Rule, Violation};
 
 pub struct OverwrittenFunction {
@@ -75,70 +70,15 @@ fn unset_function_between(
     start_offset: usize,
     end_offset: usize,
 ) -> bool {
-    let mut found = false;
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-        &mut |visit| {
-            let command_node = visit.command;
-            if found {
-                return;
-            }
-
-            let normalized = command::normalize_command(command_node, checker.source());
-            if !normalized.effective_name_is("unset") {
-                return;
-            }
-
-            if normalized.body_span.start.offset <= start_offset
-                || normalized.body_span.start.offset >= end_offset
-            {
-                return;
-            }
-
-            if unset_removes_function(normalized.body_args(), checker.source(), name) {
-                found = true;
-            }
-        },
-    );
-
-    found
-}
-
-fn unset_removes_function(args: &[&shuck_ast::Word], source: &str, target_name: &str) -> bool {
-    let mut function_mode = false;
-    let mut parsing_options = true;
-
-    for word in args {
-        let Some(text) = static_word_text(word, source) else {
-            return false;
-        };
-
-        if parsing_options {
-            if text == "--" {
-                parsing_options = false;
-                continue;
-            }
-
-            if text.starts_with('-') && text != "-" {
-                if text[1..].chars().any(|flag| flag == 'f') {
-                    function_mode = true;
-                }
-                continue;
-            }
-
-            parsing_options = false;
-        }
-
-        if function_mode && text == target_name {
-            return true;
-        }
-    }
-
-    false
+    checker.facts().structural_commands().any(|fact| {
+        fact.effective_name_is("unset")
+            && fact.body_span().start.offset > start_offset
+            && fact.body_span().start.offset < end_offset
+            && fact
+                .options()
+                .unset()
+                .is_some_and(|unset| unset.targets_function_name(checker.source(), name))
+    })
 }
 
 #[cfg(test)]
@@ -192,6 +132,24 @@ myfunc
 ";
         let diagnostics = test_snippet_at_path(
             Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+    }
+
+    #[test]
+    fn plain_unset_does_not_suppress_function_overwrites() {
+        let source = "\
+curl() { printf '%s\\n' first; }
+unset curl
+curl() { printf '%s\\n' second; }
+curl
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/tests/nvm_compare_checksum_test.sh"),
             source,
             &LinterSettings::for_rule(Rule::OverwrittenFunction),
         );

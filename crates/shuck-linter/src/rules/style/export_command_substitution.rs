@@ -21,9 +21,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
     let source = checker.source();
     let findings = checker
         .facts()
-        .commands()
-        .iter()
-        .filter(|fact| !fact.is_nested_word_command())
+        .structural_commands()
         .filter_map(|fact| fact.declaration())
         .filter(|declaration| {
             matches!(

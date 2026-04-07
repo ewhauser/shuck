@@ -1,10 +1,7 @@
-use shuck_ast::{BinaryOp, Command, CompoundCommand, StmtSeq, Word, WordPart};
+use shuck_ast::{Command, CompoundCommand, StmtSeq, Word, WordPart};
 
-use crate::rules::common::{
-    command,
-    query::{self, CommandWalkOptions},
-};
-use crate::{Checker, Rule, Violation};
+use crate::rules::common::query::{self, CommandWalkOptions};
+use crate::{Checker, LinterFacts, Rule, Violation};
 
 pub struct FindOutputLoop;
 
@@ -19,7 +16,6 @@ impl Violation for FindOutputLoop {
 }
 
 pub fn find_output_loop(checker: &mut Checker) {
-    let source = checker.source();
     let mut spans = Vec::new();
 
     query::walk_commands(
@@ -38,7 +34,7 @@ pub fn find_output_loop(checker: &mut Checker) {
             };
 
             for word in words {
-                if word_contains_find_substitution(word, source) {
+                if word_contains_find_substitution(word, checker.facts()) {
                     spans.push(word.span);
                 }
             }
@@ -50,54 +46,60 @@ pub fn find_output_loop(checker: &mut Checker) {
     }
 }
 
-fn word_contains_find_substitution(word: &Word, source: &str) -> bool {
+fn word_contains_find_substitution(word: &Word, facts: &LinterFacts<'_>) -> bool {
     word.parts
         .iter()
-        .any(|part| part_contains_find_substitution(&part.kind, source))
+        .any(|part| part_contains_find_substitution(&part.kind, facts))
 }
 
-fn part_contains_find_substitution(part: &WordPart, source: &str) -> bool {
+fn part_contains_find_substitution(part: &WordPart, facts: &LinterFacts<'_>) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
-            .any(|part| part_contains_find_substitution(&part.kind, source)),
+            .any(|part| part_contains_find_substitution(&part.kind, facts)),
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            commands_start_with_find(body, source)
+            commands_start_with_find(body, facts)
         }
         _ => false,
     }
 }
 
-fn commands_start_with_find(commands: &StmtSeq, source: &str) -> bool {
-    matches!(commands.as_slice(), [command] if command_starts_with_find(&command.command, source))
+fn commands_start_with_find(commands: &StmtSeq, facts: &LinterFacts<'_>) -> bool {
+    matches!(commands.as_slice(), [command] if command_starts_with_find(command, facts))
 }
 
-fn command_starts_with_find(command: &Command, source: &str) -> bool {
-    match command {
-        Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            let mut commands = Vec::new();
-            collect_pipeline_segments(command, &mut commands);
-            matches!(commands.as_slice(), [command] if command_starts_with_find(&command.command, source))
-        }
-        _ => command::normalize_command(command, source).effective_name_is("find"),
+fn command_starts_with_find(command: &shuck_ast::Stmt, facts: &LinterFacts<'_>) -> bool {
+    if let Some(segments) = query::pipeline_segments(&command.command) {
+        return matches!(segments.as_slice(), [segment] if command_starts_with_find(segment, facts));
     }
+
+    facts
+        .command_for_stmt(command)
+        .is_some_and(|fact| fact.effective_name_is("find"))
 }
 
-fn collect_pipeline_segments<'a>(
-    command: &'a shuck_ast::BinaryCommand,
-    commands: &mut Vec<&'a shuck_ast::Stmt>,
-) {
-    match &command.left.command {
-        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(left, commands);
-        }
-        _ => commands.push(&command.left),
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_wrapped_find_substitutions_in_for_loops() {
+        let source = "for item in $(command find . -type f); do :; done\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputLoop));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "$(command find . -type f)"
+        );
     }
 
-    match &command.right.command {
-        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(right, commands);
-        }
-        _ => commands.push(&command.right),
+    #[test]
+    fn ignores_non_find_substitutions() {
+        let source = "for item in $(command printf '%s\\n' hi); do :; done\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputLoop));
+
+        assert!(diagnostics.is_empty());
     }
 }

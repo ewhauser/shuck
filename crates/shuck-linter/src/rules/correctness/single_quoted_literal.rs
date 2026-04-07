@@ -1,4 +1,4 @@
-use crate::rules::common::{command, query};
+use crate::rules::common::query;
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, ParameterOp, Pattern, PatternPart,
@@ -6,7 +6,7 @@ use shuck_ast::{
 };
 
 use super::syntax::{assignment_target_name, simple_test_operands, static_word_text};
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, LinterFacts, Rule, Violation};
 
 pub struct SingleQuotedLiteral;
 
@@ -45,51 +45,69 @@ impl<'a> ScanContext<'a> {
 
 pub fn single_quoted_literal(checker: &mut Checker) {
     let mut spans = Vec::new();
-    collect_commands(&checker.ast().body, checker.source(), &mut spans);
+    collect_commands(
+        &checker.ast().body,
+        checker.facts(),
+        checker.source(),
+        &mut spans,
+    );
 
     for span in spans {
         checker.report_dedup(SingleQuotedLiteral, span);
     }
 }
 
-fn collect_commands(commands: &StmtSeq, source: &str, spans: &mut Vec<Span>) {
+fn collect_commands(
+    commands: &StmtSeq,
+    facts: &LinterFacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     for command in commands.iter() {
-        collect_command(command, source, spans);
+        collect_command(command, facts, source, spans);
     }
 }
 
-fn collect_command(command: &Stmt, source: &str, spans: &mut Vec<Span>) {
-    let normalized = command::normalize_command(&command.command, source);
+fn collect_command(command: &Stmt, facts: &LinterFacts<'_>, source: &str, spans: &mut Vec<Span>) {
     let context = ScanContext {
-        command_name: normalized.effective_or_literal_name(),
+        command_name: facts
+            .command_for_stmt(command)
+            .and_then(|fact| fact.effective_or_literal_name()),
         ..ScanContext::default()
     };
 
     match &command.command {
-        Command::Simple(command) => collect_simple_command(command, source, spans, context),
-        Command::Builtin(command) => collect_builtin(command, source, spans),
-        Command::Decl(command) => collect_decl_command(command, source, spans),
+        Command::Simple(command) => collect_simple_command(command, facts, source, spans, context),
+        Command::Builtin(command) => collect_builtin(command, facts, source, spans),
+        Command::Decl(command) => collect_decl_command(command, facts, source, spans),
         Command::Binary(command) => {
-            collect_command(&command.left, source, spans);
-            collect_command(&command.right, source, spans);
+            collect_command(&command.left, facts, source, spans);
+            collect_command(&command.right, facts, source, spans);
         }
         Command::Compound(command) => {
-            collect_compound(command, source, spans);
+            collect_compound(command, facts, source, spans);
         }
-        Command::Function(FunctionDef { body, .. }) => collect_command(body, source, spans),
+        Command::Function(FunctionDef { body, .. }) => collect_command(body, facts, source, spans),
     }
 
-    collect_redirects(&command.redirects, source, spans, ScanContext::default());
+    collect_redirects(
+        &command.redirects,
+        facts,
+        source,
+        spans,
+        ScanContext::default(),
+    );
 }
 
 fn collect_simple_command(
     command: &SimpleCommand,
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
-    collect_assignments(&command.assignments, source, spans, context);
-    collect_word(&command.name, source, spans, context);
+    collect_assignments(&command.assignments, facts, source, spans, context);
+    collect_word(&command.name, facts, source, spans, context);
 
     let variable_set_operand = simple_command_variable_set_operand(command, source);
     for word in &command.args {
@@ -98,154 +116,179 @@ fn collect_simple_command(
         } else {
             context
         };
-        collect_word(word, source, spans, context);
+        collect_word(word, facts, source, spans, context);
     }
 }
 
-fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>) {
+fn collect_builtin(
+    command: &BuiltinCommand,
+    facts: &LinterFacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     let context = ScanContext::default();
     match command {
         BuiltinCommand::Break(command) => {
-            collect_assignments(&command.assignments, source, spans, context);
+            collect_assignments(&command.assignments, facts, source, spans, context);
             if let Some(word) = &command.depth {
-                collect_word(word, source, spans, context);
+                collect_word(word, facts, source, spans, context);
             }
-            collect_words(&command.extra_args, source, spans, context);
+            collect_words(&command.extra_args, facts, source, spans, context);
         }
         BuiltinCommand::Continue(command) => {
-            collect_assignments(&command.assignments, source, spans, context);
+            collect_assignments(&command.assignments, facts, source, spans, context);
             if let Some(word) = &command.depth {
-                collect_word(word, source, spans, context);
+                collect_word(word, facts, source, spans, context);
             }
-            collect_words(&command.extra_args, source, spans, context);
+            collect_words(&command.extra_args, facts, source, spans, context);
         }
         BuiltinCommand::Return(command) => {
-            collect_assignments(&command.assignments, source, spans, context);
+            collect_assignments(&command.assignments, facts, source, spans, context);
             if let Some(word) = &command.code {
-                collect_word(word, source, spans, context);
+                collect_word(word, facts, source, spans, context);
             }
-            collect_words(&command.extra_args, source, spans, context);
+            collect_words(&command.extra_args, facts, source, spans, context);
         }
         BuiltinCommand::Exit(command) => {
-            collect_assignments(&command.assignments, source, spans, context);
+            collect_assignments(&command.assignments, facts, source, spans, context);
             if let Some(word) = &command.code {
-                collect_word(word, source, spans, context);
+                collect_word(word, facts, source, spans, context);
             }
-            collect_words(&command.extra_args, source, spans, context);
+            collect_words(&command.extra_args, facts, source, spans, context);
         }
     }
 }
 
-fn collect_decl_command(command: &DeclClause, source: &str, spans: &mut Vec<Span>) {
+fn collect_decl_command(
+    command: &DeclClause,
+    facts: &LinterFacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     let context = ScanContext::default();
-    collect_assignments(&command.assignments, source, spans, context);
+    collect_assignments(&command.assignments, facts, source, spans, context);
     for operand in &command.operands {
         match operand {
             DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                collect_word(word, source, spans, context);
+                collect_word(word, facts, source, spans, context);
             }
             DeclOperand::Name(reference) => {
                 query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
-                    collect_word(word, source, spans, context);
+                    collect_word(word, facts, source, spans, context);
                 });
             }
             DeclOperand::Assignment(assignment) => {
-                collect_assignment(assignment, source, spans, context);
+                collect_assignment(assignment, facts, source, spans, context);
             }
         }
     }
 }
 
-fn collect_compound(command: &CompoundCommand, source: &str, spans: &mut Vec<Span>) {
+fn collect_compound(
+    command: &CompoundCommand,
+    facts: &LinterFacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     match command {
         CompoundCommand::If(command) => {
-            collect_commands(&command.condition, source, spans);
-            collect_commands(&command.then_branch, source, spans);
+            collect_commands(&command.condition, facts, source, spans);
+            collect_commands(&command.then_branch, facts, source, spans);
             for (condition, body) in &command.elif_branches {
-                collect_commands(condition, source, spans);
-                collect_commands(body, source, spans);
+                collect_commands(condition, facts, source, spans);
+                collect_commands(body, facts, source, spans);
             }
             if let Some(body) = &command.else_branch {
-                collect_commands(body, source, spans);
+                collect_commands(body, facts, source, spans);
             }
         }
         CompoundCommand::For(command) => {
             if let Some(words) = &command.words {
-                collect_words(words, source, spans, ScanContext::default());
+                collect_words(words, facts, source, spans, ScanContext::default());
             }
-            collect_commands(&command.body, source, spans);
+            collect_commands(&command.body, facts, source, spans);
         }
-        CompoundCommand::ArithmeticFor(command) => collect_commands(&command.body, source, spans),
+        CompoundCommand::ArithmeticFor(command) => {
+            collect_commands(&command.body, facts, source, spans)
+        }
         CompoundCommand::While(command) => {
-            collect_commands(&command.condition, source, spans);
-            collect_commands(&command.body, source, spans);
+            collect_commands(&command.condition, facts, source, spans);
+            collect_commands(&command.body, facts, source, spans);
         }
         CompoundCommand::Until(command) => {
-            collect_commands(&command.condition, source, spans);
-            collect_commands(&command.body, source, spans);
+            collect_commands(&command.condition, facts, source, spans);
+            collect_commands(&command.body, facts, source, spans);
         }
         CompoundCommand::Case(command) => {
-            collect_word(&command.word, source, spans, ScanContext::default());
+            collect_word(&command.word, facts, source, spans, ScanContext::default());
             for case in &command.cases {
-                collect_patterns(&case.patterns, source, spans, ScanContext::default());
-                collect_commands(&case.body, source, spans);
+                collect_patterns(&case.patterns, facts, source, spans, ScanContext::default());
+                collect_commands(&case.body, facts, source, spans);
             }
         }
         CompoundCommand::Select(command) => {
-            collect_words(&command.words, source, spans, ScanContext::default());
-            collect_commands(&command.body, source, spans);
+            collect_words(&command.words, facts, source, spans, ScanContext::default());
+            collect_commands(&command.body, facts, source, spans);
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            collect_commands(commands, source, spans);
+            collect_commands(commands, facts, source, spans);
         }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
-                collect_command(command, source, spans);
+                collect_command(command, facts, source, spans);
             }
         }
         CompoundCommand::Conditional(command) => {
-            collect_conditional_expr(&command.expression, source, spans, ScanContext::default());
+            collect_conditional_expr(
+                &command.expression,
+                facts,
+                source,
+                spans,
+                ScanContext::default(),
+            );
         }
-        CompoundCommand::Coproc(command) => collect_command(&command.body, source, spans),
+        CompoundCommand::Coproc(command) => collect_command(&command.body, facts, source, spans),
     }
 }
 
 fn collect_assignments(
     assignments: &[Assignment],
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     for assignment in assignments {
-        collect_assignment(assignment, source, spans, context);
+        collect_assignment(assignment, facts, source, spans, context);
     }
 }
 
 fn collect_assignment(
     assignment: &Assignment,
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     let context = context.with_assignment_target(assignment_target_name(assignment));
     query::visit_var_ref_subscript_words_with_source(&assignment.target, source, &mut |word| {
-        collect_word(word, source, spans, context);
+        collect_word(word, facts, source, spans, context);
     });
     match &assignment.value {
-        AssignmentValue::Scalar(word) => collect_word(word, source, spans, context),
+        AssignmentValue::Scalar(word) => collect_word(word, facts, source, spans, context),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
                     shuck_ast::ArrayElem::Sequential(word) => {
-                        collect_word(word, source, spans, context)
+                        collect_word(word, facts, source, spans, context)
                     }
                     shuck_ast::ArrayElem::Keyed { key, value }
                     | shuck_ast::ArrayElem::KeyedAppend { key, value } => {
                         query::visit_subscript_words(Some(key), source, &mut |word| {
-                            collect_word(word, source, spans, context);
+                            collect_word(word, facts, source, spans, context);
                         });
-                        collect_word(value, source, spans, context)
+                        collect_word(value, facts, source, spans, context)
                     }
                 }
             }
@@ -253,29 +296,43 @@ fn collect_assignment(
     }
 }
 
-fn collect_words(words: &[Word], source: &str, spans: &mut Vec<Span>, context: ScanContext<'_>) {
+fn collect_words(
+    words: &[Word],
+    facts: &LinterFacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+    context: ScanContext<'_>,
+) {
     for word in words {
-        collect_word(word, source, spans, context);
+        collect_word(word, facts, source, spans, context);
     }
 }
 
 fn collect_patterns(
     patterns: &[Pattern],
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     for pattern in patterns {
-        collect_pattern(pattern, source, spans, context);
+        collect_pattern(pattern, facts, source, spans, context);
     }
 }
 
-fn collect_word(word: &Word, source: &str, spans: &mut Vec<Span>, context: ScanContext<'_>) {
-    collect_word_parts(&word.parts, source, spans, context);
+fn collect_word(
+    word: &Word,
+    facts: &LinterFacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+    context: ScanContext<'_>,
+) {
+    collect_word_parts(&word.parts, facts, source, spans, context);
 }
 
 fn collect_word_parts(
     parts: &[WordPartNode],
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
@@ -289,27 +346,27 @@ fn collect_word_parts(
                 }
             }
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_word_parts(parts, source, spans, context);
+                collect_word_parts(parts, facts, source, spans, context);
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 if let Some(expression_ast) = expression_ast.as_ref() {
                     query::visit_arithmetic_words(expression_ast, &mut |word| {
-                        collect_word(word, source, spans, context);
+                        collect_word(word, facts, source, spans, context);
                     });
                 }
             }
             WordPart::ParameterExpansion { operator, .. } => {
-                collect_parameter_operator_patterns(operator, source, spans, context);
+                collect_parameter_operator_patterns(operator, facts, source, spans, context);
             }
             WordPart::IndirectExpansion {
                 operator: Some(operator),
                 ..
             } => {
-                collect_parameter_operator_patterns(operator, source, spans, context);
+                collect_parameter_operator_patterns(operator, facts, source, spans, context);
             }
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => {
-                collect_commands(body, source, spans);
+                collect_commands(body, facts, source, spans);
             }
             _ => {}
         }
@@ -318,6 +375,7 @@ fn collect_word_parts(
 
 fn collect_pattern(
     pattern: &Pattern,
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
@@ -325,9 +383,9 @@ fn collect_pattern(
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
-                collect_patterns(patterns, source, spans, context);
+                collect_patterns(patterns, facts, source, spans, context);
             }
-            PatternPart::Word(word) => collect_word(word, source, spans, context),
+            PatternPart::Word(word) => collect_word(word, facts, source, spans, context),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
@@ -338,20 +396,21 @@ fn collect_pattern(
 
 fn collect_redirects(
     redirects: &[Redirect],
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     for redirect in redirects {
         match redirect.word_target() {
-            Some(word) => collect_word(word, source, spans, context),
+            Some(word) => collect_word(word, facts, source, spans, context),
             None => {
                 let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                 if !heredoc.delimiter.expands_body {
                     continue;
                 }
                 let body = &heredoc.body;
-                collect_word(body, source, spans, context);
+                collect_word(body, facts, source, spans, context);
             }
         }
     }
@@ -359,14 +418,15 @@ fn collect_redirects(
 
 fn collect_conditional_expr(
     expression: &ConditionalExpr,
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     match expression {
         ConditionalExpr::Binary(expr) => {
-            collect_conditional_expr(&expr.left, source, spans, context);
-            collect_conditional_expr(&expr.right, source, spans, context);
+            collect_conditional_expr(&expr.left, facts, source, spans, context);
+            collect_conditional_expr(&expr.right, facts, source, spans, context);
         }
         ConditionalExpr::Unary(expr) => {
             let context = if expr.op == ConditionalUnaryOp::VariableSet {
@@ -374,18 +434,20 @@ fn collect_conditional_expr(
             } else {
                 context
             };
-            collect_conditional_expr(&expr.expr, source, spans, context);
+            collect_conditional_expr(&expr.expr, facts, source, spans, context);
         }
         ConditionalExpr::Parenthesized(expr) => {
-            collect_conditional_expr(&expr.expr, source, spans, context);
+            collect_conditional_expr(&expr.expr, facts, source, spans, context);
         }
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            collect_word(word, source, spans, context)
+            collect_word(word, facts, source, spans, context)
         }
-        ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans, context),
+        ConditionalExpr::Pattern(pattern) => {
+            collect_pattern(pattern, facts, source, spans, context)
+        }
         ConditionalExpr::VarRef(reference) => {
             query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
-                collect_word(word, source, spans, context);
+                collect_word(word, facts, source, spans, context);
             });
         }
     }
@@ -393,6 +455,7 @@ fn collect_conditional_expr(
 
 fn collect_parameter_operator_patterns(
     operator: &ParameterOp,
+    facts: &LinterFacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
@@ -404,7 +467,7 @@ fn collect_parameter_operator_patterns(
         | ParameterOp::RemoveSuffixLong { pattern }
         | ParameterOp::ReplaceFirst { pattern, .. }
         | ParameterOp::ReplaceAll { pattern, .. } => {
-            collect_pattern(pattern, source, spans, context);
+            collect_pattern(pattern, facts, source, spans, context);
         }
         ParameterOp::UseDefault
         | ParameterOp::AssignDefault

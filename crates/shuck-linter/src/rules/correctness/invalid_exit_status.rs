@@ -1,7 +1,3 @@
-use shuck_ast::{BuiltinCommand, Command};
-
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::word::static_word_text;
 use crate::{Checker, Rule, Violation};
 
 pub struct InvalidExitStatus;
@@ -17,33 +13,31 @@ impl Violation for InvalidExitStatus {
 }
 
 pub fn invalid_exit_status(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let Command::Builtin(BuiltinCommand::Exit(exit)) = command else {
-                return;
-            };
-            let Some(code) = &exit.code else {
-                return;
-            };
-            let Some(text) = static_word_text(code, source) else {
-                return;
-            };
-
-            if !text.chars().all(|char| char.is_ascii_digit()) {
-                spans.push(code.span);
-            }
-        },
-    );
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|fact| fact.options().exit().copied())
+        .filter(|exit| exit.has_static_status() && !exit.is_numeric_literal)
+        .filter_map(|exit| exit.status_word.map(|word| word.span))
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(InvalidExitStatus, span);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_only_static_non_numeric_exit_values() {
+        let source = "exit 42\nexit nope\nexit \"$status\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::InvalidExitStatus));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "nope");
     }
 }

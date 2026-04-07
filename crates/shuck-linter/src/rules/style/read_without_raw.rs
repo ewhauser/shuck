@@ -15,11 +15,13 @@ impl Violation for ReadWithoutRaw {
 pub fn read_without_raw(checker: &mut Checker) {
     let spans = checker
         .facts()
-        .commands()
-        .iter()
-        .filter(|fact| !fact.is_nested_word_command())
-        .filter(|fact| fact.literal_name() == Some("read"))
-        .filter(|fact| fact.read_uses_raw_input() == Some(false))
+        .structural_commands()
+        .filter(|fact| fact.effective_name_is("read"))
+        .filter(|fact| {
+            fact.options()
+                .read()
+                .is_some_and(|read| !read.uses_raw_input)
+        })
         .filter_map(|fact| fact.body_name_word().map(|word| word.span))
         .collect::<Vec<_>>();
 

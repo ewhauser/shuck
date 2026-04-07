@@ -354,6 +354,7 @@ mod tests {
     use super::{SafeValueIndex, SafeValueQuery};
     use crate::LinterFacts;
     use crate::rules::common::{expansion::ExpansionContext, query};
+    use crate::{ShellDialect, classify_file_context};
 
     #[test]
     fn maps_pattern_and_regex_contexts_into_safe_value_queries() {
@@ -399,7 +400,8 @@ mod tests {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let facts = LinterFacts::build(&output.file, source);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
@@ -427,7 +429,8 @@ esac
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let facts = LinterFacts::build(&output.file, source);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
 
         let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())
@@ -483,7 +486,8 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let facts = LinterFacts::build(&output.file, source);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
 
         let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())

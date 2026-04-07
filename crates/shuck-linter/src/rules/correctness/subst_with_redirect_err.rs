@@ -1,7 +1,5 @@
 use crate::rules::common::expansion::classify_substitution;
-use crate::rules::common::query::{
-    self, CommandSubstitutionKind, CommandWalkOptions, visit_command_words,
-};
+use crate::rules::common::query::{self, CommandSubstitutionKind, visit_command_words};
 use crate::{Checker, Rule, Violation};
 
 pub struct SubstWithRedirectErr;
@@ -19,27 +17,20 @@ impl Violation for SubstWithRedirectErr {
 pub fn subst_with_redirect_err(checker: &mut Checker) {
     let source = checker.source();
     let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            visit_command_words(visit, source, &mut |word| {
-                for substitution in query::iter_word_command_substitutions(word) {
-                    if substitution.kind != CommandSubstitutionKind::Command {
-                        continue;
-                    }
-
-                    let classification = classify_substitution(substitution, source);
-                    if classification.stdout_is_discarded() {
-                        spans.push(classification.span);
-                    }
+    for fact in checker.facts().commands() {
+        visit_command_words(fact.visit(), source, &mut |word| {
+            for substitution in query::iter_word_command_substitutions(word) {
+                if substitution.kind != CommandSubstitutionKind::Command {
+                    continue;
                 }
-            });
-        },
-    );
+
+                let classification = classify_substitution(substitution, source);
+                if classification.stdout_is_discarded() {
+                    spans.push(classification.span);
+                }
+            }
+        });
+    }
 
     for span in spans {
         checker.report(SubstWithRedirectErr, span);

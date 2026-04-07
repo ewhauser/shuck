@@ -1,11 +1,6 @@
 use shuck_ast::{Redirect, RedirectKind};
 
-use crate::rules::common::{
-    command::{self, WrapperKind},
-    query::{self, CommandWalkOptions},
-    span,
-    word::static_word_text,
-};
+use crate::rules::common::{command::WrapperKind, span, word::static_word_text};
 use crate::{Checker, Rule, Violation};
 
 pub struct SudoRedirectionOrder;
@@ -22,33 +17,28 @@ impl Violation for SudoRedirectionOrder {
 
 pub fn sudo_redirection_order(checker: &mut Checker) {
     let source = checker.source();
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| {
+            fact.has_wrapper(WrapperKind::SudoFamily) && fact.options().sudo_family().is_some()
+        })
+        .filter(|fact| !fact.effective_name_is("tee"))
+        .flat_map(|fact| {
+            fact.redirects()
+                .iter()
+                .filter(|redirect| {
+                    redirects_output_to_file(redirect)
+                        && !redirect_target_is_dev_null(redirect, source)
+                })
+                .map(span::redirect_target_span)
+        })
+        .collect::<Vec<_>>();
 
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let normalized = command::normalize_command(command, source);
-            if !normalized.has_wrapper(WrapperKind::SudoFamily) {
-                return;
-            }
-
-            if normalized.effective_name_is("tee") {
-                return;
-            }
-
-            for redirect in query::command_redirects(visit) {
-                if redirects_output_to_file(redirect)
-                    && !redirect_target_is_dev_null(redirect, source)
-                {
-                    checker
-                        .report_dedup(SudoRedirectionOrder, span::redirect_target_span(redirect));
-                }
-            }
-        },
-    );
+    for span in spans {
+        checker.report_dedup(SudoRedirectionOrder, span);
+    }
 }
 
 fn redirects_output_to_file(redirect: &Redirect) -> bool {
@@ -90,5 +80,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["out.txt", "err.log"]
         );
+    }
+
+    #[test]
+    fn handles_doas_and_run0_like_sudo() {
+        let source = "#!/bin/bash\ndoas printf '%s\\n' ok > out.txt\nrun0 tee out.txt >/dev/null\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SudoRedirectionOrder),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "out.txt");
     }
 }

@@ -155,20 +155,20 @@ has one home.
 
 Action items:
 
-- [ ] Add `crates/shuck-linter/src/facts.rs` or an equivalent module tree for
+- [x] Add `crates/shuck-linter/src/facts.rs` or an equivalent module tree for
       linter-owned facts.
-- [ ] Build `LinterFacts` once per file inside `Checker` construction or the
+- [x] Build `LinterFacts` once per file inside `Checker` construction or the
       first `check()` phase.
-- [ ] Expose read-only fact accessors from `Checker`.
-- [ ] Use stable keys for lookups.
+- [x] Expose read-only fact accessors from `Checker`.
+- [x] Use stable keys for lookups.
   The first choice should be spans or lightweight IDs produced during the fact
   build, not cloned AST subtrees.
-- [ ] Keep semantic-first rules on `SemanticModel` when it already answers the
+- [x] Keep semantic-first rules on `SemanticModel` when it already answers the
       question cleanly.
-- [ ] Define which facts belong in `LinterFacts` versus `SemanticModel`.
+- [x] Define which facts belong in `LinterFacts` versus `SemanticModel`.
   Command and word classification should stay linter-side unless a semantic pass
   needs the same information.
-- [ ] Move `SafeValueIndex` off its independent command walk and onto shared
+- [x] Move `SafeValueIndex` off its independent command walk and onto shared
       fact inputs.
 
 ### Initiative 2: Command Facts
@@ -189,30 +189,30 @@ The command fact family should precompute:
 
 Action items:
 
-- [ ] Precompute normalized command facts for every command node.
-- [ ] Record declaration facts for `export`, `local`, `declare`, and `typeset`.
-- [ ] Add option summaries for:
+- [x] Precompute normalized command facts for every command node.
+- [x] Record declaration facts for `export`, `local`, `declare`, and `typeset`.
+- [x] Add option summaries for:
   `read`, `printf`, `unset`, `find`, `xargs`, `exit`, `sudo`, `doas`, `run0`.
-- [ ] Record helper booleans for frequent queries.
+- [x] Record helper booleans for frequent queries.
   Examples: "uses `-r`", "has `-print0`", "uses null input", "targets a
   function unset", "effective command is `tee`".
-- [ ] Preserve command body span and argument spans so rules do not rebuild them
+- [x] Preserve command body span and argument spans so rules do not rebuild them
       by hand.
-- [ ] Convert rules that currently normalize commands locally.
+- [x] Convert rules that currently normalize commands locally.
 
 Rules to migrate onto command facts:
 
-- [ ] `S002` `ReadWithoutRaw`
-- [ ] `S007` `PrintfFormatVariable`
-- [ ] `S009` `EchoedCommandSubstitution`
-- [ ] `S010` `ExportCommandSubstitution`
-- [ ] `C013` `FindOutputLoop`
-- [ ] `C015` `SudoRedirectionOrder`
-- [ ] `C046` `PipeToKill`
-- [ ] `C047` `InvalidExitStatus`
-- [ ] `C057` `SubstWithRedirect`
-- [ ] `C058` `SubstWithRedirectErr`
-- [ ] `C063` `OverwrittenFunction`
+- [x] `S002` `ReadWithoutRaw`
+- [x] `S007` `PrintfFormatVariable`
+- [x] `S009` `EchoedCommandSubstitution`
+- [x] `S010` `ExportCommandSubstitution`
+- [x] `C013` `FindOutputLoop`
+- [x] `C015` `SudoRedirectionOrder`
+- [x] `C046` `PipeToKill`
+- [x] `C047` `InvalidExitStatus`
+- [x] `C057` `SubstWithRedirect`
+- [x] `C058` `SubstWithRedirectErr`
+- [x] `C063` `OverwrittenFunction`
   Only the remaining `unset` scan; the overwrite detection itself already comes
   from semantic facts.
 

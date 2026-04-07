@@ -19,7 +19,11 @@ pub fn printf_format_variable(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| fact.printf_format_word())
+        .filter_map(|fact| {
+            fact.options()
+                .printf()
+                .and_then(|printf| printf.format_word)
+        })
         .filter(|word| !classify_word(word, source).is_fixed_literal())
         .map(|word| word.span)
         .collect::<Vec<_>>();

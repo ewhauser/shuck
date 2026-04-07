@@ -50,7 +50,7 @@ impl<'a> Checker<'a> {
             indexer,
             file,
             source,
-            facts: LinterFacts::build(file, source),
+            facts: LinterFacts::build(file, source, semantic, indexer, file_context),
             rules,
             shell,
             file_context,
