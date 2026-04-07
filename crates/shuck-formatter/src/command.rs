@@ -1,11 +1,11 @@
 use shuck_ast::{
-    ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,
+    ArithmeticCommand, ArithmeticForCommand, ArrayElem, Assignment, AssignmentValue, BreakCommand,
     BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CommandListItem,
     CompoundCommand, ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ContinueCommand, CoprocCommand, DeclClause,
     DeclOperand, ExitCommand, ForCommand, FunctionDef, IfCommand, ListOperator, Pipeline, Redirect,
-    RedirectKind, ReturnCommand, SelectCommand, SimpleCommand, Span, TimeCommand, UntilCommand,
-    WhileCommand,
+    RedirectKind, ReturnCommand, SelectCommand, SimpleCommand, SourceText, Span, Subscript,
+    TimeCommand, UntilCommand, VarRef, WhileCommand,
 };
 use shuck_format::{
     Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, verbatim,
@@ -252,10 +252,10 @@ fn format_builtin_like(
     }
     pieces.push(name.to_string());
     if let Some(primary) = primary {
-        pieces.push(primary.render(source));
+        pieces.push(primary.render_syntax(source));
     }
     for argument in extra_args {
-        pieces.push(argument.render(source));
+        pieces.push(argument.render_syntax(source));
     }
 
     write!(formatter, [text(pieces.join(" "))])?;
@@ -466,7 +466,7 @@ fn format_case(command: &CaseCommand, formatter: &mut ShellFormatter<'_, '_>) ->
         formatter,
         [
             text("case "),
-            text(command.word.render(formatter.context().source())),
+            text(command.word.render_syntax(formatter.context().source())),
             text(" in")
         ]
     )?;
@@ -497,7 +497,7 @@ fn format_case_item(item: &CaseItem, formatter: &mut ShellFormatter<'_, '_>) -> 
         if index > 0 {
             pattern.push_str(" | ");
         }
-        pattern.push_str(&word.render(source));
+        pattern.push_str(&word.render_syntax(source));
     }
     pattern.push(')');
     if base_indent > 0 {
@@ -709,7 +709,7 @@ fn emit_heredocs(
             formatter,
             [verbatim(render_heredoc_tail(
                 heredoc.body.span,
-                &heredoc.delimiter.raw.render(source),
+                &heredoc.delimiter.raw.render_syntax(source),
                 source,
             ))]
         )?;
@@ -730,10 +730,10 @@ fn render_assignment(assignment: &Assignment, source: &str) -> String {
         return assignment.span.slice(source).to_string();
     }
 
-    let mut rendered = assignment.name.to_string();
-    if let Some(index) = &assignment.index {
+    let mut rendered = assignment.target.name.to_string();
+    if let Some(index) = &assignment.target.subscript {
         rendered.push('[');
-        rendered.push_str(index.slice(source));
+        rendered.push_str(&render_subscript(index, source));
         rendered.push(']');
     }
     if assignment.append {
@@ -742,19 +742,65 @@ fn render_assignment(assignment: &Assignment, source: &str) -> String {
         rendered.push('=');
     }
     match &assignment.value {
-        AssignmentValue::Scalar(value) => rendered.push_str(&value.render(source)),
-        AssignmentValue::Array(values) => {
+        AssignmentValue::Scalar(value) => rendered.push_str(&value.render_syntax(source)),
+        AssignmentValue::Compound(array) => {
             rendered.push('(');
-            for (index, value) in values.iter().enumerate() {
+            for (index, value) in array.elements.iter().enumerate() {
                 if index > 0 {
                     rendered.push(' ');
                 }
-                rendered.push_str(&value.render(source));
+                rendered.push_str(&render_array_elem(value, source));
             }
             rendered.push(')');
         }
     }
     rendered
+}
+
+fn render_array_elem(element: &ArrayElem, source: &str) -> String {
+    match element {
+        ArrayElem::Sequential(word) => word.render_syntax(source),
+        ArrayElem::Keyed { key, value } => {
+            format!(
+                "[{}]={}",
+                render_subscript(key, source),
+                value.render_syntax(source)
+            )
+        }
+        ArrayElem::KeyedAppend { key, value } => {
+            format!(
+                "[{}]+={}",
+                render_subscript(key, source),
+                value.render_syntax(source)
+            )
+        }
+    }
+}
+
+fn render_var_ref(reference: &VarRef, source: &str) -> String {
+    let mut rendered = reference.name.to_string();
+    if let Some(subscript) = &reference.subscript {
+        rendered.push('[');
+        rendered.push_str(&render_subscript(subscript, source));
+        rendered.push(']');
+    }
+    rendered
+}
+
+fn render_subscript(subscript: &Subscript, source: &str) -> String {
+    if let Some(selector) = subscript.selector() {
+        return selector.as_char().to_string();
+    }
+
+    render_source_text(&subscript.text, source)
+}
+
+fn render_source_text(text: &SourceText, source: &str) -> String {
+    if text.is_source_backed() && text.span().end.offset > source.len() {
+        String::new()
+    } else {
+        text.slice(source).to_string()
+    }
 }
 
 fn has_heredoc(command: &Command) -> bool {
@@ -1217,9 +1263,22 @@ fn format_conditional_expr(
         ConditionalExpr::Binary(expr) => format_conditional_binary(expr, formatter),
         ConditionalExpr::Unary(expr) => format_conditional_unary(expr, formatter),
         ConditionalExpr::Parenthesized(expr) => format_conditional_paren(expr, formatter),
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => word.format().fmt(formatter),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => word.format().fmt(formatter),
+        ConditionalExpr::Pattern(pattern) => {
+            write!(
+                formatter,
+                [text(pattern.render_syntax(formatter.context().source()))]
+            )
+        }
+        ConditionalExpr::VarRef(reference) => {
+            write!(
+                formatter,
+                [text(render_var_ref(
+                    reference,
+                    formatter.context().source()
+                ))]
+            )
+        }
     }
 }
 

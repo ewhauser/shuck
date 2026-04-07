@@ -1,7 +1,7 @@
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList,
-    CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect,
-    RedirectKind, Span, Word, WordPart, WordPartNode,
+    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
+    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, RedirectKind, Span,
+    Word, WordPart, WordPartNode,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -740,8 +740,9 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
                 for element in &array.elements {
                     match element {
                         ArrayElem::Sequential(word) => self.walk_word(word, context),
-                        ArrayElem::Keyed { value, .. }
-                        | ArrayElem::KeyedAppend { value, .. } => self.walk_word(value, context),
+                        ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                            self.walk_word(value, context)
+                        }
                     }
                 }
             }
@@ -971,8 +972,9 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
                 for element in &array.elements {
                     match element {
                         ArrayElem::Sequential(word) => self.walk_word(word),
-                        ArrayElem::Keyed { value, .. }
-                        | ArrayElem::KeyedAppend { value, .. } => self.walk_word(value),
+                        ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                            self.walk_word(value)
+                        }
                     }
                 }
             }

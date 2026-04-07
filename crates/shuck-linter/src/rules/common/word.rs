@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use shuck_ast::{
-    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, SubscriptSelector,
-    VarRef, Word, WordPart, WordPartNode,
+    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, SubscriptSelector, VarRef,
+    Word, WordPart, WordPartNode,
 };
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
@@ -238,7 +238,10 @@ fn classify_parts(parts: &[WordPartNode], source: &str, summary: &mut PartSummar
 
 fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
     matches!(
-        reference.subscript.as_ref().and_then(|subscript| subscript.selector()),
+        reference
+            .subscript
+            .as_ref()
+            .and_then(|subscript| subscript.selector()),
         Some(SubscriptSelector::At | SubscriptSelector::Star)
     )
 }

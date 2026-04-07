@@ -93,7 +93,10 @@ fn selected_fixtures_match_shfmt() {
         ran_case = true;
     }
 
-    assert!(ran_case, "no oracle cases were compatible with this shfmt binary");
+    assert!(
+        ran_case,
+        "no oracle cases were compatible with this shfmt binary"
+    );
     assert!(
         mismatches.is_empty(),
         "fixture oracle diverged from shfmt:\n\n{}",
@@ -103,7 +106,9 @@ fn selected_fixtures_match_shfmt() {
 
 impl OracleCase {
     fn is_supported(&self, shfmt: &ShfmtProbe) -> bool {
-        self.shfmt_flags.iter().all(|flag| shfmt.supports_flag(flag))
+        self.shfmt_flags
+            .iter()
+            .all(|flag| shfmt.supports_flag(flag))
     }
 }
 
@@ -135,9 +140,7 @@ fn probe_shfmt() -> Option<ShfmtProbe> {
     let mut supported_flags = String::from_utf8_lossy(&help.stdout).into_owned();
     supported_flags.push_str(&String::from_utf8_lossy(&help.stderr));
 
-    Some(ShfmtProbe {
-        supported_flags,
-    })
+    Some(ShfmtProbe { supported_flags })
 }
 
 fn run_shuck_formatter(source: &str, filename: &str, options: &ShellFormatOptions) -> String {
@@ -185,10 +188,7 @@ fn render_oracle_mismatch(
 
     let diff = TextDiff::from_lines(shfmt, shuck)
         .unified_diff()
-        .header(
-            &format!("shfmt/{filename}"),
-            &format!("shuck/{filename}"),
-        )
+        .header(&format!("shfmt/{filename}"), &format!("shuck/{filename}"))
         .to_string();
 
     Some(format!(
@@ -307,7 +307,9 @@ fn oracle_cases() -> Vec<OracleCase> {
             filename: "minify.sh",
             shfmt_flags: &["-mn"],
             options: ShellFormatOptions::default().with_minify(true),
-            skip_reason: Some("Shuck minify currently drops the shebang while upstream shfmt preserves it"),
+            skip_reason: Some(
+                "Shuck minify currently drops the shebang while upstream shfmt preserves it",
+            ),
         },
         OracleCase {
             name: "mksh select",

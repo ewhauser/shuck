@@ -491,7 +491,7 @@ pub enum ConditionalExpr {
     Word(Word),
     Pattern(Pattern),
     Regex(Word),
-    VarRef(VarRef),
+    VarRef(Box<VarRef>),
 }
 
 impl ConditionalExpr {
@@ -1031,15 +1031,30 @@ impl Word {
     /// Render this word using exact source slices when available and owned cooked
     /// text only where the parser normalized the input.
     pub fn render(&self, source: &str) -> String {
+        self.render_with_mode(Some(source), RenderMode::Decoded)
+    }
+
+    /// Render this word as shell syntax, preserving quote delimiters and other
+    /// syntactic wrappers when they are represented in the AST.
+    pub fn render_syntax(&self, source: &str) -> String {
+        self.render_with_mode(Some(source), RenderMode::Syntax)
+    }
+
+    fn render_with_mode(&self, source: Option<&str>, mode: RenderMode) -> String {
         let mut rendered = String::new();
-        self.fmt_with_source(&mut rendered, Some(source))
+        self.fmt_with_source_mode(&mut rendered, source, mode)
             .expect("writing into a String should not fail");
         rendered
     }
 
-    fn fmt_with_source(&self, f: &mut impl fmt::Write, source: Option<&str>) -> fmt::Result {
+    fn fmt_with_source_mode(
+        &self,
+        f: &mut impl fmt::Write,
+        source: Option<&str>,
+        mode: RenderMode,
+    ) -> fmt::Result {
         for (part, span) in self.parts_with_spans() {
-            fmt_word_part_with_source(f, part, span, source)?;
+            fmt_word_part_with_source_mode(f, part, span, source, mode)?;
         }
 
         Ok(())
@@ -1048,7 +1063,7 @@ impl Word {
 
 impl fmt::Display for Word {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.fmt_with_source(f, None)
+        self.fmt_with_source_mode(f, None, RenderMode::Decoded)
     }
 }
 
@@ -1080,15 +1095,30 @@ impl Pattern {
     /// Render this pattern using exact source slices when available and owned cooked
     /// text only where the parser normalized the input.
     pub fn render(&self, source: &str) -> String {
+        self.render_with_mode(Some(source), RenderMode::Decoded)
+    }
+
+    /// Render this pattern as shell syntax, preserving quoted fragments when
+    /// they are represented in the AST.
+    pub fn render_syntax(&self, source: &str) -> String {
+        self.render_with_mode(Some(source), RenderMode::Syntax)
+    }
+
+    fn render_with_mode(&self, source: Option<&str>, mode: RenderMode) -> String {
         let mut rendered = String::new();
-        self.fmt_with_source(&mut rendered, Some(source))
+        self.fmt_with_source_mode(&mut rendered, source, mode)
             .expect("writing into a String should not fail");
         rendered
     }
 
-    fn fmt_with_source(&self, f: &mut impl fmt::Write, source: Option<&str>) -> fmt::Result {
+    fn fmt_with_source_mode(
+        &self,
+        f: &mut impl fmt::Write,
+        source: Option<&str>,
+        mode: RenderMode,
+    ) -> fmt::Result {
         for (part, span) in self.parts_with_spans() {
-            fmt_pattern_part_with_source(f, part, span, source)?;
+            fmt_pattern_part_with_source_mode(f, part, span, source, mode)?;
         }
 
         Ok(())
@@ -1097,7 +1127,7 @@ impl Pattern {
 
 impl fmt::Display for Pattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.fmt_with_source(f, None)
+        self.fmt_with_source_mode(f, None, RenderMode::Decoded)
     }
 }
 
@@ -1148,6 +1178,12 @@ pub enum PatternPart {
         patterns: Vec<Pattern>,
     },
     Word(Word),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderMode {
+    Decoded,
+    Syntax,
 }
 
 fn display_source_text<'a>(text: Option<&'a SourceText>, source: Option<&'a str>) -> &'a str {
@@ -1264,10 +1300,7 @@ pub enum WordPart {
         is_input: bool,
     },
     /// Parameter transformation `${var@op}` where op is Q, E, P, A, K, a, u, U, L
-    Transformation {
-        reference: VarRef,
-        operator: char,
-    },
+    Transformation { reference: VarRef, operator: char },
 }
 
 /// Compound array literal assigned with `(...)`.
@@ -1290,14 +1323,8 @@ pub enum ArrayKind {
 #[derive(Debug, Clone)]
 pub enum ArrayElem {
     Sequential(Word),
-    Keyed {
-        key: Subscript,
-        value: Word,
-    },
-    KeyedAppend {
-        key: Subscript,
-        value: Word,
-    },
+    Keyed { key: Subscript, value: Word },
+    KeyedAppend { key: Subscript, value: Word },
 }
 
 impl ArrayElem {
@@ -1326,11 +1353,12 @@ fn fmt_literal_text(
     }
 }
 
-fn fmt_pattern_part_with_source(
+fn fmt_pattern_part_with_source_mode(
     f: &mut impl fmt::Write,
     part: &PatternPart,
     span: Span,
     source: Option<&str>,
+    mode: RenderMode,
 ) -> fmt::Result {
     match part {
         PatternPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
@@ -1344,36 +1372,71 @@ fn fmt_pattern_part_with_source(
             write!(f, "{}(", kind.prefix())?;
             let mut patterns = patterns.iter();
             if let Some(pattern) = patterns.next() {
-                pattern.fmt_with_source(f, source)?;
+                pattern.fmt_with_source_mode(f, source, mode)?;
                 for pattern in patterns {
                     f.write_str("|")?;
-                    pattern.fmt_with_source(f, source)?;
+                    pattern.fmt_with_source_mode(f, source, mode)?;
                 }
             }
             f.write_str(")")?;
         }
-        PatternPart::Word(word) => word.fmt_with_source(f, source)?,
+        PatternPart::Word(word) => word.fmt_with_source_mode(f, source, mode)?,
     }
 
     Ok(())
 }
 
-fn fmt_word_part_with_source(
+fn fmt_word_part_with_source_mode(
     f: &mut impl fmt::Write,
     part: &WordPart,
     span: Span,
     source: Option<&str>,
+    mode: RenderMode,
 ) -> fmt::Result {
     match part {
         WordPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
-        WordPart::SingleQuoted { value, .. } => {
-            f.write_str(display_source_text(Some(value), source))?;
-        }
-        WordPart::DoubleQuoted { parts, .. } => {
-            for part in parts {
-                fmt_word_part_with_source(f, &part.kind, part.span, source)?;
+        WordPart::SingleQuoted { value, dollar } => match mode {
+            RenderMode::Decoded => f.write_str(display_source_text(Some(value), source))?,
+            RenderMode::Syntax => match source {
+                Some(source)
+                    if value.is_source_backed()
+                        && part_is_source_backed(part)
+                        && span.end.offset <= source.len() =>
+                {
+                    f.write_str(span.slice(source))?;
+                }
+                _ => {
+                    if *dollar {
+                        f.write_str("$")?;
+                    }
+                    f.write_str("'")?;
+                    f.write_str(display_source_text(Some(value), source))?;
+                    f.write_str("'")?;
+                }
+            },
+        },
+        WordPart::DoubleQuoted { parts, dollar } => match mode {
+            RenderMode::Decoded => {
+                for part in parts {
+                    fmt_word_part_with_source_mode(f, &part.kind, part.span, source, mode)?;
+                }
             }
-        }
+            RenderMode::Syntax => match source {
+                Some(source) if part_is_source_backed(part) && span.end.offset <= source.len() => {
+                    f.write_str(span.slice(source))?;
+                }
+                _ => {
+                    if *dollar {
+                        f.write_str("$")?;
+                    }
+                    f.write_str("\"")?;
+                    for part in parts {
+                        fmt_word_part_with_source_mode(f, &part.kind, part.span, source, mode)?;
+                    }
+                    f.write_str("\"")?;
+                }
+            },
+        },
         WordPart::Variable(name) => write!(f, "${}", name)?,
         WordPart::CommandSubstitution { commands, syntax } => match source {
             Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
@@ -1451,28 +1514,28 @@ fn fmt_word_part_with_source(
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
                 f.write_str("#")?;
-                pattern.fmt_with_source(f, source)?;
+                pattern.fmt_with_source_mode(f, source, mode)?;
                 f.write_str("}")?;
             }
             ParameterOp::RemovePrefixLong { pattern } => {
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
                 f.write_str("##")?;
-                pattern.fmt_with_source(f, source)?;
+                pattern.fmt_with_source_mode(f, source, mode)?;
                 f.write_str("}")?;
             }
             ParameterOp::RemoveSuffixShort { pattern } => {
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
                 f.write_str("%")?;
-                pattern.fmt_with_source(f, source)?;
+                pattern.fmt_with_source_mode(f, source, mode)?;
                 f.write_str("}")?;
             }
             ParameterOp::RemoveSuffixLong { pattern } => {
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
                 f.write_str("%%")?;
-                pattern.fmt_with_source(f, source)?;
+                pattern.fmt_with_source_mode(f, source, mode)?;
                 f.write_str("}")?;
             }
             ParameterOp::ReplaceFirst {
@@ -1482,7 +1545,7 @@ fn fmt_word_part_with_source(
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
                 f.write_str("/")?;
-                pattern.fmt_with_source(f, source)?;
+                pattern.fmt_with_source_mode(f, source, mode)?;
                 write!(f, "/{}}}", display_source_text(Some(replacement), source))?;
             }
             ParameterOp::ReplaceAll {
@@ -1492,7 +1555,7 @@ fn fmt_word_part_with_source(
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
                 f.write_str("//")?;
-                pattern.fmt_with_source(f, source)?;
+                pattern.fmt_with_source_mode(f, source, mode)?;
                 write!(f, "/{}}}", display_source_text(Some(replacement), source))?;
             }
             ParameterOp::UpperFirst => {
@@ -1675,7 +1738,10 @@ fn pattern_part_is_source_backed(part: &PatternPart) -> bool {
         PatternPart::AnyString | PatternPart::AnyChar => true,
         PatternPart::CharClass(text) => text.is_source_backed(),
         PatternPart::Group { patterns, .. } => patterns.iter().all(Pattern::is_source_backed),
-        PatternPart::Word(word) => word.parts.iter().all(|part| part_is_source_backed(&part.kind)),
+        PatternPart::Word(word) => word
+            .parts
+            .iter()
+            .all(|part| part_is_source_backed(&part.kind)),
     }
 }
 
@@ -1972,6 +2038,18 @@ mod tests {
     fn word_display_literal() {
         let w = Word::literal("echo");
         assert_eq!(format!("{w}"), "echo");
+    }
+
+    #[test]
+    fn word_render_syntax_preserves_cooked_double_quoted_literal() {
+        let w = word(vec![WordPart::DoubleQuoted {
+            parts: vec![WordPartNode::new(
+                WordPart::Literal(LiteralText::owned("hello".to_string())),
+                Span::new(),
+            )],
+            dollar: false,
+        }]);
+        assert_eq!(w.render_syntax(""), "\"hello\"");
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{AssignmentValue, DeclOperand, Name, Span, SubscriptSelector, VarRef, Word, WordPart};
+use shuck_ast::{
+    AssignmentValue, DeclOperand, Name, Span, SubscriptSelector, VarRef, Word, WordPart,
+};
 use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
 
 use crate::rules::common::{

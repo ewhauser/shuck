@@ -23,16 +23,16 @@ pub use lexer::{
 use shuck_ast::{
     ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
-    AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator,
-    Command, CommandList, CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand,
+    AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
+    CommandList, CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand,
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand,
-    CoprocCommand, DeclClause, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc,
-    HeredocDelimiter, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern,
-    PatternGroupKind, PatternPart, PatternPartNode, Pipeline, Position, Redirect, RedirectKind,
-    RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
-    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand,
-    TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
+    DeclClause, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter,
+    IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
+    PatternPart, PatternPartNode, Pipeline, Position, Redirect, RedirectKind, RedirectTarget,
+    ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span, Subscript,
+    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
+    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -242,12 +242,7 @@ impl<'a> PatternParser<'a> {
 
             match segment {
                 PatternSegment::Word(part) => {
-                    self.flush_literal(
-                        &mut parts,
-                        &mut literal,
-                        &mut literal_start,
-                        literal_end,
-                    );
+                    self.flush_literal(&mut parts, &mut literal, &mut literal_start, literal_end);
                     parts.push(PatternPartNode::new(
                         PatternPart::Word(Word {
                             parts: vec![(*part).clone()],
@@ -392,10 +387,7 @@ impl<'a> PatternParser<'a> {
         ))
     }
 
-    fn try_parse_group(
-        &self,
-        cursor: PatternCursor,
-    ) -> Option<(PatternPartNode, PatternCursor)> {
+    fn try_parse_group(&self, cursor: PatternCursor) -> Option<(PatternPartNode, PatternCursor)> {
         let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index)? else {
             return None;
         };
@@ -985,14 +977,14 @@ impl<'a> Parser<'a> {
                     )],
                     span,
                 }),
-                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
-                    self.decode_word_text_preserving_quotes_if_needed(
+                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => {
+                    Some(self.decode_word_text_preserving_quotes_if_needed(
                         text,
                         span,
                         content_span.start,
                         source_backed,
-                    ),
-                ),
+                    ))
+                }
                 LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
                     if Self::word_text_needs_parse(text) =>
                 {
@@ -1668,10 +1660,7 @@ impl<'a> Parser<'a> {
             | WordPart::ProcessSubstitution { commands, .. } => {
                 Self::rebase_commands(commands, base)
             }
-            WordPart::Literal(_)
-            | WordPart::Variable(_)
-            | WordPart::PrefixMatch(_)
-            => {}
+            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch(_) => {}
         }
     }
 
@@ -1920,7 +1909,12 @@ impl<'a> Parser<'a> {
     fn word_from_source_text(&mut self, text: &SourceText) -> Word {
         let span = text.span();
         let raw = text.slice(self.input);
-        self.decode_word_text_preserving_quotes_if_needed(raw, span, span.start, text.is_source_backed())
+        self.decode_word_text_preserving_quotes_if_needed(
+            raw,
+            span,
+            span.start,
+            text.is_source_backed(),
+        )
     }
 
     fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
@@ -1962,11 +1956,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn collect_literal_word_text(
-        &self,
-        parts: &[WordPartNode],
-        out: &mut String,
-    ) -> Option<()> {
+    fn collect_literal_word_text(&self, parts: &[WordPartNode], out: &mut String) -> Option<()> {
         for part in parts {
             match &part.kind {
                 WordPart::Literal(literal) => out.push_str(literal.as_str(self.input, part.span)),
@@ -4424,6 +4414,7 @@ impl<'a> Parser<'a> {
 
     fn conditional_var_ref_expr(&self, word: Word) -> ConditionalExpr {
         self.try_parse_conditional_var_ref(&word)
+            .map(Box::new)
             .map(ConditionalExpr::VarRef)
             .unwrap_or(ConditionalExpr::Word(word))
     }
@@ -4448,7 +4439,10 @@ impl<'a> Parser<'a> {
         }
 
         let name = Name::from(&text[..name_end]);
-        let name_span = Span::from_positions(word.span.start, word.span.start.advanced_by(&text[..name_end]));
+        let name_span = Span::from_positions(
+            word.span.start,
+            word.span.start.advanced_by(&text[..name_end]),
+        );
 
         if name_end == text.len() {
             return Some(self.var_ref(name, name_span, None, word.span));
@@ -5206,7 +5200,10 @@ impl<'a> Parser<'a> {
         Some(assignment)
     }
 
-    fn infer_array_expr_kind(explicit_kind: Option<ArrayKind>, elements: &[ArrayElem]) -> ArrayKind {
+    fn infer_array_expr_kind(
+        explicit_kind: Option<ArrayKind>,
+        elements: &[ArrayElem],
+    ) -> ArrayKind {
         explicit_kind.unwrap_or_else(|| {
             if elements
                 .iter()
@@ -5344,7 +5341,13 @@ impl<'a> Parser<'a> {
             return None;
         };
 
-        Some((&raw[1..close_index], &tail[value_offset..], append, close_index, value_offset))
+        Some((
+            &raw[1..close_index],
+            &tail[value_offset..],
+            append,
+            close_index,
+            value_offset,
+        ))
     }
 
     fn parse_compound_array_element(
@@ -5363,7 +5366,9 @@ impl<'a> Parser<'a> {
                 Span::from_positions(key_start, key_end),
                 interpretation,
             );
-            let value_start = span.start.advanced_by(&raw[..close_index + 1 + value_offset]);
+            let value_start = span
+                .start
+                .advanced_by(&raw[..close_index + 1 + value_offset]);
             let value_span = Span::from_positions(value_start, span.end);
             let value = self.word_from_raw_text(value_raw, value_span);
             return if append {
@@ -5894,7 +5899,11 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn classify_decl_operand(&mut self, word: Word, explicit_array_kind: Option<ArrayKind>) -> DeclOperand {
+    fn classify_decl_operand(
+        &mut self,
+        word: Word,
+        explicit_array_kind: Option<ArrayKind>,
+    ) -> DeclOperand {
         let raw = self.word_source_text(&word);
         let interpretation = Self::subscript_interpretation_from_array_kind(explicit_array_kind);
 
@@ -6011,21 +6020,16 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        self.parse_assignment_from_current_token(
-            raw,
-            None,
-            SubscriptInterpretation::Contextual,
-        )
+        self.parse_assignment_from_current_token(raw, None, SubscriptInterpretation::Contextual)
             .or_else(|| {
-                self.current_word()
-                    .and_then(|word| {
-                        self.parse_assignment_from_word(
-                            word,
-                            raw,
-                            None,
-                            SubscriptInterpretation::Contextual,
-                        )
-                    })
+                self.current_word().and_then(|word| {
+                    self.parse_assignment_from_word(
+                        word,
+                        raw,
+                        None,
+                        SubscriptInterpretation::Contextual,
+                    )
+                })
             })
             .map(|assignment| (assignment, true))
     }
@@ -6329,13 +6333,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         parts: &mut Vec<WordPartNode>,
     ) {
-        self.decode_word_parts_into_with_quote_fragments(
-            s,
-            base,
-            source_backed,
-            false,
-            parts,
-        );
+        self.decode_word_parts_into_with_quote_fragments(s, base, source_backed, false, parts);
     }
 
     fn decode_word_parts_into_with_quote_fragments(
@@ -6388,7 +6386,11 @@ impl<'a> Parser<'a> {
                         value: if source_backed {
                             SourceText::source(Span::from_positions(content_start, content_end))
                         } else {
-                            self.source_text(content.unwrap_or_default(), content_start, content_end)
+                            self.source_text(
+                                content.unwrap_or_default(),
+                                content_start,
+                                content_end,
+                            )
                         },
                         dollar: false,
                     },
@@ -6437,7 +6439,12 @@ impl<'a> Parser<'a> {
 
                 let inner_span = Span::from_positions(content_start, content_end);
                 let inner = if source_backed {
-                    self.decode_word_text(inner_span.slice(self.input), inner_span, content_start, true)
+                    self.decode_word_text(
+                        inner_span.slice(self.input),
+                        inner_span,
+                        content_start,
+                        true,
+                    )
                 } else {
                     let content = content.unwrap_or_default();
                     self.decode_word_text(&content, inner_span, content_start, false)
@@ -6603,7 +6610,12 @@ impl<'a> Parser<'a> {
 
                 let inner_span = Span::from_positions(content_start, content_end);
                 let inner = if source_backed {
-                    self.decode_word_text(inner_span.slice(self.input), inner_span, content_start, true)
+                    self.decode_word_text(
+                        inner_span.slice(self.input),
+                        inner_span,
+                        content_start,
+                        true,
+                    )
                 } else {
                     let content = content.unwrap_or_default();
                     self.decode_word_text(&content, inner_span, content_start, false)
@@ -6808,10 +6820,15 @@ impl<'a> Parser<'a> {
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                         let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        let subscript =
-                            self.subscript_from_source_text(index, SubscriptInterpretation::Contextual);
-                        let reference =
-                            self.parameter_var_ref(part_start, "${#", &var_name, Some(subscript), cursor);
+                        let subscript = self
+                            .subscript_from_source_text(index, SubscriptInterpretation::Contextual);
+                        let reference = self.parameter_var_ref(
+                            part_start,
+                            "${#",
+                            &var_name,
+                            Some(subscript),
+                            cursor,
+                        );
                         let part = if reference
                             .subscript
                             .as_ref()
@@ -6827,13 +6844,9 @@ impl<'a> Parser<'a> {
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                         Self::push_word_part(
                             parts,
-                            WordPart::Length(self.parameter_var_ref(
-                                part_start,
-                                "${#",
-                                &var_name,
-                                None,
-                                cursor,
-                            )),
+                            WordPart::Length(
+                                self.parameter_var_ref(part_start, "${#", &var_name, None, cursor),
+                            ),
                             part_start,
                             cursor,
                         );
@@ -6850,10 +6863,15 @@ impl<'a> Parser<'a> {
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                         let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        let subscript =
-                            self.subscript_from_source_text(index, SubscriptInterpretation::Contextual);
-                        let reference =
-                            self.parameter_var_ref(part_start, "${!", &var_name, Some(subscript), cursor);
+                        let subscript = self
+                            .subscript_from_source_text(index, SubscriptInterpretation::Contextual);
+                        let reference = self.parameter_var_ref(
+                            part_start,
+                            "${!",
+                            &var_name,
+                            Some(subscript),
+                            cursor,
+                        );
                         let part = if reference
                             .subscript
                             .as_ref()
@@ -7157,11 +7175,7 @@ impl<'a> Parser<'a> {
                                     };
                                     WordPart::ParameterExpansion {
                                         reference: self.parameter_var_ref(
-                                            part_start,
-                                            "${",
-                                            &var_name,
-                                            None,
-                                            cursor,
+                                            part_start, "${", &var_name, None, cursor,
                                         ),
                                         operator,
                                         operand: Some(operand),
@@ -7195,11 +7209,7 @@ impl<'a> Parser<'a> {
                                     });
                                     WordPart::Substring {
                                         reference: self.parameter_var_ref(
-                                            part_start,
-                                            "${",
-                                            &var_name,
-                                            None,
-                                            cursor,
+                                            part_start, "${", &var_name, None, cursor,
                                         ),
                                         offset,
                                         offset_ast,
@@ -7221,13 +7231,8 @@ impl<'a> Parser<'a> {
                                 _ => unreachable!(),
                             };
                             WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
-                                    part_start,
-                                    "${",
-                                    &var_name,
-                                    None,
-                                    cursor,
-                                ),
+                                reference: self
+                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand: Some(operand),
                                 colon_variant: false,
@@ -7235,13 +7240,9 @@ impl<'a> Parser<'a> {
                         }
                         '#' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let longest =
-                                Self::consume_word_char_if(&mut chars, &mut cursor, '#');
-                            let operand_text = self.read_brace_operand(
-                                &mut chars,
-                                &mut cursor,
-                                source_backed,
-                            );
+                            let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '#');
+                            let operand_text =
+                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                             let pattern = self.pattern_from_source_text(&operand_text);
                             let operator = if longest {
                                 ParameterOp::RemovePrefixLong { pattern }
@@ -7249,13 +7250,8 @@ impl<'a> Parser<'a> {
                                 ParameterOp::RemovePrefixShort { pattern }
                             };
                             WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
-                                    part_start,
-                                    "${",
-                                    &var_name,
-                                    None,
-                                    cursor,
-                                ),
+                                reference: self
+                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -7263,13 +7259,9 @@ impl<'a> Parser<'a> {
                         }
                         '%' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let longest =
-                                Self::consume_word_char_if(&mut chars, &mut cursor, '%');
-                            let operand_text = self.read_brace_operand(
-                                &mut chars,
-                                &mut cursor,
-                                source_backed,
-                            );
+                            let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '%');
+                            let operand_text =
+                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                             let pattern = self.pattern_from_source_text(&operand_text);
                             let operator = if longest {
                                 ParameterOp::RemoveSuffixLong { pattern }
@@ -7277,13 +7269,8 @@ impl<'a> Parser<'a> {
                                 ParameterOp::RemoveSuffixShort { pattern }
                             };
                             WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
-                                    part_start,
-                                    "${",
-                                    &var_name,
-                                    None,
-                                    cursor,
-                                ),
+                                reference: self
+                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -7323,13 +7310,8 @@ impl<'a> Parser<'a> {
                                 }
                             };
                             WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
-                                    part_start,
-                                    "${",
-                                    &var_name,
-                                    None,
-                                    cursor,
-                                ),
+                                reference: self
+                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -7345,13 +7327,8 @@ impl<'a> Parser<'a> {
                                 };
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
-                                    part_start,
-                                    "${",
-                                    &var_name,
-                                    None,
-                                    cursor,
-                                ),
+                                reference: self
+                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -7367,13 +7344,8 @@ impl<'a> Parser<'a> {
                                 };
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
-                                    part_start,
-                                    "${",
-                                    &var_name,
-                                    None,
-                                    cursor,
-                                ),
+                                reference: self
+                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand: None,
                                 colon_variant: false,
@@ -7386,11 +7358,7 @@ impl<'a> Parser<'a> {
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 WordPart::Transformation {
                                     reference: self.parameter_var_ref(
-                                        part_start,
-                                        "${",
-                                        &var_name,
-                                        None,
-                                        cursor,
+                                        part_start, "${", &var_name, None, cursor,
                                     ),
                                     operator,
                                 }
@@ -7632,13 +7600,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
     ) -> Word {
         let mut parts = Vec::new();
-        self.decode_word_parts_into_with_quote_fragments(
-            s,
-            base,
-            source_backed,
-            true,
-            &mut parts,
-        );
+        self.decode_word_parts_into_with_quote_fragments(s, base, source_backed, true, &mut parts);
         Word { parts, span }
     }
 
@@ -7755,7 +7717,11 @@ mod tests {
     }
 
     fn pattern_part_slices<'a>(pattern: &'a Pattern, input: &'a str) -> Vec<&'a str> {
-        pattern.parts.iter().map(|part| part.span.slice(input)).collect()
+        pattern
+            .parts
+            .iter()
+            .map(|part| part.span.slice(input))
+            .collect()
     }
 
     fn top_level_part_slices<'a>(word: &'a Word, input: &'a str) -> Vec<&'a str> {
@@ -8685,8 +8651,7 @@ mod tests {
             .subscript
             .as_ref()
             .and_then(|subscript| subscript.arithmetic_ast.as_ref());
-        let expr = subscript_ast
-            .expect("expected arithmetic subscript AST");
+        let expr = subscript_ast.expect("expected arithmetic subscript AST");
         let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
             panic!("expected additive subscript");
         };
@@ -8710,8 +8675,7 @@ mod tests {
             .subscript
             .as_ref()
             .and_then(|subscript| subscript.arithmetic_ast.as_ref());
-        let expr = subscript_ast
-            .expect("expected declaration index AST");
+        let expr = subscript_ast.expect("expected declaration index AST");
         let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
             panic!("expected additive expression in declaration index");
         };
@@ -8851,10 +8815,7 @@ mod tests {
             panic!("expected array access");
         };
         assert_eq!(
-            reference
-                .subscript
-                .as_ref()
-                .and_then(Subscript::selector),
+            reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::At)
         );
 
@@ -8862,10 +8823,7 @@ mod tests {
             panic!("expected array access");
         };
         assert_eq!(
-            reference
-                .subscript
-                .as_ref()
-                .and_then(Subscript::selector),
+            reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::Star)
         );
 
@@ -8873,10 +8831,7 @@ mod tests {
             panic!("expected array length");
         };
         assert_eq!(
-            reference
-                .subscript
-                .as_ref()
-                .and_then(Subscript::selector),
+            reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::At)
         );
 
@@ -8884,10 +8839,7 @@ mod tests {
             panic!("expected array indices");
         };
         assert_eq!(
-            reference
-                .subscript
-                .as_ref()
-                .and_then(Subscript::selector),
+            reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::Star)
         );
 
@@ -8895,10 +8847,7 @@ mod tests {
             panic!("expected array slice");
         };
         assert_eq!(
-            reference
-                .subscript
-                .as_ref()
-                .and_then(Subscript::selector),
+            reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::At)
         );
     }
@@ -9186,10 +9135,7 @@ mod tests {
         let WordPart::ArrayAccess(reference) = &word.parts[0].kind else {
             panic!("expected array access");
         };
-        let subscript = reference
-            .subscript
-            .as_ref()
-            .expect("expected subscript");
+        let subscript = reference.subscript.as_ref().expect("expected subscript");
         assert!(subscript.is_source_backed());
         assert_eq!(subscript.text.slice(input), "$RANDOM % ${#arr[@]}");
     }
@@ -10234,7 +10180,10 @@ coproc worker { true; }
 
         assert_eq!(patterns[0].render(input), "foobar");
         assert_eq!(patterns[0].parts.len(), 2);
-        assert_eq!(pattern_part_slices(&patterns[0], input), vec!["foo", "\"bar\""]);
+        assert_eq!(
+            pattern_part_slices(&patterns[0], input),
+            vec!["foo", "\"bar\""]
+        );
         assert!(matches!(
             &patterns[0].parts[1].kind,
             PatternPart::Word(word) if is_fully_quoted(word)
@@ -10242,7 +10191,10 @@ coproc worker { true; }
 
         assert_eq!(patterns[1].render(input), "bazqux");
         assert_eq!(patterns[1].parts.len(), 2);
-        assert_eq!(pattern_part_slices(&patterns[1], input), vec!["'baz'", "qux"]);
+        assert_eq!(
+            pattern_part_slices(&patterns[1], input),
+            vec!["'baz'", "qux"]
+        );
         assert!(matches!(
             &patterns[1].parts[0].kind,
             PatternPart::Word(word) if is_fully_quoted(word)

@@ -905,11 +905,19 @@ fn collect_regions_from_assignments(
                 for element in &array.elements {
                     match element {
                         shuck_ast::ArrayElem::Sequential(word) => {
-                            regions.extend(collect_regions_from_word(word, scopes, function_bodies));
+                            regions.extend(collect_regions_from_word(
+                                word,
+                                scopes,
+                                function_bodies,
+                            ));
                         }
                         shuck_ast::ArrayElem::Keyed { value, .. }
                         | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
-                            regions.extend(collect_regions_from_word(value, scopes, function_bodies));
+                            regions.extend(collect_regions_from_word(
+                                value,
+                                scopes,
+                                function_bodies,
+                            ));
                         }
                     }
                 }

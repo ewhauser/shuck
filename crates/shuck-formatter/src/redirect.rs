@@ -36,8 +36,8 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         });
 
         let target = match (redirect.word_target(), redirect.heredoc()) {
-            (Some(word), None) => word.render(source),
-            (None, Some(heredoc)) => heredoc.delimiter.raw.render(source),
+            (Some(word), None) => word.render_syntax(source),
+            (None, Some(heredoc)) => heredoc.delimiter.raw.render_syntax(source),
             (None, None) => String::new(),
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
         };

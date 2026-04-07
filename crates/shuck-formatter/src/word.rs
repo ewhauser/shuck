@@ -9,7 +9,7 @@ pub struct FormatWord;
 
 impl FormatNodeRule<Word> for FormatWord {
     fn fmt(&self, word: &Word, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-        let rendered = word.render(formatter.context().source());
+        let rendered = word.render_syntax(formatter.context().source());
         write!(formatter, [text(rendered)])
     }
 }

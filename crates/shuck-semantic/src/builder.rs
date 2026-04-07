@@ -3,8 +3,8 @@ use shuck_ast::{
     ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArithmeticUnaryOp,
     ArrayElem, ArrayExpr, ArrayKind, Assignment, AssignmentValue, BuiltinCommand, Command,
     CommandList, CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name,
-    ParameterOp, Pattern, PatternPart, PatternPartNode, Script, Span, VarRef, Word,
-    WordPart, WordPartNode,
+    ParameterOp, Pattern, PatternPart, PatternPartNode, Script, Span, VarRef, Word, WordPart,
+    WordPartNode,
 };
 use shuck_indexer::Indexer;
 
@@ -376,20 +376,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         for operand in &command.operands {
             match operand {
                 DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                    self.visit_word_into(
-                        word,
-                        WordVisitKind::Expansion,
-                        flow,
-                        &mut nested_regions,
-                    );
+                    self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
                 }
                 DeclOperand::Name(name) => {
-                    nested_regions.extend(self.visit_optional_arithmetic_expr(
-                        name.subscript
-                            .as_ref()
-                            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
-                        flow,
-                    ));
+                    nested_regions.extend(
+                        self.visit_optional_arithmetic_expr(
+                            name.subscript
+                                .as_ref()
+                                .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
+                            flow,
+                        ),
+                    );
                     self.visit_name_only_declaration_operand(
                         builtin,
                         &flags,
@@ -848,7 +845,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
             }
             AssignmentValue::Compound(array) => {
-                self.visit_array_expr_into(array, WordVisitKind::Expansion, flow, &mut nested_regions);
+                self.visit_array_expr_into(
+                    array,
+                    WordVisitKind::Expansion,
+                    flow,
+                    &mut nested_regions,
+                );
             }
         }
         nested_regions
@@ -886,10 +888,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         for element in &array.elements {
             match element {
-                ArrayElem::Sequential(word) => self.visit_word_into(word, kind, flow, nested_regions),
+                ArrayElem::Sequential(word) => {
+                    self.visit_word_into(word, kind, flow, nested_regions)
+                }
                 ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                    nested_regions
-                        .extend(self.visit_optional_arithmetic_expr(key.arithmetic_ast.as_ref(), flow));
+                    nested_regions.extend(
+                        self.visit_optional_arithmetic_expr(key.arithmetic_ast.as_ref(), flow),
+                    );
                     self.visit_word_into(value, kind, flow, nested_regions);
                 }
             }
@@ -1008,13 +1013,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         span: Span,
     ) {
         self.add_reference(reference.name.clone(), reference_kind, span);
-        nested_regions.extend(self.visit_optional_arithmetic_expr(
-            reference
-                .subscript
-                .as_ref()
-                .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
-            flow,
-        ));
+        nested_regions.extend(
+            self.visit_optional_arithmetic_expr(
+                reference
+                    .subscript
+                    .as_ref()
+                    .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
+                flow,
+            ),
+        );
     }
 
     fn visit_word_part(

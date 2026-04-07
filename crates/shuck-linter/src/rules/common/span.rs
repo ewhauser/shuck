@@ -165,7 +165,8 @@ fn collect_array_expansion_spans(
                 collect_array_expansion_spans(parts, source, true, only_unquoted, spans)
             }
             WordPart::ArrayAccess(reference)
-                if reference_has_array_selector(reference, source) && (!quoted || !only_unquoted) =>
+                if reference_has_array_selector(reference, source)
+                    && (!quoted || !only_unquoted) =>
             {
                 spans.push(part.span);
             }
@@ -261,7 +262,10 @@ fn collect_legacy_arithmetic_spans(parts: &[WordPartNode], spans: &mut Vec<Span>
 
 fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
     matches!(
-        reference.subscript.as_ref().and_then(|subscript| subscript.selector()),
+        reference
+            .subscript
+            .as_ref()
+            .and_then(|subscript| subscript.selector()),
         Some(SubscriptSelector::At | SubscriptSelector::Star)
     )
 }

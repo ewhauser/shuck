@@ -50,7 +50,9 @@ fn pattern_uses_variable(operator: &ParameterOp, source: &str) -> bool {
         ParameterOp::RemovePrefixShort { pattern }
         | ParameterOp::RemovePrefixLong { pattern }
         | ParameterOp::RemoveSuffixShort { pattern }
-        | ParameterOp::RemoveSuffixLong { pattern } => pattern_has_dynamic_fragment(pattern, source),
+        | ParameterOp::RemoveSuffixLong { pattern } => {
+            pattern_has_dynamic_fragment(pattern, source)
+        }
         ParameterOp::ReplaceFirst { pattern, .. } | ParameterOp::ReplaceAll { pattern, .. } => {
             pattern_has_dynamic_fragment(pattern, source)
         }

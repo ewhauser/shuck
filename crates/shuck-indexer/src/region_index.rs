@@ -1,7 +1,7 @@
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList,
-    CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, FunctionDef, Redirect, RedirectKind,
-    Pattern, PatternPart, PatternPartNode, Script, TextRange, TextSize, Word, WordPart,
+    CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, FunctionDef, Pattern, PatternPart,
+    PatternPartNode, Redirect, RedirectKind, Script, TextRange, TextSize, Word, WordPart,
     WordPartNode,
 };
 
@@ -413,7 +413,9 @@ impl RegionCollector {
             ConditionalExpr::Parenthesized(expression) => {
                 self.visit_conditional_expr(&expression.expr);
             }
-            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.visit_word(word, true),
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+                self.visit_word(word, true)
+            }
             ConditionalExpr::Pattern(pattern) => self.visit_pattern(pattern),
             ConditionalExpr::VarRef(_) => {}
         }

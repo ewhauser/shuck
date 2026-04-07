@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment,
-    AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand,
-    FunctionDef, Name, Pattern, PatternPart, PatternPartNode, Redirect, Script, SourceText, Span,
-    VarRef, Word, WordPart, WordPartNode,
+    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
+    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Name,
+    Pattern, PatternPart, PatternPartNode, Redirect, Script, SourceText, Span, VarRef, Word,
+    WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -411,7 +411,9 @@ fn walk_word_parts(
             }
             WordPart::ParameterExpansion {
                 reference,
-                operator, operand, ..
+                operator,
+                operand,
+                ..
             } => {
                 if let Some(expr) = var_ref_subscript_expr(reference) {
                     walk_arithmetic_expr(expr, model, source, facts);
@@ -478,9 +480,7 @@ fn walk_word_parts(
                     walk_arithmetic_expr(expr, model, source, facts);
                 }
             }
-            WordPart::Literal(_)
-            | WordPart::Variable(_)
-            | WordPart::PrefixMatch(_) => {}
+            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch(_) => {}
         }
     }
 }

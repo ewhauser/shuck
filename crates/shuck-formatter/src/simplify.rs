@@ -1,8 +1,9 @@
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalBinaryExpr,
-    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclName, DeclOperand, FunctionDef,
-    ParameterOp, Redirect, RedirectTarget, Script, SourceText, Word, WordPart, WordPartNode,
+    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
+    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclOperand,
+    FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, RedirectTarget, Script, SourceText,
+    VarRef, Word, WordPart, WordPartNode,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,7 +295,7 @@ fn walk_decl_clause(command: &mut DeclClause, source: &str) -> usize {
             DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                 walk_word(word, source, &mut |_| 0)
             }
-            DeclOperand::Name(name) => walk_decl_name(name, source, &mut |_| 0),
+            DeclOperand::Name(name) => walk_var_ref(name, source, &mut |_| 0),
             DeclOperand::Assignment(assignment) => {
                 walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0)
             }
@@ -384,7 +385,7 @@ fn walk_compound(
             let mut count = walk_word(&mut command.word, source, &mut |_| 0);
             for item in &mut command.cases {
                 for pattern in &mut item.patterns {
-                    count += walk_word(pattern, source, &mut |_| 0);
+                    count += walk_pattern(pattern, source, &mut |_| 0);
                 }
                 for body in &mut item.commands {
                     count += walk_command(body, source, visitor);
@@ -648,7 +649,7 @@ fn rewrite_compound_words(
                         item.patterns
                             .iter_mut()
                             .map(|pattern| {
-                                walk_word(pattern, source, &mut |word| visitor(word, source))
+                                walk_pattern(pattern, source, &mut |word| visitor(word, source))
                             })
                             .sum::<usize>()
                             + item
@@ -698,9 +699,16 @@ fn rewrite_assignment_words(
 ) -> usize {
     match &mut assignment.value {
         AssignmentValue::Scalar(word) => walk_word(word, source, &mut |word| visitor(word, source)),
-        AssignmentValue::Array(words) => words
+        AssignmentValue::Compound(array) => array
+            .elements
             .iter_mut()
-            .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
+            .map(|element| match element {
+                ArrayElem::Sequential(word)
+                | ArrayElem::Keyed { value: word, .. }
+                | ArrayElem::KeyedAppend { value: word, .. } => {
+                    walk_word(word, source, &mut |word| visitor(word, source))
+                }
+            })
             .sum(),
     }
 }
@@ -720,12 +728,14 @@ fn rewrite_redirect_words(
     }
 }
 
-fn walk_decl_name(
-    name: &mut DeclName,
+fn walk_var_ref(
+    name: &mut VarRef,
     _source: &str,
     visitor: &mut impl FnMut(&mut SourceText) -> usize,
 ) -> usize {
-    name.index.as_mut().map_or(0, visitor)
+    name.subscript
+        .as_mut()
+        .map_or(0, |subscript| visitor(&mut subscript.text))
 }
 
 fn walk_assignment(
@@ -734,13 +744,19 @@ fn walk_assignment(
     source_text_visitor: &mut impl FnMut(&mut SourceText) -> usize,
     word_visitor: &mut impl FnMut(&mut Word) -> usize,
 ) -> usize {
-    let mut count = assignment.index.as_mut().map_or(0, source_text_visitor);
+    let mut count = walk_var_ref(&mut assignment.target, source, source_text_visitor);
     count += match &mut assignment.value {
         AssignmentValue::Scalar(word) => walk_word(word, source, word_visitor),
-        AssignmentValue::Array(words) => {
+        AssignmentValue::Compound(array) => {
             let mut inner = 0;
-            for word in words {
-                inner += walk_word(word, source, word_visitor);
+            for element in &mut array.elements {
+                match element {
+                    ArrayElem::Sequential(word)
+                    | ArrayElem::Keyed { value: word, .. }
+                    | ArrayElem::KeyedAppend { value: word, .. } => {
+                        inner += walk_word(word, source, word_visitor);
+                    }
+                }
             }
             inner
         }
@@ -774,6 +790,28 @@ fn walk_word_part(part: &mut WordPartNode) -> usize {
     }
 }
 
+fn walk_pattern(
+    pattern: &mut Pattern,
+    source: &str,
+    visitor: &mut impl FnMut(&mut Word) -> usize,
+) -> usize {
+    pattern
+        .parts
+        .iter_mut()
+        .map(|part| match &mut part.kind {
+            PatternPart::Group { patterns, .. } => patterns
+                .iter_mut()
+                .map(|pattern| walk_pattern(pattern, source, visitor))
+                .sum(),
+            PatternPart::Word(word) => walk_word(word, source, visitor),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => 0,
+        })
+        .sum()
+}
+
 fn walk_conditional_words(
     expression: &mut ConditionalExpr,
     source: &str,
@@ -790,9 +828,11 @@ fn walk_conditional_words(
         ConditionalExpr::Parenthesized(ConditionalParenExpr { expr, .. }) => {
             walk_conditional_words(expr, source, visitor)
         }
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => walk_word(word, source, visitor),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            walk_word(word, source, visitor)
+        }
+        ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, source, visitor),
+        ConditionalExpr::VarRef(_) => 0,
     }
 }
 
@@ -860,9 +900,7 @@ fn rewrite_command_source_texts(
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                         rewrite_word_source_texts(word, source, visitor)
                     }
-                    DeclOperand::Name(name) => {
-                        name.index.as_mut().map_or(0, |text| visitor(text, source))
-                    }
+                    DeclOperand::Name(name) => rewrite_var_ref_source_texts(name, source, visitor),
                     DeclOperand::Assignment(assignment) => {
                         rewrite_assignment_source_texts(assignment, source, visitor)
                     }
@@ -1013,7 +1051,7 @@ fn rewrite_compound_source_texts(
                     .map(|item| {
                         item.patterns
                             .iter_mut()
-                            .map(|pattern| rewrite_word_source_texts(pattern, source, visitor))
+                            .map(|pattern| rewrite_pattern_source_texts(pattern, source, visitor))
                             .sum::<usize>()
                             + item
                                 .commands
@@ -1078,9 +1116,13 @@ fn rewrite_conditional_expr_source_texts(
         ConditionalExpr::Parenthesized(expr) => {
             rewrite_conditional_expr_source_texts(&mut expr.expr, source, visitor)
         }
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => rewrite_word_source_texts(word, source, visitor),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            rewrite_word_source_texts(word, source, visitor)
+        }
+        ConditionalExpr::Pattern(pattern) => rewrite_pattern_source_texts(pattern, source, visitor),
+        ConditionalExpr::VarRef(reference) => {
+            rewrite_var_ref_source_texts(reference, source, visitor)
+        }
     }
 }
 
@@ -1089,18 +1131,53 @@ fn rewrite_assignment_source_texts(
     source: &str,
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
-    let mut count = assignment
-        .index
-        .as_mut()
-        .map_or(0, |text| visitor(text, source));
+    let mut count = rewrite_var_ref_source_texts(&mut assignment.target, source, visitor);
     count += match &mut assignment.value {
         AssignmentValue::Scalar(word) => rewrite_word_source_texts(word, source, visitor),
-        AssignmentValue::Array(words) => words
+        AssignmentValue::Compound(array) => array
+            .elements
             .iter_mut()
-            .map(|word| rewrite_word_source_texts(word, source, visitor))
+            .map(|element| match element {
+                ArrayElem::Sequential(word) => rewrite_word_source_texts(word, source, visitor),
+                ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                    visitor(&mut key.text, source)
+                        + rewrite_word_source_texts(value, source, visitor)
+                }
+            })
             .sum(),
     };
     count
+}
+
+fn rewrite_var_ref_source_texts(
+    reference: &mut VarRef,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    reference
+        .subscript
+        .as_mut()
+        .map_or(0, |subscript| visitor(&mut subscript.text, source))
+}
+
+fn rewrite_pattern_source_texts(
+    pattern: &mut Pattern,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    pattern
+        .parts
+        .iter_mut()
+        .map(|part| match &mut part.kind {
+            PatternPart::CharClass(text) => visitor(text, source),
+            PatternPart::Group { patterns, .. } => patterns
+                .iter_mut()
+                .map(|pattern| rewrite_pattern_source_texts(pattern, source, visitor))
+                .sum(),
+            PatternPart::Word(word) => rewrite_word_source_texts(word, source, visitor),
+            PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => 0,
+        })
+        .sum()
 }
 
 fn rewrite_redirect_source_texts(
@@ -1141,7 +1218,7 @@ fn rewrite_word_part_source_texts(
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
     match &mut part.kind {
-        WordPart::Literal(_) | WordPart::Variable(_) | WordPart::Length(_) => 0,
+        WordPart::Literal(_) | WordPart::Variable(_) => 0,
         WordPart::SingleQuoted { value, .. } => visitor(value, source),
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter_mut()
@@ -1154,20 +1231,39 @@ fn rewrite_word_part_source_texts(
             .sum(),
         WordPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
         WordPart::ParameterExpansion {
-            operator, operand, ..
+            reference,
+            operator,
+            operand,
+            ..
         } => {
-            operand
-                .as_mut()
-                .map_or(0, |operand| visitor(operand, source))
+            rewrite_var_ref_source_texts(reference, source, visitor)
+                + operand
+                    .as_mut()
+                    .map_or(0, |operand| visitor(operand, source))
                 + rewrite_parameter_op_source_texts(operator, source, visitor)
         }
-        WordPart::ArrayAccess { index, .. } => visitor(index, source),
-        WordPart::ArrayLength(_) | WordPart::ArrayIndices(_) => 0,
-        WordPart::Substring { offset, length, .. } => {
-            visitor(offset, source) + length.as_mut().map_or(0, |length| visitor(length, source))
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => {
+            rewrite_var_ref_source_texts(reference, source, visitor)
         }
-        WordPart::ArraySlice { offset, length, .. } => {
-            visitor(offset, source) + length.as_mut().map_or(0, |length| visitor(length, source))
+        WordPart::Substring {
+            reference,
+            offset,
+            length,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset,
+            length,
+            ..
+        } => {
+            rewrite_var_ref_source_texts(reference, source, visitor)
+                + visitor(offset, source)
+                + length.as_mut().map_or(0, |length| visitor(length, source))
         }
         WordPart::IndirectExpansion {
             operand, operator, ..
@@ -1175,9 +1271,11 @@ fn rewrite_word_part_source_texts(
             operand
                 .as_mut()
                 .map_or(0, |operand| visitor(operand, source))
-                + operator.as_ref().map_or(0, |_| 0)
+                + operator.as_mut().map_or(0, |operator| {
+                    rewrite_parameter_op_source_texts(operator, source, visitor)
+                })
         }
-        WordPart::PrefixMatch(_) | WordPart::Transformation { .. } => 0,
+        WordPart::PrefixMatch(_) => 0,
     }
 }
 
@@ -1187,6 +1285,12 @@ fn rewrite_parameter_op_source_texts(
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
     match operator {
+        ParameterOp::RemovePrefixShort { pattern }
+        | ParameterOp::RemovePrefixLong { pattern }
+        | ParameterOp::RemoveSuffixShort { pattern }
+        | ParameterOp::RemoveSuffixLong { pattern } => {
+            rewrite_pattern_source_texts(pattern, source, visitor)
+        }
         ParameterOp::ReplaceFirst {
             pattern,
             replacement,
@@ -1194,7 +1298,7 @@ fn rewrite_parameter_op_source_texts(
         | ParameterOp::ReplaceAll {
             pattern,
             replacement,
-        } => visitor(pattern, source) + visitor(replacement, source),
+        } => rewrite_pattern_source_texts(pattern, source, visitor) + visitor(replacement, source),
         _ => 0,
     }
 }
@@ -1345,7 +1449,10 @@ fn simplify_conditional_expr(expression: &mut ConditionalExpr, source: &str) -> 
             count
         }
         ConditionalExpr::Parenthesized(expr) => simplify_conditional_expr(&mut expr.expr, source),
-        ConditionalExpr::Word(_) | ConditionalExpr::Pattern(_) | ConditionalExpr::Regex(_) => 0,
+        ConditionalExpr::Word(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => 0,
     };
 
     loop {
@@ -1392,6 +1499,7 @@ fn simplify_conditional_node(expression: &ConditionalExpr) -> Option<Conditional
                     | ConditionalExpr::Word(_)
                     | ConditionalExpr::Pattern(_)
                     | ConditionalExpr::Regex(_)
+                    | ConditionalExpr::VarRef(_)
             ) =>
         {
             Some((*expr.expr).clone())
