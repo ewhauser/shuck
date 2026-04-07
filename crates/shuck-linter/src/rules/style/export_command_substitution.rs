@@ -23,13 +23,15 @@ impl Violation for ExportCommandSubstitution {
 }
 
 pub fn export_command_substitution(checker: &mut Checker) {
+    let source = checker.source();
+
     query::walk_commands(
         &checker.ast().commands,
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
         &mut |command, _| {
-            let normalized = command::normalize_command(command, checker.source());
+            let normalized = command::normalize_command(command, source);
             let Some(declaration) = normalized.declaration.as_ref() else {
                 return;
             };
@@ -49,7 +51,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
                     continue;
                 };
 
-                if classify_word(word).has_command_substitution() {
+                if classify_word(word, source).has_command_substitution() {
                     checker.report_dedup(
                         ExportCommandSubstitution {
                             name: assignment.target.name.to_string(),

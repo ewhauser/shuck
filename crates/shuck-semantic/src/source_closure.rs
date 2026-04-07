@@ -553,12 +553,7 @@ fn walk_pattern_parts(
     }
 }
 
-fn walk_source_text(
-    text: &SourceText,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
+fn walk_source_text(text: &SourceText, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
     let word = Parser::parse_word_fragment(source, text.slice(source), text.span());
     walk_word(&word, model, source, facts);
 }

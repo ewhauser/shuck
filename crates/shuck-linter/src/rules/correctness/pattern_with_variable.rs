@@ -26,7 +26,8 @@ pub fn pattern_with_variable(checker: &mut Checker) {
         },
         &mut |command, _| {
             query::visit_expansion_words(command, source, &mut |word, context| {
-                if context == ExpansionContext::ParameterPattern && classify_word(word).is_expanded()
+                if context == ExpansionContext::ParameterPattern
+                    && classify_word(word, source).is_expanded()
                 {
                     spans.push(word.span);
                 }

@@ -34,7 +34,7 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
                     return;
                 }
 
-                if classify_word(word).quote != WordQuote::Unquoted
+                if classify_word(word, source).quote != WordQuote::Unquoted
                     && quoted_regex_requires_warning(word, source)
                 {
                     spans.push(word.span);

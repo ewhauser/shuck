@@ -70,7 +70,11 @@ fn collect_double_quoted_expansion_spans(
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch(_)
             | WordPart::ProcessSubstitution { .. }
-            | WordPart::Transformation { .. } if inside_double_quotes => spans.push(part.span),
+            | WordPart::Transformation { .. }
+                if inside_double_quotes =>
+            {
+                spans.push(part.span)
+            }
             WordPart::Literal(_) => {}
             _ => {}
         }

@@ -18,6 +18,7 @@ impl Violation for LoopFromCommandOutput {
 }
 
 pub fn loop_from_command_output(checker: &mut Checker) {
+    let source = checker.source();
     let mut spans = Vec::new();
 
     query::walk_commands(
@@ -35,7 +36,7 @@ pub fn loop_from_command_output(checker: &mut Checker) {
             };
 
             for word in words {
-                let classification = classify_word(word);
+                let classification = classify_word(word, source);
                 if classification.has_command_substitution()
                     && !crate::rules::common::span::unquoted_command_substitution_part_spans(word)
                         .is_empty()

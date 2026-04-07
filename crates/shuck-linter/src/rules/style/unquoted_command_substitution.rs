@@ -19,18 +19,20 @@ impl Violation for UnquotedCommandSubstitution {
 }
 
 pub fn unquoted_command_substitution(checker: &mut Checker) {
+    let source = checker.source();
+
     query::walk_commands(
         &checker.ast().commands,
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
         &mut |command, _| {
-            query::visit_expansion_words(command, checker.source(), &mut |word, context| {
+            query::visit_expansion_words(command, source, &mut |word, context| {
                 if context != ExpansionContext::CommandArgument {
                     return;
                 }
 
-                let classification = classify_word(word);
+                let classification = classify_word(word, source);
                 if classification.has_command_substitution() {
                     for span in span::unquoted_command_substitution_part_spans(word) {
                         checker.report_dedup(UnquotedCommandSubstitution, span);

@@ -17,6 +17,7 @@ impl Violation for LineOrientedInput {
 }
 
 pub fn line_oriented_input(checker: &mut Checker) {
+    let source = checker.source();
     let mut spans = Vec::new();
 
     query::walk_commands(
@@ -34,7 +35,7 @@ pub fn line_oriented_input(checker: &mut Checker) {
             };
 
             for word in words {
-                if classify_word(word).has_command_substitution() {
+                if classify_word(word, source).has_command_substitution() {
                     spans.push(word.span);
                 }
             }
