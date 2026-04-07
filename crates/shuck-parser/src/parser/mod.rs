@@ -25,10 +25,11 @@ use shuck_ast::{
     ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BreakCommand,
     BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CommandListItem,
     CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalBinaryExpr,
-    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, DeclClause, DeclName,
-    DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter, IfCommand,
-    ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position, Redirect, RedirectKind,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ConditionalVarRef,
+    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ContinueCommand, CoprocCommand,
+    DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc,
+    HeredocDelimiter, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern,
+    PatternGroupKind, PatternPart, PatternPartNode, Pipeline, Position, Redirect, RedirectKind,
     RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
     TextSize, TimeCommand, TokenKind, UntilCommand, WhileCommand, Word, WordPart, WordPartNode,
 };
@@ -169,6 +170,412 @@ impl SyntheticToken {
 
     fn materialize<'b>(self) -> LexedToken<'b> {
         LexedToken::punctuation(self.kind).with_span(self.span)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PatternCursor {
+    segment_index: usize,
+    literal_offset: usize,
+    position: Position,
+}
+
+enum PatternSegment<'a> {
+    Literal { text: &'a str, span: Span },
+    Word(&'a WordPartNode),
+}
+
+struct PatternParser<'a> {
+    input: &'a str,
+    segments: Vec<PatternSegment<'a>>,
+    full_span: Span,
+}
+
+impl<'a> PatternParser<'a> {
+    fn new(input: &'a str, word: &'a Word) -> Self {
+        let mut segments = Vec::with_capacity(word.parts.len());
+
+        for part in &word.parts {
+            match &part.kind {
+                WordPart::Literal(text) => segments.push(PatternSegment::Literal {
+                    text: text.as_str(input, part.span),
+                    span: part.span,
+                }),
+                _ => segments.push(PatternSegment::Word(part)),
+            }
+        }
+
+        Self {
+            input,
+            segments,
+            full_span: word.span,
+        }
+    }
+
+    fn parse(&self) -> Pattern {
+        let mut cursor = PatternCursor {
+            segment_index: 0,
+            literal_offset: 0,
+            position: self
+                .segments
+                .first()
+                .map(|segment| self.segment_start(segment))
+                .unwrap_or(self.full_span.start),
+        };
+        let mut pattern = self.parse_until(&mut cursor, false);
+        pattern.span = self.full_span;
+        pattern
+    }
+
+    fn parse_until(&self, cursor: &mut PatternCursor, stop_at_group_delim: bool) -> Pattern {
+        let start = cursor.position;
+        let mut parts = Vec::new();
+        let mut literal = String::new();
+        let mut literal_start: Option<Position> = None;
+        let mut literal_end = start;
+
+        while let Some(segment) = self.segments.get(cursor.segment_index) {
+            if stop_at_group_delim && self.peek_group_delimiter(*cursor).is_some() {
+                break;
+            }
+
+            match segment {
+                PatternSegment::Word(part) => {
+                    self.flush_literal(
+                        &mut parts,
+                        &mut literal,
+                        &mut literal_start,
+                        literal_end,
+                    );
+                    parts.push(PatternPartNode::new(
+                        PatternPart::Word(Word {
+                            parts: vec![(*part).clone()],
+                            span: part.span,
+                        }),
+                        part.span,
+                    ));
+                    self.advance_to_next_segment(cursor);
+                }
+                PatternSegment::Literal { .. } => {
+                    if self.peek_literal_char(*cursor).is_none() {
+                        self.advance_to_next_segment(cursor);
+                        continue;
+                    }
+
+                    if let Some((group, next_cursor)) = self.try_parse_group(*cursor) {
+                        self.flush_literal(
+                            &mut parts,
+                            &mut literal,
+                            &mut literal_start,
+                            literal_end,
+                        );
+                        parts.push(group);
+                        *cursor = next_cursor;
+                        continue;
+                    }
+
+                    if let Some((char_class, next_cursor)) = self.try_parse_char_class(*cursor) {
+                        self.flush_literal(
+                            &mut parts,
+                            &mut literal,
+                            &mut literal_start,
+                            literal_end,
+                        );
+                        parts.push(char_class);
+                        *cursor = next_cursor;
+                        continue;
+                    }
+
+                    if let Some((wildcard, next_cursor)) = self.try_parse_wildcard(*cursor) {
+                        self.flush_literal(
+                            &mut parts,
+                            &mut literal,
+                            &mut literal_start,
+                            literal_end,
+                        );
+                        parts.push(wildcard);
+                        *cursor = next_cursor;
+                        continue;
+                    }
+
+                    let Some((ch, span)) = self.consume_literal_char(cursor) else {
+                        break;
+                    };
+                    if literal_start.is_none() {
+                        literal_start = Some(span.start);
+                    }
+                    literal_end = span.end;
+                    literal.push(ch);
+                }
+            }
+        }
+
+        self.flush_literal(&mut parts, &mut literal, &mut literal_start, literal_end);
+
+        Pattern {
+            span: if let (Some(first), Some(last)) = (parts.first(), parts.last()) {
+                first.span.merge(last.span)
+            } else {
+                Span::from_positions(start, cursor.position)
+            },
+            parts,
+        }
+    }
+
+    fn flush_literal(
+        &self,
+        parts: &mut Vec<PatternPartNode>,
+        literal: &mut String,
+        literal_start: &mut Option<Position>,
+        literal_end: Position,
+    ) {
+        let Some(start) = literal_start.take() else {
+            return;
+        };
+        let span = Span::from_positions(start, literal_end);
+        let text = std::mem::take(literal);
+        parts.push(PatternPartNode::new(
+            PatternPart::Literal(self.literal_text(span, text)),
+            span,
+        ));
+    }
+
+    fn try_parse_wildcard(
+        &self,
+        cursor: PatternCursor,
+    ) -> Option<(PatternPartNode, PatternCursor)> {
+        let ch = self.peek_literal_char(cursor)?;
+        if self.is_escaped(cursor) || !matches!(ch, '*' | '?') {
+            return None;
+        }
+
+        let mut next_cursor = cursor;
+        let (_, span) = self.consume_literal_char(&mut next_cursor)?;
+        let kind = if ch == '*' {
+            PatternPart::AnyString
+        } else {
+            PatternPart::AnyChar
+        };
+        Some((PatternPartNode::new(kind, span), next_cursor))
+    }
+
+    fn try_parse_char_class(
+        &self,
+        cursor: PatternCursor,
+    ) -> Option<(PatternPartNode, PatternCursor)> {
+        let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index)? else {
+            return None;
+        };
+        if self.is_escaped(cursor) || !text[cursor.literal_offset..].starts_with('[') {
+            return None;
+        }
+
+        let end_offset = self.find_char_class_end(text, cursor.literal_offset)?;
+        let raw = &text[cursor.literal_offset..end_offset];
+        let start = cursor.position;
+        let end = start.advanced_by(raw);
+        let span = Span::from_positions(start, end);
+        let mut next_cursor = cursor;
+        next_cursor.literal_offset = end_offset;
+        next_cursor.position = end;
+        if end_offset == text.len() {
+            self.advance_to_next_segment(&mut next_cursor);
+        }
+
+        Some((
+            PatternPartNode::new(
+                PatternPart::CharClass(self.source_text(span, raw.to_string())),
+                span,
+            ),
+            next_cursor,
+        ))
+    }
+
+    fn try_parse_group(
+        &self,
+        cursor: PatternCursor,
+    ) -> Option<(PatternPartNode, PatternCursor)> {
+        let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index)? else {
+            return None;
+        };
+        let opener = self.peek_literal_char(cursor)?;
+        if self.is_escaped(cursor) || !matches!(opener, '?' | '*' | '+' | '@' | '!') {
+            return None;
+        }
+        let mut chars = text[cursor.literal_offset..].chars();
+        chars.next()?;
+        if chars.next()? != '(' {
+            return None;
+        }
+
+        let kind = match opener {
+            '?' => PatternGroupKind::ZeroOrOne,
+            '*' => PatternGroupKind::ZeroOrMore,
+            '+' => PatternGroupKind::OneOrMore,
+            '@' => PatternGroupKind::ExactlyOne,
+            '!' => PatternGroupKind::NoneOf,
+            _ => return None,
+        };
+
+        let start = cursor.position;
+        let mut next_cursor = cursor;
+        self.consume_literal_char(&mut next_cursor)?;
+        self.consume_literal_char(&mut next_cursor)?;
+
+        let mut patterns = Vec::new();
+        loop {
+            patterns.push(self.parse_until(&mut next_cursor, true));
+            match self.peek_group_delimiter(next_cursor) {
+                Some('|') => {
+                    self.consume_literal_char(&mut next_cursor)?;
+                }
+                Some(')') => {
+                    let (_, close_span) = self.consume_literal_char(&mut next_cursor)?;
+                    return Some((
+                        PatternPartNode::new(
+                            PatternPart::Group { kind, patterns },
+                            Span::from_positions(start, close_span.end),
+                        ),
+                        next_cursor,
+                    ));
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    fn find_char_class_end(&self, text: &str, start_offset: usize) -> Option<usize> {
+        let mut cursor = start_offset + '['.len_utf8();
+        let mut chars = text[cursor..].chars();
+
+        if matches!(chars.next(), Some('!') | Some('^')) {
+            cursor += 1;
+        }
+        if text[cursor..].starts_with(']') {
+            cursor += 1;
+        }
+
+        while cursor < text.len() {
+            let rest = &text[cursor..];
+            let ch = rest.chars().next()?;
+
+            if ch == '\\' {
+                cursor += ch.len_utf8();
+                if let Some(next) = text[cursor..].chars().next() {
+                    cursor += next.len_utf8();
+                }
+                continue;
+            }
+
+            if ch == '['
+                && let Some(class_kind) = text[cursor + 1..].chars().next()
+                && matches!(class_kind, ':' | '.' | '=')
+            {
+                cursor += '['.len_utf8() + class_kind.len_utf8();
+                loop {
+                    let rest = &text[cursor..];
+                    let inner = rest.chars().next()?;
+                    cursor += inner.len_utf8();
+                    if inner == class_kind && text[cursor..].starts_with(']') {
+                        cursor += ']'.len_utf8();
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            cursor += ch.len_utf8();
+            if ch == ']' {
+                return Some(cursor);
+            }
+        }
+
+        None
+    }
+
+    fn peek_group_delimiter(&self, cursor: PatternCursor) -> Option<char> {
+        let ch = self.peek_literal_char(cursor)?;
+        (!self.is_escaped(cursor) && matches!(ch, '|' | ')')).then_some(ch)
+    }
+
+    fn peek_literal_char(&self, cursor: PatternCursor) -> Option<char> {
+        let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index)? else {
+            return None;
+        };
+        text[cursor.literal_offset..].chars().next()
+    }
+
+    fn is_escaped(&self, cursor: PatternCursor) -> bool {
+        let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index).unwrap()
+        else {
+            return false;
+        };
+        let mut backslashes = 0;
+        let mut offset = cursor.literal_offset;
+        while offset > 0 {
+            offset -= 1;
+            if text.as_bytes()[offset] != b'\\' {
+                break;
+            }
+            backslashes += 1;
+        }
+        backslashes % 2 == 1
+    }
+
+    fn consume_literal_char(&self, cursor: &mut PatternCursor) -> Option<(char, Span)> {
+        let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index)? else {
+            return None;
+        };
+        let ch = text[cursor.literal_offset..].chars().next()?;
+        let start = cursor.position;
+        cursor.literal_offset += ch.len_utf8();
+        cursor.position.advance(ch);
+        let span = Span::from_positions(start, cursor.position);
+
+        if cursor.literal_offset == text.len() {
+            self.advance_to_next_segment(cursor);
+        }
+
+        Some((ch, span))
+    }
+
+    fn advance_to_next_segment(&self, cursor: &mut PatternCursor) {
+        cursor.segment_index += 1;
+        cursor.literal_offset = 0;
+        cursor.position = self
+            .segments
+            .get(cursor.segment_index)
+            .map(|segment| self.segment_start(segment))
+            .unwrap_or(self.full_span.end);
+    }
+
+    fn segment_start(&self, segment: &PatternSegment<'_>) -> Position {
+        match segment {
+            PatternSegment::Literal { span, .. } => span.start,
+            PatternSegment::Word(part) => part.span.start,
+        }
+    }
+
+    fn literal_text(&self, span: Span, text: String) -> LiteralText {
+        if self.source_matches(span, &text) {
+            LiteralText::source()
+        } else {
+            LiteralText::owned(text)
+        }
+    }
+
+    fn source_text(&self, span: Span, text: String) -> SourceText {
+        if self.source_matches(span, &text) {
+            SourceText::source(span)
+        } else {
+            SourceText::cooked(span, text)
+        }
+    }
+
+    fn source_matches(&self, span: Span, text: &str) -> bool {
+        span.start.offset <= span.end.offset
+            && span.end.offset <= self.input.len()
+            && span.slice(self.input) == text
     }
 }
 
@@ -585,9 +992,14 @@ impl<'a> Parser<'a> {
                     )],
                     span,
                 }),
-                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => {
-                    Some(self.decode_word_text(text, span, content_span.start, source_backed))
-                }
+                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
+                    self.decode_word_text_preserving_quotes_if_needed(
+                        text,
+                        span,
+                        content_span.start,
+                        source_backed,
+                    ),
+                ),
                 LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
                     if Self::word_text_needs_parse(text) =>
                 {
@@ -665,11 +1077,14 @@ impl<'a> Parser<'a> {
                 ),
                 LexedWordSegmentKind::Plain => {
                     if Self::word_text_needs_parse(text) {
-                        self.decode_word_parts_into(
-                            text,
-                            content_span.start,
-                            source_backed,
-                            &mut parts,
+                        parts.extend(
+                            self.decode_word_text_preserving_quotes_if_needed(
+                                text,
+                                content_span,
+                                content_span.start,
+                                source_backed,
+                            )
+                            .parts,
                         );
                     } else {
                         parts.push(self.literal_part_from_text(text, content_span, source_backed));
@@ -1064,7 +1479,7 @@ impl<'a> Parser<'a> {
                 command.span = command.span.rebased(base);
                 Self::rebase_word(&mut command.word, base);
                 for case in &mut command.cases {
-                    Self::rebase_words(&mut case.patterns, base);
+                    Self::rebase_patterns(&mut case.patterns, base);
                     Self::rebase_commands(&mut case.commands, base);
                 }
             }
@@ -1112,9 +1527,20 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn rebase_patterns(patterns: &mut [Pattern], base: Position) {
+        for pattern in patterns {
+            Self::rebase_pattern(pattern, base);
+        }
+    }
+
     fn rebase_word(word: &mut Word, base: Position) {
         word.span = word.span.rebased(base);
         Self::rebase_word_parts(&mut word.parts, base);
+    }
+
+    fn rebase_pattern(pattern: &mut Pattern, base: Position) {
+        pattern.span = pattern.span.rebased(base);
+        Self::rebase_pattern_parts(&mut pattern.parts, base);
     }
 
     fn rebase_word_parts(parts: &mut [WordPartNode], base: Position) {
@@ -1123,12 +1549,53 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn rebase_pattern_parts(parts: &mut [PatternPartNode], base: Position) {
+        for part in parts {
+            part.span = part.span.rebased(base);
+            match &mut part.kind {
+                PatternPart::CharClass(text) => text.rebased(base),
+                PatternPart::Group { patterns, .. } => Self::rebase_patterns(patterns, base),
+                PatternPart::Word(word) => Self::rebase_word(word, base),
+                PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => {}
+            }
+        }
+    }
+
     fn rebase_word_part(part: &mut WordPartNode, base: Position) {
         part.span = part.span.rebased(base);
         match &mut part.kind {
             WordPart::SingleQuoted { value, .. } => value.rebased(base),
             WordPart::DoubleQuoted { parts, .. } => Self::rebase_word_parts(parts, base),
-            WordPart::ParameterExpansion { operand, .. } => {
+            WordPart::ParameterExpansion {
+                operator, operand, ..
+            } => {
+                match operator {
+                    ParameterOp::RemovePrefixShort { pattern }
+                    | ParameterOp::RemovePrefixLong { pattern }
+                    | ParameterOp::RemoveSuffixShort { pattern }
+                    | ParameterOp::RemoveSuffixLong { pattern } => {
+                        Self::rebase_pattern(pattern, base);
+                    }
+                    ParameterOp::ReplaceFirst {
+                        pattern,
+                        replacement,
+                    }
+                    | ParameterOp::ReplaceAll {
+                        pattern,
+                        replacement,
+                    } => {
+                        Self::rebase_pattern(pattern, base);
+                        replacement.rebased(base);
+                    }
+                    ParameterOp::UseDefault
+                    | ParameterOp::AssignDefault
+                    | ParameterOp::UseReplacement
+                    | ParameterOp::Error
+                    | ParameterOp::UpperFirst
+                    | ParameterOp::UpperAll
+                    | ParameterOp::LowerFirst
+                    | ParameterOp::LowerAll => {}
+                }
                 if let Some(operand) = operand {
                     operand.rebased(base);
                 }
@@ -1211,10 +1678,16 @@ impl<'a> Parser<'a> {
                 paren.right_paren_span = paren.right_paren_span.rebased(base);
                 Self::rebase_conditional_expr(&mut paren.expr, base);
             }
-            ConditionalExpr::Word(word)
-            | ConditionalExpr::Pattern(word)
-            | ConditionalExpr::Regex(word) => {
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
                 Self::rebase_word(word, base);
+            }
+            ConditionalExpr::Pattern(pattern) => Self::rebase_pattern(pattern, base),
+            ConditionalExpr::VarRef(var_ref) => {
+                var_ref.span = var_ref.span.rebased(base);
+                var_ref.name_span = var_ref.name_span.rebased(base);
+                if let Some(index) = &mut var_ref.index {
+                    index.rebased(base);
+                }
             }
         }
     }
@@ -1355,6 +1828,21 @@ impl<'a> Parser<'a> {
             && span.slice(self.input) == text
     }
 
+    fn pattern_from_word(&self, word: &Word) -> Pattern {
+        PatternParser::new(self.input, word).parse()
+    }
+
+    fn word_from_source_text(&mut self, text: &SourceText) -> Word {
+        let span = text.span();
+        let raw = text.slice(self.input);
+        self.decode_word_text_preserving_quotes_if_needed(raw, span, span.start, text.is_source_backed())
+    }
+
+    fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
+        let word = self.word_from_source_text(text);
+        self.pattern_from_word(&word)
+    }
+
     fn single_literal_word_text<'b>(&'b self, word: &'b Word) -> Option<&'b str> {
         if Self::is_fully_quoted_word(word) || word.parts.len() != 1 {
             return None;
@@ -1371,7 +1859,29 @@ impl<'a> Parser<'a> {
         Some(text)
     }
 
-    fn collect_literal_word_text(&self, parts: &[WordPartNode], out: &mut String) -> Option<()> {
+    fn source_text_needs_quote_preserving_decode(text: &str) -> bool {
+        text.contains(['\'', '"'])
+    }
+
+    fn decode_word_text_preserving_quotes_if_needed(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+    ) -> Word {
+        if Self::source_text_needs_quote_preserving_decode(s) {
+            self.decode_fragment_word_text(s, span, base, source_backed)
+        } else {
+            self.decode_word_text(s, span, base, source_backed)
+        }
+    }
+
+    fn collect_literal_word_text(
+        &self,
+        parts: &[WordPartNode],
+        out: &mut String,
+    ) -> Option<()> {
         for part in parts {
             match &part.kind {
                 WordPart::Literal(literal) => out.push_str(literal.as_str(self.input, part.span)),
@@ -3426,7 +3936,7 @@ impl<'a> Parser<'a> {
             let mut patterns = Vec::new();
             while self.at_word_like() {
                 if let Some(word) = self.current_word() {
-                    patterns.push(word);
+                    patterns.push(self.pattern_from_word(&word));
                 }
                 self.advance();
 
@@ -3745,7 +4255,15 @@ impl<'a> Parser<'a> {
             let expr = if matches!(op, ConditionalUnaryOp::Not) {
                 self.parse_conditional_term(stop_at_right_paren)?
             } else {
-                ConditionalExpr::Word(self.parse_conditional_operand_word()?)
+                let word = self.parse_conditional_operand_word()?;
+                if matches!(
+                    op,
+                    ConditionalUnaryOp::VariableSet | ConditionalUnaryOp::ReferenceVariable
+                ) {
+                    self.conditional_var_ref_expr(word)
+                } else {
+                    ConditionalExpr::Word(word)
+                }
             };
 
             return Ok(ConditionalExpr::Unary(ConditionalUnaryExpr {
@@ -3800,9 +4318,10 @@ impl<'a> Parser<'a> {
             }
             ConditionalBinaryOp::PatternEqShort
             | ConditionalBinaryOp::PatternEq
-            | ConditionalBinaryOp::PatternNe => ConditionalExpr::Pattern(
-                self.collect_conditional_context_word(stop_at_right_paren)?,
-            ),
+            | ConditionalBinaryOp::PatternNe => {
+                let word = self.collect_conditional_context_word(stop_at_right_paren)?;
+                ConditionalExpr::Pattern(self.pattern_from_word(&word))
+            }
             _ => ConditionalExpr::Word(self.parse_conditional_operand_word()?),
         };
 
@@ -3825,6 +4344,93 @@ impl<'a> Parser<'a> {
         };
         self.advance();
         Ok(word)
+    }
+
+    fn conditional_var_ref_expr(&self, word: Word) -> ConditionalExpr {
+        self.try_parse_conditional_var_ref(&word)
+            .map(ConditionalExpr::VarRef)
+            .unwrap_or(ConditionalExpr::Word(word))
+    }
+
+    fn try_parse_conditional_var_ref(&self, word: &Word) -> Option<ConditionalVarRef> {
+        if word.span.end.offset > self.input.len() {
+            return None;
+        }
+
+        let text = word.span.slice(self.input);
+        let mut name_end = 0;
+        for (offset, ch) in text.char_indices() {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                name_end = offset + ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+
+        if name_end == 0 {
+            return None;
+        }
+
+        let name = Name::from(&text[..name_end]);
+        let name_span = Span::from_positions(word.span.start, word.span.start.advanced_by(&text[..name_end]));
+
+        if name_end == text.len() {
+            return Some(ConditionalVarRef {
+                name,
+                name_span,
+                index: None,
+                span: word.span,
+            });
+        }
+
+        if !text[name_end..].starts_with('[') {
+            return None;
+        }
+
+        let index_start_offset = name_end + 1;
+        let mut cursor = index_start_offset;
+        let mut bracket_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+
+        while cursor < text.len() {
+            let ch = text[cursor..].chars().next()?;
+            if ch == ']' && bracket_depth == 0 && brace_depth == 0 {
+                if cursor + 1 != text.len() {
+                    return None;
+                }
+
+                let index_start = word.span.start.advanced_by(&text[..index_start_offset]);
+                let index_end = word.span.start.advanced_by(&text[..cursor]);
+                return Some(ConditionalVarRef {
+                    name,
+                    name_span,
+                    index: Some(self.source_text(
+                        text[index_start_offset..cursor].to_string(),
+                        index_start,
+                        index_end,
+                    )),
+                    span: word.span,
+                });
+            }
+
+            match ch {
+                '[' => bracket_depth += 1,
+                ']' => bracket_depth -= 1,
+                '$' => {
+                    let next_offset = cursor + ch.len_utf8();
+                    if text[next_offset..].starts_with('{') {
+                        brace_depth += 1;
+                    }
+                }
+                '{' => brace_depth += 1,
+                '}' if brace_depth > 0 => brace_depth -= 1,
+                _ => {}
+            }
+
+            cursor += ch.len_utf8();
+        }
+
+        None
     }
 
     fn current_conditional_unary_op(&self) -> Option<ConditionalUnaryOp> {
@@ -3913,14 +4519,18 @@ impl<'a> Parser<'a> {
                 && prev_end.offset < self.current_span.start.offset
             {
                 let gap_span = Span::from_positions(prev_end, self.current_span.start);
-                let gap = self.input[prev_end.offset..self.current_span.start.offset].to_string();
-                if !gap.is_empty() {
+                let gap_text = gap_span.slice(self.input);
+                if Self::source_text_needs_quote_preserving_decode(gap_text) {
+                    let gap = SourceText::source(gap_span);
+                    let gap_word = self.word_from_source_text(&gap);
+                    parts.extend(gap_word.parts);
+                } else {
                     parts.push(WordPartNode::new(
-                        WordPart::Literal(self.literal_text(gap, gap_span.start, gap_span.end)),
+                        WordPart::Literal(LiteralText::source()),
                         gap_span,
                     ));
-                    composite = true;
                 }
+                composite = true;
             }
 
             match self.current_token_kind {
@@ -4958,16 +5568,13 @@ impl<'a> Parser<'a> {
     }
 
     fn word_source_text(&self, word: &Word) -> String {
-        let rendered = word.render(self.input);
         if word.span.start.offset <= word.span.end.offset
             && word.span.end.offset <= self.input.len()
         {
-            let source = &self.input[word.span.start.offset..word.span.end.offset];
-            if rendered == source {
-                return source.to_string();
-            }
+            return word.span.slice(self.input).to_string();
         }
-        rendered
+
+        word.render(self.input)
     }
 
     fn is_literal_flag_word(word: &Word, raw: &str) -> bool {
@@ -5400,6 +6007,23 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         parts: &mut Vec<WordPartNode>,
     ) {
+        self.decode_word_parts_into_with_quote_fragments(
+            s,
+            base,
+            source_backed,
+            false,
+            parts,
+        );
+    }
+
+    fn decode_word_parts_into_with_quote_fragments(
+        &mut self,
+        s: &str,
+        base: Position,
+        source_backed: bool,
+        preserve_quote_fragments: bool,
+        parts: &mut Vec<WordPartNode>,
+    ) {
         let mut chars = s.chars().peekable();
         let mut current = String::new();
         let mut current_start = base;
@@ -5416,6 +6040,97 @@ impl<'a> Parser<'a> {
                 if let Some(literal_ch) = Self::next_word_char(&mut chars, &mut cursor) {
                     current.push(literal_ch);
                 }
+                continue;
+            }
+
+            if preserve_quote_fragments && ch == '\'' {
+                self.flush_literal_part(parts, &mut current, current_start, part_start);
+
+                let content_start = cursor;
+                let mut content = (!source_backed).then(String::new);
+                let mut content_end = content_start;
+
+                while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
+                    if c == '\'' {
+                        break;
+                    }
+                    if let Some(content) = content.as_mut() {
+                        content.push(c);
+                    }
+                    content_end = cursor;
+                }
+
+                Self::push_word_part(
+                    parts,
+                    WordPart::SingleQuoted {
+                        value: if source_backed {
+                            SourceText::source(Span::from_positions(content_start, content_end))
+                        } else {
+                            self.source_text(content.unwrap_or_default(), content_start, content_end)
+                        },
+                        dollar: false,
+                    },
+                    part_start,
+                    cursor,
+                );
+                current_start = cursor;
+                continue;
+            }
+
+            if preserve_quote_fragments && ch == '"' {
+                self.flush_literal_part(parts, &mut current, current_start, part_start);
+
+                let content_start = cursor;
+                let mut content = (!source_backed).then(String::new);
+                let mut content_end = content_start;
+                let mut escaped = false;
+
+                while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
+                    if escaped {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
+                        }
+                        content_end = cursor;
+                        escaped = false;
+                        continue;
+                    }
+
+                    match c {
+                        '\\' => {
+                            if let Some(content) = content.as_mut() {
+                                content.push(c);
+                            }
+                            content_end = cursor;
+                            escaped = true;
+                        }
+                        '"' => break,
+                        _ => {
+                            if let Some(content) = content.as_mut() {
+                                content.push(c);
+                            }
+                            content_end = cursor;
+                        }
+                    }
+                }
+
+                let inner_span = Span::from_positions(content_start, content_end);
+                let inner = if source_backed {
+                    self.decode_word_text(inner_span.slice(self.input), inner_span, content_start, true)
+                } else {
+                    let content = content.unwrap_or_default();
+                    self.decode_word_text(&content, inner_span, content_start, false)
+                };
+
+                Self::push_word_part(
+                    parts,
+                    WordPart::DoubleQuoted {
+                        parts: inner.parts,
+                        dollar: false,
+                    },
+                    part_start,
+                    cursor,
+                );
+                current_start = cursor;
                 continue;
             }
 
@@ -5520,6 +6235,62 @@ impl<'a> Parser<'a> {
                     parts,
                     WordPart::SingleQuoted {
                         value: self.source_text(ansi, part_start, cursor),
+                        dollar: true,
+                    },
+                    part_start,
+                    cursor,
+                );
+                current_start = cursor;
+                continue;
+            }
+
+            if chars.peek() == Some(&'"') {
+                Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                let content_start = cursor;
+                let mut content = (!source_backed).then(String::new);
+                let mut content_end = content_start;
+                let mut escaped = false;
+
+                while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
+                    if escaped {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
+                        }
+                        content_end = cursor;
+                        escaped = false;
+                        continue;
+                    }
+
+                    match c {
+                        '\\' => {
+                            if let Some(content) = content.as_mut() {
+                                content.push(c);
+                            }
+                            content_end = cursor;
+                            escaped = true;
+                        }
+                        '"' => break,
+                        _ => {
+                            if let Some(content) = content.as_mut() {
+                                content.push(c);
+                            }
+                            content_end = cursor;
+                        }
+                    }
+                }
+
+                let inner_span = Span::from_positions(content_start, content_end);
+                let inner = if source_backed {
+                    self.decode_word_text(inner_span.slice(self.input), inner_span, content_start, true)
+                } else {
+                    let content = content.unwrap_or_default();
+                    self.decode_word_text(&content, inner_span, content_start, false)
+                };
+
+                Self::push_word_part(
+                    parts,
+                    WordPart::DoubleQuoted {
+                        parts: inner.parts,
                         dollar: true,
                     },
                     part_start,
@@ -6048,35 +6819,45 @@ impl<'a> Parser<'a> {
                         }
                         '#' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let operator =
-                                if Self::consume_word_char_if(&mut chars, &mut cursor, '#') {
-                                    ParameterOp::RemovePrefixLong
-                                } else {
-                                    ParameterOp::RemovePrefixShort
-                                };
-                            let operand =
-                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                            let longest =
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '#');
+                            let operand_text = self.read_brace_operand(
+                                &mut chars,
+                                &mut cursor,
+                                source_backed,
+                            );
+                            let pattern = self.pattern_from_source_text(&operand_text);
+                            let operator = if longest {
+                                ParameterOp::RemovePrefixLong { pattern }
+                            } else {
+                                ParameterOp::RemovePrefixShort { pattern }
+                            };
                             WordPart::ParameterExpansion {
                                 name: var_name.into(),
                                 operator,
-                                operand: Some(operand),
+                                operand: None,
                                 colon_variant: false,
                             }
                         }
                         '%' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let operator =
-                                if Self::consume_word_char_if(&mut chars, &mut cursor, '%') {
-                                    ParameterOp::RemoveSuffixLong
-                                } else {
-                                    ParameterOp::RemoveSuffixShort
-                                };
-                            let operand =
-                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                            let longest =
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '%');
+                            let operand_text = self.read_brace_operand(
+                                &mut chars,
+                                &mut cursor,
+                                source_backed,
+                            );
+                            let pattern = self.pattern_from_source_text(&operand_text);
+                            let operator = if longest {
+                                ParameterOp::RemoveSuffixLong { pattern }
+                            } else {
+                                ParameterOp::RemoveSuffixShort { pattern }
+                            };
                             WordPart::ParameterExpansion {
                                 name: var_name.into(),
                                 operator,
-                                operand: Some(operand),
+                                operand: None,
                                 colon_variant: false,
                             }
                         }
@@ -6084,11 +6865,12 @@ impl<'a> Parser<'a> {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let replace_all =
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '/');
-                            let pattern = self.read_replacement_pattern(
+                            let pattern_text = self.read_replacement_pattern(
                                 &mut chars,
                                 &mut cursor,
                                 source_backed,
                             );
+                            let pattern = self.pattern_from_source_text(&pattern_text);
                             let replacement =
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
                                     self.read_source_text_while(
@@ -6390,6 +7172,24 @@ impl<'a> Parser<'a> {
         Word { parts, span }
     }
 
+    fn decode_fragment_word_text(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+    ) -> Word {
+        let mut parts = Vec::new();
+        self.decode_word_parts_into_with_quote_fragments(
+            s,
+            base,
+            source_backed,
+            true,
+            &mut parts,
+        );
+        Word { parts, span }
+    }
+
     fn parse_word_with_context(
         &mut self,
         s: &str,
@@ -6397,7 +7197,7 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
-        self.decode_word_text(s, span, base, source_backed)
+        self.decode_word_text_preserving_quotes_if_needed(s, span, base, source_backed)
     }
 
     /// Read operand for brace expansion (everything until closing brace)
@@ -6500,6 +7300,10 @@ mod tests {
 
     fn is_fully_quoted(word: &Word) -> bool {
         Parser::is_fully_quoted_word(word)
+    }
+
+    fn pattern_part_slices<'a>(pattern: &'a Pattern, input: &'a str) -> Vec<&'a str> {
+        pattern.parts.iter().map(|part| part.span.slice(input)).collect()
     }
 
     fn top_level_part_slices<'a>(word: &'a Word, input: &'a str) -> Vec<&'a str> {
@@ -7976,12 +8780,22 @@ mod tests {
         let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
             panic!("expected scalar assignment");
         };
-        let WordPart::ParameterExpansion { operand, .. } = &word.parts[0].kind else {
+        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
             panic!("expected parameter expansion");
         };
-
-        let operand = operand.as_ref().expect("expected operand");
-        assert!(operand.slice(input).contains("$_sub_domain"));
+        let ParameterOp::RemovePrefixShort { pattern } = operator else {
+            panic!("expected short-prefix trim operator");
+        };
+        assert!(pattern.render(input).contains("$_sub_domain"));
+        assert!(pattern.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                PatternPart::Word(word)
+                    if word.parts.iter().any(
+                        |word_part| matches!(&word_part.kind, WordPart::Variable(name) if name == "_sub_domain")
+                    )
+            )
+        }));
     }
 
     #[test]
@@ -7994,13 +8808,26 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let WordPart::ParameterExpansion { operand, .. } = &word.parts[0].kind else {
+        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
             panic!("expected parameter expansion");
         };
-
-        let operand = operand.as_ref().expect("expected operand");
-        assert!(operand.is_source_backed());
-        assert_eq!(operand.slice(input), "${prefix:-fallback}");
+        let ParameterOp::RemovePrefixShort { pattern } = operator else {
+            panic!("expected short-prefix trim operator");
+        };
+        assert_eq!(pattern.render(input), "${prefix:-fallback}");
+        assert!(matches!(
+            &pattern.parts[..],
+            [PatternPartNode {
+                kind: PatternPart::Word(word),
+                ..
+            }] if matches!(
+                &word.parts[..],
+                [WordPartNode {
+                    kind: WordPart::ParameterExpansion { .. },
+                    ..
+                }]
+            )
+        ));
     }
 
     #[test]
@@ -8024,9 +8851,13 @@ mod tests {
             panic!("expected replace-first operator");
         };
 
-        assert!(pattern.is_source_backed());
+        assert_eq!(pattern.render(input), "foo");
+        assert_eq!(pattern.parts.len(), 1);
+        assert!(matches!(
+            &pattern.parts[0].kind,
+            PatternPart::Literal(text) if text.is_source_backed()
+        ));
         assert!(replacement.is_source_backed());
-        assert_eq!(pattern.slice(input), "foo");
         assert_eq!(replacement.slice(input), "bar");
     }
 
@@ -8051,9 +8882,13 @@ mod tests {
             panic!("expected replace-first operator");
         };
 
-        assert!(!pattern.is_source_backed());
+        assert_eq!(pattern.render(input), "foo/bar");
+        assert_eq!(pattern.parts.len(), 1);
+        assert!(matches!(
+            &pattern.parts[0].kind,
+            PatternPart::Literal(text) if !text.is_source_backed() && text == "foo/bar"
+        ));
         assert!(replacement.is_source_backed());
-        assert_eq!(pattern.slice(input), "foo/bar");
         assert_eq!(replacement.slice(input), "baz");
     }
 
@@ -8789,14 +9624,19 @@ coproc worker { true; }
 
         assert_eq!(patterns[0].render(input), "foobar");
         assert_eq!(patterns[0].parts.len(), 2);
-        assert_eq!(patterns[0].part_span(0).unwrap().slice(input), "foo");
-        assert_eq!(patterns[0].part_span(1).unwrap().slice(input), "\"bar\"");
+        assert_eq!(pattern_part_slices(&patterns[0], input), vec!["foo", "\"bar\""]);
+        assert!(matches!(
+            &patterns[0].parts[1].kind,
+            PatternPart::Word(word) if is_fully_quoted(word)
+        ));
 
         assert_eq!(patterns[1].render(input), "bazqux");
-        assert!(!is_fully_quoted(&patterns[1]));
         assert_eq!(patterns[1].parts.len(), 2);
-        assert_eq!(patterns[1].part_span(0).unwrap().slice(input), "'baz'");
-        assert_eq!(patterns[1].part_span(1).unwrap().slice(input), "qux");
+        assert_eq!(pattern_part_slices(&patterns[1], input), vec!["'baz'", "qux"]);
+        assert!(matches!(
+            &patterns[1].parts[0].kind,
+            PatternPart::Word(word) if is_fully_quoted(word)
+        ));
     }
 
     #[test]
@@ -8868,7 +9708,7 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_pattern_rhs_preserves_structure() {
-        let input = "[[ foo == (bar|baz)* ]]\n";
+        let input = "[[ foo == @(bar|baz)* ]]\n";
         let script = Parser::new(input).parse().unwrap().script;
 
         let (compound, _) = expect_compound(&script.commands[0]);
@@ -8881,10 +9721,121 @@ coproc worker { true; }
         };
         assert_eq!(binary.op, ConditionalBinaryOp::PatternEq);
 
-        let ConditionalExpr::Pattern(word) = binary.right.as_ref() else {
+        let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
             panic!("expected pattern rhs");
         };
-        assert_eq!(word.render(input), "(bar|baz)*");
+        assert_eq!(pattern.render(input), "@(bar|baz)*");
+        assert!(matches!(
+            &pattern.parts[0].kind,
+            PatternPart::Group {
+                kind: PatternGroupKind::ExactlyOne,
+                ..
+            }
+        ));
+        assert!(matches!(&pattern.parts[1].kind, PatternPart::AnyString));
+    }
+
+    #[test]
+    fn test_parse_conditional_var_ref_operand() {
+        let input = "[[ -v assoc[$key] ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Unary(unary) = &command.expression else {
+            panic!("expected unary conditional");
+        };
+        assert_eq!(unary.op, ConditionalUnaryOp::VariableSet);
+
+        let ConditionalExpr::VarRef(var_ref) = unary.expr.as_ref() else {
+            panic!("expected typed var-ref operand");
+        };
+        assert_eq!(var_ref.name.as_str(), "assoc");
+        assert_eq!(var_ref.name_span.slice(input), "assoc");
+        assert_eq!(var_ref.index.as_ref().unwrap().slice(input), "$key");
+    }
+
+    #[test]
+    fn test_parse_conditional_non_direct_var_ref_falls_back_to_word() {
+        let input = "[[ -v prefix$var ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Unary(unary) = &command.expression else {
+            panic!("expected unary conditional");
+        };
+        let ConditionalExpr::Word(word) = unary.expr.as_ref() else {
+            panic!("expected word fallback");
+        };
+        assert_eq!(word.render(input), "prefix$var");
+    }
+
+    #[test]
+    fn test_parse_pattern_preserves_dynamic_fragments_inside_extglob() {
+        let input = "[[ value == --@($choice|$prefix-'x') ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Binary(binary) = &command.expression else {
+            panic!("expected binary conditional");
+        };
+        let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+            panic!("expected pattern rhs");
+        };
+
+        assert_eq!(pattern.render(input), "--@($choice|$prefix-x)");
+        let PatternPart::Group { patterns, .. } = &pattern.parts[1].kind else {
+            panic!("expected extglob group");
+        };
+        assert!(matches!(
+            &patterns[0].parts[..],
+            [PatternPartNode {
+                kind: PatternPart::Word(word),
+                ..
+            }] if matches!(
+                &word.parts[..],
+                [WordPartNode {
+                    kind: WordPart::Variable(name),
+                    ..
+                }]
+                if name == "choice"
+            )
+        ));
+        assert!(matches!(
+            &patterns[1].parts[..],
+            [
+                PatternPartNode {
+                    kind: PatternPart::Word(variable),
+                    ..
+                },
+                PatternPartNode {
+                    kind: PatternPart::Literal(text),
+                    ..
+                },
+                PatternPartNode {
+                    kind: PatternPart::Word(quoted),
+                    ..
+                }
+            ] if matches!(
+                &variable.parts[..],
+                [WordPartNode {
+                    kind: WordPart::Variable(name),
+                    ..
+                }]
+                if name == "prefix"
+            ) && text.as_str(input, patterns[1].parts[1].span) == "-" && is_fully_quoted(quoted)
+        ));
     }
 
     #[test]

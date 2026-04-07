@@ -2,8 +2,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArithmeticUnaryOp,
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name, ParameterOp, Script, Span, Word,
-    WordPart, WordPartNode,
+    ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name, ParameterOp, Pattern,
+    PatternPart, PatternPartNode, Script, SourceText, Span, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 
@@ -86,6 +86,14 @@ struct FlowState {
 enum WordVisitKind {
     Expansion,
     Conditional,
+}
+
+#[derive(Debug, Clone)]
+struct ArithmeticEvent {
+    name: Name,
+    span: Span,
+    read: bool,
+    write: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -227,9 +235,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             });
         }
 
-        nested_regions.extend(self.visit_word(&command.name, WordVisitKind::Expansion, flow));
-        nested_regions.extend(self.visit_words(&command.args, WordVisitKind::Expansion, flow));
-        nested_regions.extend(self.visit_redirects(&command.redirects, flow));
+        self.visit_word_into(
+            &command.name,
+            WordVisitKind::Expansion,
+            flow,
+            &mut nested_regions,
+        );
+        self.visit_words_into(
+            &command.args,
+            WordVisitKind::Expansion,
+            flow,
+            &mut nested_regions,
+        );
+        self.visit_redirects_into(&command.redirects, flow, &mut nested_regions);
 
         if let Some(name) = static_word_text(&command.name, self.source)
             && !name.is_empty()
@@ -327,10 +345,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ));
         }
         if let Some(word) = primary_word {
-            nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
+            self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
         }
-        nested_regions.extend(self.visit_words(extra_words, WordVisitKind::Expansion, flow));
-        nested_regions.extend(self.visit_redirects(redirects, flow));
+        self.visit_words_into(
+            extra_words,
+            WordVisitKind::Expansion,
+            flow,
+            &mut nested_regions,
+        );
+        self.visit_redirects_into(redirects, flow, &mut nested_regions);
         nested_regions
     }
 
@@ -360,7 +383,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         for operand in &command.operands {
             match operand {
                 DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                    nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
+                    self.visit_word_into(
+                        word,
+                        WordVisitKind::Expansion,
+                        flow,
+                        &mut nested_regions,
+                    );
                 }
                 DeclOperand::Name(name) => {
                     nested_regions
@@ -391,7 +419,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
         }
 
-        nested_regions.extend(self.visit_redirects(&command.redirects, flow));
+        self.visit_redirects_into(&command.redirects, flow, &mut nested_regions);
 
         RecordedCommand {
             span: command.span,
@@ -512,7 +540,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     .as_deref()
                     .map(|words| self.visit_words(words, WordVisitKind::Expansion, flow))
                     .unwrap_or_default();
-                nested_regions.extend(self.visit_redirects(redirects, flow));
+                self.visit_redirects_into(redirects, flow, &mut nested_regions);
                 self.add_binding(
                     command.variable.clone(),
                     BindingKind::LoopVariable,
@@ -601,14 +629,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             CompoundCommand::Case(command) => {
                 let mut nested_regions =
                     self.visit_word(&command.word, WordVisitKind::Expansion, flow);
-                nested_regions.extend(self.visit_redirects(redirects, flow));
+                self.visit_redirects_into(redirects, flow, &mut nested_regions);
 
                 let arms = command
                     .cases
                     .iter()
                     .map(|case| {
                         let pattern_regions =
-                            self.visit_words(&case.patterns, WordVisitKind::Conditional, flow);
+                            self.visit_patterns(&case.patterns, WordVisitKind::Conditional, flow);
                         let mut commands = self.visit_commands(&case.commands, flow);
                         if !pattern_regions.is_empty() {
                             if let Some(first) = commands.first_mut() {
@@ -637,7 +665,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             CompoundCommand::Select(command) => {
                 let mut nested_regions =
                     self.visit_words(&command.words, WordVisitKind::Expansion, flow);
-                nested_regions.extend(self.visit_redirects(redirects, flow));
+                self.visit_redirects_into(redirects, flow, &mut nested_regions);
                 self.add_binding(
                     command.variable.clone(),
                     BindingKind::LoopVariable,
@@ -720,7 +748,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             CompoundCommand::Conditional(command) => {
                 let mut nested_regions = self.visit_conditional_expr(&command.expression, flow);
-                nested_regions.extend(self.visit_redirects(redirects, flow));
+                self.visit_redirects_into(redirects, flow, &mut nested_regions);
                 RecordedCommand {
                     span: command.span,
                     nested_regions,
@@ -816,10 +844,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let mut nested_regions = Vec::new();
         match &assignment.value {
             AssignmentValue::Scalar(word) => {
-                nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
+                self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
             }
             AssignmentValue::Array(words) => {
-                nested_regions.extend(self.visit_words(words, WordVisitKind::Expansion, flow));
+                self.visit_words_into(words, WordVisitKind::Expansion, flow, &mut nested_regions);
             }
         }
         nested_regions
@@ -832,10 +860,43 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
-        for word in words {
-            nested_regions.extend(self.visit_word(word, kind, flow));
-        }
+        self.visit_words_into(words, kind, flow, &mut nested_regions);
         nested_regions
+    }
+
+    fn visit_words_into(
+        &mut self,
+        words: &'a [Word],
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        for word in words {
+            self.visit_word_into(word, kind, flow, nested_regions);
+        }
+    }
+
+    fn visit_patterns(
+        &mut self,
+        patterns: &'a [Pattern],
+        kind: WordVisitKind,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = Vec::new();
+        self.visit_patterns_into(patterns, kind, flow, &mut nested_regions);
+        nested_regions
+    }
+
+    fn visit_patterns_into(
+        &mut self,
+        patterns: &'a [Pattern],
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        for pattern in patterns {
+            self.visit_pattern_into(pattern, kind, flow, nested_regions);
+        }
     }
 
     fn visit_redirects(
@@ -844,14 +905,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
+        self.visit_redirects_into(redirects, flow, &mut nested_regions);
+        nested_regions
+    }
+
+    fn visit_redirects_into(
+        &mut self,
+        redirects: &'a [shuck_ast::Redirect],
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
         for redirect in redirects {
             let word = match redirect.word_target() {
                 Some(word) => word,
                 None => &redirect.heredoc().expect("expected heredoc redirect").body,
             };
-            nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
+            self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
         }
-        nested_regions
     }
 
     fn visit_word(
@@ -861,8 +931,28 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
-        self.visit_word_part_nodes(&word.parts, kind, flow, &mut nested_regions);
+        self.visit_word_into(word, kind, flow, &mut nested_regions);
         nested_regions
+    }
+
+    fn visit_word_into(
+        &mut self,
+        word: &'a Word,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        self.visit_word_part_nodes(&word.parts, kind, flow, nested_regions);
+    }
+
+    fn visit_pattern_into(
+        &mut self,
+        pattern: &'a Pattern,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        self.visit_pattern_part_nodes(&pattern.parts, kind, flow, nested_regions);
     }
 
     fn visit_word_part_nodes(
@@ -874,6 +964,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         for part in parts {
             self.visit_word_part(&part.kind, part.span, kind, flow, nested_regions);
+        }
+    }
+
+    fn visit_pattern_part_nodes(
+        &mut self,
+        parts: &'a [PatternPartNode],
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        for part in parts {
+            self.visit_pattern_part(&part.kind, kind, flow, nested_regions);
         }
     }
 
@@ -932,6 +1034,24 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     span,
                 );
+                match operator {
+                    ParameterOp::RemovePrefixShort { pattern }
+                    | ParameterOp::RemovePrefixLong { pattern }
+                    | ParameterOp::RemoveSuffixShort { pattern }
+                    | ParameterOp::RemoveSuffixLong { pattern }
+                    | ParameterOp::ReplaceFirst { pattern, .. }
+                    | ParameterOp::ReplaceAll { pattern, .. } => {
+                        self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                    }
+                    ParameterOp::UseDefault
+                    | ParameterOp::AssignDefault
+                    | ParameterOp::UseReplacement
+                    | ParameterOp::Error
+                    | ParameterOp::UpperFirst
+                    | ParameterOp::UpperAll
+                    | ParameterOp::LowerFirst
+                    | ParameterOp::LowerAll => {}
+                }
             }
             WordPart::Length(name) | WordPart::ArrayLength(name) => {
                 self.add_reference(
@@ -1036,23 +1156,97 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_pattern_part(
+        &mut self,
+        part: &'a PatternPart,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                }
+            }
+            PatternPart::Word(word) => {
+                self.visit_word_into(word, kind, flow, nested_regions);
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+
     fn visit_conditional_expr(
         &mut self,
         expression: &'a ConditionalExpr,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = Vec::new();
+        self.visit_conditional_expr_into(expression, flow, &mut nested_regions);
+        nested_regions
+    }
+
+    fn visit_conditional_expr_into(
+        &mut self,
+        expression: &'a ConditionalExpr,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
         match expression {
             ConditionalExpr::Binary(expr) => {
-                let mut nested_regions = self.visit_conditional_expr(&expr.left, flow);
-                nested_regions.extend(self.visit_conditional_expr(&expr.right, flow));
-                nested_regions
+                self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
+                self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
             }
-            ConditionalExpr::Unary(expr) => self.visit_conditional_expr(&expr.expr, flow),
-            ConditionalExpr::Parenthesized(expr) => self.visit_conditional_expr(&expr.expr, flow),
-            ConditionalExpr::Word(word)
-            | ConditionalExpr::Pattern(word)
-            | ConditionalExpr::Regex(word) => {
-                self.visit_word(word, WordVisitKind::Conditional, flow)
+            ConditionalExpr::Unary(expr) => {
+                self.visit_conditional_expr_into(&expr.expr, flow, nested_regions);
+            }
+            ConditionalExpr::Parenthesized(expr) => {
+                self.visit_conditional_expr_into(&expr.expr, flow, nested_regions);
+            }
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+                self.visit_word_into(word, WordVisitKind::Conditional, flow, nested_regions);
+            }
+            ConditionalExpr::Pattern(pattern) => {
+                self.visit_pattern_into(pattern, WordVisitKind::Conditional, flow, nested_regions);
+            }
+            ConditionalExpr::VarRef(var_ref) => {
+                self.add_reference(
+                    var_ref.name.clone(),
+                    ReferenceKind::ConditionalOperand,
+                    var_ref.name_span,
+                );
+                if let Some(index) = &var_ref.index {
+                    self.visit_arithmetic_source_text(index);
+                }
+            }
+        }
+    }
+
+    fn visit_arithmetic_source_text(&mut self, text: &SourceText) {
+        let source = text.slice(self.source);
+        self.visit_arithmetic_text(source, text.span());
+    }
+
+    fn visit_arithmetic_text(&mut self, text: &str, base: Span) {
+        for event in scan_arithmetic(text, base) {
+            if event.read {
+                self.add_reference(
+                    event.name.clone(),
+                    ReferenceKind::ArithmeticRead,
+                    event.span,
+                );
+            }
+            if event.write {
+                self.add_binding(
+                    event.name,
+                    BindingKind::ArithmeticAssignment,
+                    self.current_scope(),
+                    event.span,
+                    BindingAttributes::empty(),
+                );
             }
         }
     }
@@ -1755,6 +1949,94 @@ fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<Declarati
             DeclOperand::Dynamic(word) => DeclarationOperand::DynamicWord { span: word.span },
         })
         .collect()
+}
+
+fn scan_arithmetic(text: &str, base: Span) -> Vec<ArithmeticEvent> {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    let mut events = Vec::new();
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if is_ident_start(byte) {
+            let start = index;
+            index += 1;
+            while index < bytes.len() && is_ident_continue(bytes[index]) {
+                index += 1;
+            }
+            let name = &text[start..index];
+            let before = prev_non_whitespace(text, start);
+            let after = next_non_whitespace(text, index);
+            let (read, write) = classify_arithmetic_usage(before, after);
+            let span = relative_span(base, text, start, index);
+            events.push(ArithmeticEvent {
+                name: Name::from(name),
+                span,
+                read,
+                write,
+            });
+        } else {
+            index += 1;
+        }
+    }
+
+    events
+}
+
+fn classify_arithmetic_usage(before: &str, after: &str) -> (bool, bool) {
+    if before.ends_with("++") || before.ends_with("--") {
+        return (true, true);
+    }
+    if after.starts_with("++") || after.starts_with("--") {
+        return (true, true);
+    }
+    if after.starts_with("+=")
+        || after.starts_with("-=")
+        || after.starts_with("*=")
+        || after.starts_with("/=")
+        || after.starts_with("%=")
+        || after.starts_with("&=")
+        || after.starts_with("|=")
+        || after.starts_with("^=")
+        || after.starts_with("<<=")
+        || after.starts_with(">>=")
+    {
+        return (true, true);
+    }
+    if after.starts_with('=') && !after.starts_with("==") {
+        return (false, true);
+    }
+    (true, false)
+}
+
+fn prev_non_whitespace(text: &str, index: usize) -> &str {
+    let mut cursor = index;
+    while cursor > 0 && text.as_bytes()[cursor - 1].is_ascii_whitespace() {
+        cursor -= 1;
+    }
+    &text[..cursor]
+}
+
+fn next_non_whitespace(text: &str, index: usize) -> &str {
+    let mut cursor = index;
+    while cursor < text.len() && text.as_bytes()[cursor].is_ascii_whitespace() {
+        cursor += 1;
+    }
+    &text[cursor..]
+}
+
+fn relative_span(base: Span, source: &str, start: usize, end: usize) -> Span {
+    let start_position = base.start.advanced_by(&source[..start]);
+    let end_position = base.start.advanced_by(&source[..end]);
+    Span::from_positions(start_position, end_position)
+}
+
+fn is_ident_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn is_ident_continue(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn assignment_value_span(assignment: &Assignment) -> Span {

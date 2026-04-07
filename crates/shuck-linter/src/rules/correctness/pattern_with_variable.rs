@@ -1,6 +1,7 @@
-use shuck_ast::{ParameterOp, SourceText, WordPart};
+use shuck_ast::{ParameterOp, Pattern, PatternPart, WordPart};
 
 use crate::rules::common::query::{self, CommandWalkOptions, visit_command_words};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
 pub struct PatternWithVariable;
@@ -27,14 +28,11 @@ pub fn pattern_with_variable(checker: &mut Checker) {
         &mut |command, _| {
             visit_command_words(command, &mut |word| {
                 for (part, span) in word.parts_with_spans() {
-                    let WordPart::ParameterExpansion {
-                        operator, operand, ..
-                    } = part
-                    else {
+                    let WordPart::ParameterExpansion { operator, .. } = part else {
                         continue;
                     };
 
-                    if pattern_uses_variable(operator, operand.as_ref(), source) {
+                    if pattern_uses_variable(operator, source) {
                         spans.push(span);
                     }
                 }
@@ -47,20 +45,14 @@ pub fn pattern_with_variable(checker: &mut Checker) {
     }
 }
 
-fn pattern_uses_variable(
-    operator: &ParameterOp,
-    operand: Option<&SourceText>,
-    source: &str,
-) -> bool {
+fn pattern_uses_variable(operator: &ParameterOp, source: &str) -> bool {
     match operator {
-        ParameterOp::RemovePrefixShort
-        | ParameterOp::RemovePrefixLong
-        | ParameterOp::RemoveSuffixShort
-        | ParameterOp::RemoveSuffixLong => {
-            operand.is_some_and(|operand| source_text_has_variable(operand, source))
-        }
+        ParameterOp::RemovePrefixShort { pattern }
+        | ParameterOp::RemovePrefixLong { pattern }
+        | ParameterOp::RemoveSuffixShort { pattern }
+        | ParameterOp::RemoveSuffixLong { pattern } => pattern_has_dynamic_fragment(pattern, source),
         ParameterOp::ReplaceFirst { pattern, .. } | ParameterOp::ReplaceAll { pattern, .. } => {
-            source_text_has_variable(pattern, source)
+            pattern_has_dynamic_fragment(pattern, source)
         }
         ParameterOp::UseDefault
         | ParameterOp::AssignDefault
@@ -73,27 +65,26 @@ fn pattern_uses_variable(
     }
 }
 
-fn source_text_has_variable(text: &SourceText, source: &str) -> bool {
-    let text = text.slice(source);
-    let bytes = text.as_bytes();
-
-    for (index, byte) in bytes.iter().enumerate() {
-        if *byte != b'$' {
-            continue;
-        }
-
-        let mut backslashes = 0;
-        let mut cursor = index;
-        while cursor > 0 {
-            cursor -= 1;
-            if bytes[cursor] != b'\\' {
-                break;
+fn pattern_has_dynamic_fragment(pattern: &Pattern, source: &str) -> bool {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                if patterns
+                    .iter()
+                    .any(|pattern| pattern_has_dynamic_fragment(pattern, source))
+                {
+                    return true;
+                }
             }
-            backslashes += 1;
-        }
-
-        if backslashes % 2 == 0 {
-            return true;
+            PatternPart::Word(word) => {
+                if classify_word(word, source).is_expanded() {
+                    return true;
+                }
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
         }
     }
 

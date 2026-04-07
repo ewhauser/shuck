@@ -1,4 +1,4 @@
-use shuck_ast::{Command, CompoundCommand};
+use shuck_ast::{Command, CompoundCommand, Pattern, PatternPart};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::common::word::classify_word;
@@ -31,7 +31,7 @@ pub fn case_pattern_var(checker: &mut Checker) {
 
             for item in &case.cases {
                 for pattern in &item.patterns {
-                    if classify_word(pattern, checker.source()).is_expanded() {
+                    if pattern_has_expansions(pattern, checker.source()) {
                         spans.push(pattern.span);
                     }
                 }
@@ -42,4 +42,30 @@ pub fn case_pattern_var(checker: &mut Checker) {
     for span in spans {
         checker.report(CasePatternVar, span);
     }
+}
+
+fn pattern_has_expansions(pattern: &Pattern, source: &str) -> bool {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                if patterns
+                    .iter()
+                    .any(|pattern| pattern_has_expansions(pattern, source))
+                {
+                    return true;
+                }
+            }
+            PatternPart::Word(word) => {
+                if classify_word(word, source).is_expanded() {
+                    return true;
+                }
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+
+    false
 }

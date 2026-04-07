@@ -1,8 +1,8 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Redirect, Script, Span, TextSize, Word, WordPart,
-    WordPartNode,
+    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, Script, Span,
+    TextSize, Word, WordPart, WordPartNode,
 };
 
 use crate::Rule;
@@ -305,7 +305,7 @@ where
         CompoundCommand::Case(command) => {
             walk_word(&command.word, visit);
             for case in &command.cases {
-                walk_words(&case.patterns, visit);
+                walk_patterns(&case.patterns, visit);
                 walk_commands(&case.commands, visit);
             }
         }
@@ -355,11 +355,36 @@ where
     }
 }
 
+fn walk_patterns<F>(patterns: &[Pattern], visit: &mut F)
+where
+    F: FnMut(Span),
+{
+    for pattern in patterns {
+        walk_pattern(pattern, visit);
+    }
+}
+
 fn walk_word<F>(word: &Word, visit: &mut F)
 where
     F: FnMut(Span),
 {
     walk_word_parts(&word.parts, visit);
+}
+
+fn walk_pattern<F>(pattern: &Pattern, visit: &mut F)
+where
+    F: FnMut(Span),
+{
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => walk_patterns(patterns, visit),
+            PatternPart::Word(word) => walk_word(word, visit),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
 }
 
 fn walk_word_parts<F>(parts: &[WordPartNode], visit: &mut F)
@@ -400,9 +425,9 @@ where
         }
         ConditionalExpr::Unary(expr) => walk_conditional_expr(&expr.expr, visit),
         ConditionalExpr::Parenthesized(expr) => walk_conditional_expr(&expr.expr, visit),
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => walk_word(word, visit),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => walk_word(word, visit),
+        ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, visit),
+        ConditionalExpr::VarRef(_) => {}
     }
 }
 

@@ -1,6 +1,7 @@
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Redirect, Span, Word, WordPart, WordPartNode,
+    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, Span, Word,
+    WordPart, WordPartNode,
 };
 
 use crate::rules::common::word::static_word_text;
@@ -151,7 +152,7 @@ fn collect_compound(command: &CompoundCommand, source: &str, spans: &mut Vec<Spa
         CompoundCommand::Case(command) => {
             collect_word(&command.word, source, spans);
             for case in &command.cases {
-                collect_words(&case.patterns, source, spans);
+                collect_patterns(&case.patterns, source, spans);
                 collect_commands(&case.commands, source, spans);
             }
         }
@@ -194,8 +195,27 @@ fn collect_words(words: &[Word], source: &str, spans: &mut Vec<Span>) {
     }
 }
 
+fn collect_patterns(patterns: &[Pattern], source: &str, spans: &mut Vec<Span>) {
+    for pattern in patterns {
+        collect_pattern(pattern, source, spans);
+    }
+}
+
 fn collect_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
     collect_word_parts(&word.parts, source, spans);
+}
+
+fn collect_pattern(pattern: &Pattern, source: &str, spans: &mut Vec<Span>) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => collect_patterns(patterns, source, spans),
+            PatternPart::Word(word) => collect_word(word, source, spans),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
 }
 
 fn collect_word_parts(parts: &[WordPartNode], source: &str, spans: &mut Vec<Span>) {
@@ -221,9 +241,11 @@ fn collect_conditional_expr(expression: &ConditionalExpr, source: &str, spans: &
         ConditionalExpr::Parenthesized(expr) => {
             collect_conditional_expr(&expr.expr, source, spans);
         }
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => collect_word(word, source, spans),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_word(word, source, spans)
+        }
+        ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans),
+        ConditionalExpr::VarRef(_) => {}
     }
 }
 

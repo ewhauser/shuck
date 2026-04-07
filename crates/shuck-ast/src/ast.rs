@@ -420,6 +420,15 @@ pub struct ConditionalCommand {
     pub right_bracket_span: Span,
 }
 
+/// A direct variable-reference operand inside `[[ -v ... ]]` or `[[ -R ... ]]`.
+#[derive(Debug, Clone)]
+pub struct ConditionalVarRef {
+    pub name: Name,
+    pub name_span: Span,
+    pub index: Option<SourceText>,
+    pub span: Span,
+}
+
 /// A node within a `[[ ... ]]` conditional expression.
 #[derive(Debug, Clone)]
 pub enum ConditionalExpr {
@@ -427,8 +436,9 @@ pub enum ConditionalExpr {
     Unary(ConditionalUnaryExpr),
     Parenthesized(ConditionalParenExpr),
     Word(Word),
-    Pattern(Word),
+    Pattern(Pattern),
     Regex(Word),
+    VarRef(ConditionalVarRef),
 }
 
 impl ConditionalExpr {
@@ -438,7 +448,9 @@ impl ConditionalExpr {
             Self::Binary(expr) => expr.span(),
             Self::Unary(expr) => expr.span(),
             Self::Parenthesized(expr) => expr.span(),
-            Self::Word(word) | Self::Pattern(word) | Self::Regex(word) => word.span,
+            Self::Word(word) | Self::Regex(word) => word.span,
+            Self::Pattern(pattern) => pattern.span,
+            Self::VarRef(var_ref) => var_ref.span,
         }
     }
 }
@@ -825,7 +837,7 @@ pub enum CaseTerminator {
 /// A single case item.
 #[derive(Debug, Clone)]
 pub struct CaseItem {
-    pub patterns: Vec<Word>,
+    pub patterns: Vec<Pattern>,
     pub commands: Vec<Command>,
     pub terminator: CaseTerminator,
 }
@@ -987,6 +999,104 @@ impl fmt::Display for Word {
     }
 }
 
+/// A shell pattern in a pattern-sensitive context such as `case`, `[[ ... == ... ]]`,
+/// or parameter pattern operators.
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    pub parts: Vec<PatternPartNode>,
+    pub span: Span,
+}
+
+impl Pattern {
+    /// Get the source span for a specific pattern part.
+    pub fn part_span(&self, index: usize) -> Option<Span> {
+        self.parts.get(index).map(|part| part.span)
+    }
+
+    pub fn is_source_backed(&self) -> bool {
+        self.parts
+            .iter()
+            .all(|part| pattern_part_is_source_backed(&part.kind))
+    }
+
+    /// Iterate over pattern parts and their spans together.
+    pub fn parts_with_spans(&self) -> impl Iterator<Item = (&PatternPart, Span)> + '_ {
+        self.parts.iter().map(|part| (&part.kind, part.span))
+    }
+
+    /// Render this pattern using exact source slices when available and owned cooked
+    /// text only where the parser normalized the input.
+    pub fn render(&self, source: &str) -> String {
+        let mut rendered = String::new();
+        self.fmt_with_source(&mut rendered, Some(source))
+            .expect("writing into a String should not fail");
+        rendered
+    }
+
+    fn fmt_with_source(&self, f: &mut impl fmt::Write, source: Option<&str>) -> fmt::Result {
+        for (part, span) in self.parts_with_spans() {
+            fmt_pattern_part_with_source(f, part, span, source)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for Pattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_with_source(f, None)
+    }
+}
+
+/// The extglob operator for a pattern group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternGroupKind {
+    ZeroOrOne,
+    ZeroOrMore,
+    OneOrMore,
+    ExactlyOne,
+    NoneOf,
+}
+
+impl PatternGroupKind {
+    pub fn prefix(self) -> char {
+        match self {
+            Self::ZeroOrOne => '?',
+            Self::ZeroOrMore => '*',
+            Self::OneOrMore => '+',
+            Self::ExactlyOne => '@',
+            Self::NoneOf => '!',
+        }
+    }
+}
+
+/// A pattern part paired with its source span.
+#[derive(Debug, Clone)]
+pub struct PatternPartNode {
+    pub kind: PatternPart,
+    pub span: Span,
+}
+
+impl PatternPartNode {
+    pub fn new(kind: PatternPart, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+/// Parts of a pattern.
+#[derive(Debug, Clone)]
+pub enum PatternPart {
+    Literal(LiteralText),
+    AnyString,
+    AnyChar,
+    CharClass(SourceText),
+    Group {
+        kind: PatternGroupKind,
+        patterns: Vec<Pattern>,
+    },
+    Word(Word),
+}
+
 fn display_source_text<'a>(text: Option<&'a SourceText>, source: Option<&'a str>) -> &'a str {
     match (text, source) {
         (Some(text), Some(source)) => text.slice(source),
@@ -1104,6 +1214,38 @@ fn fmt_literal_text(
     }
 }
 
+fn fmt_pattern_part_with_source(
+    f: &mut impl fmt::Write,
+    part: &PatternPart,
+    span: Span,
+    source: Option<&str>,
+) -> fmt::Result {
+    match part {
+        PatternPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
+        PatternPart::AnyString => f.write_str("*")?,
+        PatternPart::AnyChar => f.write_str("?")?,
+        PatternPart::CharClass(text) => match source {
+            Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
+            _ => f.write_str(display_source_text(Some(text), source))?,
+        },
+        PatternPart::Group { kind, patterns } => {
+            write!(f, "{}(", kind.prefix())?;
+            let mut patterns = patterns.iter();
+            if let Some(pattern) = patterns.next() {
+                pattern.fmt_with_source(f, source)?;
+                for pattern in patterns {
+                    f.write_str("|")?;
+                    pattern.fmt_with_source(f, source)?;
+                }
+            }
+            f.write_str(")")?;
+        }
+        PatternPart::Word(word) => word.fmt_with_source(f, source)?,
+    }
+
+    Ok(())
+}
+
 fn fmt_word_part_with_source(
     f: &mut impl fmt::Write,
     part: &WordPart,
@@ -1112,38 +1254,12 @@ fn fmt_word_part_with_source(
 ) -> fmt::Result {
     match part {
         WordPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
-        WordPart::SingleQuoted { value, dollar } => {
-            if let Some(source) = source
-                && value.is_source_backed()
-                && span.end.offset <= source.len()
-            {
-                f.write_str(span.slice(source))?;
-            } else {
-                if *dollar {
-                    f.write_str("$'")?;
-                } else {
-                    f.write_char('\'')?;
-                }
-                f.write_str(display_source_text(Some(value), source))?;
-                f.write_char('\'')?;
-            }
+        WordPart::SingleQuoted { value, .. } => {
+            f.write_str(display_source_text(Some(value), source))?;
         }
-        WordPart::DoubleQuoted { parts, dollar } => {
-            if let Some(source) = source
-                && parts.iter().all(|part| part_is_source_backed(&part.kind))
-                && span.end.offset <= source.len()
-            {
-                f.write_str(span.slice(source))?;
-            } else {
-                if *dollar {
-                    f.write_str("$\"")?;
-                } else {
-                    f.write_char('"')?;
-                }
-                for part in parts {
-                    fmt_word_part_with_source(f, &part.kind, part.span, source)?;
-                }
-                f.write_char('"')?;
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                fmt_word_part_with_source(f, &part.kind, part.span, source)?;
             }
         }
         WordPart::Variable(name) => write!(f, "${}", name)?,
@@ -1215,50 +1331,42 @@ fn fmt_word_part_with_source(
                     display_source_text(operand.as_ref(), source)
                 )?
             }
-            ParameterOp::RemovePrefixShort => write!(
-                f,
-                "${{{}#{}}}",
-                name,
-                display_source_text(operand.as_ref(), source)
-            )?,
-            ParameterOp::RemovePrefixLong => write!(
-                f,
-                "${{{}##{}}}",
-                name,
-                display_source_text(operand.as_ref(), source)
-            )?,
-            ParameterOp::RemoveSuffixShort => write!(
-                f,
-                "${{{}%{}}}",
-                name,
-                display_source_text(operand.as_ref(), source)
-            )?,
-            ParameterOp::RemoveSuffixLong => write!(
-                f,
-                "${{{}%%{}}}",
-                name,
-                display_source_text(operand.as_ref(), source)
-            )?,
+            ParameterOp::RemovePrefixShort { pattern } => {
+                write!(f, "${{{}#", name)?;
+                pattern.fmt_with_source(f, source)?;
+                f.write_str("}")?;
+            }
+            ParameterOp::RemovePrefixLong { pattern } => {
+                write!(f, "${{{}##", name)?;
+                pattern.fmt_with_source(f, source)?;
+                f.write_str("}")?;
+            }
+            ParameterOp::RemoveSuffixShort { pattern } => {
+                write!(f, "${{{}%", name)?;
+                pattern.fmt_with_source(f, source)?;
+                f.write_str("}")?;
+            }
+            ParameterOp::RemoveSuffixLong { pattern } => {
+                write!(f, "${{{}%%", name)?;
+                pattern.fmt_with_source(f, source)?;
+                f.write_str("}")?;
+            }
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
-            } => write!(
-                f,
-                "${{{}/{}/{}}}",
-                name,
-                display_source_text(Some(pattern), source),
-                display_source_text(Some(replacement), source)
-            )?,
+            } => {
+                write!(f, "${{{}/", name)?;
+                pattern.fmt_with_source(f, source)?;
+                write!(f, "/{}}}", display_source_text(Some(replacement), source))?;
+            }
             ParameterOp::ReplaceAll {
                 pattern,
                 replacement,
-            } => write!(
-                f,
-                "${{{}///{}/{}}}",
-                name,
-                display_source_text(Some(pattern), source),
-                display_source_text(Some(replacement), source)
-            )?,
+            } => {
+                write!(f, "${{{}//", name)?;
+                pattern.fmt_with_source(f, source)?;
+                write!(f, "/{}}}", display_source_text(Some(replacement), source))?;
+            }
             ParameterOp::UpperFirst => write!(f, "${{{}^}}", name)?,
             ParameterOp::UpperAll => write!(f, "${{{}^^}}", name)?,
             ParameterOp::LowerFirst => write!(f, "${{{},}}", name)?,
@@ -1391,8 +1499,22 @@ fn part_is_source_backed(part: &WordPart) -> bool {
     }
 }
 
+fn pattern_part_is_source_backed(part: &PatternPart) -> bool {
+    match part {
+        PatternPart::Literal(text) => text.is_source_backed(),
+        PatternPart::AnyString | PatternPart::AnyChar => true,
+        PatternPart::CharClass(text) => text.is_source_backed(),
+        PatternPart::Group { patterns, .. } => patterns.iter().all(Pattern::is_source_backed),
+        PatternPart::Word(word) => word.parts.iter().all(|part| part_is_source_backed(&part.kind)),
+    }
+}
+
 fn operator_is_source_backed(operator: &ParameterOp) -> bool {
     match operator {
+        ParameterOp::RemovePrefixShort { pattern }
+        | ParameterOp::RemovePrefixLong { pattern }
+        | ParameterOp::RemoveSuffixShort { pattern }
+        | ParameterOp::RemoveSuffixLong { pattern } => pattern.is_source_backed(),
         ParameterOp::ReplaceFirst {
             pattern,
             replacement,
@@ -1406,7 +1528,7 @@ fn operator_is_source_backed(operator: &ParameterOp) -> bool {
 }
 
 /// Parameter expansion operators
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum ParameterOp {
     /// :- use default if unset/empty
     UseDefault,
@@ -1417,21 +1539,21 @@ pub enum ParameterOp {
     /// :? error if unset/empty
     Error,
     /// # remove prefix (shortest)
-    RemovePrefixShort,
+    RemovePrefixShort { pattern: Pattern },
     /// ## remove prefix (longest)
-    RemovePrefixLong,
+    RemovePrefixLong { pattern: Pattern },
     /// % remove suffix (shortest)
-    RemoveSuffixShort,
+    RemoveSuffixShort { pattern: Pattern },
     /// %% remove suffix (longest)
-    RemoveSuffixLong,
+    RemoveSuffixLong { pattern: Pattern },
     /// / pattern replacement (first occurrence)
     ReplaceFirst {
-        pattern: SourceText,
+        pattern: Pattern,
         replacement: SourceText,
     },
     /// // pattern replacement (all occurrences)
     ReplaceAll {
-        pattern: SourceText,
+        pattern: Pattern,
         replacement: SourceText,
     },
     /// ^ uppercase first char
@@ -1590,6 +1712,17 @@ mod tests {
             parts: parts
                 .into_iter()
                 .map(|part| WordPartNode::new(part, span))
+                .collect(),
+            span,
+        }
+    }
+
+    fn pattern(parts: Vec<PatternPart>) -> Pattern {
+        let span = Span::new();
+        Pattern {
+            parts: parts
+                .into_iter()
+                .map(|part| PatternPartNode::new(part, span))
                 .collect(),
             span,
         }
@@ -1755,6 +1888,28 @@ mod tests {
     }
 
     #[test]
+    fn pattern_display_multiple_parts() {
+        let p = pattern(vec![
+            PatternPart::Literal("file".into()),
+            PatternPart::AnyString,
+            PatternPart::CharClass("[[:digit:]]".into()),
+        ]);
+        assert_eq!(format!("{p}"), "file*[[:digit:]]");
+    }
+
+    #[test]
+    fn pattern_display_extglob_group() {
+        let p = pattern(vec![PatternPart::Group {
+            kind: PatternGroupKind::ExactlyOne,
+            patterns: vec![
+                pattern(vec![PatternPart::Literal("foo".into())]),
+                pattern(vec![PatternPart::Literal("bar".into())]),
+            ],
+        }]);
+        assert_eq!(format!("{p}"), "@(foo|bar)");
+    }
+
+    #[test]
     fn word_display_parameter_expansion_use_default_colon() {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
@@ -1814,8 +1969,10 @@ mod tests {
         // RemovePrefixShort
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
-            operator: ParameterOp::RemovePrefixShort,
-            operand: Some("pat".into()),
+            operator: ParameterOp::RemovePrefixShort {
+                pattern: pattern(vec![PatternPart::Literal("pat".into())]),
+            },
+            operand: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var#pat}");
@@ -1823,8 +1980,10 @@ mod tests {
         // RemovePrefixLong
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
-            operator: ParameterOp::RemovePrefixLong,
-            operand: Some("pat".into()),
+            operator: ParameterOp::RemovePrefixLong {
+                pattern: pattern(vec![PatternPart::Literal("pat".into())]),
+            },
+            operand: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var##pat}");
@@ -1832,8 +1991,10 @@ mod tests {
         // RemoveSuffixShort
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
-            operator: ParameterOp::RemoveSuffixShort,
-            operand: Some("pat".into()),
+            operator: ParameterOp::RemoveSuffixShort {
+                pattern: pattern(vec![PatternPart::Literal("pat".into())]),
+            },
+            operand: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var%pat}");
@@ -1841,8 +2002,10 @@ mod tests {
         // RemoveSuffixLong
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
-            operator: ParameterOp::RemoveSuffixLong,
-            operand: Some("pat".into()),
+            operator: ParameterOp::RemoveSuffixLong {
+                pattern: pattern(vec![PatternPart::Literal("pat".into())]),
+            },
+            operand: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var%%pat}");
@@ -1853,7 +2016,7 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::ReplaceFirst {
-                pattern: "old".into(),
+                pattern: pattern(vec![PatternPart::Literal("old".into())]),
                 replacement: "new".into(),
             },
             operand: None,
@@ -1864,13 +2027,13 @@ mod tests {
         let w = word(vec![WordPart::ParameterExpansion {
             name: "var".into(),
             operator: ParameterOp::ReplaceAll {
-                pattern: "old".into(),
+                pattern: pattern(vec![PatternPart::Literal("old".into())]),
                 replacement: "new".into(),
             },
             operand: None,
             colon_variant: false,
         }]);
-        assert_eq!(format!("{w}"), "${var///old/new}");
+        assert_eq!(format!("{w}"), "${var//old/new}");
     }
 
     #[test]

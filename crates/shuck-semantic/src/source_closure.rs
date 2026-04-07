@@ -5,7 +5,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment, AssignmentValue,
     BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Name,
-    Redirect, Script, SourceText, Span, Word, WordPart, WordPartNode,
+    Pattern, PatternPart, PatternPartNode, Redirect, Script, SourceText, Span, Word, WordPart,
+    WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -303,7 +304,7 @@ fn walk_compound(
         CompoundCommand::Case(command) => {
             walk_word(&command.word, model, source, facts);
             for case in &command.cases {
-                walk_words(&case.patterns, model, source, facts);
+                walk_patterns(&case.patterns, model, source, facts);
                 walk_commands(&case.commands, model, source, facts);
             }
         }
@@ -363,8 +364,18 @@ fn walk_words(words: &[Word], model: &SemanticModel, source: &str, facts: &mut A
     }
 }
 
+fn walk_patterns(patterns: &[Pattern], model: &SemanticModel, source: &str, facts: &mut AstFacts) {
+    for pattern in patterns {
+        walk_pattern(pattern, model, source, facts);
+    }
+}
+
 fn walk_word(word: &Word, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
     walk_word_parts(&word.parts, model, source, facts);
+}
+
+fn walk_pattern(pattern: &Pattern, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
+    walk_pattern_parts(&pattern.parts, model, source, facts);
 }
 
 fn walk_word_parts(
@@ -386,9 +397,29 @@ fn walk_word_parts(
                     walk_arithmetic_expr(expr, model, source, facts);
                 }
             }
-            WordPart::ParameterExpansion { operand, .. } => {
+            WordPart::ParameterExpansion {
+                operator, operand, ..
+            } => {
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
+                }
+                match operator {
+                    shuck_ast::ParameterOp::RemovePrefixShort { pattern }
+                    | shuck_ast::ParameterOp::RemovePrefixLong { pattern }
+                    | shuck_ast::ParameterOp::RemoveSuffixShort { pattern }
+                    | shuck_ast::ParameterOp::RemoveSuffixLong { pattern }
+                    | shuck_ast::ParameterOp::ReplaceFirst { pattern, .. }
+                    | shuck_ast::ParameterOp::ReplaceAll { pattern, .. } => {
+                        walk_pattern(pattern, model, source, facts);
+                    }
+                    shuck_ast::ParameterOp::UseDefault
+                    | shuck_ast::ParameterOp::AssignDefault
+                    | shuck_ast::ParameterOp::UseReplacement
+                    | shuck_ast::ParameterOp::Error
+                    | shuck_ast::ParameterOp::UpperFirst
+                    | shuck_ast::ParameterOp::UpperAll
+                    | shuck_ast::ParameterOp::LowerFirst
+                    | shuck_ast::ParameterOp::LowerAll => {}
                 }
             }
             WordPart::Substring {
@@ -479,6 +510,24 @@ fn walk_arithmetic_lvalue(
     }
 }
 
+fn walk_pattern_parts(
+    parts: &[PatternPartNode],
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    for part in parts {
+        match &part.kind {
+            PatternPart::Group { patterns, .. } => walk_patterns(patterns, model, source, facts),
+            PatternPart::Word(word) => walk_word(word, model, source, facts),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
 fn walk_source_text(
     _text: &SourceText,
     _model: &SemanticModel,
@@ -517,9 +566,15 @@ fn walk_conditional_expr(
         ConditionalExpr::Parenthesized(expr) => {
             walk_conditional_expr(&expr.expr, model, source, facts)
         }
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => walk_word(word, model, source, facts),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            walk_word(word, model, source, facts)
+        }
+        ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, model, source, facts),
+        ConditionalExpr::VarRef(var_ref) => {
+            if let Some(index) = &var_ref.index {
+                walk_source_text(index, model, source, facts);
+            }
+        }
     }
 }
 

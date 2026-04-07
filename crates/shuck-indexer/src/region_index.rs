@@ -1,7 +1,8 @@
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList,
     CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, FunctionDef, Redirect, RedirectKind,
-    Script, TextRange, TextSize, Word, WordPart, WordPartNode,
+    Pattern, PatternPart, PatternPartNode, Script, TextRange, TextSize, Word, WordPart,
+    WordPartNode,
 };
 
 /// A syntactic region that affects lint rule behavior.
@@ -364,7 +365,7 @@ impl RegionCollector {
                 self.visit_word(&command.word, true);
                 for item in &command.cases {
                     for pattern in &item.patterns {
-                        self.visit_word(pattern, true);
+                        self.visit_pattern(pattern);
                     }
                     self.visit_commands(&item.commands);
                 }
@@ -412,9 +413,9 @@ impl RegionCollector {
             ConditionalExpr::Parenthesized(expression) => {
                 self.visit_conditional_expr(&expression.expr);
             }
-            ConditionalExpr::Word(word)
-            | ConditionalExpr::Pattern(word)
-            | ConditionalExpr::Regex(word) => self.visit_word(word, true),
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.visit_word(word, true),
+            ConditionalExpr::Pattern(pattern) => self.visit_pattern(pattern),
+            ConditionalExpr::VarRef(_) => {}
         }
     }
 
@@ -452,6 +453,27 @@ impl RegionCollector {
     fn visit_word(&mut self, word: &Word, scan_quotes: bool) {
         let _ = scan_quotes;
         self.visit_word_parts(&word.parts);
+    }
+
+    fn visit_pattern(&mut self, pattern: &Pattern) {
+        self.visit_pattern_parts(&pattern.parts);
+    }
+
+    fn visit_pattern_parts(&mut self, parts: &[PatternPartNode]) {
+        for part in parts {
+            match &part.kind {
+                PatternPart::Group { patterns, .. } => {
+                    for pattern in patterns {
+                        self.visit_pattern(pattern);
+                    }
+                }
+                PatternPart::Word(word) => self.visit_word(word, true),
+                PatternPart::Literal(_)
+                | PatternPart::AnyString
+                | PatternPart::AnyChar
+                | PatternPart::CharClass(_) => {}
+            }
+        }
     }
 
     fn visit_word_parts(&mut self, parts: &[WordPartNode]) {

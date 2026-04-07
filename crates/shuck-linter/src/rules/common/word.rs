@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use shuck_ast::{ConditionalExpr, Redirect, RedirectKind, Span, Word, WordPart, WordPartNode};
+use shuck_ast::{
+    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, Word, WordPart,
+    WordPartNode,
+};
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
 
@@ -268,9 +271,11 @@ pub fn classify_conditional_operand(
     source: &str,
 ) -> TestOperandClass {
     match expression {
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => classify_test_operand(word, source),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            classify_test_operand(word, source)
+        }
+        ConditionalExpr::Pattern(pattern) => classify_pattern_operand(pattern, source),
+        ConditionalExpr::VarRef(_) => TestOperandClass::RuntimeSensitive,
         ConditionalExpr::Parenthesized(expression) => {
             classify_conditional_operand(&expression.expr, source)
         }
@@ -278,6 +283,32 @@ pub fn classify_conditional_operand(
             TestOperandClass::RuntimeSensitive
         }
     }
+}
+
+fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestOperandClass {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                if patterns
+                    .iter()
+                    .any(|pattern| !classify_pattern_operand(pattern, source).is_fixed_literal())
+                {
+                    return TestOperandClass::RuntimeSensitive;
+                }
+            }
+            PatternPart::Word(word) => {
+                if !classify_test_operand(word, source).is_fixed_literal() {
+                    return TestOperandClass::RuntimeSensitive;
+                }
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+
+    TestOperandClass::FixedLiteral
 }
 
 pub fn classify_substitution(

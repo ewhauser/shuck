@@ -1,7 +1,7 @@
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Redirect, RedirectKind, Span, Word, WordPart,
-    WordPartNode,
+    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, RedirectKind,
+    Span, Word, WordPart, WordPartNode,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -399,7 +399,7 @@ fn collect_compound_visits<'a>(
         CompoundCommand::Case(command) => {
             collect_word_visits(&command.word, options, context, visits);
             for case in &command.cases {
-                collect_word_slice_visits(&case.patterns, options, context, visits);
+                collect_pattern_slice_visits(&case.patterns, options, context, visits);
                 collect_command_visits(&case.commands, options, context, visits);
             }
         }
@@ -466,6 +466,17 @@ fn collect_word_slice_visits<'a>(
     }
 }
 
+fn collect_pattern_slice_visits<'a>(
+    patterns: &'a [Pattern],
+    options: CommandWalkOptions,
+    context: WalkContext,
+    visits: &mut Vec<CommandVisit<'a>>,
+) {
+    for pattern in patterns {
+        collect_pattern_visits(pattern, options, context, visits);
+    }
+}
+
 fn collect_word_visits<'a>(
     word: &'a Word,
     options: CommandWalkOptions,
@@ -478,6 +489,26 @@ fn collect_word_visits<'a>(
 
     for substitution in iter_word_command_substitutions(word) {
         collect_command_visits(substitution.commands, options, context, visits);
+    }
+}
+
+fn collect_pattern_visits<'a>(
+    pattern: &'a Pattern,
+    options: CommandWalkOptions,
+    context: WalkContext,
+    visits: &mut Vec<CommandVisit<'a>>,
+) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                collect_pattern_slice_visits(patterns, options, context, visits);
+            }
+            PatternPart::Word(word) => collect_word_visits(word, options, context, visits),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
     }
 }
 
@@ -509,9 +540,13 @@ fn collect_conditional_visits<'a>(
         ConditionalExpr::Parenthesized(expr) => {
             collect_conditional_visits(&expr.expr, options, context, visits);
         }
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => collect_word_visits(word, options, context, visits),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_word_visits(word, options, context, visits)
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_pattern_visits(pattern, options, context, visits)
+        }
+        ConditionalExpr::VarRef(_) => {}
     }
 }
 
@@ -652,7 +687,7 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
             CompoundCommand::Case(command) => {
                 self.walk_word(&command.word, context);
                 for case in &command.cases {
-                    self.walk_words(&case.patterns, context);
+                    self.walk_patterns(&case.patterns, context);
                     self.walk_commands(&case.commands, context);
                 }
             }
@@ -700,12 +735,31 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
         }
     }
 
+    fn walk_patterns(&mut self, patterns: &[Pattern], context: WalkContext) {
+        for pattern in patterns {
+            self.walk_pattern(pattern, context);
+        }
+    }
+
     fn walk_word(&mut self, word: &Word, context: WalkContext) {
         if !self.options.descend_nested_word_commands {
             return;
         }
 
         self.walk_word_parts(&word.parts, context);
+    }
+
+    fn walk_pattern(&mut self, pattern: &Pattern, context: WalkContext) {
+        for (part, _) in pattern.parts_with_spans() {
+            match part {
+                PatternPart::Group { patterns, .. } => self.walk_patterns(patterns, context),
+                PatternPart::Word(word) => self.walk_word(word, context),
+                PatternPart::Literal(_)
+                | PatternPart::AnyString
+                | PatternPart::AnyChar
+                | PatternPart::CharClass(_) => {}
+            }
+        }
     }
 
     fn walk_word_parts(&mut self, parts: &[WordPartNode], context: WalkContext) {
@@ -729,9 +783,11 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
             }
             ConditionalExpr::Unary(expr) => self.walk_conditional_expr(&expr.expr, context),
             ConditionalExpr::Parenthesized(expr) => self.walk_conditional_expr(&expr.expr, context),
-            ConditionalExpr::Word(word)
-            | ConditionalExpr::Pattern(word)
-            | ConditionalExpr::Regex(word) => self.walk_word(word, context),
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+                self.walk_word(word, context)
+            }
+            ConditionalExpr::Pattern(pattern) => self.walk_pattern(pattern, context),
+            ConditionalExpr::VarRef(_) => {}
         }
     }
 
@@ -859,7 +915,7 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
             CompoundCommand::Case(command) => {
                 self.walk_word(&command.word);
                 for case in &command.cases {
-                    self.walk_words(&case.patterns);
+                    self.walk_patterns(&case.patterns);
                     self.walk_commands(&case.commands);
                 }
             }
@@ -902,6 +958,12 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
         }
     }
 
+    fn walk_patterns(&mut self, patterns: &[Pattern]) {
+        for pattern in patterns {
+            self.walk_pattern(pattern);
+        }
+    }
+
     fn walk_word(&mut self, word: &Word) {
         (self.visitor)(word);
 
@@ -910,6 +972,19 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
         }
 
         self.walk_word_parts(&word.parts);
+    }
+
+    fn walk_pattern(&mut self, pattern: &Pattern) {
+        for (part, _) in pattern.parts_with_spans() {
+            match part {
+                PatternPart::Group { patterns, .. } => self.walk_patterns(patterns),
+                PatternPart::Word(word) => self.walk_word(word),
+                PatternPart::Literal(_)
+                | PatternPart::AnyString
+                | PatternPart::AnyChar
+                | PatternPart::CharClass(_) => {}
+            }
+        }
     }
 
     fn walk_word_parts(&mut self, parts: &[WordPartNode]) {
@@ -937,9 +1012,9 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
             }
             ConditionalExpr::Unary(expr) => self.walk_conditional_expr(&expr.expr),
             ConditionalExpr::Parenthesized(expr) => self.walk_conditional_expr(&expr.expr),
-            ConditionalExpr::Word(word)
-            | ConditionalExpr::Pattern(word)
-            | ConditionalExpr::Regex(word) => self.walk_word(word),
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.walk_word(word),
+            ConditionalExpr::Pattern(pattern) => self.walk_pattern(pattern),
+            ConditionalExpr::VarRef(_) => {}
         }
     }
 }
@@ -989,7 +1064,7 @@ fn collect_command_words<'a>(command: &'a Command, words: &mut Vec<&'a Word>) {
                 CompoundCommand::Case(command) => {
                     words.push(&command.word);
                     for case in &command.cases {
-                        collect_words(&case.patterns, words);
+                        collect_pattern_words(&case.patterns, words);
                     }
                 }
                 CompoundCommand::Select(command) => collect_words(&command.words, words),
@@ -1106,6 +1181,12 @@ fn collect_words<'a>(command_words: &'a [Word], words: &mut Vec<&'a Word>) {
     words.extend(command_words);
 }
 
+fn collect_pattern_words<'a>(patterns: &'a [Pattern], words: &mut Vec<&'a Word>) {
+    for pattern in patterns {
+        collect_pattern_words_from_pattern(pattern, words);
+    }
+}
+
 fn collect_redirect_target_words<'a>(redirects: &'a [Redirect], words: &mut Vec<&'a Word>) {
     for redirect in redirects {
         words.push(redirect_walk_word(redirect));
@@ -1127,9 +1208,22 @@ fn collect_conditional_words<'a>(expression: &'a ConditionalExpr, words: &mut Ve
         }
         ConditionalExpr::Unary(expr) => collect_conditional_words(&expr.expr, words),
         ConditionalExpr::Parenthesized(expr) => collect_conditional_words(&expr.expr, words),
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => words.push(word),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => words.push(word),
+        ConditionalExpr::Pattern(pattern) => collect_pattern_words_from_pattern(pattern, words),
+        ConditionalExpr::VarRef(_) => {}
+    }
+}
+
+fn collect_pattern_words_from_pattern<'a>(pattern: &'a Pattern, words: &mut Vec<&'a Word>) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => collect_pattern_words(patterns, words),
+            PatternPart::Word(word) => words.push(word),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
     }
 }
 

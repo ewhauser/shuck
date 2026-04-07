@@ -4,8 +4,8 @@ use shuck_ast::{CaseTerminator, ListOperator, Span};
 #[cfg(test)]
 use shuck_ast::{
     Assignment, BuiltinCommand, CaseItem, Command, CommandList, CompoundCommand, ConditionalExpr,
-    ContinueCommand, FunctionDef, Redirect, Script, SelectCommand, SimpleCommand, WhileCommand,
-    Word, WordPart,
+    ContinueCommand, FunctionDef, Pattern, PatternPart, Redirect, Script, SelectCommand,
+    SimpleCommand, WhileCommand, Word, WordPart,
 };
 
 use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
@@ -943,6 +943,18 @@ fn collect_regions_from_words(
 }
 
 #[cfg(test)]
+fn collect_regions_from_patterns(
+    patterns: &[Pattern],
+    scopes: &[Scope],
+    function_bodies: &mut FxHashMap<ScopeId, Vec<RecordedCommand>>,
+) -> Vec<IsolatedRegion> {
+    patterns
+        .iter()
+        .flat_map(|pattern| collect_regions_from_pattern(pattern, scopes, function_bodies))
+        .collect()
+}
+
+#[cfg(test)]
 fn collect_regions_from_conditional(
     expression: &ConditionalExpr,
     scopes: &[Scope],
@@ -964,10 +976,42 @@ fn collect_regions_from_conditional(
         ConditionalExpr::Parenthesized(expr) => {
             collect_regions_from_conditional(&expr.expr, scopes, function_bodies)
         }
-        ConditionalExpr::Word(word)
-        | ConditionalExpr::Pattern(word)
-        | ConditionalExpr::Regex(word) => collect_regions_from_word(word, scopes, function_bodies),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_regions_from_word(word, scopes, function_bodies)
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_regions_from_pattern(pattern, scopes, function_bodies)
+        }
+        ConditionalExpr::VarRef(_) => Vec::new(),
     }
+}
+
+#[cfg(test)]
+fn collect_regions_from_pattern(
+    pattern: &Pattern,
+    scopes: &[Scope],
+    function_bodies: &mut FxHashMap<ScopeId, Vec<RecordedCommand>>,
+) -> Vec<IsolatedRegion> {
+    let mut regions = Vec::new();
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                regions.extend(collect_regions_from_patterns(
+                    patterns,
+                    scopes,
+                    function_bodies,
+                ));
+            }
+            PatternPart::Word(word) => {
+                regions.extend(collect_regions_from_word(word, scopes, function_bodies));
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+    regions
 }
 
 #[cfg(test)]
