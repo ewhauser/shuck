@@ -44,9 +44,9 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
 
 fn contains_arithmetic_expansion(part: &WordPart) -> bool {
     match part {
-        WordPart::DoubleQuoted { parts, .. } => {
-            parts.iter().any(|part| contains_arithmetic_expansion(&part.kind))
-        }
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| contains_arithmetic_expansion(&part.kind)),
         WordPart::ArithmeticExpansion { .. } => true,
         _ => false,
     }

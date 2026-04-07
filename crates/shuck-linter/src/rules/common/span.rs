@@ -106,7 +106,9 @@ pub fn is_quoted_span(indexer: &Indexer, span: Span) -> bool {
 fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => collect_command_substitution_spans(parts, spans),
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_command_substitution_spans(parts, spans)
+            }
             WordPart::CommandSubstitution { .. } => spans.push(part.span),
             _ => {}
         }
@@ -212,9 +214,10 @@ fn collect_backtick_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => collect_backtick_spans(parts, spans),
-            WordPart::CommandSubstitution { syntax, .. }
-                if matches!(syntax, CommandSubstitutionSyntax::Backtick) =>
-            {
+            WordPart::CommandSubstitution {
+                syntax: CommandSubstitutionSyntax::Backtick,
+                ..
+            } => {
                 spans.push(part.span);
             }
             _ => {}
@@ -226,9 +229,10 @@ fn collect_legacy_arithmetic_spans(parts: &[WordPartNode], spans: &mut Vec<Span>
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => collect_legacy_arithmetic_spans(parts, spans),
-            WordPart::ArithmeticExpansion { syntax, .. }
-                if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) =>
-            {
+            WordPart::ArithmeticExpansion {
+                syntax: ArithmeticExpansionSyntax::LegacyBracket,
+                ..
+            } => {
                 spans.push(part.span);
             }
             _ => {}
@@ -316,7 +320,7 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let spans = backtick_fragment_spans(&word, source);
+        let spans = backtick_fragment_spans(word, source);
         assert_eq!(
             spans
                 .iter()

@@ -51,7 +51,10 @@ fn collect_positional_parameter_spans_in_parts(
                 collect_positional_parameter_spans_in_parts(parts, source, spans);
             }
             WordPart::Variable(name)
-                if matches!(name.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9") =>
+                if matches!(
+                    name.as_str(),
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+                ) =>
             {
                 let Some(next_part) = parts.get(index + 1) else {
                     continue;

@@ -1173,9 +1173,7 @@ fn fmt_word_part_with_source(
                 write!(f, "{}({:?})", prefix, commands)?
             }
         },
-        WordPart::Transformation { name, operator } => {
-            write!(f, "${{{}@{}}}", name, operator)?
-        }
+        WordPart::Transformation { name, operator } => write!(f, "${{{}@{}}}", name, operator)?,
     }
 
     Ok(())

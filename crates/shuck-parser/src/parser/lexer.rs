@@ -1663,7 +1663,8 @@ impl<'a> Lexer<'a> {
             if ch == '\'' {
                 let content_end = self.current_position();
                 self.advance();
-                let wrapper_span = Some(Span::from_positions(wrapper_start, self.current_position()));
+                let wrapper_span =
+                    Some(Span::from_positions(wrapper_start, self.current_position()));
                 let content_span = Some(Span::from_positions(content_start, content_end));
                 return Ok(LexedWordSegment::owned_with_spans(
                     LexedWordSegmentKind::DollarSingleQuoted,
@@ -1905,7 +1906,9 @@ impl<'a> Lexer<'a> {
         self.read_double_quoted_segment_with_dollar(false)
     }
 
-    fn read_dollar_double_quoted_segment(&mut self) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
+    fn read_dollar_double_quoted_segment(
+        &mut self,
+    ) -> Result<LexedWordSegment<'a>, LexerErrorKind> {
         self.read_double_quoted_segment_with_dollar(true)
     }
 
@@ -2055,11 +2058,11 @@ impl<'a> Lexer<'a> {
                         if c == '`' {
                             break;
                         }
-                        if c == '\\' {
-                            if let Some(next) = self.peek_char() {
-                                Self::push_capture_char(&mut content, next);
-                                self.advance();
-                            }
+                        if c == '\\'
+                            && let Some(next) = self.peek_char()
+                        {
+                            Self::push_capture_char(&mut content, next);
+                            self.advance();
                         }
                     }
                 }
