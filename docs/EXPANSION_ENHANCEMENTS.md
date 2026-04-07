@@ -366,6 +366,13 @@ gbash references:
 - use the project-specific source and test files listed above when implementing each migration
 - when a migrated rule still feels under-specified, start from the nearest `shell/expand/*_test.go` or `internal/shell/interp/*_test.go` coverage rather than broad code reading
 
+Current migration status:
+
+- [x] Migrate `C055` and `CasePatternVar`.
+- [x] Migrate `TruthyLiteralTest`, `ConstantComparisonTest`, and `QuotedBashRegex`.
+- [x] Migrate `C057` and `C058`.
+- [x] Migrate `S008`, `S004`, and `S001`.
+
 ## Rollout Plan
 
 ### Phase 1: AST Foundations
