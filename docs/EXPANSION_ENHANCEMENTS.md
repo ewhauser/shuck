@@ -186,28 +186,21 @@ Rules to migrate first:
 
 ### Project 3: Transitional SourceText Operand Analyzer
 
-Many expansion-bearing constructs still store operands as `SourceText`. The linter should stop treating that source as opaque text and instead analyze it with shell-aware helpers.
-
-This project becomes much smaller if first-class pattern AST and typed conditional operands land. In the long term, it should mostly disappear into AST-backed consumers and shared expansion analysis.
+Many expansion-bearing constructs still store operands as `SourceText`, but first-class pattern AST and typed conditional operands already landed. That leaves a much smaller bridge: keep a source-backed helper for the remaining flattened operands and rebase any nested expansion spans back onto the original source.
 
 Proposed additions:
 
-- a helper that inspects `SourceText` for nested expansions with quote and escape awareness
-- dedicated helpers for:
-  - parameter-pattern operands
-  - replacement-pattern operands
-  - replacement-text operands
-  - substring and slice expressions where needed
+- a helper that reparses source-backed `SourceText` as a shell word and reports nested expansion spans in original coordinates
+- focused coverage for escaped dollars, quoted dollars, nested substitutions, and mixed literals in operand text
 - source-backed span mapping so diagnostics still point at the original operand text
 
-This project should explicitly replace the raw `$` scan in [`pattern_with_variable.rs`](../crates/shuck-linter/src/rules/correctness/pattern_with_variable.rs), but only as a bridge until the AST can preserve pattern structure directly.
+The original pattern-walking use case is already covered by the AST-backed path, so this project now exists mainly as a bridge for any remaining flattened operands.
 
 Action items:
 
-- [ ] Add `SourceText` analysis helpers to the common expansion layer only for still-flattened operands.
-- [ ] Replace raw byte scans with source-aware operand inspection where richer AST nodes are not yet available.
-- [ ] Delete or fold these helpers into Project 2 once first-class pattern and operand nodes land.
-- [ ] Add tests for escaped dollars, quoted dollars, nested substitutions, and mixed literals inside parameter-pattern operands.
+- [x] Add a source-backed `SourceText` analysis helper in the common expansion layer.
+- [x] Add tests for escaped dollars, quoted dollars, nested substitutions, and mixed literals inside source-backed operand text.
+- [ ] Delete or fold this bridge into Project 2 once the last flattened operand callers disappear.
 
 gbash references:
 

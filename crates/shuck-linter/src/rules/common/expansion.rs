@@ -1,4 +1,7 @@
-use shuck_ast::{RedirectKind, Span, SubscriptSelector, Word, WordPart, WordPartNode};
+use shuck_ast::{RedirectKind, SourceText, Span, SubscriptSelector, Word, WordPart, WordPartNode};
+use shuck_parser::parser::Parser;
+
+use super::span;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExpansionContext {
@@ -91,6 +94,17 @@ pub struct ExpansionAnalysis {
     pub hazards: ExpansionHazards,
     pub array_valued: bool,
     pub can_expand_to_multiple_fields: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceTextExpansionAnalysis {
+    pub expansion_spans: Vec<Span>,
+}
+
+impl SourceTextExpansionAnalysis {
+    pub fn is_expanded(&self) -> bool {
+        !self.expansion_spans.is_empty()
+    }
 }
 
 impl ExpansionAnalysis {
@@ -195,6 +209,37 @@ pub fn analyze_word(word: &Word, source: &str) -> ExpansionAnalysis {
         array_valued: summary.has_array_value,
         can_expand_to_multiple_fields: summary.can_expand_to_multiple_fields,
     }
+}
+
+pub fn analyze_source_text_operand(text: &SourceText, source: &str) -> SourceTextExpansionAnalysis {
+    debug_assert!(text.is_source_backed());
+    let source_text = text.slice(source);
+    let parsed = Parser::parse_word_string(source_text);
+    let base = text.span().start;
+    let expansion_spans = span::expansion_part_spans(&parsed)
+        .into_iter()
+        .filter(|span| source_text_span_is_active(source_text, *span))
+        .map(|span| span.rebased(base))
+        .collect();
+
+    SourceTextExpansionAnalysis { expansion_spans }
+}
+
+fn source_text_span_is_active(source: &str, span: Span) -> bool {
+    if !span.slice(source).starts_with('$') {
+        return true;
+    }
+
+    let mut backslashes = 0usize;
+    let bytes = source.as_bytes();
+    let mut offset = span.start.offset;
+
+    while offset > 0 && bytes[offset - 1] == b'\\' {
+        backslashes += 1;
+        offset -= 1;
+    }
+
+    backslashes.is_multiple_of(2)
 }
 
 fn analyze_parts(
@@ -426,10 +471,13 @@ fn is_fully_quoted(word: &Word) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::Command;
+    use shuck_ast::{Command, ParameterOp, SourceText, WordPart};
     use shuck_parser::parser::Parser;
 
-    use super::{ExpansionAnalysis, ExpansionValueShape, WordLiteralness, WordQuote, analyze_word};
+    use super::{
+        ExpansionAnalysis, ExpansionValueShape, WordLiteralness, WordQuote,
+        analyze_source_text_operand, analyze_word,
+    };
 
     fn parse_argument_words(source: &str) -> Vec<shuck_ast::Word> {
         let commands = Parser::new(source).parse().unwrap().script.commands;
@@ -444,6 +492,48 @@ mod tests {
             .iter()
             .map(|word| analyze_word(word, source))
             .collect()
+    }
+
+    fn parse_commands(source: &str) -> Vec<Command> {
+        Parser::new(source).parse().unwrap().script.commands
+    }
+
+    fn assignment_scalar_word(command: &Command) -> &shuck_ast::Word {
+        let Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+        let shuck_ast::AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+        word
+    }
+
+    fn first_parameter_operand(word: &shuck_ast::Word) -> SourceText {
+        let [part] = word.parts.as_slice() else {
+            panic!("expected single-part word");
+        };
+        let WordPart::ParameterExpansion {
+            operand: Some(operand),
+            ..
+        } = &part.kind
+        else {
+            panic!("expected parameter expansion operand");
+        };
+        operand.clone()
+    }
+
+    fn first_replacement_text(word: &shuck_ast::Word) -> SourceText {
+        let [part] = word.parts.as_slice() else {
+            panic!("expected single-part word");
+        };
+        let WordPart::ParameterExpansion { operator, .. } = &part.kind else {
+            panic!("expected parameter expansion");
+        };
+        match operator {
+            ParameterOp::ReplaceFirst { replacement, .. }
+            | ParameterOp::ReplaceAll { replacement, .. } => replacement.clone(),
+            _ => panic!("expected replacement operator"),
+        }
     }
 
     #[test]
@@ -482,5 +572,81 @@ mod tests {
 
         assert_eq!(analyses[2].value_shape, ExpansionValueShape::Unknown);
         assert!(!analyses[2].can_expand_to_multiple_fields);
+    }
+
+    #[test]
+    fn analyze_source_text_operand_respects_escaping_and_nested_expansions() {
+        let source = "\
+escaped=${value:-\\$keep}
+single=${value:-'$single'}
+quoted=${value:-\"$quoted\"}
+nested=${value:-$(date)}
+mixed=${value:-prefix${name}suffix}
+replaced=${value/pat/prefix$replacement}
+";
+        let commands = parse_commands(source);
+
+        let escaped_span = first_parameter_operand(assignment_scalar_word(&commands[0])).span();
+        assert_eq!(escaped_span.slice(source), "\\$keep");
+        let escaped = analyze_source_text_operand(&SourceText::source(escaped_span), source);
+        assert!(!escaped.is_expanded());
+
+        let single_operand = first_parameter_operand(assignment_scalar_word(&commands[1]));
+        assert!(single_operand.is_source_backed());
+        assert_eq!(single_operand.slice(source), "'$single'");
+        let single = analyze_source_text_operand(&single_operand, source);
+        assert!(!single.is_expanded());
+
+        let quoted_operand = first_parameter_operand(assignment_scalar_word(&commands[2]));
+        assert!(quoted_operand.is_source_backed());
+        assert_eq!(quoted_operand.slice(source), "\"$quoted\"");
+        let quoted = analyze_source_text_operand(&quoted_operand, source);
+        assert_eq!(
+            quoted
+                .expansion_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$quoted"]
+        );
+
+        let nested_operand = first_parameter_operand(assignment_scalar_word(&commands[3]));
+        assert!(nested_operand.is_source_backed());
+        assert_eq!(nested_operand.slice(source), "$(date)");
+        let nested = analyze_source_text_operand(&nested_operand, source);
+        assert_eq!(
+            nested
+                .expansion_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(date)"]
+        );
+
+        let mixed_operand = first_parameter_operand(assignment_scalar_word(&commands[4]));
+        assert!(mixed_operand.is_source_backed());
+        assert_eq!(mixed_operand.slice(source), "prefix${name}suffix");
+        let mixed = analyze_source_text_operand(&mixed_operand, source);
+        assert_eq!(
+            mixed
+                .expansion_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${name}"]
+        );
+
+        let replacement_text = first_replacement_text(assignment_scalar_word(&commands[5]));
+        assert!(replacement_text.is_source_backed());
+        assert_eq!(replacement_text.slice(source), "prefix$replacement");
+        let replacement = analyze_source_text_operand(&replacement_text, source);
+        assert_eq!(
+            replacement
+                .expansion_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$replacement"]
+        );
     }
 }
