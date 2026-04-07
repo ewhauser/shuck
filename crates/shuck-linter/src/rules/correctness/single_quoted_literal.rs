@@ -1,10 +1,9 @@
-use crate::rules::common::command;
+use crate::rules::common::{command, query};
 use shuck_ast::{
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, Pattern,
-    PatternPart, Redirect, SimpleCommand, Span, Word, WordPart,
+    ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, ParameterOp,
+    Pattern, PatternPart, Redirect, SimpleCommand, Span, Word, WordPart, WordPartNode,
 };
-use shuck_indexer::Indexer;
 
 use super::syntax::{assignment_target_name, simple_test_operands, static_word_text};
 use crate::{Checker, Rule, Violation};
@@ -46,25 +45,20 @@ impl<'a> ScanContext<'a> {
 
 pub fn single_quoted_literal(checker: &mut Checker) {
     let mut spans = Vec::new();
-    collect_commands(
-        &checker.ast().commands,
-        checker.indexer(),
-        checker.source(),
-        &mut spans,
-    );
+    collect_commands(&checker.ast().commands, checker.source(), &mut spans);
 
     for span in spans {
         checker.report_dedup(SingleQuotedLiteral, span);
     }
 }
 
-fn collect_commands(commands: &[Command], indexer: &Indexer, source: &str, spans: &mut Vec<Span>) {
+fn collect_commands(commands: &[Command], source: &str, spans: &mut Vec<Span>) {
     for command in commands {
-        collect_command(command, indexer, source, spans);
+        collect_command(command, source, spans);
     }
 }
 
-fn collect_command(command: &Command, indexer: &Indexer, source: &str, spans: &mut Vec<Span>) {
+fn collect_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
     let normalized = command::normalize_command(command, source);
     let context = ScanContext {
         command_name: normalized.effective_or_literal_name(),
@@ -72,37 +66,32 @@ fn collect_command(command: &Command, indexer: &Indexer, source: &str, spans: &m
     };
 
     match command {
-        Command::Simple(command) => {
-            collect_simple_command(command, indexer, source, spans, context)
-        }
-        Command::Builtin(command) => collect_builtin(command, indexer, source, spans),
-        Command::Decl(command) => collect_decl_command(command, indexer, source, spans),
-        Command::Pipeline(command) => collect_commands(&command.commands, indexer, source, spans),
+        Command::Simple(command) => collect_simple_command(command, source, spans, context),
+        Command::Builtin(command) => collect_builtin(command, source, spans),
+        Command::Decl(command) => collect_decl_command(command, source, spans),
+        Command::Pipeline(command) => collect_commands(&command.commands, source, spans),
         Command::List(CommandList { first, rest, .. }) => {
-            collect_command(first, indexer, source, spans);
+            collect_command(first, source, spans);
             for item in rest {
-                collect_command(&item.command, indexer, source, spans);
+                collect_command(&item.command, source, spans);
             }
         }
         Command::Compound(command, redirects) => {
-            collect_compound(command, indexer, source, spans);
-            collect_redirects(redirects, indexer, source, spans, ScanContext::default());
+            collect_compound(command, source, spans);
+            collect_redirects(redirects, source, spans, ScanContext::default());
         }
-        Command::Function(FunctionDef { body, .. }) => {
-            collect_command(body, indexer, source, spans)
-        }
+        Command::Function(FunctionDef { body, .. }) => collect_command(body, source, spans),
     }
 }
 
 fn collect_simple_command(
     command: &SimpleCommand,
-    indexer: &Indexer,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
-    collect_assignments(&command.assignments, indexer, source, spans, context);
-    collect_word(&command.name, indexer, source, spans, context);
+    collect_assignments(&command.assignments, source, spans, context);
+    collect_word(&command.name, source, spans, context);
 
     let variable_set_operand = simple_command_variable_set_operand(command, source);
     for word in &command.args {
@@ -111,194 +100,151 @@ fn collect_simple_command(
         } else {
             context
         };
-        collect_word(word, indexer, source, spans, context);
+        collect_word(word, source, spans, context);
     }
 
-    collect_redirects(&command.redirects, indexer, source, spans, context);
+    collect_redirects(&command.redirects, source, spans, context);
 }
 
-fn collect_builtin(
-    command: &BuiltinCommand,
-    indexer: &Indexer,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
+fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>) {
     let context = ScanContext::default();
     match command {
         BuiltinCommand::Break(command) => {
-            collect_assignments(&command.assignments, indexer, source, spans, context);
+            collect_assignments(&command.assignments, source, spans, context);
             if let Some(word) = &command.depth {
-                collect_word(word, indexer, source, spans, context);
+                collect_word(word, source, spans, context);
             }
-            collect_words(&command.extra_args, indexer, source, spans, context);
-            collect_redirects(&command.redirects, indexer, source, spans, context);
+            collect_words(&command.extra_args, source, spans, context);
+            collect_redirects(&command.redirects, source, spans, context);
         }
         BuiltinCommand::Continue(command) => {
-            collect_assignments(&command.assignments, indexer, source, spans, context);
+            collect_assignments(&command.assignments, source, spans, context);
             if let Some(word) = &command.depth {
-                collect_word(word, indexer, source, spans, context);
+                collect_word(word, source, spans, context);
             }
-            collect_words(&command.extra_args, indexer, source, spans, context);
-            collect_redirects(&command.redirects, indexer, source, spans, context);
+            collect_words(&command.extra_args, source, spans, context);
+            collect_redirects(&command.redirects, source, spans, context);
         }
         BuiltinCommand::Return(command) => {
-            collect_assignments(&command.assignments, indexer, source, spans, context);
+            collect_assignments(&command.assignments, source, spans, context);
             if let Some(word) = &command.code {
-                collect_word(word, indexer, source, spans, context);
+                collect_word(word, source, spans, context);
             }
-            collect_words(&command.extra_args, indexer, source, spans, context);
-            collect_redirects(&command.redirects, indexer, source, spans, context);
+            collect_words(&command.extra_args, source, spans, context);
+            collect_redirects(&command.redirects, source, spans, context);
         }
         BuiltinCommand::Exit(command) => {
-            collect_assignments(&command.assignments, indexer, source, spans, context);
+            collect_assignments(&command.assignments, source, spans, context);
             if let Some(word) = &command.code {
-                collect_word(word, indexer, source, spans, context);
+                collect_word(word, source, spans, context);
             }
-            collect_words(&command.extra_args, indexer, source, spans, context);
-            collect_redirects(&command.redirects, indexer, source, spans, context);
+            collect_words(&command.extra_args, source, spans, context);
+            collect_redirects(&command.redirects, source, spans, context);
         }
     }
 }
 
-fn collect_decl_command(
-    command: &DeclClause,
-    indexer: &Indexer,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
+fn collect_decl_command(command: &DeclClause, source: &str, spans: &mut Vec<Span>) {
     let context = ScanContext::default();
-    collect_assignments(&command.assignments, indexer, source, spans, context);
+    collect_assignments(&command.assignments, source, spans, context);
     for operand in &command.operands {
         match operand {
             DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                collect_word(word, indexer, source, spans, context);
+                collect_word(word, source, spans, context);
             }
             DeclOperand::Name(_) => {}
             DeclOperand::Assignment(assignment) => {
-                collect_assignment(assignment, indexer, source, spans, context);
+                collect_assignment(assignment, source, spans, context);
             }
         }
     }
-    collect_redirects(&command.redirects, indexer, source, spans, context);
+    collect_redirects(&command.redirects, source, spans, context);
 }
 
-fn collect_compound(
-    command: &CompoundCommand,
-    indexer: &Indexer,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
+fn collect_compound(command: &CompoundCommand, source: &str, spans: &mut Vec<Span>) {
     match command {
         CompoundCommand::If(command) => {
-            collect_commands(&command.condition, indexer, source, spans);
-            collect_commands(&command.then_branch, indexer, source, spans);
+            collect_commands(&command.condition, source, spans);
+            collect_commands(&command.then_branch, source, spans);
             for (condition, body) in &command.elif_branches {
-                collect_commands(condition, indexer, source, spans);
-                collect_commands(body, indexer, source, spans);
+                collect_commands(condition, source, spans);
+                collect_commands(body, source, spans);
             }
             if let Some(body) = &command.else_branch {
-                collect_commands(body, indexer, source, spans);
+                collect_commands(body, source, spans);
             }
         }
         CompoundCommand::For(command) => {
             if let Some(words) = &command.words {
-                collect_words(words, indexer, source, spans, ScanContext::default());
+                collect_words(words, source, spans, ScanContext::default());
             }
-            collect_commands(&command.body, indexer, source, spans);
+            collect_commands(&command.body, source, spans);
         }
-        CompoundCommand::ArithmeticFor(command) => {
-            collect_commands(&command.body, indexer, source, spans)
-        }
+        CompoundCommand::ArithmeticFor(command) => collect_commands(&command.body, source, spans),
         CompoundCommand::While(command) => {
-            collect_commands(&command.condition, indexer, source, spans);
-            collect_commands(&command.body, indexer, source, spans);
+            collect_commands(&command.condition, source, spans);
+            collect_commands(&command.body, source, spans);
         }
         CompoundCommand::Until(command) => {
-            collect_commands(&command.condition, indexer, source, spans);
-            collect_commands(&command.body, indexer, source, spans);
+            collect_commands(&command.condition, source, spans);
+            collect_commands(&command.body, source, spans);
         }
         CompoundCommand::Case(command) => {
-            collect_word(
-                &command.word,
-                indexer,
-                source,
-                spans,
-                ScanContext::default(),
-            );
+            collect_word(&command.word, source, spans, ScanContext::default());
             for case in &command.cases {
-                collect_patterns(
-                    &case.patterns,
-                    indexer,
-                    source,
-                    spans,
-                    ScanContext::default(),
-                );
-                collect_commands(&case.commands, indexer, source, spans);
+                collect_patterns(&case.patterns, source, spans, ScanContext::default());
+                collect_commands(&case.commands, source, spans);
             }
         }
         CompoundCommand::Select(command) => {
-            collect_words(
-                &command.words,
-                indexer,
-                source,
-                spans,
-                ScanContext::default(),
-            );
-            collect_commands(&command.body, indexer, source, spans);
+            collect_words(&command.words, source, spans, ScanContext::default());
+            collect_commands(&command.body, source, spans);
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            collect_commands(commands, indexer, source, spans);
+            collect_commands(commands, source, spans);
         }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
-                collect_command(command, indexer, source, spans);
+                collect_command(command, source, spans);
             }
         }
         CompoundCommand::Conditional(command) => {
-            collect_conditional_expr(
-                &command.expression,
-                indexer,
-                source,
-                spans,
-                ScanContext::default(),
-            );
+            collect_conditional_expr(&command.expression, source, spans, ScanContext::default());
         }
-        CompoundCommand::Coproc(command) => collect_command(&command.body, indexer, source, spans),
+        CompoundCommand::Coproc(command) => collect_command(&command.body, source, spans),
     }
 }
 
 fn collect_assignments(
     assignments: &[Assignment],
-    indexer: &Indexer,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     for assignment in assignments {
-        collect_assignment(assignment, indexer, source, spans, context);
+        collect_assignment(assignment, source, spans, context);
     }
 }
 
 fn collect_assignment(
     assignment: &Assignment,
-    indexer: &Indexer,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     let context = context.with_assignment_target(assignment_target_name(assignment));
     match &assignment.value {
-        AssignmentValue::Scalar(word) => collect_word(word, indexer, source, spans, context),
+        AssignmentValue::Scalar(word) => collect_word(word, source, spans, context),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
                     shuck_ast::ArrayElem::Sequential(word) => {
-                        collect_word(word, indexer, source, spans, context)
+                        collect_word(word, source, spans, context)
                     }
                     shuck_ast::ArrayElem::Keyed { value, .. }
                     | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
-                        collect_word(value, indexer, source, spans, context)
+                        collect_word(value, source, spans, context)
                     }
                 }
             }
@@ -306,55 +252,63 @@ fn collect_assignment(
     }
 }
 
-fn collect_words(
-    words: &[Word],
-    indexer: &Indexer,
-    source: &str,
-    spans: &mut Vec<Span>,
-    context: ScanContext<'_>,
-) {
+fn collect_words(words: &[Word], source: &str, spans: &mut Vec<Span>, context: ScanContext<'_>) {
     for word in words {
-        collect_word(word, indexer, source, spans, context);
+        collect_word(word, source, spans, context);
     }
 }
 
 fn collect_patterns(
     patterns: &[Pattern],
-    indexer: &Indexer,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     for pattern in patterns {
-        collect_pattern(pattern, indexer, source, spans, context);
+        collect_pattern(pattern, source, spans, context);
     }
 }
 
-fn collect_word(
-    word: &Word,
-    indexer: &Indexer,
+fn collect_word(word: &Word, source: &str, spans: &mut Vec<Span>, context: ScanContext<'_>) {
+    collect_word_parts(&word.parts, source, spans, context);
+}
+
+fn collect_word_parts(
+    parts: &[WordPartNode],
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
-    for (part, span) in word.parts_with_spans() {
-        match part {
+    for part in parts {
+        match &part.kind {
             WordPart::SingleQuoted { value, .. } => {
                 let text = value.slice(source);
                 if should_report_single_quoted_literal(text, context) {
-                    spans.push(span);
+                    spans.push(part.span);
                 }
             }
             WordPart::DoubleQuoted { parts, .. } => {
-                let nested = Word {
-                    parts: parts.clone(),
-                    span,
-                };
-                collect_word(&nested, indexer, source, spans, context);
+                collect_word_parts(parts, source, spans, context);
+            }
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        collect_word(word, source, spans, context);
+                    });
+                }
+            }
+            WordPart::ParameterExpansion { operator, .. } => {
+                collect_parameter_operator_patterns(operator, source, spans, context);
+            }
+            WordPart::IndirectExpansion {
+                operator: Some(operator),
+                ..
+            } => {
+                collect_parameter_operator_patterns(operator, source, spans, context);
             }
             WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => {
-                collect_commands(commands, indexer, source, spans);
+                collect_commands(commands, source, spans);
             }
             _ => {}
         }
@@ -363,7 +317,6 @@ fn collect_word(
 
 fn collect_pattern(
     pattern: &Pattern,
-    indexer: &Indexer,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
@@ -371,9 +324,9 @@ fn collect_pattern(
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
-                collect_patterns(patterns, indexer, source, spans, context);
+                collect_patterns(patterns, source, spans, context);
             }
-            PatternPart::Word(word) => collect_word(word, indexer, source, spans, context),
+            PatternPart::Word(word) => collect_word(word, source, spans, context),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
@@ -384,31 +337,32 @@ fn collect_pattern(
 
 fn collect_redirects(
     redirects: &[Redirect],
-    indexer: &Indexer,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     for redirect in redirects {
-        let word = match redirect.word_target() {
-            Some(word) => word,
-            None => &redirect.heredoc().expect("expected heredoc redirect").body,
-        };
-        collect_word(word, indexer, source, spans, context);
+        match redirect.word_target() {
+            Some(word) => collect_word(word, source, spans, context),
+            None => {
+                let body = &redirect.heredoc().expect("expected heredoc redirect").body;
+                collect_word(body, source, spans, context);
+                collect_heredoc_literal_single_quotes(body, source, spans, context);
+            }
+        }
     }
 }
 
 fn collect_conditional_expr(
     expression: &ConditionalExpr,
-    indexer: &Indexer,
     source: &str,
     spans: &mut Vec<Span>,
     context: ScanContext<'_>,
 ) {
     match expression {
         ConditionalExpr::Binary(expr) => {
-            collect_conditional_expr(&expr.left, indexer, source, spans, context);
-            collect_conditional_expr(&expr.right, indexer, source, spans, context);
+            collect_conditional_expr(&expr.left, source, spans, context);
+            collect_conditional_expr(&expr.right, source, spans, context);
         }
         ConditionalExpr::Unary(expr) => {
             let context = if expr.op == ConditionalUnaryOp::VariableSet {
@@ -416,18 +370,79 @@ fn collect_conditional_expr(
             } else {
                 context
             };
-            collect_conditional_expr(&expr.expr, indexer, source, spans, context);
+            collect_conditional_expr(&expr.expr, source, spans, context);
         }
         ConditionalExpr::Parenthesized(expr) => {
-            collect_conditional_expr(&expr.expr, indexer, source, spans, context);
+            collect_conditional_expr(&expr.expr, source, spans, context);
         }
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            collect_word(word, indexer, source, spans, context)
+            collect_word(word, source, spans, context)
         }
-        ConditionalExpr::Pattern(pattern) => {
-            collect_pattern(pattern, indexer, source, spans, context)
+        ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans, context),
+        ConditionalExpr::VarRef(reference) => {
+            query::visit_var_ref_subscript_words(reference, &mut |word| {
+                collect_word(word, source, spans, context);
+            });
         }
-        ConditionalExpr::VarRef(_) => {}
+    }
+}
+
+fn collect_parameter_operator_patterns(
+    operator: &ParameterOp,
+    source: &str,
+    spans: &mut Vec<Span>,
+    context: ScanContext<'_>,
+) {
+    match operator {
+        ParameterOp::RemovePrefixShort { pattern }
+        | ParameterOp::RemovePrefixLong { pattern }
+        | ParameterOp::RemoveSuffixShort { pattern }
+        | ParameterOp::RemoveSuffixLong { pattern }
+        | ParameterOp::ReplaceFirst { pattern, .. }
+        | ParameterOp::ReplaceAll { pattern, .. } => {
+            collect_pattern(pattern, source, spans, context);
+        }
+        ParameterOp::UseDefault
+        | ParameterOp::AssignDefault
+        | ParameterOp::UseReplacement
+        | ParameterOp::Error
+        | ParameterOp::UpperFirst
+        | ParameterOp::UpperAll
+        | ParameterOp::LowerFirst
+        | ParameterOp::LowerAll => {}
+    }
+}
+
+fn collect_heredoc_literal_single_quotes(
+    body: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+    context: ScanContext<'_>,
+) {
+    if body.is_fully_quoted() {
+        return;
+    }
+
+    let text = body.span.slice(source);
+    let mut offset = 0usize;
+
+    while let Some(start_rel) = text[offset..].find('\'') {
+        let start = offset + start_rel;
+        let content_start = start + 1;
+        let Some(end_rel) = text[content_start..].find('\'') else {
+            break;
+        };
+        let end = content_start + end_rel + 1;
+        let content = &text[content_start..end - 1];
+
+        if should_report_single_quoted_literal(content, context) {
+            spans.push(Span::from_positions(
+                body.span.start.advanced_by(&text[..start]),
+                body.span.start.advanced_by(&text[..end]),
+            ));
+        }
+
+        offset = end;
     }
 }
 
@@ -681,5 +696,23 @@ mod tests {
     fn variable_set_operand_helper_does_not_panic_on_incomplete_operands() {
         assert_eq!(c005("test -v\n"), 0);
         assert_eq!(c005("test -v name\n"), 0);
+    }
+
+    #[test]
+    fn reports_single_quoted_literals_inside_case_patterns() {
+        assert_eq!(c005("case $x in '$HOME') : ;; esac\n"), 1);
+    }
+
+    #[test]
+    fn reports_single_quoted_literals_inside_parameter_patterns() {
+        assert_eq!(c005("echo ${value#'$HOME'}\n"), 1);
+    }
+
+    #[test]
+    fn reports_single_quoted_literals_inside_heredoc_bodies() {
+        assert_eq!(
+            c005("cat <<EOF\n'$HOME should expand but does not'\nEOF\n",),
+            1
+        );
     }
 }

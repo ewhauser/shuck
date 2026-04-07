@@ -4,7 +4,7 @@ use shuck_ast::{
     WordPart, WordPartNode,
 };
 
-use crate::rules::common::word::static_word_text;
+use crate::rules::common::{query, word::static_word_text};
 use crate::{Checker, Rule, Violation};
 
 pub struct PipeToKill;
@@ -232,6 +232,13 @@ fn collect_word_parts(parts: &[WordPartNode], source: &str, spans: &mut Vec<Span
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => collect_word_parts(parts, source, spans),
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        collect_word(word, source, spans);
+                    });
+                }
+            }
             WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => {
                 collect_commands(commands, source, spans);
@@ -255,7 +262,11 @@ fn collect_conditional_expr(expression: &ConditionalExpr, source: &str, spans: &
             collect_word(word, source, spans)
         }
         ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans),
-        ConditionalExpr::VarRef(_) => {}
+        ConditionalExpr::VarRef(reference) => {
+            query::visit_var_ref_subscript_words(reference, &mut |word| {
+                collect_word(word, source, spans);
+            });
+        }
     }
 }
 

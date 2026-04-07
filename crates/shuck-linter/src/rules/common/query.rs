@@ -1,7 +1,8 @@
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, Span,
-    Word, WordPart, WordPartNode,
+    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
+    BuiltinCommand, Command, CommandList, CompoundCommand, ConditionalExpr, DeclOperand,
+    FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, Span, VarRef, Word, WordPart,
+    WordPartNode,
 };
 
 use super::expansion::ExpansionContext;
@@ -118,6 +119,88 @@ pub fn iter_command_substitutions<'a>(
         substitutions.extend(iter_word_command_substitutions(word));
     }
     substitutions.into_iter()
+}
+
+pub fn visit_arithmetic_words(expression: &ArithmeticExprNode, visitor: &mut impl FnMut(&Word)) {
+    let mut words = Vec::new();
+    collect_arithmetic_words(expression, &mut words);
+    for word in words {
+        visitor(word);
+    }
+}
+
+pub fn visit_var_ref_subscript_words(reference: &VarRef, visitor: &mut impl FnMut(&Word)) {
+    let mut words = Vec::new();
+    collect_var_ref_subscript_words(reference, &mut words);
+    for word in words {
+        visitor(word);
+    }
+}
+
+fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut Vec<&'a Word>) {
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => collect_arithmetic_words(index, words),
+        ArithmeticExpr::ShellWord(word) => words.push(word),
+        ArithmeticExpr::Parenthesized { expression } => collect_arithmetic_words(expression, words),
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_arithmetic_words(expr, words)
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_words(left, words);
+            collect_arithmetic_words(right, words);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_words(condition, words);
+            collect_arithmetic_words(then_expr, words);
+            collect_arithmetic_words(else_expr, words);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_arithmetic_lvalue_words(target, words);
+            collect_arithmetic_words(value, words);
+        }
+    }
+}
+
+fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'a Word>) {
+    collect_optional_arithmetic_words(
+        reference
+            .subscript
+            .as_ref()
+            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
+        words,
+    );
+}
+
+fn collect_optional_arithmetic_words<'a>(
+    expression: Option<&'a ArithmeticExprNode>,
+    words: &mut Vec<&'a Word>,
+) {
+    if let Some(expression) = expression {
+        collect_arithmetic_words(expression, words);
+    }
+}
+
+fn collect_arithmetic_lvalue_words<'a>(target: &'a ArithmeticLvalue, words: &mut Vec<&'a Word>) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => collect_arithmetic_words(index, words),
+    }
+}
+
+fn visit_optional_arithmetic_words(
+    expression: Option<&ArithmeticExprNode>,
+    visitor: &mut impl FnMut(&Word),
+) {
+    let mut words = Vec::new();
+    collect_optional_arithmetic_words(expression, &mut words);
+    for word in words {
+        visitor(word);
+    }
 }
 
 pub fn visit_command_words(command: &Command, visitor: &mut impl FnMut(&Word)) {
@@ -398,7 +481,14 @@ fn collect_conditional_expansion_words<'a>(
         }
         ConditionalExpr::Word(word) => words.push((word, ExpansionContext::StringTestOperand)),
         ConditionalExpr::Regex(word) => words.push((word, ExpansionContext::RegexOperand)),
-        ConditionalExpr::Pattern(_) | ConditionalExpr::VarRef(_) => {}
+        ConditionalExpr::Pattern(_) => {}
+        ConditionalExpr::VarRef(reference) => {
+            let mut subscript_words = Vec::new();
+            collect_var_ref_subscript_words(reference, &mut subscript_words);
+            for word in subscript_words {
+                words.push((word, ExpansionContext::ConditionalVarRefSubscript));
+            }
+        }
     }
 }
 
@@ -813,7 +903,13 @@ fn collect_conditional_visits<'a>(
         ConditionalExpr::Pattern(pattern) => {
             collect_pattern_visits(pattern, options, context, visits)
         }
-        ConditionalExpr::VarRef(_) => {}
+        ConditionalExpr::VarRef(reference) => {
+            let mut subscript_words = Vec::new();
+            collect_var_ref_subscript_words(reference, &mut subscript_words);
+            for word in subscript_words {
+                collect_word_visits(word, options, context, visits);
+            }
+        }
     }
 }
 
@@ -1042,6 +1138,11 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
         for part in parts {
             match &part.kind {
                 WordPart::DoubleQuoted { parts, .. } => self.walk_word_parts(parts, context),
+                WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                    visit_optional_arithmetic_words(expression_ast.as_ref(), &mut |word| {
+                        self.walk_word(word, context);
+                    });
+                }
                 WordPart::CommandSubstitution { commands, .. }
                 | WordPart::ProcessSubstitution { commands, .. } => {
                     self.walk_commands(commands, context);
@@ -1063,7 +1164,11 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
                 self.walk_word(word, context)
             }
             ConditionalExpr::Pattern(pattern) => self.walk_pattern(pattern, context),
-            ConditionalExpr::VarRef(_) => {}
+            ConditionalExpr::VarRef(reference) => {
+                visit_var_ref_subscript_words(reference, &mut |word| {
+                    self.walk_word(word, context);
+                });
+            }
         }
     }
 
@@ -1276,6 +1381,11 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
         for part in parts {
             match &part.kind {
                 WordPart::DoubleQuoted { parts, .. } => self.walk_word_parts(parts),
+                WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                    visit_optional_arithmetic_words(expression_ast.as_ref(), &mut |word| {
+                        self.walk_word(word);
+                    });
+                }
                 WordPart::CommandSubstitution { commands, .. }
                 | WordPart::ProcessSubstitution { commands, .. } => self.walk_commands(commands),
                 _ => {}
@@ -1299,7 +1409,11 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
             ConditionalExpr::Parenthesized(expr) => self.walk_conditional_expr(&expr.expr),
             ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.walk_word(word),
             ConditionalExpr::Pattern(pattern) => self.walk_pattern(pattern),
-            ConditionalExpr::VarRef(_) => {}
+            ConditionalExpr::VarRef(reference) => {
+                visit_var_ref_subscript_words(reference, &mut |word| {
+                    self.walk_word(word);
+                });
+            }
         }
     }
 }
@@ -1440,6 +1554,13 @@ fn collect_word_command_substitutions<'a>(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_word_command_substitutions(parts, substitutions);
             }
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                let mut arithmetic_words = Vec::new();
+                collect_optional_arithmetic_words(expression_ast.as_ref(), &mut arithmetic_words);
+                for word in arithmetic_words {
+                    collect_word_command_substitutions(&word.parts, substitutions);
+                }
+            }
             WordPart::CommandSubstitution { commands, .. } => {
                 substitutions.push(NestedCommandSubstitution {
                     commands,
@@ -1504,7 +1625,9 @@ fn collect_conditional_words<'a>(expression: &'a ConditionalExpr, words: &mut Ve
         ConditionalExpr::Parenthesized(expr) => collect_conditional_words(&expr.expr, words),
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => words.push(word),
         ConditionalExpr::Pattern(pattern) => collect_pattern_words_from_pattern(pattern, words),
-        ConditionalExpr::VarRef(_) => {}
+        ConditionalExpr::VarRef(reference) => {
+            collect_var_ref_subscript_words(reference, words);
+        }
     }
 }
 
@@ -1833,6 +1956,7 @@ esac
 [[ $text =~ $regex ]]
 trimmed=${value%$suffix}
 trap -- \"echo $trap_body\" EXIT
+[[ -v assoc[$(( $idx + 1 ))] ]]
 ";
         let commands = parse_commands(source);
         let mut seen = Vec::new();
@@ -1875,6 +1999,10 @@ trap -- \"echo $trap_body\" EXIT
                     ExpansionContext::TrapAction,
                     "\"echo $trap_body\"".to_owned()
                 ),
+                (
+                    ExpansionContext::ConditionalVarRefSubscript,
+                    "$(( $idx + 1 ))".to_owned()
+                ),
             ]
         );
     }
@@ -1906,6 +2034,36 @@ esac
                 ExpansionContext::RedirectTarget(RedirectKind::Output),
                 ExpansionContext::CasePattern,
                 ExpansionContext::RegexOperand,
+            ]
+        );
+    }
+
+    #[test]
+    fn iter_command_substitutions_descends_into_arithmetic_and_var_ref_subscripts() {
+        let source = "\
+echo $(( $(printf outer) + 1 ))
+[[ -v assoc[$(( $(printf inner) ))] ]]
+";
+        let commands = parse_commands(source);
+        let seen = commands
+            .iter()
+            .flat_map(iter_command_substitutions)
+            .map(|substitution| {
+                let Command::Simple(command) = &substitution.commands[0] else {
+                    panic!("expected simple command in substitution");
+                };
+                (
+                    substitution.kind,
+                    static_word_text(&command.name, source).expect("expected literal command name"),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            seen,
+            vec![
+                (CommandSubstitutionKind::Command, "printf".to_owned()),
+                (CommandSubstitutionKind::Command, "printf".to_owned()),
             ]
         );
     }

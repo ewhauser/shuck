@@ -12,6 +12,7 @@ pub enum ExpansionContext {
     CasePattern,
     StringTestOperand,
     RegexOperand,
+    ConditionalVarRefSubscript,
     ParameterPattern,
     TrapAction,
 }

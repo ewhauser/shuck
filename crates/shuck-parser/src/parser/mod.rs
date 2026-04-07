@@ -206,9 +206,13 @@ struct ParsedWordTarget {
 
 impl<'a> PatternParser<'a> {
     fn new(input: &'a str, word: &'a Word) -> Self {
-        let mut segments = Vec::with_capacity(word.parts.len());
+        Self::from_word_parts(input, &word.parts, word.span)
+    }
 
-        for part in &word.parts {
+    fn from_word_parts(input: &'a str, parts: &'a [WordPartNode], full_span: Span) -> Self {
+        let mut segments = Vec::with_capacity(parts.len());
+
+        for part in parts {
             match &part.kind {
                 WordPart::Literal(text) => segments.push(PatternSegment::Literal {
                     text: text.as_str(input, part.span),
@@ -221,7 +225,7 @@ impl<'a> PatternParser<'a> {
         Self {
             input,
             segments,
-            full_span: word.span,
+            full_span,
         }
     }
 
@@ -1960,13 +1964,15 @@ impl<'a> Parser<'a> {
 
     fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
         let span = text.span();
-        let word = self.decode_word_text_preserving_quotes_if_needed(
+        let mut parts = Vec::new();
+        self.decode_word_parts_into_with_quote_fragments(
             text.slice(self.input),
-            span,
             span.start,
             text.is_source_backed(),
+            true,
+            &mut parts,
         );
-        self.pattern_from_word(&word)
+        PatternParser::from_word_parts(self.input, &parts, span).parse()
     }
 
     fn single_literal_word_text<'b>(&'b self, word: &'b Word) -> Option<&'b str> {
@@ -5483,6 +5489,403 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn word_syntax_is_source_backed(&self, word: &Word) -> bool {
+        word.span.end.offset <= self.input.len()
+            && word
+                .parts
+                .first()
+                .is_none_or(|part| part.span.start == word.span.start)
+            && word
+                .parts
+                .last()
+                .is_none_or(|part| part.span.end == word.span.end)
+            && word
+                .parts
+                .iter()
+                .all(|part| self.word_part_syntax_is_source_backed(&part.kind, part.span))
+    }
+
+    fn word_part_syntax_is_source_backed(&self, part: &WordPart, span: Span) -> bool {
+        span.end.offset <= self.input.len()
+            && match part {
+                WordPart::Literal(text) => text.is_source_backed(),
+                WordPart::SingleQuoted { value, .. } => value.is_source_backed(),
+                WordPart::DoubleQuoted { parts, .. } => parts
+                    .iter()
+                    .all(|part| self.word_part_syntax_is_source_backed(&part.kind, part.span)),
+                WordPart::Variable(_)
+                | WordPart::CommandSubstitution { .. }
+                | WordPart::ProcessSubstitution { .. }
+                | WordPart::PrefixMatch(_) => true,
+                WordPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
+                WordPart::ParameterExpansion {
+                    reference,
+                    operator,
+                    operand,
+                    ..
+                } => {
+                    reference.is_source_backed()
+                        && self.parameter_operator_is_source_backed(operator)
+                        && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                }
+                WordPart::Length(reference)
+                | WordPart::ArrayAccess(reference)
+                | WordPart::ArrayLength(reference)
+                | WordPart::ArrayIndices(reference)
+                | WordPart::Transformation { reference, .. } => reference.is_source_backed(),
+                WordPart::Substring {
+                    reference,
+                    offset,
+                    length,
+                    ..
+                }
+                | WordPart::ArraySlice {
+                    reference,
+                    offset,
+                    length,
+                    ..
+                } => {
+                    reference.is_source_backed()
+                        && offset.is_source_backed()
+                        && length.as_ref().is_none_or(SourceText::is_source_backed)
+                }
+                WordPart::IndirectExpansion {
+                    operator, operand, ..
+                } => {
+                    operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                }
+            }
+    }
+
+    fn parameter_operator_is_source_backed(&self, operator: &ParameterOp) -> bool {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => pattern.is_source_backed(),
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement,
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement,
+            } => pattern.is_source_backed() && replacement.is_source_backed(),
+            _ => true,
+        }
+    }
+
+    fn word_part_syntax_text<'b>(&'b self, part: &'b WordPartNode) -> Cow<'b, str> {
+        if self.word_part_syntax_is_source_backed(&part.kind, part.span) {
+            Cow::Borrowed(part.span.slice(self.input))
+        } else {
+            let mut syntax = String::new();
+            self.push_word_part_syntax(&mut syntax, &part.kind, part.span);
+            Cow::Owned(syntax)
+        }
+    }
+
+    fn compound_array_inner_text<'b>(&'b self, word: &'b Word) -> Option<(Cow<'b, str>, Position)> {
+        let first = word.parts.first()?;
+        let last = word.parts.last()?;
+        let first_syntax = self.word_part_syntax_text(first);
+        let last_syntax = self.word_part_syntax_text(last);
+
+        if !first_syntax.starts_with('(') || !last_syntax.ends_with(')') {
+            return None;
+        }
+
+        let inner_start = word.span.start.advanced_by("(");
+        if self.word_syntax_is_source_backed(word) {
+            let syntax = word.span.slice(self.input);
+            return Some((
+                Cow::Borrowed(&syntax[1..syntax.len().saturating_sub(1)]),
+                inner_start,
+            ));
+        }
+
+        let mut inner = String::new();
+        for (index, part) in word.parts.iter().enumerate() {
+            let syntax = self.word_part_syntax_text(part);
+            let start = if index == 0 { 1 } else { 0 };
+            let end = syntax.len() - usize::from(index + 1 == word.parts.len());
+            if start < end {
+                inner.push_str(&syntax[start..end]);
+            }
+        }
+
+        Some((Cow::Owned(inner), inner_start))
+    }
+
+    fn push_word_part_syntax(&self, out: &mut String, part: &WordPart, span: Span) {
+        if self.word_part_syntax_is_source_backed(part, span) {
+            out.push_str(span.slice(self.input));
+            return;
+        }
+
+        match part {
+            WordPart::Literal(text) => out.push_str(text.as_str(self.input, span)),
+            WordPart::SingleQuoted { value, dollar } => {
+                if *dollar {
+                    out.push('$');
+                }
+                out.push('\'');
+                out.push_str(value.slice(self.input));
+                out.push('\'');
+            }
+            WordPart::DoubleQuoted { parts, dollar } => {
+                if *dollar {
+                    out.push('$');
+                }
+                out.push('"');
+                for part in parts {
+                    self.push_word_part_syntax(out, &part.kind, part.span);
+                }
+                out.push('"');
+            }
+            WordPart::Variable(name) => {
+                out.push('$');
+                out.push_str(name.as_str());
+            }
+            WordPart::CommandSubstitution { syntax, .. } => match syntax {
+                CommandSubstitutionSyntax::DollarParen => out.push_str("$()"),
+                CommandSubstitutionSyntax::Backtick => out.push_str("``"),
+            },
+            WordPart::ArithmeticExpansion {
+                expression, syntax, ..
+            } => match syntax {
+                ArithmeticExpansionSyntax::DollarParenParen => {
+                    out.push_str("$((");
+                    out.push_str(expression.slice(self.input));
+                    out.push_str("))");
+                }
+                ArithmeticExpansionSyntax::LegacyBracket => {
+                    out.push_str("$[");
+                    out.push_str(expression.slice(self.input));
+                    out.push(']');
+                }
+            },
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand,
+                colon_variant,
+            } => {
+                out.push_str("${");
+                self.push_var_ref_syntax(out, reference);
+                self.push_parameter_operator_syntax(
+                    out,
+                    operator,
+                    operand.as_ref(),
+                    *colon_variant,
+                );
+                out.push('}');
+            }
+            WordPart::Length(reference) => {
+                out.push_str("${#");
+                self.push_var_ref_syntax(out, reference);
+                out.push('}');
+            }
+            WordPart::ArrayAccess(reference) => {
+                out.push_str("${");
+                self.push_var_ref_syntax(out, reference);
+                out.push('}');
+            }
+            WordPart::ArrayLength(reference) => {
+                out.push_str("${#");
+                self.push_var_ref_syntax(out, reference);
+                out.push('}');
+            }
+            WordPart::ArrayIndices(reference) => {
+                out.push_str("${!");
+                self.push_var_ref_syntax(out, reference);
+                out.push('}');
+            }
+            WordPart::Substring {
+                reference,
+                offset,
+                length,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset,
+                length,
+                ..
+            } => {
+                out.push_str("${");
+                self.push_var_ref_syntax(out, reference);
+                out.push(':');
+                out.push_str(offset.slice(self.input));
+                if let Some(length) = length {
+                    out.push(':');
+                    out.push_str(length.slice(self.input));
+                }
+                out.push('}');
+            }
+            WordPart::IndirectExpansion {
+                name,
+                operator,
+                operand,
+                colon_variant,
+            } => {
+                out.push_str("${!");
+                out.push_str(name.as_str());
+                if let Some(operator) = operator {
+                    self.push_parameter_operator_syntax(
+                        out,
+                        operator,
+                        operand.as_ref(),
+                        *colon_variant,
+                    );
+                }
+                out.push('}');
+            }
+            WordPart::PrefixMatch(prefix) => {
+                out.push_str("${!");
+                out.push_str(prefix.as_str());
+                out.push_str("*}");
+            }
+            WordPart::ProcessSubstitution { is_input, .. } => {
+                out.push(if *is_input { '<' } else { '>' });
+                out.push_str("()");
+            }
+            WordPart::Transformation {
+                reference,
+                operator,
+            } => {
+                out.push_str("${");
+                self.push_var_ref_syntax(out, reference);
+                out.push('@');
+                out.push(*operator);
+                out.push('}');
+            }
+        }
+    }
+
+    fn push_var_ref_syntax(&self, out: &mut String, reference: &VarRef) {
+        out.push_str(reference.name.as_str());
+        if let Some(subscript) = &reference.subscript {
+            out.push('[');
+            out.push_str(subscript.text.slice(self.input));
+            out.push(']');
+        }
+    }
+
+    fn push_parameter_operator_syntax(
+        &self,
+        out: &mut String,
+        operator: &ParameterOp,
+        operand: Option<&SourceText>,
+        colon_variant: bool,
+    ) {
+        let colon = if colon_variant { ":" } else { "" };
+        match operator {
+            ParameterOp::UseDefault => {
+                out.push_str(colon);
+                out.push('-');
+                if let Some(operand) = operand {
+                    out.push_str(operand.slice(self.input));
+                }
+            }
+            ParameterOp::AssignDefault => {
+                out.push_str(colon);
+                out.push('=');
+                if let Some(operand) = operand {
+                    out.push_str(operand.slice(self.input));
+                }
+            }
+            ParameterOp::UseReplacement => {
+                out.push_str(colon);
+                out.push('+');
+                if let Some(operand) = operand {
+                    out.push_str(operand.slice(self.input));
+                }
+            }
+            ParameterOp::Error => {
+                out.push_str(colon);
+                out.push('?');
+                if let Some(operand) = operand {
+                    out.push_str(operand.slice(self.input));
+                }
+            }
+            ParameterOp::RemovePrefixShort { pattern } => {
+                out.push('#');
+                self.push_pattern_syntax(out, pattern);
+            }
+            ParameterOp::RemovePrefixLong { pattern } => {
+                out.push_str("##");
+                self.push_pattern_syntax(out, pattern);
+            }
+            ParameterOp::RemoveSuffixShort { pattern } => {
+                out.push('%');
+                self.push_pattern_syntax(out, pattern);
+            }
+            ParameterOp::RemoveSuffixLong { pattern } => {
+                out.push_str("%%");
+                self.push_pattern_syntax(out, pattern);
+            }
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement,
+            } => {
+                out.push('/');
+                self.push_pattern_syntax(out, pattern);
+                out.push('/');
+                out.push_str(replacement.slice(self.input));
+            }
+            ParameterOp::ReplaceAll {
+                pattern,
+                replacement,
+            } => {
+                out.push_str("//");
+                self.push_pattern_syntax(out, pattern);
+                out.push('/');
+                out.push_str(replacement.slice(self.input));
+            }
+            ParameterOp::UpperFirst => out.push('^'),
+            ParameterOp::UpperAll => out.push_str("^^"),
+            ParameterOp::LowerFirst => out.push(','),
+            ParameterOp::LowerAll => out.push_str(",,"),
+        }
+    }
+
+    fn push_pattern_syntax(&self, out: &mut String, pattern: &Pattern) {
+        if pattern.is_source_backed() && pattern.span.end.offset <= self.input.len() {
+            out.push_str(pattern.span.slice(self.input));
+            return;
+        }
+
+        for part in &pattern.parts {
+            self.push_pattern_part_syntax(out, &part.kind, part.span);
+        }
+    }
+
+    fn push_pattern_part_syntax(&self, out: &mut String, part: &PatternPart, span: Span) {
+        match part {
+            PatternPart::Literal(text) => out.push_str(text.as_str(self.input, span)),
+            PatternPart::AnyString => out.push('*'),
+            PatternPart::AnyChar => out.push('?'),
+            PatternPart::CharClass(text) => out.push_str(text.slice(self.input)),
+            PatternPart::Group { kind, patterns } => {
+                out.push(kind.prefix());
+                out.push('(');
+                for (index, pattern) in patterns.iter().enumerate() {
+                    if index > 0 {
+                        out.push('|');
+                    }
+                    self.push_pattern_syntax(out, pattern);
+                }
+                out.push(')');
+            }
+            PatternPart::Word(word) => {
+                for part in &word.parts {
+                    self.push_word_part_syntax(out, &part.kind, part.span);
+                }
+            }
+        }
+    }
+
     fn parse_assignment_from_word(
         &mut self,
         word: Word,
@@ -5496,7 +5899,11 @@ impl<'a> Parser<'a> {
             subscript,
             boundary,
         } = self.parse_word_target(&word, subscript_interpretation, true)?;
-        let WordTargetBoundary::Assignment { append, value_start } = boundary else {
+        let WordTargetBoundary::Assignment {
+            append,
+            value_start,
+        } = boundary
+        else {
             return None;
         };
         let target = self.var_ref(name, name_span, subscript, assignment_span);
@@ -5507,17 +5914,17 @@ impl<'a> Parser<'a> {
                 "",
                 Span::from_positions(value_start, assignment_span.end),
             ))
+        } else if let Some((inner, inner_start)) = self
+            .compound_array_inner_text(&value_word)
+            .map(|(inner, inner_start)| (inner.into_owned(), inner_start))
+        {
+            AssignmentValue::Compound(self.parse_array_expr_from_text(
+                &inner,
+                inner_start,
+                explicit_array_kind,
+            ))
         } else {
-            let value_text = value_word.render_syntax(self.input);
-            if value_text.starts_with('(') && value_text.ends_with(')') {
-                AssignmentValue::Compound(self.parse_array_expr_from_text(
-                    &value_text[1..value_text.len() - 1],
-                    value_start.advanced_by("("),
-                    explicit_array_kind,
-                ))
-            } else {
-                AssignmentValue::Scalar(value_word)
-            }
+            AssignmentValue::Scalar(value_word)
         };
 
         Some(Assignment {
@@ -5535,8 +5942,8 @@ impl<'a> Parser<'a> {
         explicit_array_kind: Option<ArrayKind>,
         subscript_interpretation: SubscriptInterpretation,
     ) -> Option<Assignment> {
-        let source_backed =
-            assignment_span.end.offset <= self.input.len() && assignment_span.slice(self.input) == w;
+        let source_backed = assignment_span.end.offset <= self.input.len()
+            && assignment_span.slice(self.input) == w;
         let word = self.decode_word_text_preserving_quotes_if_needed(
             w,
             assignment_span,
@@ -5573,10 +5980,8 @@ impl<'a> Parser<'a> {
 
         let name_text = &first_text[..name_end];
         let name = Name::from(name_text);
-        let name_span = Span::from_positions(
-            word.span.start,
-            word.span.start.advanced_by(name_text),
-        );
+        let name_span =
+            Span::from_positions(word.span.start, word.span.start.advanced_by(name_text));
         let mut after_name = name_end;
         let mut in_subscript = false;
         let mut bracket_depth = 0usize;
@@ -5662,13 +6067,7 @@ impl<'a> Parser<'a> {
                     if !in_subscript {
                         return None;
                     }
-                    subscript_text.push_str(
-                        &Word {
-                            parts: vec![part.clone()],
-                            span: part.span,
-                        }
-                        .render_syntax(self.input),
-                    );
+                    subscript_text.push_str(self.word_part_syntax_text(part).as_ref());
                 }
             }
             after_name = 0;
@@ -5831,7 +6230,11 @@ impl<'a> Parser<'a> {
                     subscript,
                     boundary,
                 } = self.parse_word_target(&word, SubscriptInterpretation::Contextual, true)?;
-                let WordTargetBoundary::Assignment { append, value_start } = boundary else {
+                let WordTargetBoundary::Assignment {
+                    append,
+                    value_start,
+                } = boundary
+                else {
                     return None;
                 };
                 Some((
@@ -8766,6 +9169,37 @@ mod tests {
     }
 
     #[test]
+    fn test_assignment_target_mixed_subscript_and_compound_value_stay_structured() {
+        let input = "assoc[\"$key\"-suffix]=(\"$value\" plain)\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let assignment = &command.assignments[0];
+        assert_eq!(assignment.target.name.as_str(), "assoc");
+        let subscript = assignment
+            .target
+            .subscript
+            .as_ref()
+            .expect("expected target subscript");
+        assert_eq!(subscript.text.slice(input), "\"$key\"-suffix");
+
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound assignment value");
+        };
+        assert_eq!(array.elements.len(), 2);
+        let ArrayElem::Sequential(first) = &array.elements[0] else {
+            panic!("expected first sequential element");
+        };
+        assert_eq!(first.span.slice(input), "\"$value\"");
+        let ArrayElem::Sequential(second) = &array.elements[1] else {
+            panic!("expected second sequential element");
+        };
+        assert_eq!(second.span.slice(input), "plain");
+    }
+
+    #[test]
     fn test_leaf_spans_track_words_assignments_and_redirects() {
         let script = Parser::new("foo=bar echo hi > out\n")
             .parse()
@@ -9306,6 +9740,59 @@ mod tests {
                 },
                 PatternPartNode {
                     kind: PatternPart::AnyString,
+                    ..
+                }
+            ] if first.is_fully_quoted()
+                && matches!(
+                    &second.parts[..],
+                    [WordPartNode {
+                        kind: WordPart::Variable(name),
+                        ..
+                    }] if name.as_str() == "suffix"
+                )
+                && third.is_fully_quoted()
+        ));
+    }
+
+    #[test]
+    fn test_parameter_replacement_pattern_preserves_mixed_quote_fragments() {
+        let input = "echo ${var//\"pre\"$suffix'-'/x}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let word = &command.args[0];
+
+        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
+            panic!("expected parameter expansion");
+        };
+        let ParameterOp::ReplaceAll {
+            pattern,
+            replacement,
+        } = operator
+        else {
+            panic!("expected replace-all operator");
+        };
+
+        assert_eq!(
+            pattern_part_slices(pattern, input),
+            vec!["\"pre\"", "$suffix", "'-'"]
+        );
+        assert_eq!(replacement.slice(input), "x");
+        assert!(matches!(
+            &pattern.parts[..],
+            [
+                PatternPartNode {
+                    kind: PatternPart::Word(first),
+                    ..
+                },
+                PatternPartNode {
+                    kind: PatternPart::Word(second),
+                    ..
+                },
+                PatternPartNode {
+                    kind: PatternPart::Word(third),
                     ..
                 }
             ] if first.is_fully_quoted()
@@ -10239,10 +10726,7 @@ coproc worker { true; }
 
         let subscript = expect_subscript(var_ref, input, " 0 ");
         assert!(matches!(
-            subscript
-                .arithmetic_ast
-                .as_ref()
-                .map(|expr| &expr.kind),
+            subscript.arithmetic_ast.as_ref().map(|expr| &expr.kind),
             Some(ArithmeticExpr::Number(_))
         ));
     }

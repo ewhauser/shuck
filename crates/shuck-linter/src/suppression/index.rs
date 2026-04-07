@@ -6,6 +6,7 @@ use shuck_ast::{
 };
 
 use crate::Rule;
+use crate::rules::common::query;
 
 use super::{SuppressionAction, SuppressionDirective, SuppressionSource};
 
@@ -403,6 +404,13 @@ where
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, visit),
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        walk_word(word, visit);
+                    });
+                }
+            }
             WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => walk_commands(commands, visit),
             _ => {}
@@ -436,7 +444,11 @@ where
         ConditionalExpr::Parenthesized(expr) => walk_conditional_expr(&expr.expr, visit),
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => walk_word(word, visit),
         ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, visit),
-        ConditionalExpr::VarRef(_) => {}
+        ConditionalExpr::VarRef(reference) => {
+            query::visit_var_ref_subscript_words(reference, &mut |word| {
+                walk_word(word, visit);
+            });
+        }
     }
 }
 

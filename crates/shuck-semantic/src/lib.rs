@@ -664,7 +664,7 @@ fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cfg::{RecordedProgram, build_control_flow_graph};
+    use crate::cfg::build_control_flow_graph;
     use shuck_ast::{Command, CompoundCommand};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
@@ -2404,82 +2404,35 @@ executed-helper.sh
     }
 
     #[test]
-    fn recorded_program_cfg_and_dataflow_match_legacy_conversion() {
+    fn recorded_program_and_cfg_capture_arithmetic_var_ref_nested_regions() {
         let source = "\
-f() { echo $X; }
-if cond; then
-  X=1
-else
-  X=2
-fi
-while cond; do
-  X=3
-  break
-done
-echo $X
-( Y=1 )
-echo $(printf '%s' \"$X\")
+[[ -v assoc[$(( $(printf inner) + 1 ))] ]]
+echo done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let model = SemanticModel::build(&output.script, source, &indexer);
 
-        let new_cfg = build_control_flow_graph(
+        assert_eq!(model.recorded_program.file_commands.len(), 2);
+        let conditional = &model.recorded_program.file_commands[0];
+        assert_eq!(conditional.nested_regions.len(), 1);
+        assert_eq!(conditional.nested_regions[0].commands.len(), 1);
+        let nested = &conditional.nested_regions[0].commands[0];
+        assert_eq!(nested.span.slice(source), "printf inner");
+
+        let cfg = build_control_flow_graph(
             &model.recorded_program,
             &model.command_bindings,
             &model.command_references,
         );
-        let legacy_program = RecordedProgram::from_script(&output.script, model.scopes());
-        let legacy_cfg = build_control_flow_graph(
-            &legacy_program,
-            &model.command_bindings,
-            &model.command_references,
-        );
 
-        assert_eq!(new_cfg.blocks(), legacy_cfg.blocks());
-        assert_eq!(new_cfg.entry(), legacy_cfg.entry());
-        assert_eq!(new_cfg.exits(), legacy_cfg.exits());
-        assert_eq!(new_cfg.unreachable(), legacy_cfg.unreachable());
-
-        for block in new_cfg.blocks() {
-            assert_eq!(
-                new_cfg.successors(block.id),
-                legacy_cfg.successors(block.id),
-                "successors differed for block {:?}",
-                block.id
-            );
-            assert_eq!(
-                new_cfg.predecessors(block.id),
-                legacy_cfg.predecessors(block.id),
-                "predecessors differed for block {:?}",
-                block.id
-            );
-        }
-
-        let new_dataflow = crate::dataflow::analyze(
-            &new_cfg,
-            &model.runtime,
-            &model.scopes,
-            &model.bindings,
-            &model.references,
-            &model.predefined_runtime_refs,
-            &model.resolved,
-            &model.call_sites,
-            &model.indirect_targets_by_reference,
-            &model.synthetic_reads,
+        assert!(!cfg.block_ids_for_span(conditional.span).is_empty());
+        assert!(!cfg.block_ids_for_span(nested.span).is_empty());
+        assert!(
+            cfg.blocks()
+                .iter()
+                .flat_map(|block| block.commands.iter())
+                .any(|span| span.slice(source) == "printf inner")
         );
-        let legacy_dataflow = crate::dataflow::analyze(
-            &legacy_cfg,
-            &model.runtime,
-            &model.scopes,
-            &model.bindings,
-            &model.references,
-            &model.predefined_runtime_refs,
-            &model.resolved,
-            &model.call_sites,
-            &model.indirect_targets_by_reference,
-            &model.synthetic_reads,
-        );
-        assert_eq!(new_dataflow, legacy_dataflow);
     }
 }

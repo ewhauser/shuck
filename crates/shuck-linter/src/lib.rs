@@ -125,7 +125,6 @@ pub fn analyze_file_at_path_with_resolver(
         script,
         source,
         &semantic,
-        indexer,
         &settings.rules,
         shell,
         &file_context,
