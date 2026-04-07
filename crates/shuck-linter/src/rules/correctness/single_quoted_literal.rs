@@ -345,7 +345,11 @@ fn collect_redirects(
     context: ScanContext<'_>,
 ) {
     for redirect in redirects {
-        collect_word(&redirect.target, indexer, source, spans, context);
+        let word = match redirect.word_target() {
+            Some(word) => word,
+            None => &redirect.heredoc().expect("expected heredoc redirect").body,
+        };
+        collect_word(word, indexer, source, spans, context);
     }
 }
 

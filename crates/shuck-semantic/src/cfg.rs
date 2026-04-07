@@ -917,7 +917,16 @@ fn collect_regions_from_redirects(
 ) -> Vec<IsolatedRegion> {
     redirects
         .iter()
-        .flat_map(|redirect| collect_regions_from_word(&redirect.target, scopes, function_bodies))
+        .flat_map(|redirect| {
+            collect_regions_from_word(
+                match redirect.word_target() {
+                    Some(word) => word,
+                    None => &redirect.heredoc().expect("expected heredoc redirect").body,
+                },
+                scopes,
+                function_bodies,
+            )
+        })
         .collect()
 }
 

@@ -850,11 +850,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
         for redirect in redirects {
-            nested_regions.extend(self.visit_word(
-                &redirect.target,
-                WordVisitKind::Expansion,
-                flow,
-            ));
+            let word = match redirect.word_target() {
+                Some(word) => word,
+                None => &redirect.heredoc().expect("expected heredoc redirect").body,
+            };
+            nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
         }
         nested_regions
     }

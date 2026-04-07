@@ -421,14 +421,20 @@ impl RegionCollector {
     fn visit_redirect(&mut self, redirect: &Redirect) {
         match redirect.kind {
             RedirectKind::HereDoc | RedirectKind::HereDocStrip => {
-                let range = redirect.target.span.to_range();
+                let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                let range = heredoc.body.span.to_range();
                 push_range(&mut self.heredocs, range);
-                if is_fully_quoted_word(&redirect.target) {
+                if is_fully_quoted_word(&heredoc.body) {
                     push_range(&mut self.quoted_heredocs, range);
                 }
-                self.visit_word_parts(&redirect.target.parts);
+                self.visit_word_parts(&heredoc.body.parts);
             }
-            _ => self.visit_word(&redirect.target, true),
+            _ => self.visit_word(
+                redirect
+                    .word_target()
+                    .expect("expected non-heredoc redirect target"),
+                true,
+            ),
         }
     }
 

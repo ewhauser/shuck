@@ -375,7 +375,12 @@ fn classify_command_redirects(redirects: &[Redirect], source: &str) -> RedirectS
 }
 
 fn redirect_file_sink(redirect: &Redirect, source: &str) -> OutputSink {
-    if static_word_text(&redirect.target, source).as_deref() == Some("/dev/null") {
+    if redirect
+        .word_target()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("/dev/null")
+    {
         OutputSink::DevNull
     } else {
         OutputSink::Other
@@ -387,7 +392,10 @@ fn redirect_dup_output_sink(
     fds: &HashMap<i32, OutputSink>,
     source: &str,
 ) -> OutputSink {
-    let Some(target) = static_word_text(&redirect.target, source) else {
+    let Some(target) = redirect
+        .word_target()
+        .and_then(|word| static_word_text(word, source))
+    else {
         return OutputSink::Other;
     };
 

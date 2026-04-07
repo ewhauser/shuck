@@ -381,7 +381,11 @@ where
     F: FnMut(Span),
 {
     for redirect in redirects {
-        walk_word(&redirect.target, visit);
+        let word = match redirect.word_target() {
+            Some(word) => word,
+            None => &redirect.heredoc().expect("expected heredoc redirect").body,
+        };
+        walk_word(word, visit);
     }
 }
 

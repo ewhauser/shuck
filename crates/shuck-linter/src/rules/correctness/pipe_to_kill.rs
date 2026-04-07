@@ -229,7 +229,11 @@ fn collect_conditional_expr(expression: &ConditionalExpr, source: &str, spans: &
 
 fn collect_redirects(redirects: &[Redirect], source: &str, spans: &mut Vec<Span>) {
     for redirect in redirects {
-        collect_word(&redirect.target, source, spans);
+        let word = match redirect.word_target() {
+            Some(word) => word,
+            None => &redirect.heredoc().expect("expected heredoc redirect").body,
+        };
+        collect_word(word, source, spans);
     }
 }
 

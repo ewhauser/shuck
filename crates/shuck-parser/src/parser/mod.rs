@@ -25,10 +25,11 @@ use shuck_ast::{
     CommandList, CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand,
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
-    DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, IfCommand,
-    ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position, Redirect, RedirectKind,
-    ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span, TextSize, TimeCommand,
-    TokenKind, UntilCommand, WhileCommand, Word, WordPart, WordPartNode,
+    DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc,
+    HeredocDelimiter, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position,
+    Redirect, RedirectKind, RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand,
+    SourceText, Span, TextSize, TimeCommand, TokenKind, UntilCommand, WhileCommand, Word, WordPart,
+    WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -1247,18 +1248,28 @@ impl<'a> Parser<'a> {
         REDIRECT_TOKENS.contains(kind)
     }
 
-    fn current_static_word(&mut self) -> Option<(String, bool)> {
-        if let Some((text, quoted)) = self.current_static_token_text() {
-            return Some((text, quoted));
+    fn current_static_heredoc_delimiter(&mut self) -> Option<(Word, String, bool)> {
+        let word = self.current_word()?;
+        let raw_text = word.span.slice(self.input);
+        let quoted_parts = Self::word_has_quoted_parts(&word.parts);
+
+        if let Some((text, token_quoted)) = self.current_static_token_text() {
+            let quoted = quoted_parts || token_quoted || raw_text != text;
+            return Some((word, text, quoted));
         }
 
-        let quoted = matches!(
-            self.current_token_kind,
-            Some(TokenKind::LiteralWord | TokenKind::QuotedWord)
-        );
-        let word = self.current_word()?;
         let text = self.literal_word_text(&word)?;
-        Some((text, quoted))
+        let quoted = quoted_parts || raw_text != text;
+        Some((word, text, quoted))
+    }
+
+    fn word_has_quoted_parts(parts: &[WordPartNode]) -> bool {
+        parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
+            )
+        })
     }
 
     fn current_fd_value(&self) -> Option<i32> {
@@ -1508,7 +1519,14 @@ impl<'a> Parser<'a> {
         for redirect in redirects {
             redirect.span = redirect.span.rebased(base);
             redirect.fd_var_span = redirect.fd_var_span.map(|span| span.rebased(base));
-            Self::rebase_word(&mut redirect.target, base);
+            match &mut redirect.target {
+                RedirectTarget::Word(word) => Self::rebase_word(word, base),
+                RedirectTarget::Heredoc(heredoc) => {
+                    heredoc.delimiter.span = heredoc.delimiter.span.rebased(base);
+                    Self::rebase_word(&mut heredoc.delimiter.raw, base);
+                    Self::rebase_word(&mut heredoc.body, base);
+                }
+            }
         }
     }
 
@@ -1964,7 +1982,7 @@ impl<'a> Parser<'a> {
             fd_var_span: None,
             kind: RedirectKind::DupOutput,
             span,
-            target: Word::literal("1"),
+            target: RedirectTarget::Word(Word::literal("1")),
         };
 
         match command {
@@ -1989,7 +2007,7 @@ impl<'a> Parser<'a> {
             fd_var_span: None,
             kind: RedirectKind::Append,
             span: Self::redirect_span(operator_span, &target),
-            target,
+            target: RedirectTarget::Word(target),
         });
         redirects.push(Redirect {
             fd: Some(2),
@@ -1997,7 +2015,7 @@ impl<'a> Parser<'a> {
             fd_var_span: None,
             kind: RedirectKind::DupOutput,
             span: operator_span,
-            target: Word::literal("1"),
+            target: RedirectTarget::Word(Word::literal("1")),
         });
     }
 
@@ -2047,7 +2065,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2062,7 +2080,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind: RedirectKind::Append,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2077,7 +2095,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind: RedirectKind::Input,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2092,7 +2110,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind: RedirectKind::ReadWrite,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2107,7 +2125,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind: RedirectKind::HereString,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2122,7 +2140,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind: RedirectKind::OutputBoth,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2145,7 +2163,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind: RedirectKind::DupOutput,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2161,7 +2179,7 @@ impl<'a> Parser<'a> {
                         fd_var_span: None,
                         kind: RedirectKind::Output,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2177,7 +2195,7 @@ impl<'a> Parser<'a> {
                         fd_var_span: None,
                         kind: RedirectKind::Append,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2193,7 +2211,7 @@ impl<'a> Parser<'a> {
                         fd_var_span: None,
                         kind: RedirectKind::ReadWrite,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2208,7 +2226,7 @@ impl<'a> Parser<'a> {
                     fd_var_span: None,
                     kind: RedirectKind::DupOutput,
                     span: operator_span,
-                    target: Word::literal(dst_fd.to_string()),
+                    target: RedirectTarget::Word(Word::literal(dst_fd.to_string())),
                 });
                 Ok(true)
             }
@@ -2222,7 +2240,7 @@ impl<'a> Parser<'a> {
                         fd_var_span,
                         kind: RedirectKind::DupInput,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2237,7 +2255,7 @@ impl<'a> Parser<'a> {
                     fd_var_span: None,
                     kind: RedirectKind::DupInput,
                     span: operator_span,
-                    target: Word::literal(dst_fd.to_string()),
+                    target: RedirectTarget::Word(Word::literal(dst_fd.to_string())),
                 });
                 Ok(true)
             }
@@ -2251,7 +2269,7 @@ impl<'a> Parser<'a> {
                     fd_var_span: None,
                     kind: RedirectKind::DupInput,
                     span: operator_span,
-                    target: Word::literal("-"),
+                    target: RedirectTarget::Word(Word::literal("-")),
                 });
                 Ok(true)
             }
@@ -2266,7 +2284,7 @@ impl<'a> Parser<'a> {
                         fd_var_span: None,
                         kind: RedirectKind::Input,
                         span: Self::redirect_span(operator_span, &target),
-                        target,
+                        target: RedirectTarget::Word(target),
                     });
                 }
                 Ok(true)
@@ -2299,7 +2317,8 @@ impl<'a> Parser<'a> {
     ) -> Result<bool> {
         let operator_span = self.current_span;
         self.advance();
-        let Some((delimiter, quoted)) = self.current_static_word() else {
+        let Some((raw_delimiter, delimiter_text, quoted)) = self.current_static_heredoc_delimiter()
+        else {
             if strict {
                 return Err(Error::parse(
                     "expected static heredoc delimiter".to_string(),
@@ -2308,7 +2327,17 @@ impl<'a> Parser<'a> {
             return Ok(false);
         };
 
-        let heredoc = self.lexer.read_heredoc(&delimiter);
+        let delimiter_span = raw_delimiter.span;
+        let delimiter = HeredocDelimiter {
+            raw: raw_delimiter,
+            cooked: delimiter_text.clone(),
+            span: delimiter_span,
+            quoted,
+            expands_body: !quoted,
+            strip_tabs,
+        };
+
+        let heredoc = self.lexer.read_heredoc(&delimiter_text);
         let content_span = heredoc.content_span;
         let content = if strip_tabs {
             Self::strip_heredoc_tabs(heredoc.content)
@@ -2316,7 +2345,7 @@ impl<'a> Parser<'a> {
             heredoc.content
         };
 
-        let target = if quoted {
+        let body = if quoted {
             Word::quoted_literal_with_span(content, content_span)
         } else {
             self.decode_word_text(&content, content_span, content_span.start, !strip_tabs)
@@ -2331,8 +2360,8 @@ impl<'a> Parser<'a> {
             } else {
                 RedirectKind::HereDoc
             },
-            span: operator_span,
-            target,
+            span: operator_span.merge(delimiter.span),
+            target: RedirectTarget::Heredoc(Heredoc { delimiter, body }),
         });
 
         // Advance so re-injected rest-of-line tokens are picked up.
@@ -6164,6 +6193,16 @@ mod tests {
             .collect()
     }
 
+    fn redirect_word_target<'a>(redirect: &'a Redirect) -> &'a Word {
+        redirect
+            .word_target()
+            .expect("expected non-heredoc redirect target")
+    }
+
+    fn redirect_heredoc<'a>(redirect: &'a Redirect) -> &'a Heredoc {
+        redirect.heredoc().expect("expected heredoc redirect")
+    }
+
     fn expect_compound(command: &Command) -> (&CompoundCommand, &[Redirect]) {
         let Command::Compound(compound, redirects) = command else {
             panic!("expected compound command");
@@ -6261,7 +6300,10 @@ mod tests {
         assert_eq!(command.assignments.len(), 1);
         assert_eq!(command.assignments[0].name, "FOO");
         assert_eq!(command.redirects.len(), 1);
-        assert_eq!(command.redirects[0].target.render(input), "out.txt");
+        assert_eq!(
+            redirect_word_target(&command.redirects[0]).render(input),
+            "out.txt"
+        );
     }
 
     #[test]
@@ -6434,7 +6476,7 @@ mod tests {
         assert_eq!(first.redirects.len(), 1);
         assert_eq!(first.redirects[0].fd, Some(2));
         assert_eq!(first.redirects[0].kind, RedirectKind::DupOutput);
-        assert_eq!(first.redirects[0].target.render(input), "1");
+        assert_eq!(redirect_word_target(&first.redirects[0]).render(input), "1");
     }
 
     #[test]
@@ -6446,7 +6488,10 @@ mod tests {
         if let Command::Simple(cmd) = &script.commands[0] {
             assert_eq!(cmd.redirects.len(), 1);
             assert_eq!(cmd.redirects[0].kind, RedirectKind::Output);
-            assert_eq!(cmd.redirects[0].target.render(input), "/tmp/out");
+            assert_eq!(
+                redirect_word_target(&cmd.redirects[0]).render(input),
+                "/tmp/out"
+            );
         } else {
             panic!("expected simple command");
         }
@@ -6462,10 +6507,13 @@ mod tests {
         };
         assert_eq!(cmd.redirects.len(), 2);
         assert_eq!(cmd.redirects[0].kind, RedirectKind::Append);
-        assert_eq!(cmd.redirects[0].target.render(input), "/tmp/out");
+        assert_eq!(
+            redirect_word_target(&cmd.redirects[0]).render(input),
+            "/tmp/out"
+        );
         assert_eq!(cmd.redirects[1].fd, Some(2));
         assert_eq!(cmd.redirects[1].kind, RedirectKind::DupOutput);
-        assert_eq!(cmd.redirects[1].target.render(input), "1");
+        assert_eq!(redirect_word_target(&cmd.redirects[1]).render(input), "1");
     }
 
     #[test]
@@ -6505,7 +6553,10 @@ mod tests {
         assert_eq!(cmd.redirects.len(), 1);
         assert_eq!(cmd.redirects[0].fd, Some(8));
         assert_eq!(cmd.redirects[0].kind, RedirectKind::ReadWrite);
-        assert_eq!(cmd.redirects[0].target.render(input), "/tmp/rw");
+        assert_eq!(
+            redirect_word_target(&cmd.redirects[0]).render(input),
+            "/tmp/rw"
+        );
     }
 
     #[test]
@@ -6519,7 +6570,10 @@ mod tests {
         assert_eq!(cmd.redirects.len(), 1);
         assert_eq!(cmd.redirects[0].fd_var.as_deref(), Some("rw"));
         assert_eq!(cmd.redirects[0].kind, RedirectKind::ReadWrite);
-        assert_eq!(cmd.redirects[0].target.render(input), "/tmp/rw");
+        assert_eq!(
+            redirect_word_target(&cmd.redirects[0]).render(input),
+            "/tmp/rw"
+        );
     }
 
     #[test]
@@ -6590,7 +6644,10 @@ mod tests {
         assert!(command.name.render(input).is_empty());
         assert_eq!(command.redirects.len(), 1);
         assert_eq!(command.redirects[0].kind, RedirectKind::Output);
-        assert_eq!(command.redirects[0].target.render(input), "myfile");
+        assert_eq!(
+            redirect_word_target(&command.redirects[0]).render(input),
+            "myfile"
+        );
     }
 
     #[test]
@@ -6669,6 +6726,28 @@ mod tests {
     }
 
     #[test]
+    fn test_non_static_heredoc_delimiter_forms_are_rejected() {
+        let cases = [
+            ("short parameter", "cat <<$bar\n"),
+            ("brace parameter", "cat <<${bar}\n"),
+            ("command substitution", "cat <<$(bar)\n"),
+            ("backquoted command substitution", "cat <<`bar`\n"),
+            ("arithmetic expansion", "cat <<$((1 + 2))\n"),
+            ("special parameter", "cat <<$-\n"),
+            ("quoted parameter expansion", "cat <<\"$bar\"\n"),
+        ];
+
+        for (name, input) in cases {
+            let error = Parser::new(input).parse().unwrap_err();
+            let Error::Parse { message, .. } = error;
+            assert_eq!(
+                message, "expected static heredoc delimiter",
+                "{name} should fail via the static-delimiter check"
+            );
+        }
+    }
+
+    #[test]
     fn test_heredoc_multiple_on_line() {
         let input = "while cat <<E1 && cat <<E2; do cat <<E3; break; done\n1\nE1\n2\nE2\n3\nE3\n";
         let parser = Parser::new(input);
@@ -6712,8 +6791,98 @@ mod tests {
         assert_eq!(command.redirects.len(), 1);
 
         let redirect = &command.redirects[0];
-        assert_eq!(redirect.target.span.slice(input), "hello $name\n");
-        assert!(is_fully_quoted(&redirect.target));
+        let heredoc = redirect_heredoc(redirect);
+        assert_eq!(heredoc.body.span.slice(input), "hello $name\n");
+        assert!(is_fully_quoted(&heredoc.body));
+    }
+
+    #[test]
+    fn test_heredoc_delimiter_metadata_tracks_flags_and_spans() {
+        let input = "cat <<EOF\nhello\nEOF\ncat <<'EOF'\nhello\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(unquoted) = &script.commands[0] else {
+            panic!("expected first simple command");
+        };
+        let unquoted_redirect = &unquoted.redirects[0];
+        let unquoted_heredoc = redirect_heredoc(unquoted_redirect);
+        assert_eq!(unquoted_redirect.span.slice(input), "<<EOF");
+        assert_eq!(unquoted_heredoc.delimiter.span.slice(input), "EOF");
+        assert_eq!(unquoted_heredoc.delimiter.raw.span.slice(input), "EOF");
+        assert_eq!(unquoted_heredoc.delimiter.cooked, "EOF");
+        assert!(!unquoted_heredoc.delimiter.quoted);
+        assert!(unquoted_heredoc.delimiter.expands_body);
+        assert!(!unquoted_heredoc.delimiter.strip_tabs);
+
+        let Command::Simple(quoted) = &script.commands[1] else {
+            panic!("expected second simple command");
+        };
+        let quoted_redirect = &quoted.redirects[0];
+        let quoted_heredoc = redirect_heredoc(quoted_redirect);
+        assert_eq!(quoted_redirect.span.slice(input), "<<'EOF'");
+        assert_eq!(quoted_heredoc.delimiter.span.slice(input), "'EOF'");
+        assert_eq!(quoted_heredoc.delimiter.raw.span.slice(input), "'EOF'");
+        assert_eq!(quoted_heredoc.delimiter.cooked, "EOF");
+        assert!(quoted_heredoc.delimiter.quoted);
+        assert!(!quoted_heredoc.delimiter.expands_body);
+        assert!(!quoted_heredoc.delimiter.strip_tabs);
+    }
+
+    #[test]
+    fn test_heredoc_delimiter_preserves_mixed_quoted_raw_and_cooked_value() {
+        let input = "cat <<'EOF'\"2\"\nbody\nEOF2\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let redirect = &command.redirects[0];
+        let heredoc = redirect_heredoc(redirect);
+
+        assert_eq!(redirect.span.slice(input), "<<'EOF'\"2\"");
+        assert_eq!(heredoc.delimiter.raw.span.slice(input), "'EOF'\"2\"");
+        assert_eq!(heredoc.delimiter.cooked, "EOF2");
+        assert!(heredoc.delimiter.quoted);
+        assert!(!heredoc.delimiter.expands_body);
+    }
+
+    #[test]
+    fn test_backslash_escaped_heredoc_delimiter_is_treated_as_quoted_static_text() {
+        let input = "cat <<\\EOF\nhello $name\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let redirect = &command.redirects[0];
+        let heredoc = redirect_heredoc(redirect);
+
+        assert_eq!(redirect.span.slice(input), "<<\\EOF");
+        assert_eq!(heredoc.delimiter.span.slice(input), "\\EOF");
+        assert_eq!(heredoc.delimiter.raw.span.slice(input), "\\EOF");
+        assert_eq!(heredoc.delimiter.cooked, "EOF");
+        assert!(heredoc.delimiter.quoted);
+        assert!(!heredoc.delimiter.expands_body);
+        assert!(!heredoc.delimiter.strip_tabs);
+        assert!(is_fully_quoted(&heredoc.body));
+        assert_eq!(heredoc.body.render(input), "hello $name\n");
+    }
+
+    #[test]
+    fn test_heredoc_strip_tabs_sets_delimiter_metadata() {
+        let input = "cat <<-EOF\n\t$NAME\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let redirect = &command.redirects[0];
+        let heredoc = redirect_heredoc(redirect);
+
+        assert_eq!(redirect.span.slice(input), "<<-EOF");
+        assert!(heredoc.delimiter.strip_tabs);
+        assert!(heredoc.delimiter.expands_body);
+        assert_eq!(heredoc.delimiter.cooked, "EOF");
     }
 
     #[test]
@@ -6724,7 +6893,7 @@ mod tests {
         let Command::Simple(unquoted) = &script.commands[0] else {
             panic!("expected first simple command");
         };
-        let unquoted_target = &unquoted.redirects[0].target;
+        let unquoted_target = &redirect_heredoc(&unquoted.redirects[0]).body;
         assert!(!is_fully_quoted(unquoted_target));
         assert_eq!(unquoted_target.render(input), "hello $name\n");
         let unquoted_slices = top_level_part_slices(unquoted_target, input);
@@ -6737,7 +6906,7 @@ mod tests {
         let Command::Simple(quoted) = &script.commands[1] else {
             panic!("expected second simple command");
         };
-        let quoted_target = &quoted.redirects[0].target;
+        let quoted_target = &redirect_heredoc(&quoted.redirects[0]).body;
         assert!(is_fully_quoted(quoted_target));
         assert_eq!(quoted_target.render(input), "hello $name\n");
         assert!(matches!(
@@ -6915,7 +7084,13 @@ mod tests {
         assert_eq!(command.name.span.start.column, 9);
         assert_eq!(command.args[0].span.start.column, 14);
         assert_eq!(command.redirects[0].span.start.column, 17);
-        assert_eq!(command.redirects[0].target.span.start.column, 19);
+        assert_eq!(
+            redirect_word_target(&command.redirects[0])
+                .span
+                .start
+                .column,
+            19
+        );
     }
 
     #[test]
@@ -7987,7 +8162,12 @@ echo "${var-"}"}"
         assert_eq!(command.assignments.len(), 1);
         assert_eq!(command.assignments[0].name, "FOO");
         assert_eq!(command.redirects.len(), 1);
-        assert_eq!(command.redirects[0].target.span.slice(input), "out");
+        assert_eq!(
+            redirect_word_target(&command.redirects[0])
+                .span
+                .slice(input),
+            "out"
+        );
         assert_eq!(command.operands.len(), 3);
 
         let DeclOperand::Flag(flag) = &command.operands[0] else {

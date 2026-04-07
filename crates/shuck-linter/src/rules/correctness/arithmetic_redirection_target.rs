@@ -25,13 +25,16 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
         },
         &mut |command, _| {
             visit_command_redirects(command, &mut |redirect| {
-                if redirect
-                    .target
+                let Some(target) = redirect.word_target() else {
+                    return;
+                };
+
+                if target
                     .parts
                     .iter()
                     .any(|part| contains_arithmetic_expansion(&part.kind))
                 {
-                    spans.push(redirect.target.span);
+                    spans.push(target.span);
                 }
             });
         },

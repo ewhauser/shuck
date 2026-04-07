@@ -226,7 +226,9 @@ pub fn visit_expansion_words(
             continue;
         }
         visitor(
-            &redirect.target,
+            redirect
+                .word_target()
+                .expect("expected non-heredoc redirect target"),
             ExpansionWordKind::RedirectTarget(redirect.kind),
         );
     }
@@ -486,7 +488,7 @@ fn collect_redirect_visits<'a>(
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     for redirect in redirects {
-        collect_word_visits(&redirect.target, options, context, visits);
+        collect_word_visits(redirect_walk_word(redirect), options, context, visits);
     }
 }
 
@@ -735,7 +737,7 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
 
     fn walk_redirects(&mut self, redirects: &[Redirect], context: WalkContext) {
         for redirect in redirects {
-            self.walk_word(&redirect.target, context);
+            self.walk_word(redirect_walk_word(redirect), context);
         }
     }
 }
@@ -923,7 +925,7 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
 
     fn walk_redirects(&mut self, redirects: &[Redirect]) {
         for redirect in redirects {
-            self.walk_word(&redirect.target);
+            self.walk_word(redirect_walk_word(redirect));
         }
     }
 
@@ -1106,7 +1108,14 @@ fn collect_words<'a>(command_words: &'a [Word], words: &mut Vec<&'a Word>) {
 
 fn collect_redirect_target_words<'a>(redirects: &'a [Redirect], words: &mut Vec<&'a Word>) {
     for redirect in redirects {
-        words.push(&redirect.target);
+        words.push(redirect_walk_word(redirect));
+    }
+}
+
+fn redirect_walk_word(redirect: &Redirect) -> &Word {
+    match redirect.word_target() {
+        Some(word) => word,
+        None => &redirect.heredoc().expect("expected heredoc redirect").body,
     }
 }
 
@@ -1269,7 +1278,15 @@ foo=1 export foo=1 >decl\nfor item in foo bar; do :; done >compound\n";
             .map(|command| {
                 command_redirects(command)
                     .iter()
-                    .map(|redirect| static_word_text(&redirect.target, source).unwrap())
+                    .map(|redirect| {
+                        static_word_text(
+                            redirect
+                                .word_target()
+                                .expect("expected non-heredoc redirect target"),
+                            source,
+                        )
+                        .unwrap()
+                    })
                     .collect()
             })
             .collect();

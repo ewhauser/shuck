@@ -62,7 +62,11 @@ fn redirects_output_to_file(redirect: &Redirect) -> bool {
 }
 
 fn redirect_target_is_dev_null(redirect: &Redirect, source: &str) -> bool {
-    static_word_text(&redirect.target, source).as_deref() == Some("/dev/null")
+    redirect
+        .word_target()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("/dev/null")
 }
 
 #[cfg(test)]

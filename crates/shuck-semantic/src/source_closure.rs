@@ -415,7 +415,11 @@ fn walk_redirects(
     facts: &mut AstFacts,
 ) {
     for redirect in redirects {
-        walk_word(&redirect.target, model, source, facts);
+        let word = match redirect.word_target() {
+            Some(word) => word,
+            None => &redirect.heredoc().expect("expected heredoc redirect").body,
+        };
+        walk_word(word, model, source, facts);
     }
 }
 

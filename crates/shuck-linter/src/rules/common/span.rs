@@ -13,7 +13,26 @@ pub fn list_item_operator_span(item: &CommandListItem) -> Span {
 }
 
 pub fn redirect_target_span(redirect: &Redirect) -> Span {
-    redirect.target.span
+    redirect
+        .word_target()
+        .expect("redirect_target_span called on heredoc redirect")
+        .span
+}
+
+pub fn heredoc_delimiter_span(redirect: &Redirect) -> Span {
+    redirect
+        .heredoc()
+        .expect("heredoc_delimiter_span called on non-heredoc redirect")
+        .delimiter
+        .span
+}
+
+pub fn heredoc_body_span(redirect: &Redirect) -> Span {
+    redirect
+        .heredoc()
+        .expect("heredoc_body_span called on non-heredoc redirect")
+        .body
+        .span
 }
 
 pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {

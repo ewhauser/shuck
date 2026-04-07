@@ -1231,8 +1231,75 @@ pub struct Redirect {
     pub kind: RedirectKind,
     /// Source span of this redirection
     pub span: Span,
-    /// Target (file, fd, or heredoc content)
-    pub target: Word,
+    /// Redirect payload.
+    pub target: RedirectTarget,
+}
+
+impl Redirect {
+    /// Returns the word target for non-heredoc redirects.
+    pub fn word_target(&self) -> Option<&Word> {
+        match &self.target {
+            RedirectTarget::Word(word) => Some(word),
+            RedirectTarget::Heredoc(_) => None,
+        }
+    }
+
+    /// Returns the mutable word target for non-heredoc redirects.
+    pub fn word_target_mut(&mut self) -> Option<&mut Word> {
+        match &mut self.target {
+            RedirectTarget::Word(word) => Some(word),
+            RedirectTarget::Heredoc(_) => None,
+        }
+    }
+
+    /// Returns heredoc metadata and body when this redirect is a heredoc.
+    pub fn heredoc(&self) -> Option<&Heredoc> {
+        match &self.target {
+            RedirectTarget::Word(_) => None,
+            RedirectTarget::Heredoc(heredoc) => Some(heredoc),
+        }
+    }
+
+    /// Returns mutable heredoc metadata and body when this redirect is a heredoc.
+    pub fn heredoc_mut(&mut self) -> Option<&mut Heredoc> {
+        match &mut self.target {
+            RedirectTarget::Word(_) => None,
+            RedirectTarget::Heredoc(heredoc) => Some(heredoc),
+        }
+    }
+}
+
+/// Redirect payload.
+#[derive(Debug, Clone)]
+pub enum RedirectTarget {
+    /// Standard redirect operand like a path or file descriptor.
+    Word(Word),
+    /// Heredoc delimiter metadata plus decoded body.
+    Heredoc(Heredoc),
+}
+
+/// Heredoc delimiter metadata and decoded body.
+#[derive(Debug, Clone)]
+pub struct Heredoc {
+    pub delimiter: HeredocDelimiter,
+    pub body: Word,
+}
+
+/// Parsed heredoc delimiter metadata.
+#[derive(Debug, Clone)]
+pub struct HeredocDelimiter {
+    /// Raw delimiter word with original quoting preserved.
+    pub raw: Word,
+    /// Cooked delimiter string after quote removal.
+    pub cooked: String,
+    /// Source span of the delimiter token.
+    pub span: Span,
+    /// Whether the delimiter used shell quoting.
+    pub quoted: bool,
+    /// Whether the body should be decoded for expansions.
+    pub expands_body: bool,
+    /// Whether `<<-` tab stripping applies.
+    pub strip_tabs: bool,
 }
 
 /// Types of redirections.
@@ -1611,7 +1678,7 @@ mod tests {
                 fd_var_span: None,
                 kind: RedirectKind::Output,
                 span: Span::new(),
-                target: Word::literal("out.txt"),
+                target: RedirectTarget::Word(Word::literal("out.txt")),
             }],
             assignments: vec![],
             span: Span::new(),
@@ -1674,7 +1741,7 @@ mod tests {
                 fd_var_span: None,
                 kind: RedirectKind::Output,
                 span: Span::new(),
-                target: Word::literal("out.txt"),
+                target: RedirectTarget::Word(Word::literal("out.txt")),
             }],
             assignments: vec![Assignment {
                 name: "FOO".into(),
@@ -1803,10 +1870,53 @@ mod tests {
             fd_var_span: None,
             kind: RedirectKind::Input,
             span: Span::new(),
-            target: Word::literal("input.txt"),
+            target: RedirectTarget::Word(Word::literal("input.txt")),
         };
         assert!(r.fd.is_none());
         assert_eq!(r.kind, RedirectKind::Input);
+    }
+
+    #[test]
+    fn redirect_exposes_word_target() {
+        let redirect = Redirect {
+            fd: None,
+            fd_var: None,
+            fd_var_span: None,
+            kind: RedirectKind::Output,
+            span: Span::new(),
+            target: RedirectTarget::Word(Word::literal("out.txt")),
+        };
+
+        assert_eq!(redirect.word_target().unwrap().to_string(), "out.txt");
+        assert!(redirect.heredoc().is_none());
+    }
+
+    #[test]
+    fn redirect_exposes_heredoc_payload() {
+        let delimiter = HeredocDelimiter {
+            raw: Word::quoted_literal("EOF"),
+            cooked: "EOF".to_owned(),
+            span: Span::new(),
+            quoted: true,
+            expands_body: false,
+            strip_tabs: false,
+        };
+        let redirect = Redirect {
+            fd: None,
+            fd_var: None,
+            fd_var_span: None,
+            kind: RedirectKind::HereDoc,
+            span: Span::new(),
+            target: RedirectTarget::Heredoc(Heredoc {
+                delimiter,
+                body: Word::quoted_literal("body"),
+            }),
+        };
+
+        let heredoc = redirect.heredoc().expect("expected heredoc payload");
+        assert_eq!(heredoc.delimiter.cooked, "EOF");
+        assert!(heredoc.delimiter.quoted);
+        assert!(redirect.word_target().is_none());
     }
 
     // --- Assignment ---
