@@ -11,7 +11,7 @@ use shuck_ast::File;
 use shuck_format::{FormatResult, format};
 use shuck_parser::{Error as ParseError, parser::Parser};
 
-use crate::ast_format::{FormatFile, flatten_comments};
+use crate::ast_format::flatten_comments;
 use crate::shared_traits::AsFormat;
 
 pub use crate::options::{ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions};

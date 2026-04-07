@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment, CompoundCommand,
-    ConditionalExpr, DeclOperand, File, Pattern, PatternPart, PatternPartNode, Redirect, Stmt,
+    ConditionalExpr, DeclOperand, File, Pattern, PatternPart, Redirect, Stmt,
     StmtSeq, TextRange, TextSize, Word, WordPart, WordPartNode,
 };
 

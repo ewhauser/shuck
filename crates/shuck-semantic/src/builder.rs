@@ -90,7 +90,7 @@ enum WordVisitKind {
     Conditional,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct DeferredFunction {
     function: FunctionDef,
     scope: ScopeId,
@@ -351,7 +351,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_decl(
         &mut self,
-        command: &'a shuck_ast::DeclClause,
+        command: &shuck_ast::DeclClause,
         flow: FlowState,
     ) -> RecordedCommand {
         let mut nested_regions = Vec::new();
@@ -417,7 +417,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_binary(&mut self, command: &'a BinaryCommand, flow: FlowState) -> RecordedCommand {
+    fn visit_binary(&mut self, command: &BinaryCommand, flow: FlowState) -> RecordedCommand {
         match command.op {
             BinaryOp::And | BinaryOp::Or => self.visit_logical_binary(command, flow),
             BinaryOp::Pipe | BinaryOp::PipeAll => self.visit_pipeline_binary(command, flow),
@@ -426,7 +426,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_pipeline_binary(
         &mut self,
-        command: &'a BinaryCommand,
+        command: &BinaryCommand,
         mut flow: FlowState,
     ) -> RecordedCommand {
         flow.in_subshell = true;
@@ -455,7 +455,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_logical_binary(
         &mut self,
-        command: &'a BinaryCommand,
+        command: &BinaryCommand,
         flow: FlowState,
     ) -> RecordedCommand {
         let mut operators = Vec::new();
@@ -523,7 +523,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 },
             },
             CompoundCommand::For(command) => {
-                let mut nested_regions = command
+                let nested_regions = command
                     .words
                     .as_deref()
                     .map(|words| self.visit_words(words, WordVisitKind::Expansion, flow))
@@ -779,7 +779,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_assignment(
         &mut self,
-        assignment: &'a Assignment,
+        assignment: &Assignment,
         declaration_kind: Option<(BindingKind, ScopeId)>,
         mut attributes: BindingAttributes,
         flow: FlowState,
@@ -821,7 +821,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_assignment_value(
         &mut self,
-        assignment: &'a Assignment,
+        assignment: &Assignment,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
@@ -843,7 +843,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_words(
         &mut self,
-        words: &'a [Word],
+        words: &[Word],
         kind: WordVisitKind,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
@@ -854,7 +854,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_words_into(
         &mut self,
-        words: &'a [Word],
+        words: &[Word],
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -866,7 +866,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_array_expr_into(
         &mut self,
-        array: &'a ArrayExpr,
+        array: &ArrayExpr,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -877,8 +877,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_word_into(word, kind, flow, nested_regions)
                 }
                 ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                    nested_regions.extend(
-                        self.visit_optional_arithmetic_expr(key.arithmetic_ast.as_ref(), flow),
+                    self.visit_var_ref_subscript_words(
+                        Some(key),
+                        kind,
+                        flow,
+                        nested_regions,
                     );
                     self.visit_word_into(value, kind, flow, nested_regions);
                 }
@@ -888,7 +891,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_patterns(
         &mut self,
-        patterns: &'a [Pattern],
+        patterns: &[Pattern],
         kind: WordVisitKind,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
@@ -899,7 +902,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_patterns_into(
         &mut self,
-        patterns: &'a [Pattern],
+        patterns: &[Pattern],
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -911,7 +914,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_redirects(
         &mut self,
-        redirects: &'a [shuck_ast::Redirect],
+        redirects: &[shuck_ast::Redirect],
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
@@ -921,7 +924,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_redirects_into(
         &mut self,
-        redirects: &'a [shuck_ast::Redirect],
+        redirects: &[shuck_ast::Redirect],
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -1260,7 +1263,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_conditional_expr(
         &mut self,
-        expression: &'a ConditionalExpr,
+        expression: &ConditionalExpr,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
@@ -1270,7 +1273,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_conditional_expr_into(
         &mut self,
-        expression: &'a ConditionalExpr,
+        expression: &ConditionalExpr,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -1826,7 +1829,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             let deferred_functions = std::mem::take(&mut self.deferred_functions);
             for deferred in deferred_functions {
                 self.rebuild_scope_stack(deferred.scope);
-                let commands = self.visit_function_body(deferred.function, deferred.flow);
+                let commands = self.visit_function_body(&deferred.function, deferred.flow);
                 self.recorded_function_bodies
                     .insert(deferred.scope, commands);
                 self.mark_scope_completed(deferred.scope);
@@ -2305,20 +2308,6 @@ fn body_span(command: &Stmt) -> Span {
             commands.span
         }
         _ => command.span,
-    }
-}
-
-fn command_span(command: &Command) -> Span {
-    match command {
-        Command::Simple(command) => command.span,
-        Command::Builtin(BuiltinCommand::Break(command)) => command.span,
-        Command::Builtin(BuiltinCommand::Continue(command)) => command.span,
-        Command::Builtin(BuiltinCommand::Return(command)) => command.span,
-        Command::Builtin(BuiltinCommand::Exit(command)) => command.span,
-        Command::Decl(command) => command.span,
-        Command::Binary(command) => command.span,
-        Command::Compound(command) => command_span_from_compound(command),
-        Command::Function(command) => command.span,
     }
 }
 

@@ -1,11 +1,10 @@
 use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BuiltinCommand, CaseItem, CaseTerminator, Command,
-    Comment, CompoundCommand, DeclOperand, File, FunctionDef, Pattern, Redirect, RedirectKind,
-    SourceText, Stmt, StmtSeq, StmtTerminator, Subscript, VarRef, Word,
+    Comment, CompoundCommand, DeclOperand, File, FunctionDef, Redirect, RedirectKind, SourceText,
+    Stmt, StmtSeq, StmtTerminator, Subscript, VarRef,
 };
 use shuck_format::{FormatResult, IndentStyle, text, write};
 
-use crate::comments::Comments;
 use crate::options::ResolvedShellFormatOptions;
 use crate::shared_traits::FormatRefWithRule;
 use crate::{FormatNodeRule, ShellFormatter};
