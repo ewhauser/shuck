@@ -118,9 +118,9 @@ Proposed additions:
 
 Action items:
 
-- [ ] Add a common expansion-context type and thread it through linter traversal helpers.
-- [ ] Replace rule-local assumptions about "argument-like" behavior with explicit context checks.
-- [ ] Add traversal tests that prove the same word can be classified differently in argument, redirect, pattern, and regex positions.
+- [x] Add a common expansion-context type and thread it through linter traversal helpers.
+- [x] Replace rule-local assumptions about "argument-like" behavior with explicit context checks.
+- [x] Add traversal tests that prove the same word can be classified differently in argument, redirect, pattern, and regex positions.
 
 gbash references:
 
