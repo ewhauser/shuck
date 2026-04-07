@@ -114,6 +114,18 @@ impl SourceTextExpansionAnalysis {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RuntimeLiteralAnalysis {
+    pub runtime_sensitive: bool,
+    pub hazards: ExpansionHazards,
+}
+
+impl RuntimeLiteralAnalysis {
+    pub fn is_runtime_sensitive(self) -> bool {
+        self.runtime_sensitive
+    }
+}
+
 impl ExpansionAnalysis {
     pub fn is_fixed_literal(self) -> bool {
         self.literalness == WordLiteralness::FixedLiteral
@@ -325,6 +337,23 @@ pub fn analyze_source_text_operand(text: &SourceText, source: &str) -> SourceTex
     SourceTextExpansionAnalysis { expansion_spans }
 }
 
+pub fn analyze_literal_runtime(
+    word: &Word,
+    source: &str,
+    context: ExpansionContext,
+) -> RuntimeLiteralAnalysis {
+    if static_word_text(word, source).is_none() {
+        return RuntimeLiteralAnalysis::default();
+    }
+
+    let mut analysis = RuntimeLiteralAnalysis::default();
+    let mut state = RuntimeLiteralState::default();
+
+    analyze_literal_runtime_parts(&word.parts, source, context, &mut state, &mut analysis);
+
+    analysis
+}
+
 pub fn analyze_redirect_target(
     redirect: &Redirect,
     source: &str,
@@ -413,6 +442,126 @@ fn source_text_span_is_active(source: &str, span: Span) -> bool {
     }
 
     backslashes.is_multiple_of(2)
+}
+
+#[derive(Debug, Default)]
+struct RuntimeLiteralState {
+    seen_text: bool,
+    last_unquoted_char: Option<char>,
+}
+
+fn analyze_literal_runtime_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    context: ExpansionContext,
+    state: &mut RuntimeLiteralState,
+    analysis: &mut RuntimeLiteralAnalysis,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) => {
+                scan_literal_runtime_text(part.span.slice(source), context, state, analysis);
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                if !value.slice(source).is_empty() {
+                    state.seen_text = true;
+                    state.last_unquoted_char = None;
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !parts.is_empty() {
+                    state.seen_text = true;
+                    state.last_unquoted_char = None;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn scan_literal_runtime_text(
+    text: &str,
+    context: ExpansionContext,
+    state: &mut RuntimeLiteralState,
+    analysis: &mut RuntimeLiteralAnalysis,
+) {
+    let mut escaped = false;
+    let mut brace_candidate: Option<usize> = None;
+
+    for (idx, ch) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            state.seen_text = true;
+            state.last_unquoted_char = Some(ch);
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            state.seen_text = true;
+            continue;
+        }
+
+        if context_allows_tilde(context) && ch == '~' && tilde_is_runtime_sensitive(state) {
+            analysis.runtime_sensitive = true;
+            analysis.hazards.tilde_expansion = true;
+        }
+
+        if context_allows_pathname_matching(context) && matches!(ch, '*' | '?' | '[') {
+            analysis.runtime_sensitive = true;
+            analysis.hazards.pathname_matching = true;
+        }
+
+        if context_allows_brace_fanout(context) {
+            if ch == '{' {
+                brace_candidate = Some(idx);
+            } else if ch == '}'
+                && let Some(start) = brace_candidate.take()
+                && brace_fanout_is_runtime_sensitive(&text[start + 1..idx])
+            {
+                analysis.runtime_sensitive = true;
+                analysis.hazards.brace_fanout = true;
+            }
+        }
+
+        state.seen_text = true;
+        state.last_unquoted_char = Some(ch);
+    }
+}
+
+fn tilde_is_runtime_sensitive(state: &RuntimeLiteralState) -> bool {
+    !state.seen_text || matches!(state.last_unquoted_char, Some('=') | Some(':'))
+}
+
+fn brace_fanout_is_runtime_sensitive(content: &str) -> bool {
+    content.contains(',') || content.contains("..")
+}
+
+fn context_allows_tilde(context: ExpansionContext) -> bool {
+    matches!(
+        context,
+        ExpansionContext::CommandArgument
+            | ExpansionContext::AssignmentValue
+            | ExpansionContext::StringTestOperand
+            | ExpansionContext::RegexOperand
+            | ExpansionContext::RedirectTarget(_)
+    )
+}
+
+fn context_allows_pathname_matching(context: ExpansionContext) -> bool {
+    matches!(
+        context,
+        ExpansionContext::CommandArgument | ExpansionContext::RedirectTarget(_)
+    )
+}
+
+fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
+    matches!(
+        context,
+        ExpansionContext::CommandArgument
+            | ExpansionContext::AssignmentValue
+            | ExpansionContext::RedirectTarget(_)
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -738,9 +887,9 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        ExpansionAnalysis, ExpansionValueShape, RedirectDevNullStatus, SubstitutionOutputIntent,
-        WordLiteralness, WordQuote, analyze_redirect_target, analyze_source_text_operand,
-        analyze_word, classify_substitution,
+        ExpansionAnalysis, ExpansionContext, ExpansionValueShape, RedirectDevNullStatus,
+        SubstitutionOutputIntent, WordLiteralness, WordQuote, analyze_literal_runtime,
+        analyze_redirect_target, analyze_source_text_operand, analyze_word, classify_substitution,
     };
     use crate::rules::common::query::iter_word_command_substitutions;
 
@@ -967,6 +1116,70 @@ replaced=${value/pat/prefix$replacement}
             .expect("expected redirect analysis");
         assert!(fanout.can_expand_to_multiple_fields());
         assert!(fanout.is_runtime_sensitive());
+    }
+
+    #[test]
+    fn analyze_literal_runtime_tracks_context_sensitive_literals() {
+        let source = "printf ~ ~user x=~ *.sh {a,b} \"~\" '*.sh' \"{a,b}\"\n";
+        let words = parse_argument_words(source);
+
+        assert!(
+            analyze_literal_runtime(&words[0], source, ExpansionContext::CommandArgument)
+                .hazards
+                .tilde_expansion
+        );
+        assert!(
+            analyze_literal_runtime(&words[1], source, ExpansionContext::CommandArgument)
+                .hazards
+                .tilde_expansion
+        );
+        assert!(
+            analyze_literal_runtime(&words[2], source, ExpansionContext::CommandArgument)
+                .hazards
+                .tilde_expansion
+        );
+        assert!(
+            analyze_literal_runtime(&words[3], source, ExpansionContext::CommandArgument)
+                .hazards
+                .pathname_matching
+        );
+        assert!(
+            analyze_literal_runtime(&words[4], source, ExpansionContext::CommandArgument)
+                .hazards
+                .brace_fanout
+        );
+
+        assert!(
+            !analyze_literal_runtime(&words[5], source, ExpansionContext::CommandArgument)
+                .is_runtime_sensitive()
+        );
+        assert!(
+            !analyze_literal_runtime(&words[6], source, ExpansionContext::CommandArgument)
+                .is_runtime_sensitive()
+        );
+        assert!(
+            !analyze_literal_runtime(&words[7], source, ExpansionContext::CommandArgument)
+                .is_runtime_sensitive()
+        );
+
+        assert!(
+            analyze_literal_runtime(&words[0], source, ExpansionContext::StringTestOperand)
+                .hazards
+                .tilde_expansion
+        );
+        assert!(
+            analyze_literal_runtime(&words[0], source, ExpansionContext::RegexOperand)
+                .hazards
+                .tilde_expansion
+        );
+        assert!(
+            !analyze_literal_runtime(&words[3], source, ExpansionContext::StringTestOperand)
+                .is_runtime_sensitive()
+        );
+        assert!(
+            !analyze_literal_runtime(&words[4], source, ExpansionContext::CasePattern)
+                .is_runtime_sensitive()
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::rules::common::word::{
-    TestOperandClass, WordQuote, classify_test_operand, classify_word, static_word_text,
+    TestOperandClass, WordQuote, classify_contextual_operand, classify_word, static_word_text,
 };
 use crate::rules::common::{
     expansion::ExpansionContext,
@@ -49,7 +49,7 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
 }
 
 fn quoted_regex_requires_warning(word: &shuck_ast::Word, source: &str) -> bool {
-    match classify_test_operand(word, source) {
+    match classify_contextual_operand(word, source, ExpansionContext::RegexOperand) {
         TestOperandClass::RuntimeSensitive => true,
         TestOperandClass::FixedLiteral => static_word_text(word, source)
             .is_some_and(|text| literal_uses_regex_significance(&text)),
@@ -87,7 +87,11 @@ mod tests {
 
     #[test]
     fn ignores_quoted_fixed_literals_without_regex_semantics() {
-        let source = "#!/bin/bash\n[[ \"$output\" =~ \"Error: No available formula\" ]]\n";
+        let source = "\
+#!/bin/bash
+[[ \"$output\" =~ \"Error: No available formula\" ]]
+[[ \"$output\" =~ \"~user\" ]]
+";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
 
         assert!(diagnostics.is_empty());

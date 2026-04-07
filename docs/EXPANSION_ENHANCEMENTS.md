@@ -271,9 +271,9 @@ The goal is not to fully execute these features. The goal is to stop misclassify
 
 Action items:
 
-- [ ] Add a source-based runtime-sensitivity scanner for words that remain literal in the AST.
-- [ ] Make the scanner context-aware so tilde, glob, and brace sensitivity only apply where the shell would use them.
-- [ ] Add focused tests for `~`, `~user`, `x=~`, `*.sh`, and `{a,b}`-style words.
+- [x] Add a source-based runtime-sensitivity scanner for words that remain literal in the AST.
+- [x] Make the scanner context-aware so tilde, glob, and brace sensitivity only apply where the shell would use them.
+- [x] Add focused tests for `~`, `~user`, `x=~`, `*.sh`, and `{a,b}`-style words.
 
 gbash references:
 

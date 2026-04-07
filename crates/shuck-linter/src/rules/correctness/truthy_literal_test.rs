@@ -1,7 +1,9 @@
 use shuck_ast::{Command, CompoundCommand, ConditionalExpr};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::word::{classify_conditional_operand, classify_test_operand};
+use crate::rules::common::word::{
+    ExpansionContext, classify_conditional_operand, classify_contextual_operand,
+};
 use crate::{Checker, Rule, Violation};
 
 use super::syntax::simple_test_operands;
@@ -31,7 +33,12 @@ pub fn truthy_literal_test(checker: &mut Checker) {
             Command::Simple(command) => {
                 if simple_test_operands(command, source).is_some_and(|operands| {
                     operands.len() == 1
-                        && classify_test_operand(&operands[0], source).is_fixed_literal()
+                        && classify_contextual_operand(
+                            &operands[0],
+                            source,
+                            ExpansionContext::CommandArgument,
+                        )
+                        .is_fixed_literal()
                 }) {
                     spans.push(command.span);
                 }
@@ -59,5 +66,53 @@ fn is_truthy_literal_conditional(expression: &ConditionalExpr, source: &str) -> 
             is_truthy_literal_conditional(&expression.expr, source)
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn ignores_runtime_sensitive_literal_words() {
+        let source = "\
+#!/bin/bash
+[ ~ ]
+test ~user
+test x=~
+test *.sh
+[ {a,b} ]
+[[ ~ ]]
+[[ *.sh ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![8]
+        );
+    }
+
+    #[test]
+    fn still_reports_plain_fixed_literals() {
+        let source = "\
+#!/bin/bash
+[ 1 ]
+test foo
+[[ bar ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4]
+        );
     }
 }
