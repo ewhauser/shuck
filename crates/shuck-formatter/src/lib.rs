@@ -6,9 +6,9 @@ mod generated;
 mod options;
 mod prelude;
 mod redirect;
+mod script;
 mod shared_traits;
 mod simplify;
-mod script;
 mod word;
 
 use std::path::Path;
@@ -570,6 +570,7 @@ mod tests {
     fn zsh_only_forms_round_trip_without_corruption() {
         let source = "\
 print ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}
+print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}} ${(m)foo:^other}
 if [[ -n $foo ]] { print foo; } else { print bar; }
 { print body; } always { print cleanup; }
 print quiet &|

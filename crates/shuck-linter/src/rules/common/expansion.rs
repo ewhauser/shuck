@@ -879,10 +879,10 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
             hazards: ExpansionHazards {
                 field_splitting: !in_double_quotes,
                 pathname_matching: !in_double_quotes,
-                runtime_pattern: matches!(
-                    syntax.operation,
-                    Some(ZshExpansionOperation::PatternOperation { .. })
-                ),
+                runtime_pattern: syntax
+                    .operation
+                    .as_ref()
+                    .is_some_and(zsh_operation_uses_pattern),
                 ..ExpansionHazards::default()
             },
             command_substitution: false,
@@ -940,6 +940,15 @@ fn parameter_operator_uses_pattern(operator: &shuck_ast::ParameterOp) -> bool {
     )
 }
 
+fn zsh_operation_uses_pattern(operation: &ZshExpansionOperation) -> bool {
+    matches!(
+        operation,
+        ZshExpansionOperation::PatternOperation { .. }
+            | ZshExpansionOperation::TrimOperation { .. }
+            | ZshExpansionOperation::ReplacementOperation { .. }
+    )
+}
+
 fn prefix_match_can_expand_to_multiple_fields(
     kind: PrefixMatchKind,
     in_double_quotes: bool,
@@ -972,7 +981,7 @@ fn is_fully_quoted(word: &Word) -> bool {
 #[cfg(test)]
 mod tests {
     use shuck_ast::Command;
-    use shuck_parser::parser::Parser;
+    use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::{
         ExpansionAnalysis, ExpansionContext, ExpansionValueShape, RedirectDevNullStatus,
@@ -991,6 +1000,21 @@ mod tests {
 
     fn analyze_argument_words(source: &str) -> Vec<ExpansionAnalysis> {
         parse_argument_words(source)
+            .iter()
+            .map(|word| analyze_word(word, source))
+            .collect()
+    }
+
+    fn analyze_argument_words_with_dialect(
+        source: &str,
+        dialect: ShellDialect,
+    ) -> Vec<ExpansionAnalysis> {
+        let file = Parser::with_dialect(source, dialect).parse().unwrap().file;
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected simple command");
+        };
+        command
+            .args
             .iter()
             .map(|word| analyze_word(word, source))
             .collect()
@@ -1032,6 +1056,24 @@ mod tests {
 
         assert_eq!(analyses[2].value_shape, ExpansionValueShape::Unknown);
         assert!(!analyses[2].can_expand_to_multiple_fields);
+    }
+
+    #[test]
+    fn analyze_word_distinguishes_typed_zsh_pattern_families() {
+        let analyses = analyze_argument_words_with_dialect(
+            "print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}} ${(m)foo:-$fallback}\n",
+            ShellDialect::Zsh,
+        );
+
+        assert!(analyses[0].hazards.runtime_pattern);
+        assert!(analyses[1].hazards.runtime_pattern);
+        assert!(!analyses[2].hazards.runtime_pattern);
+        assert!(!analyses[3].hazards.runtime_pattern);
+        assert!(
+            analyses
+                .iter()
+                .all(|analysis| analysis.value_shape == ExpansionValueShape::Unknown)
+        );
     }
 
     #[test]

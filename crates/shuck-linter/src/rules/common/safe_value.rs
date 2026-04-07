@@ -614,4 +614,34 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
         assert!(!safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
         assert!(!safe_values.word_is_safe(&command.args[0], SafeValueQuery::Quoted));
     }
+
+    #[test]
+    fn keeps_typed_zsh_parameter_operations_conservative() {
+        let source = "print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}}\n";
+        let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Zsh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
+
+        let Command::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert!(
+            command
+                .args
+                .iter()
+                .all(|word| !safe_values.word_is_safe(word, SafeValueQuery::Argv))
+        );
+        assert!(
+            command
+                .args
+                .iter()
+                .all(|word| !safe_values.word_is_safe(word, SafeValueQuery::Quoted))
+        );
+    }
 }

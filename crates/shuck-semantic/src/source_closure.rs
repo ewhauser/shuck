@@ -556,9 +556,26 @@ fn walk_parameter_expansion(
             if let Some(operation) = &syntax.operation {
                 match operation {
                     ZshExpansionOperation::PatternOperation { operand, .. }
-                    | ZshExpansionOperation::Raw(operand)
-                    | ZshExpansionOperation::Defaulting { operand, .. } => {
+                    | ZshExpansionOperation::Defaulting { operand, .. }
+                    | ZshExpansionOperation::TrimOperation { operand, .. }
+                    | ZshExpansionOperation::Unknown(operand) => {
                         walk_source_text(operand, model, source, facts);
+                    }
+                    ZshExpansionOperation::ReplacementOperation {
+                        pattern,
+                        replacement,
+                        ..
+                    } => {
+                        walk_source_text(pattern, model, source, facts);
+                        if let Some(replacement) = replacement {
+                            walk_source_text(replacement, model, source, facts);
+                        }
+                    }
+                    ZshExpansionOperation::Slice { offset, length } => {
+                        walk_source_text(offset, model, source, facts);
+                        if let Some(length) = length {
+                            walk_source_text(length, model, source, facts);
+                        }
                     }
                 }
             }
@@ -1258,4 +1275,30 @@ fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut Stri
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shuck_parser::parser::ShellDialect;
+
+    #[test]
+    fn zsh_operation_operands_are_walked_when_collecting_ast_facts() {
+        let source = "print ${(m)foo#$(printf '%s' \"$needle\")} ${(S)foo/$pattern/$(dirname \"$1\")} ${(m)foo:$(source \"$2\"):${length}}\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&output.file, &model, source);
+        let call_names = facts
+            .calls
+            .iter()
+            .map(|call| call.name.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(call_names.iter().any(|name| name == "printf"));
+        assert!(call_names.iter().any(|name| name == "dirname"));
+        assert!(call_names.iter().any(|name| name == "source"));
+    }
 }

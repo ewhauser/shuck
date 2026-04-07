@@ -38,7 +38,8 @@ use shuck_ast::{
     SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptInterpretation,
     SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind, UntilCommand, VarRef,
     WhileCommand, Word, WordPart, WordPartNode, ZshDefaultingOp, ZshExpansionOperation,
-    ZshExpansionTarget, ZshModifier, ZshParameterExpansion, ZshPatternOp,
+    ZshExpansionTarget, ZshModifier, ZshParameterExpansion, ZshPatternOp, ZshReplacementOp,
+    ZshTrimOp,
 };
 
 use crate::error::{Error, Result};
@@ -2177,8 +2178,25 @@ impl<'a> Parser<'a> {
                 if let Some(operation) = &mut syntax.operation {
                     match operation {
                         ZshExpansionOperation::PatternOperation { operand, .. }
-                        | ZshExpansionOperation::Raw(operand) => operand.rebased(base),
-                        ZshExpansionOperation::Defaulting { operand, .. } => operand.rebased(base),
+                        | ZshExpansionOperation::Defaulting { operand, .. }
+                        | ZshExpansionOperation::TrimOperation { operand, .. }
+                        | ZshExpansionOperation::Unknown(operand) => operand.rebased(base),
+                        ZshExpansionOperation::ReplacementOperation {
+                            pattern,
+                            replacement,
+                            ..
+                        } => {
+                            pattern.rebased(base);
+                            if let Some(replacement) = replacement {
+                                replacement.rebased(base);
+                            }
+                        }
+                        ZshExpansionOperation::Slice { offset, length } => {
+                            offset.rebased(base);
+                            if let Some(length) = length {
+                                length.rebased(base);
+                            }
+                        }
                     }
                 }
             }
@@ -2575,7 +2593,7 @@ impl<'a> Parser<'a> {
         part_start: Position,
         part_end: Position,
     ) -> WordPart {
-        let syntax = self.parse_zsh_parameter_syntax(&raw_body, part_start);
+        let syntax = self.parse_zsh_parameter_syntax(&raw_body, raw_body.span().start);
         WordPart::Parameter(ParameterExpansion {
             syntax: ParameterExpansionSyntax::Zsh(syntax),
             span: Span::from_positions(part_start, part_end),
@@ -2745,19 +2763,111 @@ impl<'a> Parser<'a> {
     }
 
     fn find_zsh_operation_start(&self, text: &str) -> Option<usize> {
-        text.char_indices().find_map(|(index, ch)| {
-            (ch == ':')
-                .then(|| {
-                    let rest = &text[index..];
-                    (rest.starts_with(":#")
-                        || rest.starts_with(":-")
-                        || rest.starts_with(":=")
-                        || rest.starts_with(":+")
-                        || rest.starts_with(":?"))
-                    .then_some(index)
-                })
-                .flatten()
-        })
+        let mut bracket_depth = 0_usize;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        for (index, ch) in text.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '[' if !in_single && !in_double => bracket_depth += 1,
+                ']' if !in_single && !in_double && bracket_depth > 0 => bracket_depth -= 1,
+                ':' if !in_single && !in_double && bracket_depth == 0 => return Some(index),
+                '#' | '%' | '/' | '^' | ',' | '~'
+                    if !in_single && !in_double && bracket_depth == 0 && index > 0 =>
+                {
+                    return Some(index);
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    fn zsh_operation_source_text(
+        &self,
+        text: &str,
+        base: Position,
+        start: usize,
+        end: usize,
+    ) -> SourceText {
+        self.source_text(
+            text[start..end].to_string(),
+            base.advanced_by(&text[..start]),
+            base.advanced_by(&text[..end]),
+        )
+    }
+
+    fn find_zsh_top_level_delimiter(&self, text: &str, delimiter: char) -> Option<usize> {
+        let mut chars = text.char_indices().peekable();
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+        let mut brace_depth = 0_usize;
+        let mut paren_depth = 0_usize;
+
+        while let Some((index, ch)) = chars.next() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '$' if !in_single => {
+                    if let Some((_, next)) = chars.peek() {
+                        if *next == '{' {
+                            brace_depth += 1;
+                            chars.next();
+                        } else if *next == '(' {
+                            paren_depth += 1;
+                            chars.next();
+                            if let Some((_, after)) = chars.peek()
+                                && *after == '('
+                            {
+                                paren_depth += 1;
+                                chars.next();
+                            }
+                        }
+                    }
+                }
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                _ if ch == delimiter
+                    && !in_single
+                    && !in_double
+                    && brace_depth == 0
+                    && paren_depth == 0 =>
+                {
+                    return Some(index);
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    fn zsh_slice_candidate(rest: &str) -> bool {
+        let Some(first) = rest.chars().next() else {
+            return false;
+        };
+
+        first.is_ascii_alphanumeric()
+            || first == '_'
+            || first.is_ascii_whitespace()
+            || matches!(first, '$' | '\'' | '"' | '(' | '{')
     }
 
     fn parse_zsh_parameter_operation(&self, text: &str, base: Position) -> ZshExpansionOperation {
@@ -2799,7 +2909,70 @@ impl<'a> Parser<'a> {
             };
         }
 
-        ZshExpansionOperation::Raw(self.source_text(text.to_string(), base, base.advanced_by(text)))
+        if let Some((kind, prefix_len)) = [
+            ("##", ZshTrimOp::RemovePrefixLong),
+            ("#", ZshTrimOp::RemovePrefixShort),
+            ("%%", ZshTrimOp::RemoveSuffixLong),
+            ("%", ZshTrimOp::RemoveSuffixShort),
+        ]
+        .into_iter()
+        .find_map(|(prefix, kind)| text.starts_with(prefix).then_some((kind, prefix.len())))
+        {
+            return ZshExpansionOperation::TrimOperation {
+                kind,
+                operand: self.zsh_operation_source_text(text, base, prefix_len, text.len()),
+            };
+        }
+
+        if let Some((kind, prefix_len)) = [
+            ("//", ZshReplacementOp::ReplaceAll),
+            ("/#", ZshReplacementOp::ReplacePrefix),
+            ("/%", ZshReplacementOp::ReplaceSuffix),
+            ("/", ZshReplacementOp::ReplaceFirst),
+        ]
+        .into_iter()
+        .find_map(|(prefix, kind)| text.starts_with(prefix).then_some((kind, prefix.len())))
+        {
+            let rest = &text[prefix_len..];
+            let separator = self.find_zsh_top_level_delimiter(rest, '/');
+            let pattern_end = separator.unwrap_or(rest.len());
+            return ZshExpansionOperation::ReplacementOperation {
+                kind,
+                pattern: self.zsh_operation_source_text(
+                    text,
+                    base,
+                    prefix_len,
+                    prefix_len + pattern_end,
+                ),
+                replacement: separator.map(|separator| {
+                    self.zsh_operation_source_text(
+                        text,
+                        base,
+                        prefix_len + separator + 1,
+                        text.len(),
+                    )
+                }),
+            };
+        }
+
+        if let Some(rest) = text.strip_prefix(':')
+            && Self::zsh_slice_candidate(rest)
+        {
+            let separator = self.find_zsh_top_level_delimiter(rest, ':');
+            let offset_end = separator.unwrap_or(rest.len());
+            return ZshExpansionOperation::Slice {
+                offset: self.zsh_operation_source_text(text, base, 1, 1 + offset_end),
+                length: separator.map(|separator| {
+                    self.zsh_operation_source_text(text, base, 1 + separator + 1, text.len())
+                }),
+            };
+        }
+
+        ZshExpansionOperation::Unknown(self.source_text(
+            text.to_string(),
+            base,
+            base.advanced_by(text),
+        ))
     }
 
     fn parse_explicit_arithmetic_span(
@@ -9813,7 +9986,7 @@ mod tests {
         CompoundCommand as AstCompoundCommand, FunctionDef as AstFunctionDef, IfSyntax, Name,
         ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind,
         SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator, ZshDefaultingOp,
-        ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp,
+        ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp, ZshReplacementOp, ZshTrimOp,
     };
 
     fn is_fully_quoted(word: &Word) -> bool {
@@ -14057,6 +14230,134 @@ EOF
                 kind: ZshPatternOp::Filter,
                 ref operand,
             }) if operand.slice(source) == "__gitcomp_builtin_*"
+        ));
+    }
+
+    #[test]
+    fn test_zsh_parameter_supported_operations_are_typed_and_preserve_source_spans() {
+        let source = "print ${(m)foo#${needle}} ${(S)foo//\"pre\"$suffix/$replacement} ${(m)foo:$offset:${length}} ${(m)foo:^other}\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = expect_simple(&output.file.body[0]);
+
+        let trim = expect_parameter(&command.args[0]);
+        assert_eq!(trim.raw_body.slice(source), "(m)foo#${needle}");
+        let ParameterExpansionSyntax::Zsh(trim) = &trim.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            trim.operation,
+            Some(ZshExpansionOperation::TrimOperation {
+                kind: ZshTrimOp::RemovePrefixShort,
+                ref operand,
+            }) if operand.is_source_backed() && operand.slice(source) == "${needle}"
+        ));
+
+        let replacement = expect_parameter(&command.args[1]);
+        assert_eq!(
+            replacement.raw_body.slice(source),
+            "(S)foo//\"pre\"$suffix/$replacement"
+        );
+        let ParameterExpansionSyntax::Zsh(replacement) = &replacement.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            replacement.operation,
+            Some(ZshExpansionOperation::ReplacementOperation {
+                kind: ZshReplacementOp::ReplaceAll,
+                ref pattern,
+                replacement: Some(ref replacement),
+            }) if pattern.is_source_backed()
+                && pattern.slice(source) == "\"pre\"$suffix"
+                && replacement.is_source_backed()
+                && replacement.slice(source) == "$replacement"
+        ));
+
+        let slice = expect_parameter(&command.args[2]);
+        assert_eq!(slice.raw_body.slice(source), "(m)foo:$offset:${length}");
+        let ParameterExpansionSyntax::Zsh(slice) = &slice.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            slice.operation,
+            Some(ZshExpansionOperation::Slice {
+                ref offset,
+                length: Some(ref length),
+            }) if offset.is_source_backed()
+                && offset.slice(source) == "$offset"
+                && length.is_source_backed()
+                && length.slice(source) == "${length}"
+        ));
+
+        let unknown = expect_parameter(&command.args[3]);
+        assert_eq!(unknown.raw_body.slice(source), "(m)foo:^other");
+        let ParameterExpansionSyntax::Zsh(unknown) = &unknown.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            unknown.operation,
+            Some(ZshExpansionOperation::Unknown(ref operand))
+                if operand.is_source_backed() && operand.slice(source) == ":^other"
+        ));
+    }
+
+    #[test]
+    fn test_zsh_parameter_operation_kinds_cover_long_trim_and_anchored_replacement() {
+        let source = "print ${(m)foo##pre*} ${(m)foo%%post*} ${(S)foo/#$prefix/$replacement} ${(S)foo/%$suffix/$replacement}\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = expect_simple(&output.file.body[0]);
+
+        let first = expect_parameter(&command.args[0]);
+        let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            first.operation,
+            Some(ZshExpansionOperation::TrimOperation {
+                kind: ZshTrimOp::RemovePrefixLong,
+                ref operand,
+            }) if operand.slice(source) == "pre*"
+        ));
+
+        let second = expect_parameter(&command.args[1]);
+        let ParameterExpansionSyntax::Zsh(second) = &second.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            second.operation,
+            Some(ZshExpansionOperation::TrimOperation {
+                kind: ZshTrimOp::RemoveSuffixLong,
+                ref operand,
+            }) if operand.slice(source) == "post*"
+        ));
+
+        let third = expect_parameter(&command.args[2]);
+        let ParameterExpansionSyntax::Zsh(third) = &third.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            third.operation,
+            Some(ZshExpansionOperation::ReplacementOperation {
+                kind: ZshReplacementOp::ReplacePrefix,
+                ref pattern,
+                replacement: Some(ref replacement),
+            }) if pattern.slice(source) == "$prefix" && replacement.slice(source) == "$replacement"
+        ));
+
+        let fourth = expect_parameter(&command.args[3]);
+        let ParameterExpansionSyntax::Zsh(fourth) = &fourth.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert!(matches!(
+            fourth.operation,
+            Some(ZshExpansionOperation::ReplacementOperation {
+                kind: ZshReplacementOp::ReplaceSuffix,
+                ref pattern,
+                replacement: Some(ref replacement),
+            }) if pattern.slice(source) == "$suffix" && replacement.slice(source) == "$replacement"
         ));
     }
 

@@ -1,11 +1,11 @@
 use shuck_ast::{
-    AlwaysCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem, Assignment,
-    AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand,
-    CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
-    ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr,
-    CoprocCommand, DeclClause, DeclOperand, ForCommand, FunctionDef, IfCommand, IfSyntax, Redirect,
-    RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
-    StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef, WhileCommand,
+    AlwaysCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem, Assignment, AssignmentValue,
+    BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
+    CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr, ConditionalCommand,
+    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand, DeclClause,
+    DeclOperand, ForCommand, FunctionDef, IfCommand, IfSyntax, Redirect, RedirectKind,
+    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
+    TimeCommand, UntilCommand, VarRef, WhileCommand,
 };
 use shuck_format::{
     Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, verbatim,
@@ -931,7 +931,11 @@ fn format_always(
 ) -> FormatResult<()> {
     format_brace_group(&command.body, formatter, Some(command.span.end.offset))?;
     write!(formatter, [text(" always ")])?;
-    format_brace_group(&command.always_body, formatter, Some(command.span.end.offset))
+    format_brace_group(
+        &command.always_body,
+        formatter,
+        Some(command.span.end.offset),
+    )
 }
 
 fn format_function(
@@ -951,8 +955,7 @@ fn format_function(
             redirects,
             terminator: None,
             ..
-        } if redirects.is_empty() =>
-        {
+        } if redirects.is_empty() => {
             if !formatter.context().options().function_next_line()
                 && can_inline_group(commands, formatter)
             {
@@ -968,8 +971,7 @@ fn format_function(
             redirects,
             terminator: None,
             ..
-        } if redirects.is_empty() =>
-        {
+        } if redirects.is_empty() => {
             if !formatter.context().options().function_next_line()
                 && can_inline_group(commands, formatter)
             {
@@ -1189,12 +1191,9 @@ fn compound_has_heredoc(command: &CompoundCommand) -> bool {
         CompoundCommand::If(command) => {
             stmt_seq_has_heredoc(&command.condition)
                 || stmt_seq_has_heredoc(&command.then_branch)
-                || command
-                    .elif_branches
-                    .iter()
-                    .any(|(condition, body)| {
-                        stmt_seq_has_heredoc(condition) || stmt_seq_has_heredoc(body)
-                    })
+                || command.elif_branches.iter().any(|(condition, body)| {
+                    stmt_seq_has_heredoc(condition) || stmt_seq_has_heredoc(body)
+                })
                 || command
                     .else_branch
                     .as_ref()
@@ -1250,7 +1249,11 @@ fn verbatim_stmts(statements: &[Stmt], source: &str) -> Option<FormatElement> {
 }
 
 fn stmt_verbatim_span(stmt: &Stmt, source: &str) -> Span {
-    let mut span = merge_redirect_heredoc_spans(command_verbatim_span(&stmt.command, source), &stmt.redirects, source);
+    let mut span = merge_redirect_heredoc_spans(
+        command_verbatim_span(&stmt.command, source),
+        &stmt.redirects,
+        source,
+    );
     if stmt.negated {
         span = merge_non_empty_span(stmt.span, span);
     }
@@ -1369,8 +1372,12 @@ fn compound_verbatim_span(command: &CompoundCommand, source: &str) -> Span {
         CompoundCommand::Select(command) => {
             merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
         }
-        CompoundCommand::Subshell(commands) => group_verbatim_span(commands.as_slice(), source, '(', ')'),
-        CompoundCommand::BraceGroup(commands) => group_verbatim_span(commands.as_slice(), source, '{', '}'),
+        CompoundCommand::Subshell(commands) => {
+            group_verbatim_span(commands.as_slice(), source, '(', ')')
+        }
+        CompoundCommand::BraceGroup(commands) => {
+            group_verbatim_span(commands.as_slice(), source, '{', '}')
+        }
         CompoundCommand::Arithmetic(command) => command.span,
         CompoundCommand::Time(command) => command
             .command
@@ -1378,7 +1385,9 @@ fn compound_verbatim_span(command: &CompoundCommand, source: &str) -> Span {
             .map(|inner| command.span.merge(stmt_verbatim_span(inner, source)))
             .unwrap_or(command.span),
         CompoundCommand::Conditional(command) => command.span,
-        CompoundCommand::Coproc(command) => command.span.merge(stmt_verbatim_span(&command.body, source)),
+        CompoundCommand::Coproc(command) => command
+            .span
+            .merge(stmt_verbatim_span(&command.body, source)),
         CompoundCommand::Always(command) => {
             let span = merge_stmt_sequence_verbatim_span(command.span, &command.body, source);
             merge_stmt_sequence_verbatim_span(span, &command.always_body, source)
@@ -1386,11 +1395,7 @@ fn compound_verbatim_span(command: &CompoundCommand, source: &str) -> Span {
     }
 }
 
-fn merge_stmt_sequence_verbatim_span(
-    mut span: Span,
-    commands: &StmtSeq,
-    source: &str,
-) -> Span {
+fn merge_stmt_sequence_verbatim_span(mut span: Span, commands: &StmtSeq, source: &str) -> Span {
     for command in commands.iter() {
         span = merge_non_empty_span(span, stmt_verbatim_span(command, source));
     }
@@ -1512,7 +1517,9 @@ fn command_format_span(command: &Command) -> Span {
             ),
         },
         Command::Decl(command) => decl_clause_format_span(command),
-        Command::Binary(command) => stmt_format_span(&command.left).merge(stmt_format_span(&command.right)),
+        Command::Binary(command) => {
+            stmt_format_span(&command.left).merge(stmt_format_span(&command.right))
+        }
         Command::Compound(command) => compound_format_span(command),
         Command::Function(command) => command.name_span.merge(stmt_format_span(&command.body)),
     }
@@ -1771,10 +1778,7 @@ fn can_inline_stmt(stmt: &Stmt, formatter: &ShellFormatter<'_, '_>) -> bool {
     )
 }
 
-fn stmt_has_trailing_comment(
-    stmt: &Stmt,
-    source_map: &crate::comments::SourceMap<'_>,
-) -> bool {
+fn stmt_has_trailing_comment(stmt: &Stmt, source_map: &crate::comments::SourceMap<'_>) -> bool {
     let raw = stmt_span(stmt);
     let formatted = stmt_format_span(stmt);
     raw.end.offset > formatted.end.offset
@@ -1920,7 +1924,10 @@ fn builtin_like_token_spans(
 
 fn stmt_token_spans(stmt: &Stmt) -> Vec<Span> {
     let mut spans = if stmt.negated {
-        vec![Span::from_positions(stmt.span.start, stmt.span.start.advanced_by("!"))]
+        vec![Span::from_positions(
+            stmt.span.start,
+            stmt.span.start.advanced_by("!"),
+        )]
     } else {
         Vec::new()
     };

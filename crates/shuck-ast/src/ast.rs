@@ -1184,7 +1184,20 @@ pub enum ZshExpansionOperation {
         operand: SourceText,
         colon_variant: bool,
     },
-    Raw(SourceText),
+    TrimOperation {
+        kind: ZshTrimOp,
+        operand: SourceText,
+    },
+    ReplacementOperation {
+        kind: ZshReplacementOp,
+        pattern: SourceText,
+        replacement: Option<SourceText>,
+    },
+    Slice {
+        offset: SourceText,
+        length: Option<SourceText>,
+    },
+    Unknown(SourceText),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1198,6 +1211,22 @@ pub enum ZshDefaultingOp {
     AssignDefault,
     UseReplacement,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZshTrimOp {
+    RemovePrefixShort,
+    RemovePrefixLong,
+    RemoveSuffixShort,
+    RemoveSuffixLong,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZshReplacementOp {
+    ReplaceFirst,
+    ReplaceAll,
+    ReplacePrefix,
+    ReplaceSuffix,
 }
 
 /// Brace expansion surface form recognized inside a word.

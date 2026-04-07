@@ -886,6 +886,27 @@ mod tests {
     }
 
     #[test]
+    fn zsh_parameter_operations_walk_operand_references_conservatively() {
+        let model = model_with_dialect(
+            "print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}}\n",
+            ShellDialect::Zsh,
+        );
+        let unresolved = unresolved_names(&model);
+
+        assert_names_present(
+            &[
+                "foo",
+                "needle",
+                "pattern",
+                "replacement",
+                "offset",
+                "length",
+            ],
+            &unresolved,
+        );
+    }
+
+    #[test]
     fn isolates_subshell_bindings_from_parent_resolution() {
         let source = "VAR=outer\n( VAR=inner )\necho $VAR\n";
         let model = model(source);

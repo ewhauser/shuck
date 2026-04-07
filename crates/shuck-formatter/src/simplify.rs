@@ -203,7 +203,8 @@ fn walk_stmt(
         Command::Builtin(command) => walk_builtin(command, source),
         Command::Decl(command) => walk_decl_clause(command, source),
         Command::Binary(command) => {
-            walk_stmt(&mut command.left, source, visitor) + walk_stmt(&mut command.right, source, visitor)
+            walk_stmt(&mut command.left, source, visitor)
+                + walk_stmt(&mut command.right, source, visitor)
         }
         Command::Compound(compound) => walk_compound(compound, source, visitor),
         Command::Function(function) => walk_function(function, source, visitor),
@@ -326,7 +327,9 @@ fn walk_compound(
             }
             count + walk_stmt_seq(&mut command.body, source, visitor)
         }
-        CompoundCommand::ArithmeticFor(command) => walk_stmt_seq(&mut command.body, source, visitor),
+        CompoundCommand::ArithmeticFor(command) => {
+            walk_stmt_seq(&mut command.body, source, visitor)
+        }
         CompoundCommand::While(command) => {
             walk_stmt_seq(&mut command.condition, source, visitor)
                 + walk_stmt_seq(&mut command.body, source, visitor)
@@ -564,7 +567,9 @@ fn rewrite_compound_words(
                 visitor(word, source)
             })
         }
-        CompoundCommand::Coproc(command) => rewrite_stmt_words(command.body.as_mut(), source, visitor),
+        CompoundCommand::Coproc(command) => {
+            rewrite_stmt_words(command.body.as_mut(), source, visitor)
+        }
         CompoundCommand::Always(command) => {
             rewrite_stmt_seq_words(&mut command.body, source, visitor)
                 + rewrite_stmt_seq_words(&mut command.always_body, source, visitor)
@@ -801,7 +806,9 @@ fn rewrite_stmt_source_texts(
                 + rewrite_stmt_source_texts(&mut command.right, source, visitor)
         }
         Command::Compound(compound) => rewrite_compound_source_texts(compound, source, visitor),
-        Command::Function(function) => rewrite_stmt_source_texts(function.body.as_mut(), source, visitor),
+        Command::Function(function) => {
+            rewrite_stmt_source_texts(function.body.as_mut(), source, visitor)
+        }
     };
     for redirect in &mut stmt.redirects {
         count += rewrite_redirect_source_texts(redirect, source, visitor);
@@ -846,10 +853,9 @@ fn rewrite_compound_source_texts(
                             + rewrite_stmt_seq_source_texts(body, source, visitor)
                     })
                     .sum::<usize>()
-                + command
-                    .else_branch
-                    .as_mut()
-                    .map_or(0, |body| rewrite_stmt_seq_source_texts(body, source, visitor))
+                + command.else_branch.as_mut().map_or(0, |body| {
+                    rewrite_stmt_seq_source_texts(body, source, visitor)
+                })
         }
         CompoundCommand::For(command) => {
             command
@@ -897,11 +903,9 @@ fn rewrite_compound_source_texts(
             rewrite_stmt_seq_source_texts(commands, source, visitor)
         }
         CompoundCommand::Arithmetic(_) => 0,
-        CompoundCommand::Time(command) => {
-            command.command.as_mut().map_or(0, |command| {
-                rewrite_stmt_source_texts(command, source, visitor)
-            })
-        }
+        CompoundCommand::Time(command) => command.command.as_mut().map_or(0, |command| {
+            rewrite_stmt_source_texts(command, source, visitor)
+        }),
         CompoundCommand::Conditional(command) => {
             rewrite_conditional_source_texts(command, source, visitor)
         }
@@ -1182,9 +1186,27 @@ fn rewrite_parameter_source_texts(
             };
             if let Some(operation) = &mut syntax.operation {
                 count += match operation {
-                    ZshExpansionOperation::PatternOperation { .. }
-                    | ZshExpansionOperation::Defaulting { .. }
-                    | ZshExpansionOperation::Raw(_) => 0,
+                    ZshExpansionOperation::PatternOperation { operand, .. }
+                    | ZshExpansionOperation::Defaulting { operand, .. }
+                    | ZshExpansionOperation::TrimOperation { operand, .. } => {
+                        let _ = operand;
+                        0
+                    }
+                    ZshExpansionOperation::ReplacementOperation {
+                        pattern,
+                        replacement,
+                        ..
+                    } => {
+                        let _ = pattern;
+                        let _ = replacement;
+                        0
+                    }
+                    ZshExpansionOperation::Slice { offset, length } => {
+                        let _ = offset;
+                        let _ = length;
+                        0
+                    }
+                    ZshExpansionOperation::Unknown(_) => 0,
                 };
             }
             count
@@ -1203,15 +1225,14 @@ fn rewrite_parameter_source_texts(
 
 fn render_parameter_raw_body(parameter: &ParameterExpansion, source: &str) -> String {
     match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => render_bourne_parameter_raw_body(syntax, source),
+        ParameterExpansionSyntax::Bourne(syntax) => {
+            render_bourne_parameter_raw_body(syntax, source)
+        }
         ParameterExpansionSyntax::Zsh(syntax) => render_zsh_parameter_raw_body(syntax, source),
     }
 }
 
-fn render_bourne_parameter_raw_body(
-    syntax: &BourneParameterExpansion,
-    source: &str,
-) -> String {
+fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &str) -> String {
     match syntax {
         BourneParameterExpansion::Access { reference } => render_var_ref_syntax(reference, source),
         BourneParameterExpansion::Length { reference } => {
@@ -1378,7 +1399,41 @@ fn render_zsh_parameter_raw_body(
                 });
                 rendered.push_str(operand.slice(source));
             }
-            ZshExpansionOperation::Raw(text) => rendered.push_str(text.slice(source)),
+            ZshExpansionOperation::TrimOperation { kind, operand } => {
+                rendered.push_str(match kind {
+                    shuck_ast::ZshTrimOp::RemovePrefixShort => "#",
+                    shuck_ast::ZshTrimOp::RemovePrefixLong => "##",
+                    shuck_ast::ZshTrimOp::RemoveSuffixShort => "%",
+                    shuck_ast::ZshTrimOp::RemoveSuffixLong => "%%",
+                });
+                rendered.push_str(operand.slice(source));
+            }
+            ZshExpansionOperation::ReplacementOperation {
+                kind,
+                pattern,
+                replacement,
+            } => {
+                rendered.push_str(match kind {
+                    shuck_ast::ZshReplacementOp::ReplaceFirst => "/",
+                    shuck_ast::ZshReplacementOp::ReplaceAll => "//",
+                    shuck_ast::ZshReplacementOp::ReplacePrefix => "/#",
+                    shuck_ast::ZshReplacementOp::ReplaceSuffix => "/%",
+                });
+                rendered.push_str(pattern.slice(source));
+                if let Some(replacement) = replacement {
+                    rendered.push('/');
+                    rendered.push_str(replacement.slice(source));
+                }
+            }
+            ZshExpansionOperation::Slice { offset, length } => {
+                rendered.push(':');
+                rendered.push_str(offset.slice(source));
+                if let Some(length) = length {
+                    rendered.push(':');
+                    rendered.push_str(length.slice(source));
+                }
+            }
+            ZshExpansionOperation::Unknown(text) => rendered.push_str(text.slice(source)),
         }
     }
 

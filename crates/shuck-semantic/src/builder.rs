@@ -1431,9 +1431,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if let Some(operation) = &syntax.operation {
                     match operation {
                         ZshExpansionOperation::PatternOperation { operand, .. }
-                        | ZshExpansionOperation::Raw(operand)
-                        | ZshExpansionOperation::Defaulting { operand, .. } => {
+                        | ZshExpansionOperation::Defaulting { operand, .. }
+                        | ZshExpansionOperation::TrimOperation { operand, .. }
+                        | ZshExpansionOperation::Unknown(operand) => {
                             self.visit_source_text_as_word(operand, kind, flow, nested_regions);
+                        }
+                        ZshExpansionOperation::ReplacementOperation {
+                            pattern,
+                            replacement,
+                            ..
+                        } => {
+                            self.visit_source_text_as_word(pattern, kind, flow, nested_regions);
+                            if let Some(replacement) = replacement {
+                                self.visit_source_text_as_word(
+                                    replacement,
+                                    kind,
+                                    flow,
+                                    nested_regions,
+                                );
+                            }
+                        }
+                        ZshExpansionOperation::Slice { offset, length } => {
+                            self.visit_source_text_as_word(offset, kind, flow, nested_regions);
+                            if let Some(length) = length {
+                                self.visit_source_text_as_word(length, kind, flow, nested_regions);
+                            }
                         }
                     }
                 }
