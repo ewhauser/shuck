@@ -214,7 +214,7 @@ mod tests {
 
         assert_eq!(
             formatted,
-            FormattedSource::Formatted("echo hi  # note\n".to_string())
+            FormattedSource::Formatted("echo hi # note\n".to_string())
         );
     }
 
@@ -260,6 +260,20 @@ mod tests {
         assert_eq!(
             formatted,
             FormattedSource::Formatted("if true; then\n\t# note\n\techo hi\nfi\n".to_string())
+        );
+    }
+
+    #[test]
+    fn preserves_comments_inside_elif_bodies() {
+        let source = "foo() {\nif a; then\none\nelif b; then\n# note\n two\nfi\n}\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "foo() {\n\tif a; then\n\t\tone\n\telif b; then\n\t\t# note\n\t\ttwo\n\tfi\n}\n"
+                    .to_string()
+            )
         );
     }
 
@@ -404,6 +418,19 @@ mod tests {
     }
 
     #[test]
+    fn standalone_brace_groups_do_not_consume_later_file_comments() {
+        let source = "[ -n \"$x\" ] && {\nset -x\n}\n# later\nnext\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "[ -n \"$x\" ] && {\n\tset -x\n}\n\n# later\nnext\n".to_string()
+            )
+        );
+    }
+
+    #[test]
     fn preserves_single_line_function_bodies() {
         let source = "tty_escape() { printf \"\\\\033[%sm\" \"$1\"; }\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
@@ -417,6 +444,101 @@ mod tests {
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
         assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn trailing_comments_on_function_closing_braces_do_not_poison_following_layout() {
+        let source = "foo() {\necho hi\n} # trailing\nbar\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("foo() {\n\techo hi\n} # trailing\nbar\n".to_string())
+        );
+    }
+
+    #[test]
+    fn preserves_escaped_command_names() {
+        let source = "\\grep -q foo file\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_ansi_c_quoted_assignment_values() {
+        let source = "x=$'\\n'\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_ansi_c_quoted_condition_patterns() {
+        let source = "[[ \"$c\" == $'\\r' || \"$c\" == $'\\n' ]]\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_multiline_function_bodies() {
+        let source = "version_gt() {\n\t[[ \"${1%.*}\" -gt \"${2%.*}\" ]]\n}\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_process_substitution_redirect_spacing() {
+        let source = "cat < <(which -a foo)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_fd_duplication_redirect_targets() {
+        let source = "cmd 2>&$fd\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_regex_operands_in_conditionals() {
+        let source = "[[ \"$x\" =~ \"git version \"([^ ]*).* ]]\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]

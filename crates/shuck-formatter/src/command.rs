@@ -14,6 +14,7 @@ use shuck_format::{
 
 use crate::FormatNodeRule;
 use crate::prelude::{AsFormat, ShellFormatter};
+use crate::word::{render_pattern_syntax, render_word_syntax};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FormatCommand;
@@ -44,7 +45,15 @@ impl FormatNodeRule<Stmt> for FormatStatement {
             write!(formatter, [text("! ")])?;
         }
 
-        stmt.command.format().fmt(formatter)?;
+        match &stmt.command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+                format_brace_group(commands, formatter, Some(stmt_span(stmt).end.offset))?;
+            }
+            Command::Compound(CompoundCommand::Subshell(commands)) => {
+                format_subshell(commands, formatter, Some(stmt_span(stmt).end.offset))?;
+            }
+            _ => stmt.command.format().fmt(formatter)?,
+        }
 
         if !stmt.redirects.is_empty() {
             write!(formatter, [space()])?;
@@ -248,14 +257,22 @@ fn format_simple_command(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     let source = formatter.context().source();
-    let has_name = !command.name.render_syntax(source).is_empty();
+    let has_name =
+        !render_word_syntax(&command.name, source, formatter.context().options()).is_empty();
     let mut first = true;
 
     for assignment in &command.assignments {
         if !first {
             write!(formatter, [space()])?;
         }
-        write!(formatter, [text(render_assignment(assignment, source))])?;
+        write!(
+            formatter,
+            [text(render_assignment(
+                assignment,
+                source,
+                formatter.context().options(),
+            ))]
+        )?;
         first = false;
     }
 
@@ -322,16 +339,17 @@ fn format_builtin_like(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     let source = formatter.context().source();
+    let options = formatter.context().options();
     let mut pieces = Vec::new();
     for assignment in assignments {
-        pieces.push(render_assignment(assignment, source));
+        pieces.push(render_assignment(assignment, source, options));
     }
     pieces.push(name.to_string());
     if let Some(primary) = primary {
-        pieces.push(primary.render_syntax(source));
+        pieces.push(render_word_syntax(primary, source, options));
     }
     for argument in extra_args {
-        pieces.push(argument.render_syntax(source));
+        pieces.push(render_word_syntax(argument, source, options));
     }
 
     write!(formatter, [text(pieces.join(" "))])
@@ -342,13 +360,17 @@ fn format_decl_clause(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     let source = formatter.context().source();
+    let options = formatter.context().options().clone();
     let mut first = true;
 
     for assignment in &command.assignments {
         if !first {
             write!(formatter, [space()])?;
         }
-        write!(formatter, [text(render_assignment(assignment, source))])?;
+        write!(
+            formatter,
+            [text(render_assignment(assignment, source, &options))]
+        )?;
         first = false;
     }
 
@@ -378,7 +400,14 @@ fn format_decl_operand(
         DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.format().fmt(formatter),
         DeclOperand::Name(name) => write!(formatter, [text(render_var_ref(name, source))]),
         DeclOperand::Assignment(assignment) => {
-            write!(formatter, [text(render_assignment(assignment, source))])
+            write!(
+                formatter,
+                [text(render_assignment(
+                    assignment,
+                    source,
+                    formatter.context().options(),
+                ))]
+            )
         }
     }
 }
@@ -590,7 +619,6 @@ fn format_then_fi_if(
     command: &IfCommand,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
-    let upper_bound = Some(command.span.end.offset);
     write!(formatter, [text("if ")])?;
     format_inline_stmts(&command.condition, formatter)?;
     if command.elif_branches.is_empty()
@@ -602,8 +630,12 @@ fn format_then_fi_if(
         return write!(formatter, [text("; fi")]);
     }
     write!(formatter, [text("; then")])?;
-    format_body_with_upper_bound(&command.then_branch, formatter, upper_bound)?;
-    for (condition, body) in &command.elif_branches {
+    format_body_with_upper_bound(
+        &command.then_branch,
+        formatter,
+        Some(if_branch_upper_bound(command, 0)),
+    )?;
+    for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
         if formatter.context().options().compact_layout() {
             write!(formatter, [text("; elif ")])?;
             format_inline_stmts(condition, formatter)?;
@@ -613,7 +645,11 @@ fn format_then_fi_if(
             format_inline_stmts(condition, formatter)?;
             write!(formatter, [text("; then")])?;
         }
-        format_body_with_upper_bound(body, formatter, upper_bound)?;
+        format_body_with_upper_bound(
+            body,
+            formatter,
+            Some(if_branch_upper_bound(command, index + 1)),
+        )?;
     }
     if let Some(body) = &command.else_branch {
         if formatter.context().options().compact_layout() {
@@ -621,7 +657,7 @@ fn format_then_fi_if(
         } else {
             write!(formatter, [hard_line_break(), text("else")])?;
         }
-        format_body_with_upper_bound(body, formatter, upper_bound)?;
+        format_body_with_upper_bound(body, formatter, Some(command.span.end.offset))?;
     }
     if formatter.context().options().compact_layout() {
         write!(formatter, [text("; fi")])
@@ -634,25 +670,42 @@ fn format_brace_if(
     command: &IfCommand,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
-    let upper_bound = Some(command.span.end.offset);
     write!(formatter, [text("if ")])?;
     format_inline_stmts(&command.condition, formatter)?;
     write!(formatter, [space()])?;
-    format_brace_group(&command.then_branch, formatter, upper_bound)?;
+    format_brace_group(
+        &command.then_branch,
+        formatter,
+        Some(if_branch_upper_bound(command, 0)),
+    )?;
 
-    for (condition, body) in &command.elif_branches {
+    for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
         write!(formatter, [text(" elif ")])?;
         format_inline_stmts(condition, formatter)?;
         write!(formatter, [space()])?;
-        format_brace_group(body, formatter, upper_bound)?;
+        format_brace_group(
+            body,
+            formatter,
+            Some(if_branch_upper_bound(command, index + 1)),
+        )?;
     }
 
     if let Some(body) = &command.else_branch {
         write!(formatter, [text(" else ")])?;
-        format_brace_group(body, formatter, upper_bound)?;
+        format_brace_group(body, formatter, Some(command.span.end.offset))?;
     }
 
     Ok(())
+}
+
+fn if_branch_upper_bound(command: &IfCommand, branch_index: usize) -> usize {
+    if let Some((condition, _)) = command.elif_branches.get(branch_index) {
+        condition.span.start.offset
+    } else if let Some(body) = &command.else_branch {
+        body.span.start.offset
+    } else {
+        command.span.end.offset
+    }
 }
 
 fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
@@ -737,7 +790,11 @@ fn format_case(command: &CaseCommand, formatter: &mut ShellFormatter<'_, '_>) ->
         formatter,
         [
             text("case "),
-            text(command.word.render_syntax(formatter.context().source())),
+            text(render_word_syntax(
+                &command.word,
+                formatter.context().source(),
+                formatter.context().options(),
+            )),
             text(" in")
         ]
     )?;
@@ -772,7 +829,11 @@ fn format_case_item(
         if index > 0 {
             pattern.push_str(" | ");
         }
-        pattern.push_str(&word.render_syntax(source));
+        pattern.push_str(&render_pattern_syntax(
+            word,
+            source,
+            formatter.context().options(),
+        ));
     }
     pattern.push(')');
     if base_indent > 0 {
@@ -793,7 +854,7 @@ fn format_case_item(
             [text(format!("; {}", case_terminator(item.terminator)))]
         )
     } else {
-        if base_indent == 0 && item.body.len() == 1 {
+        if base_indent == 0 && item.body.len() == 1 && case_item_was_inline_in_source(item) {
             write!(formatter, [space()])?;
             item.body[0].format().fmt(formatter)?;
             write!(formatter, [space(), text(case_terminator(item.terminator))])?;
@@ -828,6 +889,7 @@ fn format_brace_group(
     upper_bound: Option<usize>,
 ) -> FormatResult<()> {
     if group_open_suffix(commands.as_slice(), formatter.context().source(), '{').is_none()
+        && group_was_inline_in_source(commands.as_slice(), formatter.context().source(), '{', '}')
         && can_inline_group(commands, formatter)
     {
         write!(formatter, [text("{ ")])?;
@@ -844,6 +906,7 @@ fn format_subshell(
     upper_bound: Option<usize>,
 ) -> FormatResult<()> {
     if group_open_suffix(commands.as_slice(), formatter.context().source(), '(').is_none()
+        && group_was_inline_in_source(commands.as_slice(), formatter.context().source(), '(', ')')
         && can_inline_group(commands, formatter)
     {
         write!(formatter, [text("(")])?;
@@ -957,6 +1020,12 @@ fn format_function(
             ..
         } if redirects.is_empty() => {
             if !formatter.context().options().function_next_line()
+                && group_was_inline_in_source(
+                    commands.as_slice(),
+                    formatter.context().source(),
+                    '{',
+                    '}',
+                )
                 && can_inline_group(commands, formatter)
             {
                 write!(formatter, [text("{ ")])?;
@@ -973,6 +1042,12 @@ fn format_function(
             ..
         } if redirects.is_empty() => {
             if !formatter.context().options().function_next_line()
+                && group_was_inline_in_source(
+                    commands.as_slice(),
+                    formatter.context().source(),
+                    '(',
+                    ')',
+                )
                 && can_inline_group(commands, formatter)
             {
                 write!(formatter, [text("(")])?;
@@ -1077,7 +1152,11 @@ fn render_heredoc_tail(body_span: Span, delimiter: &str, source: &str) -> String
     rendered
 }
 
-fn render_assignment(assignment: &Assignment, source: &str) -> String {
+fn render_assignment(
+    assignment: &Assignment,
+    source: &str,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> String {
     let mut rendered = assignment.target.name.to_string();
     if let Some(index) = &assignment.target.subscript {
         rendered.push('[');
@@ -1090,14 +1169,16 @@ fn render_assignment(assignment: &Assignment, source: &str) -> String {
         rendered.push('=');
     }
     match &assignment.value {
-        AssignmentValue::Scalar(value) => rendered.push_str(&value.render_syntax(source)),
+        AssignmentValue::Scalar(value) => {
+            rendered.push_str(&render_word_syntax(value, source, options));
+        }
         AssignmentValue::Compound(array) => {
             rendered.push('(');
             for (index, value) in array.elements.iter().enumerate() {
                 if index > 0 {
                     rendered.push(' ');
                 }
-                rendered.push_str(&render_array_elem(value, source));
+                rendered.push_str(&render_array_elem(value, source, options));
             }
             rendered.push(')');
         }
@@ -1105,21 +1186,25 @@ fn render_assignment(assignment: &Assignment, source: &str) -> String {
     trim_unescaped_trailing_whitespace(&rendered).to_string()
 }
 
-fn render_array_elem(element: &ArrayElem, source: &str) -> String {
+fn render_array_elem(
+    element: &ArrayElem,
+    source: &str,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> String {
     match element {
-        ArrayElem::Sequential(word) => word.render_syntax(source),
+        ArrayElem::Sequential(word) => render_word_syntax(word, source, options),
         ArrayElem::Keyed { key, value } => {
             format!(
                 "[{}]={}",
                 render_subscript(key, source),
-                value.render_syntax(source)
+                render_word_syntax(value, source, options)
             )
         }
         ArrayElem::KeyedAppend { key, value } => {
             format!(
                 "[{}]+={}",
                 render_subscript(key, source),
-                value.render_syntax(source)
+                render_word_syntax(value, source, options)
             )
         }
     }
@@ -1472,15 +1557,38 @@ fn group_open_suffix<'a>(
         .then(|| (span_for_offsets(source, suffix_start, line_end), suffix))
 }
 
-fn group_attachment_span(commands: &[Stmt], source: &str, open: char) -> Option<Span> {
+fn group_attachment_span(commands: &[Stmt], source: &str, open: char, close: char) -> Option<Span> {
     let first = commands.first()?;
     let last = commands.last()?;
     let open_offset = source[..stmt_span(first).start.offset].rfind(open)?;
-    Some(span_for_offsets(
-        source,
-        open_offset,
-        stmt_format_span(last).end.offset,
-    ))
+    let last_end = stmt_span(last).end.offset;
+    let end = source[last_end..]
+        .find(close)
+        .map(|offset| last_end + offset + close.len_utf8())
+        .unwrap_or(last_end);
+    Some(span_for_offsets(source, open_offset, end))
+}
+
+fn group_was_inline_in_source(commands: &[Stmt], source: &str, open: char, close: char) -> bool {
+    let Some(first) = commands.first() else {
+        return false;
+    };
+    let Some(last) = commands.last() else {
+        return false;
+    };
+
+    let first_start = stmt_span(first).start.offset;
+    let last_end = stmt_span(last).end.offset.min(source.len());
+    let line_start = source[..first_start]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let line_end = source[last_end..]
+        .find('\n')
+        .map_or(source.len(), |offset| last_end + offset);
+    let line = &source[line_start..line_end];
+    let prefix = &source[line_start..first_start];
+
+    prefix.contains(open) && line.trim_end().ends_with(close)
 }
 
 fn command_format_span(command: &Command) -> Span {
@@ -1521,7 +1629,7 @@ fn command_format_span(command: &Command) -> Span {
             stmt_format_span(&command.left).merge(stmt_format_span(&command.right))
         }
         Command::Compound(command) => compound_format_span(command),
-        Command::Function(command) => command.name_span.merge(stmt_format_span(&command.body)),
+        Command::Function(command) => function_attachment_span(command),
     }
 }
 
@@ -1577,6 +1685,10 @@ fn decl_clause_format_span(command: &DeclClause) -> Span {
         span = merge_non_empty_span(span, operand_span);
     }
     span
+}
+
+fn function_attachment_span(command: &FunctionDef) -> Span {
+    command.name_span.merge(stmt_span(&command.body))
 }
 
 fn compound_format_span(command: &CompoundCommand) -> Span {
@@ -1646,7 +1758,7 @@ fn emit_trailing_comments(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     for comment in comments {
-        write!(formatter, [text("  "), text(comment.text().to_string())])?;
+        write!(formatter, [text(" "), text(comment.text().to_string())])?;
     }
     Ok(())
 }
@@ -1802,16 +1914,18 @@ fn stmt_attachment_span(
 ) -> Span {
     if should_render_verbatim(stmt, source_map, options) {
         stmt_verbatim_span(stmt, source)
+    } else if let Command::Function(command) = &stmt.command {
+        function_attachment_span(command)
     } else if let Command::Compound(CompoundCommand::BraceGroup(commands)) = &stmt.command {
         stmt.redirects.iter().fold(
-            group_attachment_span(commands.as_slice(), source, '{')
-                .unwrap_or_else(|| stmt_format_span(stmt)),
+            group_attachment_span(commands.as_slice(), source, '{', '}')
+                .unwrap_or_else(|| stmt_span(stmt)),
             |span, redirect| span.merge(redirect.span),
         )
     } else if let Command::Compound(CompoundCommand::Subshell(commands)) = &stmt.command {
         stmt.redirects.iter().fold(
-            group_attachment_span(commands.as_slice(), source, '(')
-                .unwrap_or_else(|| stmt_format_span(stmt)),
+            group_attachment_span(commands.as_slice(), source, '(', ')')
+                .unwrap_or_else(|| stmt_span(stmt)),
             |span, redirect| span.merge(redirect.span),
         )
     } else {
@@ -1835,6 +1949,16 @@ fn stmt_has_alignment_sensitive_padding(
         }
         source_map.has_alignment_padding_between(left.end.offset, right.start.offset)
     })
+}
+
+fn case_item_was_inline_in_source(item: &CaseItem) -> bool {
+    let Some(stmt) = item.body.first() else {
+        return false;
+    };
+
+    item.patterns
+        .last()
+        .is_some_and(|pattern| pattern.span.end.line == stmt_span(stmt).start.line)
 }
 
 fn command_token_spans(command: &Command) -> Vec<Span> {
@@ -1979,12 +2103,14 @@ fn format_conditional_expr(
         ConditionalExpr::Unary(expr) => format_conditional_unary(expr, formatter),
         ConditionalExpr::Parenthesized(expr) => format_conditional_paren(expr, formatter),
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => word.format().fmt(formatter),
-        ConditionalExpr::Pattern(pattern) => {
-            write!(
-                formatter,
-                [text(pattern.render_syntax(formatter.context().source()))]
-            )
-        }
+        ConditionalExpr::Pattern(pattern) => write!(
+            formatter,
+            [text(render_pattern_syntax(
+                pattern,
+                formatter.context().source(),
+                formatter.context().options(),
+            ))]
+        ),
         ConditionalExpr::VarRef(reference) => {
             write!(
                 formatter,
@@ -2095,6 +2221,7 @@ fn extend_heredoc_body_span(span: Span, source: &str) -> Span {
 mod tests {
     use super::*;
 
+    use crate::ShellFormatOptions;
     use shuck_parser::parser::{Parser, ShellDialect};
 
     #[test]
@@ -2108,7 +2235,12 @@ mod tests {
             panic!("expected a simple command");
         };
 
-        assert_eq!(render_assignment(&command.assignments[0], source), "x=1");
+        let options = ShellFormatOptions::default().resolve(source, None);
+
+        assert_eq!(
+            render_assignment(&command.assignments[0], source, &options),
+            "x=1"
+        );
         assert!(command.args.is_empty());
         assert!(stmt.redirects.is_empty());
         assert!(!command.name.parts.is_empty());

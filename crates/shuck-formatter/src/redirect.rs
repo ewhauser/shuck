@@ -3,6 +3,7 @@ use shuck_format::{FormatResult, text, write};
 
 use crate::FormatNodeRule;
 use crate::prelude::ShellFormatter;
+use crate::word::render_word_syntax;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FormatRedirect;
@@ -11,6 +12,14 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
     fn fmt(&self, redirect: &Redirect, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
         let source = formatter.context().source();
         let options = formatter.context().options();
+        if !options.simplify()
+            && !options.minify()
+            && let Some(raw) = raw_redirect_source_slice(redirect, source)
+            && should_preserve_raw_redirect(raw)
+        {
+            return write!(formatter, [text(raw.to_string())]);
+        }
+
         let mut rendered = String::new();
 
         if let Some(name) = &redirect.fd_var {
@@ -39,17 +48,12 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         });
 
         let target = match (redirect.word_target(), redirect.heredoc()) {
-            (Some(word), None) => word.render_syntax(source),
-            (None, Some(heredoc)) => heredoc.delimiter.raw.render_syntax(source),
+            (Some(word), None) => render_word_syntax(word, source, options),
+            (None, Some(heredoc)) => render_word_syntax(&heredoc.delimiter.raw, source, options),
             (None, None) => String::new(),
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
         };
-        if options.space_redirects()
-            && !matches!(
-                redirect.kind,
-                RedirectKind::DupOutput | RedirectKind::DupInput
-            )
-        {
+        if needs_space_before_target(redirect.kind, &target, options.space_redirects()) {
             rendered.push(' ');
         }
         rendered.push_str(&target);
@@ -72,4 +76,30 @@ fn should_render_explicit_fd(fd: i32, kind: RedirectKind) -> bool {
         | RedirectKind::HereString
         | RedirectKind::DupInput => fd != 0,
     }
+}
+
+fn needs_space_before_target(kind: RedirectKind, target: &str, space_redirects: bool) -> bool {
+    if target.is_empty() {
+        return false;
+    }
+
+    if space_redirects && !matches!(kind, RedirectKind::DupOutput | RedirectKind::DupInput) {
+        return true;
+    }
+
+    !matches!(kind, RedirectKind::DupOutput | RedirectKind::DupInput)
+        && target
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| matches!(byte, b'<' | b'>' | b'&'))
+}
+
+fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
+    let span = redirect.span;
+    (span.start.offset < span.end.offset && span.end.offset <= source.len())
+        .then(|| span.slice(source))
+}
+
+fn should_preserve_raw_redirect(raw: &str) -> bool {
+    raw.contains(">&$") || raw.contains("<&$")
 }
