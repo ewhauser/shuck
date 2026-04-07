@@ -133,11 +133,10 @@ impl<'a> CommentAttachmentIndex<'a> {
             }
 
             if comment.inline {
-                if let Some((prev_idx, _)) = child_spans
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(_, span)| span.end.line == comment.line && span.start.offset <= start)
+                if let Some((prev_idx, _)) =
+                    child_spans.iter().enumerate().rev().find(|(_, span)| {
+                        span.end.line == comment.line && span.start.offset <= start
+                    })
                 {
                     attachment.trailing[prev_idx].push(comment);
                     self.claimed[index] = true;
@@ -276,7 +275,9 @@ fn span_for_offsets(source: &str, start: usize, end: usize) -> Span {
     let line = start_text.bytes().filter(|byte| *byte == b'\n').count() + 1;
     let column = start_text
         .rsplit_once('\n')
-        .map_or(start_text.chars().count() + 1, |(_, tail)| tail.chars().count() + 1);
+        .map_or(start_text.chars().count() + 1, |(_, tail)| {
+            tail.chars().count() + 1
+        });
     let start_position = shuck_ast::Position {
         line,
         column,

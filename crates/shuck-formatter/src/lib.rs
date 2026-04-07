@@ -161,8 +161,12 @@ mod tests {
 
     #[test]
     fn formats_heredoc_command_heads_structurally() {
-        let formatted = format_source("cat<<EOF\nhello\nEOF\n", None, &ShellFormatOptions::default())
-            .unwrap();
+        let formatted = format_source(
+            "cat<<EOF\nhello\nEOF\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             formatted,

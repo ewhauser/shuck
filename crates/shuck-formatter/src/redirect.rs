@@ -41,7 +41,12 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
             (None, None) => String::new(),
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
         };
-        if options.space_redirects() && !matches!(redirect.kind, RedirectKind::DupOutput | RedirectKind::DupInput) {
+        if options.space_redirects()
+            && !matches!(
+                redirect.kind,
+                RedirectKind::DupOutput | RedirectKind::DupInput
+            )
+        {
             rendered.push(' ');
         }
         rendered.push_str(&target);

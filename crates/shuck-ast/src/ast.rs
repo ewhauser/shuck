@@ -1157,9 +1157,7 @@ fn fmt_word_part_with_source(
         WordPart::ArithmeticExpansion {
             expression, syntax, ..
         } => match source {
-            Some(source)
-                if expression.is_source_backed() && span.end.offset <= source.len() =>
-            {
+            Some(source) if expression.is_source_backed() && span.end.offset <= source.len() => {
                 f.write_str(span.slice(source))?
             }
             _ => match syntax {
@@ -1366,18 +1364,22 @@ fn part_is_source_backed(part: &WordPart) -> bool {
     match part {
         WordPart::Literal(text) => text.is_source_backed(),
         WordPart::SingleQuoted { value, .. } => value.is_source_backed(),
-        WordPart::DoubleQuoted { parts, .. } => parts.iter().all(|part| part_is_source_backed(&part.kind)),
+        WordPart::DoubleQuoted { parts, .. } => {
+            parts.iter().all(|part| part_is_source_backed(&part.kind))
+        }
         WordPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
-        WordPart::ParameterExpansion { operand, operator, .. } => {
+        WordPart::ParameterExpansion {
+            operand, operator, ..
+        } => {
             operator_is_source_backed(operator)
                 && operand.as_ref().is_none_or(SourceText::is_source_backed)
         }
         WordPart::ArrayAccess { index, .. }
         | WordPart::Substring { offset: index, .. }
         | WordPart::ArraySlice { offset: index, .. } => index.is_source_backed(),
-        WordPart::IndirectExpansion { operand, operator, .. } => {
-            operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed)
-        }
+        WordPart::IndirectExpansion {
+            operand, operator, ..
+        } => operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed),
         WordPart::CommandSubstitution { .. }
         | WordPart::Variable(_)
         | WordPart::Length(_)

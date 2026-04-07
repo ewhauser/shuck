@@ -331,10 +331,14 @@ fn format_prefers_nested_project_config_for_explicit_files() {
     fs::write(&script, "foo(){\necho hi\n}\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
-    cmd.current_dir(tempdir.path()).args(["format", "nested/fn.sh"]);
+    cmd.current_dir(tempdir.path())
+        .args(["format", "nested/fn.sh"]);
     cmd.assert().success().stdout("");
 
-    assert_eq!(fs::read_to_string(script).unwrap(), "foo()\n{\n\techo hi\n}\n");
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
 }
 
 #[test]

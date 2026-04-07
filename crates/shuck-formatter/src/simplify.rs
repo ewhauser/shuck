@@ -1,9 +1,8 @@
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclName,
-    DeclOperand, FunctionDef, ParameterOp, Redirect, RedirectTarget, Script, SourceText, Word,
-    WordPart, WordPartNode,
+    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalBinaryExpr,
+    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
+    ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclName, DeclOperand, FunctionDef,
+    ParameterOp, Redirect, RedirectTarget, Script, SourceText, Word, WordPart, WordPartNode,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,8 +125,10 @@ fn rewrite_nested_subshells(script: &mut Script, source: &str) -> usize {
                     WordPart::CommandSubstitution { commands, .. }
                     | WordPart::ProcessSubstitution { commands, .. } => {
                         while commands.len() == 1 {
-                            let Some(Command::Compound(CompoundCommand::Subshell(inner), redirects)) =
-                                commands.first()
+                            let Some(Command::Compound(
+                                CompoundCommand::Subshell(inner),
+                                redirects,
+                            )) = commands.first()
                             else {
                                 break;
                             };
@@ -290,7 +291,9 @@ fn walk_decl_clause(command: &mut DeclClause, source: &str) -> usize {
     }
     for operand in &mut command.operands {
         count += match operand {
-            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => walk_word(word, source, &mut |_| 0),
+            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                walk_word(word, source, &mut |_| 0)
+            }
             DeclOperand::Name(name) => walk_decl_name(name, source, &mut |_| 0),
             DeclOperand::Assignment(assignment) => {
                 walk_assignment(assignment, source, &mut |_| 0, &mut |_| 0)
@@ -526,7 +529,9 @@ fn rewrite_command_words(
             }
             count
         }
-        Command::Function(function) => rewrite_command_words(function.body.as_mut(), source, visitor),
+        Command::Function(function) => {
+            rewrite_command_words(function.body.as_mut(), source, visitor)
+        }
     }
 }
 
@@ -642,7 +647,9 @@ fn rewrite_compound_words(
                     .map(|item| {
                         item.patterns
                             .iter_mut()
-                            .map(|pattern| walk_word(pattern, source, &mut |word| visitor(word, source)))
+                            .map(|pattern| {
+                                walk_word(pattern, source, &mut |word| visitor(word, source))
+                            })
                             .sum::<usize>()
                             + item
                                 .commands
@@ -674,9 +681,13 @@ fn rewrite_compound_words(
             .as_mut()
             .map_or(0, |command| rewrite_command_words(command, source, visitor)),
         CompoundCommand::Conditional(command) => {
-            walk_conditional_words(&mut command.expression, source, &mut |word| visitor(word, source))
+            walk_conditional_words(&mut command.expression, source, &mut |word| {
+                visitor(word, source)
+            })
         }
-        CompoundCommand::Coproc(command) => rewrite_command_words(command.body.as_mut(), source, visitor),
+        CompoundCommand::Coproc(command) => {
+            rewrite_command_words(command.body.as_mut(), source, visitor)
+        }
     }
 }
 
@@ -702,18 +713,19 @@ fn rewrite_redirect_words(
     match &mut redirect.target {
         RedirectTarget::Word(word) => walk_word(word, source, &mut |word| visitor(word, source)),
         RedirectTarget::Heredoc(heredoc) => {
-            walk_word(&mut heredoc.delimiter.raw, source, &mut |word| visitor(word, source))
-                + walk_word(&mut heredoc.body, source, &mut |word| visitor(word, source))
+            walk_word(&mut heredoc.delimiter.raw, source, &mut |word| {
+                visitor(word, source)
+            }) + walk_word(&mut heredoc.body, source, &mut |word| visitor(word, source))
         }
     }
 }
 
 fn walk_decl_name(
     name: &mut DeclName,
-    source: &str,
+    _source: &str,
     visitor: &mut impl FnMut(&mut SourceText) -> usize,
 ) -> usize {
-    name.index.as_mut().map_or(0, visitor) + 0 * source.len()
+    name.index.as_mut().map_or(0, visitor)
 }
 
 fn walk_assignment(
@@ -736,24 +748,24 @@ fn walk_assignment(
     count
 }
 
-fn walk_word(word: &mut Word, source: &str, visitor: &mut impl FnMut(&mut Word) -> usize) -> usize {
+fn walk_word(
+    word: &mut Word,
+    _source: &str,
+    visitor: &mut impl FnMut(&mut Word) -> usize,
+) -> usize {
     let mut count = visitor(word);
     for part in &mut word.parts {
-        count += walk_word_part(part, source, visitor);
+        count += walk_word_part(part);
     }
     count
 }
 
-fn walk_word_part(
-    part: &mut WordPartNode,
-    source: &str,
-    visitor: &mut impl FnMut(&mut Word) -> usize,
-) -> usize {
+fn walk_word_part(part: &mut WordPartNode) -> usize {
     match &mut part.kind {
         WordPart::DoubleQuoted { parts, .. } => {
             let mut count = 0;
             for part in parts {
-                count += walk_word_part(part, source, visitor);
+                count += walk_word_part(part);
             }
             count
         }
@@ -848,7 +860,9 @@ fn rewrite_command_source_texts(
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                         rewrite_word_source_texts(word, source, visitor)
                     }
-                    DeclOperand::Name(name) => name.index.as_mut().map_or(0, |text| visitor(text, source)),
+                    DeclOperand::Name(name) => {
+                        name.index.as_mut().map_or(0, |text| visitor(text, source))
+                    }
                     DeclOperand::Assignment(assignment) => {
                         rewrite_assignment_source_texts(assignment, source, visitor)
                     }
@@ -879,7 +893,9 @@ fn rewrite_command_source_texts(
             }
             count
         }
-        Command::Function(function) => rewrite_command_source_texts(function.body.as_mut(), source, visitor),
+        Command::Function(function) => {
+            rewrite_command_source_texts(function.body.as_mut(), source, visitor)
+        }
     }
 }
 
@@ -1026,12 +1042,15 @@ fn rewrite_compound_source_texts(
             .map(|command| rewrite_command_source_texts(command, source, visitor))
             .sum(),
         CompoundCommand::Arithmetic(_) => 0,
-        CompoundCommand::Time(command) => command
-            .command
-            .as_mut()
-            .map_or(0, |command| rewrite_command_source_texts(command, source, visitor)),
-        CompoundCommand::Conditional(command) => rewrite_conditional_source_texts(command, source, visitor),
-        CompoundCommand::Coproc(command) => rewrite_command_source_texts(command.body.as_mut(), source, visitor),
+        CompoundCommand::Time(command) => command.command.as_mut().map_or(0, |command| {
+            rewrite_command_source_texts(command, source, visitor)
+        }),
+        CompoundCommand::Conditional(command) => {
+            rewrite_conditional_source_texts(command, source, visitor)
+        }
+        CompoundCommand::Coproc(command) => {
+            rewrite_command_source_texts(command.body.as_mut(), source, visitor)
+        }
     }
 }
 
@@ -1053,7 +1072,9 @@ fn rewrite_conditional_expr_source_texts(
             rewrite_conditional_expr_source_texts(&mut expr.left, source, visitor)
                 + rewrite_conditional_expr_source_texts(&mut expr.right, source, visitor)
         }
-        ConditionalExpr::Unary(expr) => rewrite_conditional_expr_source_texts(&mut expr.expr, source, visitor),
+        ConditionalExpr::Unary(expr) => {
+            rewrite_conditional_expr_source_texts(&mut expr.expr, source, visitor)
+        }
         ConditionalExpr::Parenthesized(expr) => {
             rewrite_conditional_expr_source_texts(&mut expr.expr, source, visitor)
         }
@@ -1068,7 +1089,10 @@ fn rewrite_assignment_source_texts(
     source: &str,
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
-    let mut count = assignment.index.as_mut().map_or(0, |text| visitor(text, source));
+    let mut count = assignment
+        .index
+        .as_mut()
+        .map_or(0, |text| visitor(text, source));
     count += match &mut assignment.value {
         AssignmentValue::Scalar(word) => rewrite_word_source_texts(word, source, visitor),
         AssignmentValue::Array(words) => words
@@ -1131,8 +1155,12 @@ fn rewrite_word_part_source_texts(
         WordPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
         WordPart::ParameterExpansion {
             operator, operand, ..
-        } => operand.as_mut().map_or(0, |operand| visitor(operand, source))
-            + rewrite_parameter_op_source_texts(operator, source, visitor),
+        } => {
+            operand
+                .as_mut()
+                .map_or(0, |operand| visitor(operand, source))
+                + rewrite_parameter_op_source_texts(operator, source, visitor)
+        }
         WordPart::ArrayAccess { index, .. } => visitor(index, source),
         WordPart::ArrayLength(_) | WordPart::ArrayIndices(_) => 0,
         WordPart::Substring { offset, length, .. } => {
@@ -1141,8 +1169,12 @@ fn rewrite_word_part_source_texts(
         WordPart::ArraySlice { offset, length, .. } => {
             visitor(offset, source) + length.as_mut().map_or(0, |length| visitor(length, source))
         }
-        WordPart::IndirectExpansion { operand, operator, .. } => {
-            operand.as_mut().map_or(0, |operand| visitor(operand, source))
+        WordPart::IndirectExpansion {
+            operand, operator, ..
+        } => {
+            operand
+                .as_mut()
+                .map_or(0, |operand| visitor(operand, source))
                 + operator.as_ref().map_or(0, |_| 0)
         }
         WordPart::PrefixMatch(_) | WordPart::Transformation { .. } => 0,
@@ -1329,28 +1361,30 @@ fn simplify_conditional_expr(expression: &mut ConditionalExpr, source: &str) -> 
 
 fn simplify_conditional_node(expression: &ConditionalExpr) -> Option<ConditionalExpr> {
     match expression {
-        ConditionalExpr::Unary(expr) if expr.op == ConditionalUnaryOp::Not => match expr.expr.as_ref() {
-            ConditionalExpr::Unary(inner) if inner.op == ConditionalUnaryOp::Not => {
-                Some((*inner.expr).clone())
+        ConditionalExpr::Unary(expr) if expr.op == ConditionalUnaryOp::Not => {
+            match expr.expr.as_ref() {
+                ConditionalExpr::Unary(inner) if inner.op == ConditionalUnaryOp::Not => {
+                    Some((*inner.expr).clone())
+                }
+                ConditionalExpr::Unary(inner) if inner.op == ConditionalUnaryOp::NonEmptyString => {
+                    Some(ConditionalExpr::Unary(ConditionalUnaryExpr {
+                        op: ConditionalUnaryOp::EmptyString,
+                        op_span: inner.op_span,
+                        expr: inner.expr.clone(),
+                    }))
+                }
+                ConditionalExpr::Unary(inner) if inner.op == ConditionalUnaryOp::EmptyString => {
+                    Some(ConditionalExpr::Unary(ConditionalUnaryExpr {
+                        op: ConditionalUnaryOp::NonEmptyString,
+                        op_span: inner.op_span,
+                        expr: inner.expr.clone(),
+                    }))
+                }
+                ConditionalExpr::Binary(inner) => invert_conditional_binary(inner),
+                ConditionalExpr::Parenthesized(inner) => Some((*inner.expr).clone()),
+                _ => None,
             }
-            ConditionalExpr::Unary(inner) if inner.op == ConditionalUnaryOp::NonEmptyString => {
-                Some(ConditionalExpr::Unary(ConditionalUnaryExpr {
-                    op: ConditionalUnaryOp::EmptyString,
-                    op_span: inner.op_span,
-                    expr: inner.expr.clone(),
-                }))
-            }
-            ConditionalExpr::Unary(inner) if inner.op == ConditionalUnaryOp::EmptyString => {
-                Some(ConditionalExpr::Unary(ConditionalUnaryExpr {
-                    op: ConditionalUnaryOp::NonEmptyString,
-                    op_span: inner.op_span,
-                    expr: inner.expr.clone(),
-                }))
-            }
-            ConditionalExpr::Binary(inner) => invert_conditional_binary(inner),
-            ConditionalExpr::Parenthesized(inner) => Some((*inner.expr).clone()),
-            _ => None,
-        },
+        }
         ConditionalExpr::Parenthesized(expr)
             if matches!(
                 expr.expr.as_ref(),
@@ -1391,7 +1425,8 @@ fn strip_redundant_conditional_quotes(expression: &mut ConditionalExpr, source: 
         return 0;
     }
 
-    let Some(WordPart::DoubleQuoted { parts, .. }) = word.parts.first().map(|part| &part.kind) else {
+    let Some(WordPart::DoubleQuoted { parts, .. }) = word.parts.first().map(|part| &part.kind)
+    else {
         return 0;
     };
     let parts = parts.clone();
@@ -1526,7 +1561,10 @@ mod tests {
 
     #[test]
     fn paren_cleanup_skips_dynamic_indexes() {
-        assert_eq!(format_with_simplify("echo ${foo[$bar]}\n"), "echo ${foo[$bar]}\n");
+        assert_eq!(
+            format_with_simplify("echo ${foo[$bar]}\n"),
+            "echo ${foo[$bar]}\n"
+        );
     }
 
     #[test]
@@ -1539,7 +1577,10 @@ mod tests {
 
     #[test]
     fn arithmetic_var_rewrite_skips_special_parameters() {
-        assert_eq!(format_with_simplify("echo $(( ${!a} + ${#b} ))\n"), "echo $(( ${!a} + ${#b} ))\n");
+        assert_eq!(
+            format_with_simplify("echo $(( ${!a} + ${#b} ))\n"),
+            "echo $(( ${!a} + ${#b} ))\n"
+        );
     }
 
     #[test]
@@ -1564,7 +1605,10 @@ mod tests {
 
     #[test]
     fn quote_tightening_skips_mixed_expansions() {
-        assert_eq!(format_with_simplify("echo \"$foo bar\"\n"), "echo \"$foo bar\"\n");
+        assert_eq!(
+            format_with_simplify("echo \"$foo bar\"\n"),
+            "echo \"$foo bar\"\n"
+        );
     }
 
     #[test]
