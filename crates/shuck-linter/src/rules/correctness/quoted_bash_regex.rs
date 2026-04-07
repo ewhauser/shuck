@@ -1,8 +1,9 @@
-use shuck_ast::{Command, CompoundCommand, ConditionalBinaryOp, ConditionalExpr};
-
-use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::common::word::{
-    TestOperandClass, WordQuote, classify_conditional_operand, classify_word, static_word_text,
+    TestOperandClass, WordQuote, classify_test_operand, classify_word, static_word_text,
+};
+use crate::rules::common::{
+    expansion::ExpansionContext,
+    query::{self, CommandWalkOptions},
 };
 use crate::{Checker, Rule, Violation};
 
@@ -28,27 +29,17 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |command, _| {
-            let Command::Compound(CompoundCommand::Conditional(command), _) = command else {
-                return;
-            };
+            query::visit_expansion_words(command, source, &mut |word, context| {
+                if context != ExpansionContext::RegexOperand {
+                    return;
+                }
 
-            let ConditionalExpr::Binary(expression) = &command.expression else {
-                return;
-            };
-
-            if expression.op != ConditionalBinaryOp::RegexMatch {
-                return;
-            }
-
-            let ConditionalExpr::Regex(word) = expression.right.as_ref() else {
-                return;
-            };
-
-            if classify_word(word, source).quote != WordQuote::Unquoted
-                && quoted_regex_requires_warning(word, source)
-            {
-                spans.push(word.span);
-            }
+                if classify_word(word, source).quote != WordQuote::Unquoted
+                    && quoted_regex_requires_warning(word, source)
+                {
+                    spans.push(word.span);
+                }
+            });
         },
     );
 
@@ -58,7 +49,7 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
 }
 
 fn quoted_regex_requires_warning(word: &shuck_ast::Word, source: &str) -> bool {
-    match classify_conditional_operand(&ConditionalExpr::Regex(word.clone()), source) {
+    match classify_test_operand(word, source) {
         TestOperandClass::RuntimeSensitive => true,
         TestOperandClass::FixedLiteral => static_word_text(word, source)
             .is_some_and(|text| literal_uses_regex_significance(&text)),
@@ -114,5 +105,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![3, 4]
         );
+    }
+
+    #[test]
+    fn ignores_quoted_non_regex_string_test_operands() {
+        let source = "#!/bin/bash\n[[ \"$left\" = \"$right\" ]]\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
+
+        assert!(diagnostics.is_empty());
     }
 }

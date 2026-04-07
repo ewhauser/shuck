@@ -1,9 +1,10 @@
-use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::common::span;
 use crate::rules::common::word::classify_word;
+use crate::rules::common::{
+    expansion::ExpansionContext,
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::visit_argument_words;
 
 pub struct UnquotedCommandSubstitution;
 
@@ -24,7 +25,11 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
             descend_nested_word_commands: false,
         },
         &mut |command, _| {
-            visit_argument_words(command, |word| {
+            query::visit_expansion_words(command, checker.source(), &mut |word, context| {
+                if context != ExpansionContext::CommandArgument {
+                    return;
+                }
+
                 let classification = classify_word(word, checker.source());
                 if classification.has_command_substitution() {
                     for span in span::unquoted_command_substitution_part_spans(word) {
@@ -55,6 +60,27 @@ mod tests {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(date)", "$(uname)"]
+        );
+    }
+
+    #[test]
+    fn ignores_redirect_and_here_string_contexts() {
+        let source = "\
+#!/bin/bash
+cat <<< $(printf here) >$(printf out)
+printf '%s\\n' $(printf arg)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf arg)"]
         );
     }
 }

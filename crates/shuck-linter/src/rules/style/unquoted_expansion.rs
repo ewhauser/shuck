@@ -5,7 +5,8 @@ use shuck_ast::{
 use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
 
 use crate::rules::common::{
-    query::{self, CommandWalkOptions, ExpansionWordKind},
+    expansion::ExpansionContext,
+    query::{self, CommandWalkOptions},
     span,
     word::classify_word,
 };
@@ -19,7 +20,7 @@ impl Violation for UnquotedExpansion {
     }
 
     fn message(&self) -> String {
-        "quote parameter expansions in arguments to avoid word splitting and globbing".to_owned()
+        "quote parameter expansions to avoid word splitting and globbing".to_owned()
     }
 }
 
@@ -38,10 +39,10 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |command, _| {
-            query::visit_expansion_words(command, &mut |word, kind| {
-                if matches!(
-                    kind,
-                    ExpansionWordKind::ForList | ExpansionWordKind::SelectList
+            query::visit_expansion_words(command, source, &mut |word, context| {
+                if !matches!(
+                    context,
+                    ExpansionContext::CommandArgument | ExpansionContext::RedirectTarget(_)
                 ) {
                     return;
                 }
@@ -335,8 +336,20 @@ cat <<< $here >$out
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$here", "$out"]
+            vec!["$out"]
         );
+    }
+
+    #[test]
+    fn skips_assignment_values_and_descriptor_dup_targets() {
+        let source = "\
+#!/bin/bash
+value=$name
+printf '%s\\n' ok >&$fd
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

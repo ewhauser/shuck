@@ -1,14 +1,15 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 74
 ---
 C055 pattern expressions should not expand variables
- --> <source>:7:9
+ --> <source>:7:16
   |
 7 | trimmed=${name%$suffix}
   |
 
 C055 pattern expressions should not expand variables
-  --> <source>:10:11
+  --> <source>:10:18
    |
 10 | rewritten=${name/$suffix/x}
    |

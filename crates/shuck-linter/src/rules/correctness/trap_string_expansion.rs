@@ -1,8 +1,9 @@
-use shuck_ast::{Command, Word};
-
-use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::common::span;
-use crate::rules::common::word::{classify_word, static_word_text};
+use crate::rules::common::word::classify_word;
+use crate::rules::common::{
+    expansion::ExpansionContext,
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
 
 use super::syntax::word_is_double_quoted;
@@ -29,42 +30,20 @@ pub fn trap_string_expansion(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |command, _| {
-            let Command::Simple(command) = command else {
-                return;
-            };
-
-            if static_word_text(&command.name, source).as_deref() != Some("trap") {
-                return;
-            }
-
-            let Some(action) = trap_action_word(&command.args, source) else {
-                return;
-            };
-
-            if word_is_double_quoted(indexer, action) && classify_word(action, source).is_expanded()
-            {
-                for span in span::expansion_part_spans(action) {
-                    checker.report_dedup(TrapStringExpansion, span);
+            query::visit_expansion_words(command, source, &mut |word, context| {
+                if context != ExpansionContext::TrapAction {
+                    return;
                 }
-            }
+
+                if word_is_double_quoted(indexer, word) && classify_word(word, source).is_expanded()
+                {
+                    for span in span::expansion_part_spans(word) {
+                        checker.report_dedup(TrapStringExpansion, span);
+                    }
+                }
+            });
         },
     );
-}
-
-fn trap_action_word<'a>(args: &'a [Word], source: &str) -> Option<&'a Word> {
-    let mut start = 0usize;
-
-    if let Some(first) = args.first().and_then(|word| static_word_text(word, source)) {
-        match first.as_str() {
-            "-p" | "-l" => return None,
-            "--" => start = 1,
-            _ => {}
-        }
-    }
-
-    let action = args.get(start)?;
-    args.get(start + 1)?;
-    Some(action)
 }
 
 #[cfg(test)]
@@ -85,5 +64,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["$x", "$(date)", "${y}"]
         );
+    }
+
+    #[test]
+    fn ignores_trap_listing_modes() {
+        let source = "trap -p EXIT\ntrap -l TERM\n";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::TrapStringExpansion));
+
+        assert!(diagnostics.is_empty());
     }
 }

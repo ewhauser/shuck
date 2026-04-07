@@ -1,9 +1,10 @@
-use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::common::span;
 use crate::rules::common::word::classify_word;
+use crate::rules::common::{
+    expansion::ExpansionContext,
+    query::{self, CommandWalkOptions},
+};
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::visit_argument_words;
 
 pub struct UnquotedArrayExpansion;
 
@@ -26,7 +27,11 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
             descend_nested_word_commands: false,
         },
         &mut |command, _| {
-            visit_argument_words(command, |word| {
+            query::visit_expansion_words(command, source, &mut |word, context| {
+                if context != ExpansionContext::CommandArgument {
+                    return;
+                }
+
                 let classification = classify_word(word, source);
                 if classification.has_array_expansion() {
                     for span in span::unquoted_array_expansion_part_spans(word, source) {
@@ -61,5 +66,21 @@ printf '%s\\n' prefix${arr[@]}suffix ${arr[0]} ${names[*]}
                 .collect::<Vec<_>>(),
             vec!["${arr[@]}", "${names[*]}"]
         );
+    }
+
+    #[test]
+    fn ignores_non_argument_array_contexts() {
+        let source = "\
+#!/bin/bash
+arr=(a b)
+printf '%s\\n' ok >${paths[@]}
+cat <<< ${items[@]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }

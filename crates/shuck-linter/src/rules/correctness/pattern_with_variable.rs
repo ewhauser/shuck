@@ -1,6 +1,5 @@
-use shuck_ast::{ParameterOp, Pattern, PatternPart, WordPart};
-
-use crate::rules::common::query::{self, CommandWalkOptions, visit_command_words};
+use crate::rules::common::expansion::ExpansionContext;
+use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
@@ -26,15 +25,11 @@ pub fn pattern_with_variable(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |command, _| {
-            visit_command_words(command, &mut |word| {
-                for (part, span) in word.parts_with_spans() {
-                    let WordPart::ParameterExpansion { operator, .. } = part else {
-                        continue;
-                    };
-
-                    if pattern_uses_variable(operator, source) {
-                        spans.push(span);
-                    }
+            query::visit_expansion_words(command, source, &mut |word, context| {
+                if context == ExpansionContext::ParameterPattern
+                    && classify_word(word, source).is_expanded()
+                {
+                    spans.push(word.span);
                 }
             });
         },
@@ -45,50 +40,27 @@ pub fn pattern_with_variable(checker: &mut Checker) {
     }
 }
 
-fn pattern_uses_variable(operator: &ParameterOp, source: &str) -> bool {
-    match operator {
-        ParameterOp::RemovePrefixShort { pattern }
-        | ParameterOp::RemovePrefixLong { pattern }
-        | ParameterOp::RemoveSuffixShort { pattern }
-        | ParameterOp::RemoveSuffixLong { pattern } => {
-            pattern_has_dynamic_fragment(pattern, source)
-        }
-        ParameterOp::ReplaceFirst { pattern, .. } | ParameterOp::ReplaceAll { pattern, .. } => {
-            pattern_has_dynamic_fragment(pattern, source)
-        }
-        ParameterOp::UseDefault
-        | ParameterOp::AssignDefault
-        | ParameterOp::UseReplacement
-        | ParameterOp::Error
-        | ParameterOp::UpperFirst
-        | ParameterOp::UpperAll
-        | ParameterOp::LowerFirst
-        | ParameterOp::LowerAll => false,
-    }
-}
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
 
-fn pattern_has_dynamic_fragment(pattern: &Pattern, source: &str) -> bool {
-    for (part, _) in pattern.parts_with_spans() {
-        match part {
-            PatternPart::Group { patterns, .. } => {
-                if patterns
-                    .iter()
-                    .any(|pattern| pattern_has_dynamic_fragment(pattern, source))
-                {
-                    return true;
-                }
-            }
-            PatternPart::Word(word) => {
-                if classify_word(word, source).is_expanded() {
-                    return true;
-                }
-            }
-            PatternPart::Literal(_)
-            | PatternPart::AnyString
-            | PatternPart::AnyChar
-            | PatternPart::CharClass(_) => {}
-        }
-    }
+    #[test]
+    fn reports_nested_parameter_pattern_groups_and_substitutions() {
+        let source = "\
+#!/bin/bash
+suffix=bc
+trimmed=${name%@($suffix|$(printf '%s' zz))}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
 
-    false
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$suffix", "$(printf '%s' zz)"]
+        );
+    }
 }
