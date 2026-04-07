@@ -1,10 +1,4 @@
-use shuck_ast::Word;
-
-use crate::rules::common::{
-    command,
-    query::{self, CommandWalkOptions},
-    word::{classify_word, static_word_text},
-};
+use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
 pub struct PrintfFormatVariable;
@@ -21,54 +15,18 @@ impl Violation for PrintfFormatVariable {
 
 pub fn printf_format_variable(checker: &mut Checker) {
     let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let normalized = command::normalize_command(command, source);
-            if !normalized.effective_name_is("printf") {
-                return;
-            }
-
-            let Some(format_word) = printf_format_word(normalized.body_args(), source) else {
-                return;
-            };
-
-            if !classify_word(format_word, source).is_fixed_literal() {
-                spans.push(format_word.span);
-            }
-        },
-    );
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|fact| fact.printf_format_word())
+        .filter(|word| !classify_word(word, source).is_fixed_literal())
+        .map(|word| word.span)
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(PrintfFormatVariable, span);
     }
-}
-
-fn printf_format_word<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
-    let mut index = 0usize;
-
-    if static_word_text(args.get(index)?, source).as_deref() == Some("--") {
-        index += 1;
-    }
-
-    if let Some(option) = args
-        .get(index)
-        .and_then(|word| static_word_text(word, source))
-    {
-        if option == "-v" {
-            index += 2;
-        } else if option.starts_with("-v") && option.len() > 2 {
-            index += 1;
-        }
-    }
-
-    args.get(index).copied()
 }
 
 #[cfg(test)]
@@ -91,5 +49,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![2, 3]
         );
+    }
+
+    #[test]
+    fn skips_v_assignment_target_and_anchors_on_the_real_format_word() {
+        let source = "printf -v out \"$fmt\" value\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PrintfFormatVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\"$fmt\"");
     }
 }

@@ -1,9 +1,4 @@
-use crate::rules::common::{
-    command,
-    query::{self, CommandWalkOptions},
-    span,
-    word::classify_word,
-};
+use crate::rules::common::{span, word::classify_word};
 use crate::{Checker, Rule, Violation};
 pub struct EchoedCommandSubstitution;
 
@@ -19,30 +14,25 @@ impl Violation for EchoedCommandSubstitution {
 
 pub fn echoed_command_substitution(checker: &mut Checker) {
     let source = checker.source();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let normalized = command::normalize_command(command, source);
-            if !normalized.effective_name_is("echo") {
-                return;
-            }
-
-            let [word] = normalized.body_args() else {
-                return;
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("echo"))
+        .filter_map(|fact| {
+            let [word] = fact.body_args() else {
+                return None;
             };
+            classify_word(word, source)
+                .has_plain_command_substitution()
+                .then_some(*word)
+        })
+        .flat_map(span::command_substitution_part_spans)
+        .collect::<Vec<_>>();
 
-            if classify_word(word, source).has_plain_command_substitution() {
-                for span in span::command_substitution_part_spans(word) {
-                    checker.report_dedup(EchoedCommandSubstitution, span);
-                }
-            }
-        },
-    );
+    for span in spans {
+        checker.report_dedup(EchoedCommandSubstitution, span);
+    }
 }
 
 #[cfg(test)]

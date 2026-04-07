@@ -1,11 +1,6 @@
 use shuck_ast::AssignmentValue;
 
-use crate::rules::common::{
-    command::{self, DeclarationKind},
-    query::{self, CommandWalkOptions},
-    span,
-    word::classify_word,
-};
+use crate::rules::common::{command::DeclarationKind, span, word::classify_word};
 use crate::{Checker, Rule, Violation};
 
 pub struct ExportCommandSubstitution {
@@ -24,45 +19,41 @@ impl Violation for ExportCommandSubstitution {
 
 pub fn export_command_substitution(checker: &mut Checker) {
     let source = checker.source();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let normalized = command::normalize_command(command, source);
-            let Some(declaration) = normalized.declaration.as_ref() else {
-                return;
-            };
-
-            if !matches!(
+    let findings = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| !fact.is_nested_word_command())
+        .filter_map(|fact| fact.declaration())
+        .filter(|declaration| {
+            matches!(
                 declaration.kind,
                 DeclarationKind::Export
                     | DeclarationKind::Local
                     | DeclarationKind::Declare
                     | DeclarationKind::Typeset
-            ) {
-                return;
-            }
+            )
+        })
+        .flat_map(|declaration| declaration.assignment_operands.iter().copied())
+        .filter_map(|assignment| {
+            let AssignmentValue::Scalar(word) = &assignment.value else {
+                return None;
+            };
 
-            for assignment in &declaration.assignment_operands {
-                let AssignmentValue::Scalar(word) = &assignment.value else {
-                    continue;
-                };
-
-                if classify_word(word, source).has_command_substitution() {
-                    checker.report_dedup(
-                        ExportCommandSubstitution {
-                            name: assignment.target.name.to_string(),
-                        },
+            classify_word(word, source)
+                .has_command_substitution()
+                .then(|| {
+                    (
+                        assignment.target.name.to_string(),
                         span::assignment_name_span(assignment),
-                    );
-                }
-            }
-        },
-    );
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+
+    for (name, span) in findings {
+        checker.report_dedup(ExportCommandSubstitution { name }, span);
+    }
 }
 
 #[cfg(test)]
