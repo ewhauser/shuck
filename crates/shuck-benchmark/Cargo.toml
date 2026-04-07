@@ -9,6 +9,7 @@ description = "Benchmark fixtures and harnesses for shuck"
 publish = false
 
 [dependencies]
+shuck-formatter = { path = "../shuck-formatter" }
 shuck-indexer = { path = "../shuck-indexer" }
 shuck-linter = { path = "../shuck-linter" }
 shuck-parser = { path = "../shuck-parser" }
@@ -44,4 +45,8 @@ harness = false
 
 [[bench]]
 name = "linter"
+harness = false
+
+[[bench]]
+name = "formatter"
 harness = false

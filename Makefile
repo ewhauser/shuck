@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-linter flame-cli
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -86,6 +86,9 @@ bench-semantic:
 bench-linter:
 	cargo bench -p shuck-benchmark --bench linter
 
+bench-formatter:
+	cargo bench -p shuck-benchmark --bench formatter
+
 bench-macro:
 	$(NIX_DEVELOP) ./scripts/benchmarks/setup.sh
 	$(NIX_DEVELOP) ./scripts/benchmarks/run.sh
@@ -106,6 +109,12 @@ profile-arithmetic:
 
 profile-arithmetic-view:
 	SAMPLY_VIEW=1 $(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh arithmetic "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
+
+profile-formatter:
+	$(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh formatter "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
+
+profile-formatter-view:
+	SAMPLY_VIEW=1 $(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh formatter "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
 
 profile-linter:
 	$(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh linter "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
@@ -128,6 +137,11 @@ flame-arithmetic:
 	@mkdir -p $(PROFILE_DIR)
 	cargo flamegraph --profile profiling -p shuck-benchmark --bench arithmetic -o $(PROFILE_DIR)/flame-arithmetic-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
 	open $(PROFILE_DIR)/flame-arithmetic-$(PROFILE_CASE).svg
+
+flame-formatter:
+	@mkdir -p $(PROFILE_DIR)
+	cargo flamegraph --profile profiling -p shuck-benchmark --bench formatter -o $(PROFILE_DIR)/flame-formatter-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
+	open $(PROFILE_DIR)/flame-formatter-$(PROFILE_CASE).svg
 
 flame-linter:
 	@mkdir -p $(PROFILE_DIR)
