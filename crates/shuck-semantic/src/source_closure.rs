@@ -273,6 +273,14 @@ fn walk_compound(
             }
             walk_stmt_seq(&command.body, model, source, facts);
         }
+        CompoundCommand::Repeat(command) => {
+            walk_word(&command.count, model, source, facts);
+            walk_stmt_seq(&command.body, model, source, facts);
+        }
+        CompoundCommand::Foreach(command) => {
+            walk_words(&command.words, model, source, facts);
+            walk_stmt_seq(&command.body, model, source, facts);
+        }
         CompoundCommand::ArithmeticFor(command) => {
             if let Some(expr) = &command.init_ast {
                 walk_arithmetic_expr(expr, model, source, facts);

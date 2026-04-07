@@ -349,6 +349,14 @@ fn collect_expansion_words<'a>(
                     }
                 }
             }
+            CompoundCommand::Repeat(command) => {
+                words.push((command.count.clone(), ExpansionContext::CommandArgument));
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    words.push((word.clone(), ExpansionContext::ForList));
+                }
+            }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
                     words.push((word.clone(), ExpansionContext::SelectList));
@@ -851,6 +859,28 @@ fn collect_compound_visits<'a>(
                 visits,
             );
         }
+        CompoundCommand::Repeat(command) => {
+            collect_word_visits(&command.count, options, context, visits);
+            collect_command_visits(
+                &command.body,
+                options,
+                WalkContext {
+                    loop_depth: context.loop_depth + 1,
+                },
+                visits,
+            );
+        }
+        CompoundCommand::Foreach(command) => {
+            collect_word_slice_visits(&command.words, options, context, visits);
+            collect_command_visits(
+                &command.body,
+                options,
+                WalkContext {
+                    loop_depth: context.loop_depth + 1,
+                },
+                visits,
+            );
+        }
         CompoundCommand::ArithmeticFor(command) => collect_command_visits(
             &command.body,
             options,
@@ -1199,6 +1229,24 @@ impl<F: FnMut(CommandVisit<'_>)> CommandWalker<'_, F> {
                     },
                 );
             }
+            CompoundCommand::Repeat(command) => {
+                self.walk_word(&command.count, context);
+                self.walk_commands(
+                    &command.body,
+                    WalkContext {
+                        loop_depth: context.loop_depth + 1,
+                    },
+                );
+            }
+            CompoundCommand::Foreach(command) => {
+                self.walk_words(&command.words, context);
+                self.walk_commands(
+                    &command.body,
+                    WalkContext {
+                        loop_depth: context.loop_depth + 1,
+                    },
+                );
+            }
             CompoundCommand::ArithmeticFor(command) => self.walk_commands(
                 &command.body,
                 WalkContext {
@@ -1452,6 +1500,14 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
                 }
                 self.walk_commands(&command.body);
             }
+            CompoundCommand::Repeat(command) => {
+                self.walk_word(&command.count);
+                self.walk_commands(&command.body);
+            }
+            CompoundCommand::Foreach(command) => {
+                self.walk_words(&command.words);
+                self.walk_commands(&command.body);
+            }
             CompoundCommand::ArithmeticFor(command) => self.walk_commands(&command.body),
             CompoundCommand::While(command) => {
                 self.walk_commands(&command.condition);
@@ -1625,6 +1681,8 @@ fn collect_command_words(
                     collect_words(command_words, words);
                 }
             }
+            CompoundCommand::Repeat(command) => words.push(command.count.clone()),
+            CompoundCommand::Foreach(command) => collect_words(&command.words, words),
             CompoundCommand::Case(command) => {
                 words.push(command.word.clone());
                 for case in &command.cases {

@@ -284,6 +284,14 @@ where
             }
             walk_commands(&command.body, visit);
         }
+        CompoundCommand::Repeat(command) => {
+            walk_word(&command.count, visit);
+            walk_commands(&command.body, visit);
+        }
+        CompoundCommand::Foreach(command) => {
+            walk_words(&command.words, visit);
+            walk_commands(&command.body, visit);
+        }
         CompoundCommand::ArithmeticFor(command) => walk_commands(&command.body, visit),
         CompoundCommand::While(command) => {
             walk_commands(&command.condition, visit);

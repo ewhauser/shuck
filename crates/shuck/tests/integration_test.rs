@@ -258,6 +258,20 @@ fn check_zsh_extension_parses_with_inferred_zsh_dialect() {
 }
 
 #[test]
+fn check_zsh_extension_parses_repeat_and_foreach_with_inferred_zsh_dialect() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("ok.zsh"),
+        "repeat 3; do echo hi; done\nforeach x (a b c) { echo $x; }\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.assert().success().stdout("");
+}
+
+#[test]
 fn check_zsh_shebang_parses_with_inferred_zsh_dialect() {
     let tempdir = tempdir().unwrap();
     fs::write(

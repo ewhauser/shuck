@@ -3,9 +3,10 @@ use shuck_ast::{
     BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
     CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr, ConditionalCommand,
     ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand, DeclClause,
-    DeclOperand, ForCommand, FunctionDef, IfCommand, IfSyntax, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
-    TimeCommand, UntilCommand, VarRef, WhileCommand,
+    DeclOperand, ForCommand, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax,
+    Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, SourceText,
+    Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
+    WhileCommand,
 };
 use shuck_format::{
     Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, verbatim,
@@ -95,6 +96,8 @@ impl FormatNodeRule<CompoundCommand> for FormatCompoundCommand {
         match command {
             CompoundCommand::If(command) => format_if(command, formatter),
             CompoundCommand::For(command) => format_for(command, formatter),
+            CompoundCommand::Repeat(command) => format_repeat(command, formatter),
+            CompoundCommand::Foreach(command) => format_foreach(command, formatter),
             CompoundCommand::ArithmeticFor(command) => format_arithmetic_for(command, formatter),
             CompoundCommand::While(command) => format_while(command, formatter),
             CompoundCommand::Until(command) => format_until(command, formatter),
@@ -729,6 +732,77 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
     finish_block("done", formatter)
 }
 
+fn format_repeat(
+    command: &RepeatCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    write!(formatter, [text("repeat ")])?;
+    command.count.format().fmt(formatter)?;
+    match command.syntax {
+        RepeatSyntax::DoDone { .. } => {
+            if can_inline_body(&command.body, command.span, formatter) {
+                write!(formatter, [text("; do ")])?;
+                format_inline_stmts(&command.body, formatter)?;
+                write!(formatter, [text("; done")])
+            } else {
+                write!(formatter, [text("; do")])?;
+                format_body_with_upper_bound(
+                    &command.body,
+                    formatter,
+                    Some(command.span.end.offset),
+                )?;
+                finish_block("done", formatter)
+            }
+        }
+        RepeatSyntax::Brace { .. } => {
+            write!(formatter, [space()])?;
+            format_brace_group(&command.body, formatter, Some(command.span.end.offset))
+        }
+    }
+}
+
+fn format_foreach(
+    command: &ForeachCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    write!(formatter, [text(format!("foreach {}", command.variable))])?;
+    match command.syntax {
+        ForeachSyntax::ParenBrace { .. } => {
+            write!(formatter, [text(" (")])?;
+            for (index, word) in command.words.iter().enumerate() {
+                if index > 0 {
+                    write!(formatter, [space()])?;
+                }
+                word.format().fmt(formatter)?;
+            }
+            write!(formatter, [text(") ")])?;
+            format_brace_group(&command.body, formatter, Some(command.span.end.offset))
+        }
+        ForeachSyntax::InDoDone { .. } => {
+            write!(formatter, [text(" in ")])?;
+            for (index, word) in command.words.iter().enumerate() {
+                if index > 0 {
+                    write!(formatter, [space()])?;
+                }
+                word.format().fmt(formatter)?;
+            }
+            if can_inline_body(&command.body, command.span, formatter) {
+                write!(formatter, [text("; do ")])?;
+                format_inline_stmts(&command.body, formatter)?;
+                write!(formatter, [text("; done")])
+            } else {
+                write!(formatter, [text("; do")])?;
+                format_body_with_upper_bound(
+                    &command.body,
+                    formatter,
+                    Some(command.span.end.offset),
+                )?;
+                finish_block("done", formatter)
+            }
+        }
+    }
+}
+
 fn format_select(
     command: &SelectCommand,
     formatter: &mut ShellFormatter<'_, '_>,
@@ -1285,6 +1359,8 @@ fn compound_has_heredoc(command: &CompoundCommand) -> bool {
                     .is_some_and(stmt_seq_has_heredoc)
         }
         CompoundCommand::For(command) => stmt_seq_has_heredoc(&command.body),
+        CompoundCommand::Repeat(command) => stmt_seq_has_heredoc(&command.body),
+        CompoundCommand::Foreach(command) => stmt_seq_has_heredoc(&command.body),
         CompoundCommand::ArithmeticFor(command) => stmt_seq_has_heredoc(&command.body),
         CompoundCommand::While(command) => {
             stmt_seq_has_heredoc(&command.condition) || stmt_seq_has_heredoc(&command.body)
@@ -1400,6 +1476,8 @@ fn compound_span(command: &CompoundCommand) -> Span {
     match command {
         CompoundCommand::If(command) => command.span,
         CompoundCommand::For(command) => command.span,
+        CompoundCommand::Repeat(command) => command.span,
+        CompoundCommand::Foreach(command) => command.span,
         CompoundCommand::ArithmeticFor(command) => command.span,
         CompoundCommand::While(command) => command.span,
         CompoundCommand::Until(command) => command.span,
@@ -1434,6 +1512,12 @@ fn compound_verbatim_span(command: &CompoundCommand, source: &str) -> Span {
             span
         }
         CompoundCommand::For(command) => {
+            merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
+        }
+        CompoundCommand::Repeat(command) => {
+            merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
+        }
+        CompoundCommand::Foreach(command) => {
             merge_stmt_sequence_verbatim_span(command.span, &command.body, source)
         }
         CompoundCommand::ArithmeticFor(command) => {

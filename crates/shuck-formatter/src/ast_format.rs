@@ -44,6 +44,8 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
             }
         }
         CompoundCommand::For(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::Repeat(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::Foreach(command) => collect_stmt_seq_comments(&command.body, comments),
         CompoundCommand::ArithmeticFor(command) => {
             collect_stmt_seq_comments(&command.body, comments)
         }

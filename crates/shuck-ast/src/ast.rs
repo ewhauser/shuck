@@ -491,6 +491,10 @@ pub enum CompoundCommand {
     If(IfCommand),
     /// For loop
     For(ForCommand),
+    /// Zsh repeat loop
+    Repeat(RepeatCommand),
+    /// Zsh foreach loop
+    Foreach(ForeachCommand),
     /// C-style for loop: for ((init; cond; step))
     ArithmeticFor(Box<ArithmeticForCommand>),
     /// While loop
@@ -781,6 +785,57 @@ pub struct ForCommand {
     pub body: StmtSeq,
     /// Source span of this command
     pub span: Span,
+}
+
+/// Zsh repeat loop.
+#[derive(Debug, Clone)]
+pub struct RepeatCommand {
+    pub count: Word,
+    pub body: StmtSeq,
+    pub syntax: RepeatSyntax,
+    /// Source span of this command
+    pub span: Span,
+}
+
+/// Surface syntax preserved for a `repeat` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatSyntax {
+    DoDone {
+        do_span: Span,
+        done_span: Span,
+    },
+    Brace {
+        left_brace_span: Span,
+        right_brace_span: Span,
+    },
+}
+
+/// Zsh foreach loop.
+#[derive(Debug, Clone)]
+pub struct ForeachCommand {
+    pub variable: Name,
+    pub variable_span: Span,
+    pub words: Vec<Word>,
+    pub body: StmtSeq,
+    pub syntax: ForeachSyntax,
+    /// Source span of this command
+    pub span: Span,
+}
+
+/// Surface syntax preserved for a `foreach` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForeachSyntax {
+    ParenBrace {
+        left_paren_span: Span,
+        right_paren_span: Span,
+        left_brace_span: Span,
+        right_brace_span: Span,
+    },
+    InDoDone {
+        in_span: Span,
+        do_span: Span,
+        done_span: Span,
+    },
 }
 
 /// Select loop.

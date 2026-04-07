@@ -546,6 +546,44 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                 }
             }
+            CompoundCommand::Repeat(command) => RecordedCommand {
+                span: command.span,
+                nested_regions: self.visit_word(&command.count, WordVisitKind::Expansion, flow),
+                kind: RecordedCommandKind::For {
+                    body: self.visit_stmt_seq(
+                        &command.body,
+                        FlowState {
+                            loop_depth: flow.loop_depth + 1,
+                            ..flow
+                        },
+                    ),
+                },
+            },
+            CompoundCommand::Foreach(command) => {
+                let nested_regions =
+                    self.visit_words(&command.words, WordVisitKind::Expansion, flow);
+                self.add_binding(
+                    command.variable.clone(),
+                    BindingKind::LoopVariable,
+                    self.current_scope(),
+                    command.variable_span,
+                    BindingAttributes::empty(),
+                );
+
+                RecordedCommand {
+                    span: command.span,
+                    nested_regions,
+                    kind: RecordedCommandKind::For {
+                        body: self.visit_stmt_seq(
+                            &command.body,
+                            FlowState {
+                                loop_depth: flow.loop_depth + 1,
+                                ..flow
+                            },
+                        ),
+                    },
+                }
+            }
             CompoundCommand::ArithmeticFor(command) => {
                 let mut nested_regions =
                     self.visit_optional_arithmetic_expr(command.init_ast.as_ref(), flow);
@@ -2551,6 +2589,8 @@ fn command_span_from_compound(command: &CompoundCommand) -> Span {
     match command {
         CompoundCommand::If(command) => command.span,
         CompoundCommand::For(command) => command.span,
+        CompoundCommand::Repeat(command) => command.span,
+        CompoundCommand::Foreach(command) => command.span,
         CompoundCommand::ArithmeticFor(command) => command.span,
         CompoundCommand::While(command) => command.span,
         CompoundCommand::Until(command) => command.span,

@@ -1639,6 +1639,8 @@ fn compound_span(command: &CompoundCommand) -> Span {
     match command {
         CompoundCommand::If(command) => command.span,
         CompoundCommand::For(command) => command.span,
+        CompoundCommand::Repeat(command) => command.span,
+        CompoundCommand::Foreach(command) => command.span,
         CompoundCommand::ArithmeticFor(command) => command.span,
         CompoundCommand::While(command) => command.span,
         CompoundCommand::Until(command) => command.span,

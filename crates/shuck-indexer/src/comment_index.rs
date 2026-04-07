@@ -208,6 +208,16 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
             }
             collect_stmt_seq_comments(&command.body, comments);
         }
+        CompoundCommand::Repeat(command) => {
+            collect_word_comments(&command.count, comments);
+            collect_stmt_seq_comments(&command.body, comments);
+        }
+        CompoundCommand::Foreach(command) => {
+            for word in &command.words {
+                collect_word_comments(word, comments);
+            }
+            collect_stmt_seq_comments(&command.body, comments);
+        }
         CompoundCommand::ArithmeticFor(command) => {
             collect_stmt_seq_comments(&command.body, comments)
         }

@@ -210,6 +210,8 @@ fn compound_span(command: &shuck_ast::CompoundCommand) -> Span {
     match command {
         shuck_ast::CompoundCommand::If(command) => command.span,
         shuck_ast::CompoundCommand::For(command) => command.span,
+        shuck_ast::CompoundCommand::Repeat(command) => command.span,
+        shuck_ast::CompoundCommand::Foreach(command) => command.span,
         shuck_ast::CompoundCommand::ArithmeticFor(command) => command.span,
         shuck_ast::CompoundCommand::While(command) => command.span,
         shuck_ast::CompoundCommand::Until(command) => command.span,

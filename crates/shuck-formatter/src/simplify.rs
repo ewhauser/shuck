@@ -327,6 +327,18 @@ fn walk_compound(
             }
             count + walk_stmt_seq(&mut command.body, source, visitor)
         }
+        CompoundCommand::Repeat(command) => {
+            walk_word(&mut command.count, source, &mut |_| 0)
+                + walk_stmt_seq(&mut command.body, source, visitor)
+        }
+        CompoundCommand::Foreach(command) => {
+            command
+                .words
+                .iter_mut()
+                .map(|word| walk_word(word, source, &mut |_| 0))
+                .sum::<usize>()
+                + walk_stmt_seq(&mut command.body, source, visitor)
+        }
         CompoundCommand::ArithmeticFor(command) => {
             walk_stmt_seq(&mut command.body, source, visitor)
         }
@@ -515,6 +527,19 @@ fn rewrite_compound_words(
                 .words
                 .iter_mut()
                 .flat_map(|words| words.iter_mut())
+                .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
+                .sum::<usize>()
+                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
+        }
+        CompoundCommand::Repeat(command) => {
+            walk_word(&mut command.count, source, &mut |word| {
+                visitor(word, source)
+            }) + rewrite_stmt_seq_words(&mut command.body, source, visitor)
+        }
+        CompoundCommand::Foreach(command) => {
+            command
+                .words
+                .iter_mut()
                 .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
                 .sum::<usize>()
                 + rewrite_stmt_seq_words(&mut command.body, source, visitor)
@@ -862,6 +887,18 @@ fn rewrite_compound_source_texts(
                 .words
                 .iter_mut()
                 .flat_map(|words| words.iter_mut())
+                .map(|word| rewrite_word_source_texts(word, source, visitor))
+                .sum::<usize>()
+                + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
+        }
+        CompoundCommand::Repeat(command) => {
+            rewrite_word_source_texts(&mut command.count, source, visitor)
+                + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
+        }
+        CompoundCommand::Foreach(command) => {
+            command
+                .words
+                .iter_mut()
                 .map(|word| rewrite_word_source_texts(word, source, visitor))
                 .sum::<usize>()
                 + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)

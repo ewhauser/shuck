@@ -30,16 +30,16 @@ use shuck_ast::{
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,
-    ExitCommand as AstExitCommand, File, ForCommand, FunctionDef, FunctionSurface, Heredoc,
-    HeredocDelimiter, IfCommand, IfSyntax, LiteralText, Name, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
-    Position, PrefixMatchKind, Redirect, RedirectKind, RedirectTarget,
-    ReturnCommand as AstReturnCommand, SelectCommand, SimpleCommand as AstSimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptInterpretation,
-    SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind, UntilCommand, VarRef,
-    WhileCommand, Word, WordPart, WordPartNode, ZshDefaultingOp, ZshExpansionOperation,
-    ZshExpansionTarget, ZshModifier, ZshParameterExpansion, ZshPatternOp, ZshReplacementOp,
-    ZshTrimOp,
+    ExitCommand as AstExitCommand, File, ForCommand, ForeachCommand, ForeachSyntax, FunctionDef,
+    FunctionSurface, Heredoc, HeredocDelimiter, IfCommand, IfSyntax, LiteralText, Name,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
+    PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect, RedirectKind,
+    RedirectTarget, RepeatCommand, RepeatSyntax, ReturnCommand as AstReturnCommand, SelectCommand,
+    SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
+    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
+    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshDefaultingOp,
+    ZshExpansionOperation, ZshExpansionTarget, ZshModifier, ZshParameterExpansion, ZshPatternOp,
+    ZshReplacementOp, ZshTrimOp,
 };
 
 use crate::error::{Error, Result};
@@ -187,6 +187,8 @@ struct DialectFeatures {
     function_keyword: bool,
     select_loop: bool,
     coproc_keyword: bool,
+    zsh_repeat_loop: bool,
+    zsh_foreach_loop: bool,
     zsh_parameter_modifiers: bool,
     zsh_brace_if: bool,
     zsh_always: bool,
@@ -212,6 +214,8 @@ impl ShellDialect {
                 function_keyword: false,
                 select_loop: false,
                 coproc_keyword: false,
+                zsh_repeat_loop: false,
+                zsh_foreach_loop: false,
                 zsh_parameter_modifiers: false,
                 zsh_brace_if: false,
                 zsh_always: false,
@@ -224,6 +228,8 @@ impl ShellDialect {
                 function_keyword: true,
                 select_loop: true,
                 coproc_keyword: false,
+                zsh_repeat_loop: false,
+                zsh_foreach_loop: false,
                 zsh_parameter_modifiers: false,
                 zsh_brace_if: false,
                 zsh_always: false,
@@ -236,6 +242,8 @@ impl ShellDialect {
                 function_keyword: true,
                 select_loop: true,
                 coproc_keyword: true,
+                zsh_repeat_loop: false,
+                zsh_foreach_loop: false,
                 zsh_parameter_modifiers: false,
                 zsh_brace_if: false,
                 zsh_always: false,
@@ -248,6 +256,8 @@ impl ShellDialect {
                 function_keyword: true,
                 select_loop: true,
                 coproc_keyword: true,
+                zsh_repeat_loop: true,
+                zsh_foreach_loop: true,
                 zsh_parameter_modifiers: true,
                 zsh_brace_if: true,
                 zsh_always: true,
@@ -794,6 +804,8 @@ macro_rules! token_set {
 enum Keyword {
     If,
     For,
+    Repeat,
+    Foreach,
     While,
     Until,
     Case,
@@ -817,6 +829,8 @@ impl Keyword {
         match self {
             Self::If => "if",
             Self::For => "for",
+            Self::Repeat => "repeat",
+            Self::Foreach => "foreach",
             Self::While => "while",
             Self::Until => "until",
             Self::Case => "case",
@@ -1882,6 +1896,52 @@ impl<'a> Parser<'a> {
                 if let Some(words) = &mut command.words {
                     Self::rebase_words(words, base);
                 }
+                Self::rebase_stmt_seq(&mut command.body, base);
+            }
+            CompoundCommand::Repeat(command) => {
+                command.span = command.span.rebased(base);
+                Self::rebase_word(&mut command.count, base);
+                command.syntax = match command.syntax {
+                    RepeatSyntax::DoDone { do_span, done_span } => RepeatSyntax::DoDone {
+                        do_span: do_span.rebased(base),
+                        done_span: done_span.rebased(base),
+                    },
+                    RepeatSyntax::Brace {
+                        left_brace_span,
+                        right_brace_span,
+                    } => RepeatSyntax::Brace {
+                        left_brace_span: left_brace_span.rebased(base),
+                        right_brace_span: right_brace_span.rebased(base),
+                    },
+                };
+                Self::rebase_stmt_seq(&mut command.body, base);
+            }
+            CompoundCommand::Foreach(command) => {
+                command.span = command.span.rebased(base);
+                command.variable_span = command.variable_span.rebased(base);
+                Self::rebase_words(&mut command.words, base);
+                command.syntax = match command.syntax {
+                    ForeachSyntax::ParenBrace {
+                        left_paren_span,
+                        right_paren_span,
+                        left_brace_span,
+                        right_brace_span,
+                    } => ForeachSyntax::ParenBrace {
+                        left_paren_span: left_paren_span.rebased(base),
+                        right_paren_span: right_paren_span.rebased(base),
+                        left_brace_span: left_brace_span.rebased(base),
+                        right_brace_span: right_brace_span.rebased(base),
+                    },
+                    ForeachSyntax::InDoDone {
+                        in_span,
+                        do_span,
+                        done_span,
+                    } => ForeachSyntax::InDoDone {
+                        in_span: in_span.rebased(base),
+                        do_span: do_span.rebased(base),
+                        done_span: done_span.rebased(base),
+                    },
+                };
                 Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::ArithmeticFor(command) => {
@@ -3474,6 +3534,22 @@ impl<'a> Parser<'a> {
         )
     }
 
+    fn ensure_repeat_loop(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().zsh_repeat_loop,
+            "repeat loops",
+            "are not available in this shell mode",
+        )
+    }
+
+    fn ensure_foreach_loop(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().zsh_foreach_loop,
+            "foreach loops",
+            "are not available in this shell mode",
+        )
+    }
+
     fn ensure_function_keyword(&self) -> Result<()> {
         self.ensure_feature(
             self.dialect.features().function_keyword,
@@ -3556,6 +3632,8 @@ impl<'a> Parser<'a> {
         match compound {
             CompoundCommand::If(command) => command.span,
             CompoundCommand::For(command) => command.span,
+            CompoundCommand::Repeat(command) => command.span,
+            CompoundCommand::Foreach(command) => command.span,
             CompoundCommand::ArithmeticFor(command) => command.span,
             CompoundCommand::While(command) => command.span,
             CompoundCommand::Until(command) => command.span,
@@ -4025,6 +4103,24 @@ impl<'a> Parser<'a> {
                 );
                 command.body.trailing_comments.extend(body_comments);
             }
+            CompoundCommand::Repeat(command) => {
+                let mut body_comments = std::mem::take(comments);
+                Self::attach_comments_to_stmt_seq_with_source(
+                    source,
+                    &mut command.body,
+                    &mut body_comments,
+                );
+                command.body.trailing_comments.extend(body_comments);
+            }
+            CompoundCommand::Foreach(command) => {
+                let mut body_comments = std::mem::take(comments);
+                Self::attach_comments_to_stmt_seq_with_source(
+                    source,
+                    &mut command.body,
+                    &mut body_comments,
+                );
+                command.body.trailing_comments.extend(body_comments);
+            }
             CompoundCommand::ArithmeticFor(command) => {
                 let mut body_comments = std::mem::take(comments);
                 Self::attach_comments_to_stmt_seq_with_source(
@@ -4366,6 +4462,8 @@ impl<'a> Parser<'a> {
         match word.as_bytes() {
             b"if" => Some(Keyword::If),
             b"for" => Some(Keyword::For),
+            b"repeat" => Some(Keyword::Repeat),
+            b"foreach" => Some(Keyword::Foreach),
             b"while" => Some(Keyword::While),
             b"until" => Some(Keyword::Until),
             b"case" => Some(Keyword::Case),
@@ -4388,6 +4486,93 @@ impl<'a> Parser<'a> {
 
     fn current_keyword(&self) -> Option<Keyword> {
         self.current_keyword
+    }
+
+    fn looks_like_disabled_repeat_loop(&self) -> Result<bool> {
+        if self.current_keyword() != Some(Keyword::Repeat) {
+            return Ok(false);
+        }
+
+        let mut probe = self.clone();
+        probe.advance();
+        if !probe.at_word_like() {
+            return Ok(false);
+        }
+        probe.advance();
+
+        match probe.current_token_kind {
+            Some(TokenKind::LeftBrace) => Ok(true),
+            Some(TokenKind::Semicolon) => {
+                probe.advance();
+                probe.skip_newlines()?;
+                Ok(probe.current_keyword() == Some(Keyword::Do))
+            }
+            Some(TokenKind::Newline) => {
+                probe.skip_newlines()?;
+                Ok(probe.current_keyword() == Some(Keyword::Do))
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn looks_like_disabled_foreach_loop(&self) -> Result<bool> {
+        if self.current_keyword() != Some(Keyword::Foreach) {
+            return Ok(false);
+        }
+
+        let mut probe = self.clone();
+        probe.advance();
+        if probe.current_name_token().is_none() {
+            return Ok(false);
+        }
+        probe.advance();
+
+        if probe.at(TokenKind::LeftParen) {
+            probe.advance();
+            let mut saw_word = false;
+            while !probe.at(TokenKind::RightParen) {
+                if !probe.at_word_like() {
+                    return Ok(false);
+                }
+                saw_word = true;
+                probe.advance();
+            }
+            if !saw_word {
+                return Ok(false);
+            }
+            probe.advance();
+            return Ok(probe.at(TokenKind::LeftBrace));
+        }
+
+        if probe.current_keyword() != Some(Keyword::In) {
+            return Ok(false);
+        }
+        probe.advance();
+
+        let mut saw_word = false;
+        let saw_separator = loop {
+            if probe.current_keyword() == Some(Keyword::Do) {
+                break false;
+            }
+
+            match probe.current_token_kind {
+                Some(kind) if kind.is_word_like() => {
+                    saw_word = true;
+                    probe.advance();
+                }
+                Some(TokenKind::Semicolon) => {
+                    probe.advance();
+                    break true;
+                }
+                Some(TokenKind::Newline) => {
+                    probe.skip_newlines()?;
+                    break true;
+                }
+                _ => break false,
+            }
+        };
+
+        Ok(saw_word && saw_separator && probe.current_keyword() == Some(Keyword::Do))
     }
 
     fn skip_newlines_with_flag(&mut self) -> Result<bool> {
@@ -5204,10 +5389,23 @@ impl<'a> Parser<'a> {
         self.maybe_expand_current_alias_chain();
         self.check_error_token()?;
 
+        if !self.dialect.features().zsh_repeat_loop && self.looks_like_disabled_repeat_loop()? {
+            self.ensure_repeat_loop()?;
+        }
+        if !self.dialect.features().zsh_foreach_loop && self.looks_like_disabled_foreach_loop()? {
+            self.ensure_foreach_loop()?;
+        }
+
         // Check for compound commands and function keyword
         match self.current_keyword() {
             Some(Keyword::If) => return self.parse_compound_with_redirects(|s| s.parse_if()),
             Some(Keyword::For) => return self.parse_compound_with_redirects(|s| s.parse_for()),
+            Some(Keyword::Repeat) if self.dialect.features().zsh_repeat_loop => {
+                return self.parse_compound_with_redirects(|s| s.parse_repeat());
+            }
+            Some(Keyword::Foreach) if self.dialect.features().zsh_foreach_loop => {
+                return self.parse_compound_with_redirects(|s| s.parse_foreach());
+            }
             Some(Keyword::While) => {
                 return self.parse_compound_with_redirects(|s| s.parse_while());
             }
@@ -5502,6 +5700,250 @@ impl<'a> Parser<'a> {
             words,
             body,
             span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse a zsh repeat loop.
+    fn parse_repeat(&mut self) -> Result<CompoundCommand> {
+        self.ensure_repeat_loop()?;
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'repeat'
+
+        let count = match self.current_token_kind {
+            Some(kind) if kind.is_word_like() => self.expect_word()?,
+            _ => {
+                self.pop_depth();
+                return Err(self.error("expected loop count in repeat"));
+            }
+        };
+
+        let (syntax, body, end_span) = match self.current_token_kind {
+            Some(TokenKind::LeftBrace) => {
+                let (body, left_brace_span, right_brace_span) =
+                    self.parse_brace_enclosed_stmt_seq("syntax error: empty repeat loop body")?;
+                (
+                    RepeatSyntax::Brace {
+                        left_brace_span,
+                        right_brace_span,
+                    },
+                    body,
+                    right_brace_span,
+                )
+            }
+            Some(TokenKind::Semicolon) => {
+                self.advance();
+                self.skip_newlines()?;
+                if !self.is_keyword(Keyword::Do) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'do' after repeat count"));
+                }
+                let do_span = self.current_span;
+                self.advance();
+                self.skip_newlines()?;
+
+                let body_start = self.current_span.start;
+                let body = self.parse_compound_list(Keyword::Done)?;
+                let body_span = Span::from_positions(body_start, self.current_span.start);
+                if body.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty repeat loop body"));
+                }
+                if !self.is_keyword(Keyword::Done) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'done'"));
+                }
+                let done_span = self.current_span;
+                self.advance();
+                (
+                    RepeatSyntax::DoDone { do_span, done_span },
+                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    done_span,
+                )
+            }
+            Some(TokenKind::Newline) => {
+                self.skip_newlines()?;
+                if !self.is_keyword(Keyword::Do) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'do' after repeat count"));
+                }
+                let do_span = self.current_span;
+                self.advance();
+                self.skip_newlines()?;
+
+                let body_start = self.current_span.start;
+                let body = self.parse_compound_list(Keyword::Done)?;
+                let body_span = Span::from_positions(body_start, self.current_span.start);
+                if body.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty repeat loop body"));
+                }
+                if !self.is_keyword(Keyword::Done) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'done'"));
+                }
+                let done_span = self.current_span;
+                self.advance();
+                (
+                    RepeatSyntax::DoDone { do_span, done_span },
+                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    done_span,
+                )
+            }
+            _ => {
+                self.pop_depth();
+                return Err(self.error("expected ';' or '{' after repeat count"));
+            }
+        };
+
+        self.pop_depth();
+        Ok(CompoundCommand::Repeat(RepeatCommand {
+            count,
+            body,
+            syntax,
+            span: start_span.merge(end_span),
+        }))
+    }
+
+    /// Parse a zsh foreach loop.
+    fn parse_foreach(&mut self) -> Result<CompoundCommand> {
+        self.ensure_foreach_loop()?;
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'foreach'
+
+        let (variable, variable_span) = match self.current_name_token() {
+            Some(pair) => pair,
+            _ => {
+                self.pop_depth();
+                return Err(self.error("expected variable name in foreach"));
+            }
+        };
+        self.advance();
+
+        let (words, body, syntax, end_span) = if self.at(TokenKind::LeftParen) {
+            let left_paren_span = self.current_span;
+            self.advance();
+
+            let mut words = Vec::new();
+            while !self.at(TokenKind::RightParen) {
+                match self.current_token_kind {
+                    Some(kind) if kind.is_word_like() => {
+                        let word = self
+                            .current_word()
+                            .ok_or_else(|| self.error("expected foreach word"))?;
+                        words.push(word);
+                        self.advance();
+                    }
+                    Some(_) | None => {
+                        self.pop_depth();
+                        return Err(self.error("expected ')' after foreach word list"));
+                    }
+                }
+            }
+            if words.is_empty() {
+                self.pop_depth();
+                return Err(self.error("expected word list in foreach"));
+            }
+
+            let right_paren_span = self.current_span;
+            self.advance();
+            if !self.at(TokenKind::LeftBrace) {
+                self.pop_depth();
+                return Err(self.error("expected '{' after foreach word list"));
+            }
+
+            let (body, left_brace_span, right_brace_span) =
+                self.parse_brace_enclosed_stmt_seq("syntax error: empty foreach loop body")?;
+            (
+                words,
+                body,
+                ForeachSyntax::ParenBrace {
+                    left_paren_span,
+                    right_paren_span,
+                    left_brace_span,
+                    right_brace_span,
+                },
+                right_brace_span,
+            )
+        } else if self.is_keyword(Keyword::In) {
+            let in_span = self.current_span;
+            self.advance();
+
+            let mut words = Vec::new();
+            let saw_separator = loop {
+                match self.current_token_kind {
+                    _ if self.current_keyword() == Some(Keyword::Do) => break false,
+                    Some(kind) if kind.is_word_like() => {
+                        let word = self
+                            .current_word()
+                            .ok_or_else(|| self.error("expected foreach word"))?;
+                        words.push(word);
+                        self.advance();
+                    }
+                    Some(TokenKind::Semicolon) => {
+                        self.advance();
+                        break true;
+                    }
+                    Some(TokenKind::Newline) => {
+                        self.skip_newlines()?;
+                        break true;
+                    }
+                    _ => break false,
+                }
+            };
+            if words.is_empty() {
+                self.pop_depth();
+                return Err(self.error("expected word list in foreach"));
+            }
+            if !saw_separator {
+                self.pop_depth();
+                return Err(self.error("expected ';' or newline before 'do' in foreach"));
+            }
+            if !self.is_keyword(Keyword::Do) {
+                self.pop_depth();
+                return Err(self.error("expected 'do' in foreach"));
+            }
+            let do_span = self.current_span;
+            self.advance();
+            self.skip_newlines()?;
+
+            let body_start = self.current_span.start;
+            let body = self.parse_compound_list(Keyword::Done)?;
+            let body_span = Span::from_positions(body_start, self.current_span.start);
+            if body.is_empty() {
+                self.pop_depth();
+                return Err(self.error("syntax error: empty foreach loop body"));
+            }
+            if !self.is_keyword(Keyword::Done) {
+                self.pop_depth();
+                return Err(self.error("expected 'done'"));
+            }
+            let done_span = self.current_span;
+            self.advance();
+            (
+                words,
+                Self::lower_commands_to_stmt_seq(body, body_span),
+                ForeachSyntax::InDoDone {
+                    in_span,
+                    do_span,
+                    done_span,
+                },
+                done_span,
+            )
+        } else {
+            self.pop_depth();
+            return Err(self.error("expected '(' or 'in' after foreach variable"));
+        };
+
+        self.pop_depth();
+        Ok(CompoundCommand::Foreach(ForeachCommand {
+            variable,
+            variable_span,
+            words,
+            body,
+            syntax,
+            span: start_span.merge(end_span),
         }))
     }
 
@@ -6692,6 +7134,16 @@ impl<'a> Parser<'a> {
         let compound = match self.current_keyword() {
             Some(Keyword::If) if allow_bare_compound => self.parse_if()?,
             Some(Keyword::For) if allow_bare_compound => self.parse_for()?,
+            Some(Keyword::Repeat)
+                if allow_bare_compound && self.dialect.features().zsh_repeat_loop =>
+            {
+                self.parse_repeat()?
+            }
+            Some(Keyword::Foreach)
+                if allow_bare_compound && self.dialect.features().zsh_foreach_loop =>
+            {
+                self.parse_foreach()?
+            }
             Some(Keyword::While) if allow_bare_compound => self.parse_while()?,
             Some(Keyword::Until) if allow_bare_compound => self.parse_until()?,
             Some(Keyword::Case) if allow_bare_compound => self.parse_case()?,
@@ -9983,10 +10435,11 @@ mod tests {
         ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp,
         BackgroundOperator, BinaryCommand, BourneParameterExpansion,
         BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
-        CompoundCommand as AstCompoundCommand, FunctionDef as AstFunctionDef, IfSyntax, Name,
-        ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind,
-        SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator, ZshDefaultingOp,
-        ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp, ZshReplacementOp, ZshTrimOp,
+        CompoundCommand as AstCompoundCommand, ForeachSyntax, FunctionDef as AstFunctionDef,
+        IfSyntax, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind,
+        RepeatSyntax, SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator,
+        ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp, ZshReplacementOp,
+        ZshTrimOp,
     };
 
     fn is_fully_quoted(word: &Word) -> bool {
@@ -10100,6 +10553,12 @@ mod tests {
             AstCompoundCommand::Always(command) => {
                 collect_stmt_seq_comments(&command.body, comments);
                 collect_stmt_seq_comments(&command.always_body, comments);
+            }
+            AstCompoundCommand::Repeat(command) => {
+                collect_stmt_seq_comments(&command.body, comments);
+            }
+            AstCompoundCommand::Foreach(command) => {
+                collect_stmt_seq_comments(&command.body, comments);
             }
             AstCompoundCommand::Conditional(_)
             | AstCompoundCommand::Arithmetic(_)
@@ -14132,6 +14591,180 @@ EOF
         )
         .parse()
         .unwrap();
+    }
+
+    #[test]
+    fn test_zsh_repeat_do_done_preserves_structure_and_spans() {
+        let source = "repeat 3; do echo hi; done\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let (compound, redirects) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::Repeat(command) = compound else {
+            panic!("expected repeat command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.span.slice(source), "repeat 3; do echo hi; done");
+        assert_eq!(command.count.span.slice(source), "3");
+        assert_eq!(command.body.len(), 1);
+        assert_eq!(command.body.span.slice(source), "echo hi; ");
+
+        match command.syntax {
+            RepeatSyntax::DoDone { do_span, done_span } => {
+                assert_eq!(do_span.slice(source), "do");
+                assert_eq!(done_span.slice(source), "done");
+            }
+            RepeatSyntax::Brace { .. } => panic!("expected do/done repeat syntax"),
+        }
+
+        let body_command = expect_simple(&command.body[0]);
+        assert_eq!(body_command.name.render(source), "echo");
+        assert_eq!(body_command.args[0].render(source), "hi");
+    }
+
+    #[test]
+    fn test_zsh_repeat_brace_preserves_structure_and_spans() {
+        let source = "repeat 3 { echo hi; }\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let (compound, redirects) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::Repeat(command) = compound else {
+            panic!("expected repeat command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.span.slice(source), "repeat 3 { echo hi; }");
+        assert_eq!(command.count.span.slice(source), "3");
+        assert_eq!(command.body.len(), 1);
+        assert_eq!(command.body.span.slice(source), "echo hi; ");
+
+        match command.syntax {
+            RepeatSyntax::Brace {
+                left_brace_span,
+                right_brace_span,
+            } => {
+                assert_eq!(left_brace_span.slice(source), "{");
+                assert_eq!(right_brace_span.slice(source), "}");
+            }
+            RepeatSyntax::DoDone { .. } => panic!("expected brace repeat syntax"),
+        }
+
+        let body_command = expect_simple(&command.body[0]);
+        assert_eq!(body_command.name.render(source), "echo");
+        assert_eq!(body_command.args[0].render(source), "hi");
+    }
+
+    #[test]
+    fn test_zsh_foreach_paren_brace_preserves_structure_and_spans() {
+        let source = "foreach x (a b c) { echo $x; }\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let (compound, redirects) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::Foreach(command) = compound else {
+            panic!("expected foreach command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.span.slice(source), "foreach x (a b c) { echo $x; }");
+        assert_eq!(command.variable.as_str(), "x");
+        assert_eq!(command.variable_span.slice(source), "x");
+        assert_eq!(
+            command
+                .words
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
+        assert_eq!(command.body.len(), 1);
+        assert_eq!(command.body.span.slice(source), "echo $x; ");
+
+        match command.syntax {
+            ForeachSyntax::ParenBrace {
+                left_paren_span,
+                right_paren_span,
+                left_brace_span,
+                right_brace_span,
+            } => {
+                assert_eq!(left_paren_span.slice(source), "(");
+                assert_eq!(right_paren_span.slice(source), ")");
+                assert_eq!(left_brace_span.slice(source), "{");
+                assert_eq!(right_brace_span.slice(source), "}");
+            }
+            ForeachSyntax::InDoDone { .. } => panic!("expected paren/brace foreach syntax"),
+        }
+
+        let body_command = expect_simple(&command.body[0]);
+        assert_eq!(body_command.name.render(source), "echo");
+        assert_eq!(body_command.args[0].render(source), "$x");
+    }
+
+    #[test]
+    fn test_zsh_foreach_in_do_done_preserves_structure_and_spans() {
+        let source = "foreach x in a b c; do echo $x; done\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let (compound, redirects) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::Foreach(command) = compound else {
+            panic!("expected foreach command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(
+            command.span.slice(source),
+            "foreach x in a b c; do echo $x; done"
+        );
+        assert_eq!(command.variable.as_str(), "x");
+        assert_eq!(command.variable_span.slice(source), "x");
+        assert_eq!(
+            command
+                .words
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
+        assert_eq!(command.body.len(), 1);
+        assert_eq!(command.body.span.slice(source), "echo $x; ");
+
+        match command.syntax {
+            ForeachSyntax::InDoDone {
+                in_span,
+                do_span,
+                done_span,
+            } => {
+                assert_eq!(in_span.slice(source), "in");
+                assert_eq!(do_span.slice(source), "do");
+                assert_eq!(done_span.slice(source), "done");
+            }
+            ForeachSyntax::ParenBrace { .. } => panic!("expected in/do/done foreach syntax"),
+        }
+
+        let body_command = expect_simple(&command.body[0]);
+        assert_eq!(body_command.name.render(source), "echo");
+        assert_eq!(body_command.args[0].render(source), "$x");
+    }
+
+    #[test]
+    fn test_non_zsh_dialects_reject_repeat_and_foreach_forms() {
+        for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
+            for source in [
+                "repeat 3; do echo hi; done\n",
+                "repeat 3 { echo hi; }\n",
+                "foreach x (a b c) { echo $x; }\n",
+                "foreach x in a b c; do echo $x; done\n",
+            ] {
+                let error = Parser::with_dialect(source, dialect).parse().unwrap_err();
+                assert!(
+                    matches!(error, Error::Parse { .. }),
+                    "expected parse error for {dialect:?} on {source:?}, got {error:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -208,6 +208,14 @@ fn collect_compound(
             }
             collect_commands(&command.body, facts, source, spans);
         }
+        CompoundCommand::Repeat(command) => {
+            collect_word(&command.count, facts, source, spans, ScanContext::default());
+            collect_commands(&command.body, facts, source, spans);
+        }
+        CompoundCommand::Foreach(command) => {
+            collect_words(&command.words, facts, source, spans, ScanContext::default());
+            collect_commands(&command.body, facts, source, spans);
+        }
         CompoundCommand::ArithmeticFor(command) => {
             collect_commands(&command.body, facts, source, spans)
         }

@@ -323,6 +323,16 @@ impl<'a> RegionCollector<'a> {
                 }
                 self.visit_stmt_seq(&command.body);
             }
+            CompoundCommand::Repeat(command) => {
+                self.visit_word(&command.count);
+                self.visit_stmt_seq(&command.body);
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    self.visit_word(word);
+                }
+                self.visit_stmt_seq(&command.body);
+            }
             CompoundCommand::ArithmeticFor(command) => {
                 self.push_arithmetic_range(command);
                 self.visit_stmt_seq(&command.body);
