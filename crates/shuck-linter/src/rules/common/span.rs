@@ -1,8 +1,7 @@
 use shuck_ast::{
-    ArithmeticExpansionSyntax, Assignment, CommandListItem, CommandSubstitutionSyntax, Position,
-    Redirect, Span, SubscriptSelector, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode,
+    ArithmeticExpansionSyntax, Assignment, CommandListItem, CommandSubstitutionSyntax, Redirect,
+    Span, Word, WordPart, WordPartNode,
 };
-use shuck_indexer::{Indexer, RegionKind};
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
     assignment.target.name_span
@@ -71,17 +70,6 @@ pub fn scalar_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
     spans
 }
 
-pub fn single_quoted_region_span(indexer: &Indexer, span: Span) -> Span {
-    let offset = TextSize::new(span.start.offset as u32);
-    let Some((RegionKind::SingleQuoted, range)) =
-        indexer.region_index().region_with_range_at(offset)
-    else {
-        return span;
-    };
-
-    text_range_span(indexer, range)
-}
-
 pub fn backtick_fragment_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_backtick_spans(&word.parts, &mut spans);
@@ -92,36 +80,6 @@ pub fn legacy_arithmetic_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_legacy_arithmetic_spans(&word.parts, &mut spans);
     spans
-}
-
-pub fn position_for_offset(indexer: &Indexer, offset: TextSize) -> Position {
-    let line = indexer.line_index().line_number(offset);
-    let line_start = indexer
-        .line_index()
-        .line_start(line)
-        .unwrap_or_else(|| TextSize::new(0));
-
-    Position {
-        line,
-        column: usize::from(offset) - usize::from(line_start) + 1,
-        offset: usize::from(offset),
-    }
-}
-
-pub fn text_range_span(indexer: &Indexer, range: TextRange) -> Span {
-    Span::from_positions(
-        position_for_offset(indexer, range.start()),
-        position_for_offset(indexer, range.end()),
-    )
-}
-
-pub fn is_quoted_span(indexer: &Indexer, span: Span) -> bool {
-    matches!(
-        indexer
-            .region_index()
-            .region_at(TextSize::new(span.start.offset as u32)),
-        Some(RegionKind::SingleQuoted | RegionKind::DoubleQuoted)
-    )
 }
 
 fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
@@ -167,8 +125,7 @@ fn collect_array_expansion_spans(
                 collect_array_expansion_spans(parts, source, true, only_unquoted, spans)
             }
             WordPart::ArrayAccess(reference)
-                if reference_has_array_selector(reference, source)
-                    && (!quoted || !only_unquoted) =>
+                if reference.has_array_selector() && (!quoted || !only_unquoted) =>
             {
                 spans.push(part.span);
             }
@@ -198,7 +155,7 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
             | WordPart::Substring { .. }
             | WordPart::ArraySlice { .. }
             | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch(_)
+            | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. } => spans.push(part.span),
         }
@@ -220,10 +177,10 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], source: &str, spans: &
             | WordPart::ArrayLength(_)
             | WordPart::Substring { .. }
             | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch(_)
+            | WordPart::PrefixMatch { .. }
             | WordPart::Transformation { .. } => spans.push(part.span),
             WordPart::ArrayAccess(reference) => {
-                if !reference_has_array_selector(reference, source) {
+                if !reference.has_array_selector() {
                     spans.push(part.span);
                 }
             }
@@ -260,16 +217,6 @@ fn collect_legacy_arithmetic_spans(parts: &[WordPartNode], spans: &mut Vec<Span>
             _ => {}
         }
     }
-}
-
-fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
-    matches!(
-        reference
-            .subscript
-            .as_ref()
-            .and_then(|subscript| subscript.selector()),
-        Some(SubscriptSelector::At | SubscriptSelector::Star)
-    )
 }
 
 #[cfg(test)]

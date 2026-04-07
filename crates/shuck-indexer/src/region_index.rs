@@ -503,7 +503,7 @@ impl RegionCollector {
                 | WordPart::Substring { .. }
                 | WordPart::ArraySlice { .. }
                 | WordPart::IndirectExpansion { .. }
-                | WordPart::PrefixMatch(_)
+                | WordPart::PrefixMatch { .. }
                 | WordPart::Transformation { .. } => {}
             }
         }

@@ -733,9 +733,13 @@ fn walk_var_ref(
     _source: &str,
     visitor: &mut impl FnMut(&mut SourceText) -> usize,
 ) -> usize {
-    name.subscript
-        .as_mut()
-        .map_or(0, |subscript| visitor(&mut subscript.text))
+    name.subscript.as_mut().map_or(0, |subscript| {
+        let mut count = visitor(&mut subscript.text);
+        if let Some(raw) = &mut subscript.raw {
+            count += visitor(raw);
+        }
+        count
+    })
 }
 
 fn walk_assignment(
@@ -1140,7 +1144,7 @@ fn rewrite_assignment_source_texts(
             .map(|element| match element {
                 ArrayElem::Sequential(word) => rewrite_word_source_texts(word, source, visitor),
                 ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                    visitor(&mut key.text, source)
+                    rewrite_subscript_source_texts(key, source, visitor)
                         + rewrite_word_source_texts(value, source, visitor)
                 }
             })
@@ -1157,7 +1161,19 @@ fn rewrite_var_ref_source_texts(
     reference
         .subscript
         .as_mut()
-        .map_or(0, |subscript| visitor(&mut subscript.text, source))
+        .map_or(0, |subscript| rewrite_subscript_source_texts(subscript, source, visitor))
+}
+
+fn rewrite_subscript_source_texts(
+    subscript: &mut shuck_ast::Subscript,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    let mut count = visitor(&mut subscript.text, source);
+    if let Some(raw) = &mut subscript.raw {
+        count += visitor(raw, source);
+    }
+    count
 }
 
 fn rewrite_pattern_source_texts(
@@ -1275,7 +1291,7 @@ fn rewrite_word_part_source_texts(
                     rewrite_parameter_op_source_texts(operator, source, visitor)
                 })
         }
-        WordPart::PrefixMatch(_) => 0,
+        WordPart::PrefixMatch { .. } => 0,
     }
 }
 

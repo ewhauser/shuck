@@ -1,10 +1,9 @@
-use shuck_ast::{SubscriptSelector, VarRef, Word, WordPart};
+use shuck_ast::{Word, WordPart};
 
 use crate::rules::common::{
     expansion::ExpansionContext,
     query::{self, CommandWalkOptions},
     safe_value::{SafeValueIndex, SafeValueQuery},
-    span,
     word::classify_word,
 };
 use crate::{Checker, Rule, ShellDialect, Violation};
@@ -23,7 +22,6 @@ impl Violation for UnquotedExpansion {
 
 pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
-    let indexer = checker.indexer();
     let mut safe_values = SafeValueIndex::build(
         checker.semantic(),
         checker.ast().commands.as_slice(),
@@ -41,13 +39,13 @@ pub fn unquoted_expansion(checker: &mut Checker) {
                     return;
                 }
 
-                report_word_expansions(checker, indexer, &mut safe_values, word, context, source);
+                report_word_expansions(checker, &mut safe_values, word, context, source);
             });
         },
     );
 }
 
-fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
+fn matches_scalar_expansion_part(part: &WordPart) -> bool {
     match part {
         WordPart::Literal(_)
         | WordPart::SingleQuoted { .. }
@@ -61,20 +59,11 @@ fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
         | WordPart::ArrayLength(_)
         | WordPart::Substring { .. }
         | WordPart::IndirectExpansion { .. }
-        | WordPart::PrefixMatch(_)
+        | WordPart::PrefixMatch { .. }
         | WordPart::Transformation { .. } => true,
-        WordPart::ArrayAccess(reference) => !reference_has_array_selector(reference, source),
+        WordPart::ArrayAccess(reference) => !reference.has_array_selector(),
         WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => false,
     }
-}
-
-fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
-    matches!(
-        reference.subscript.as_ref().map(|subscript| subscript.kind),
-        Some(shuck_ast::SubscriptKind::Selector(
-            SubscriptSelector::At | SubscriptSelector::Star
-        ))
-    )
 }
 
 fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool {
@@ -98,7 +87,6 @@ fn command_name_has_literal_affixes(word: &Word) -> bool {
 
 fn report_word_expansions(
     checker: &mut Checker,
-    indexer: &shuck_indexer::Indexer,
     safe_values: &mut SafeValueIndex<'_>,
     word: &Word,
     context: ExpansionContext,
@@ -115,10 +103,7 @@ fn report_word_expansions(
         .expect("checked expansion context should map to a safe-value query");
 
     for (part, part_span) in word.parts_with_spans() {
-        if !matches_scalar_expansion_part(part, source) {
-            continue;
-        }
-        if span::is_quoted_span(indexer, part_span) {
+        if !matches_scalar_expansion_part(part) {
             continue;
         }
         if safe_values.part_is_safe(part, part_span, query) {
@@ -179,6 +164,23 @@ exec dbus-send --bus=\"unix:path=$XDG_RUNTIME_DIR/bus\" / org.freedesktop.DBus.P
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_only_unquoted_fragments_of_mixed_words() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' prefix\"$HOME\"/$suffix
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$suffix"]
+        );
     }
 
     #[test]

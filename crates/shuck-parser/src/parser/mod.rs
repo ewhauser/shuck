@@ -30,9 +30,9 @@ use shuck_ast::{
     DeclClause, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter,
     IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
     PatternPart, PatternPartNode, Pipeline, Position, Redirect, RedirectKind, RedirectTarget,
-    ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span, Subscript,
-    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
-    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    PrefixMatchKind, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
+    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand,
+    TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -1425,6 +1425,9 @@ impl<'a> Parser<'a> {
 
     fn rebase_subscript(subscript: &mut Subscript, base: Position) {
         subscript.text.rebased(base);
+        if let Some(raw) = &mut subscript.raw {
+            raw.rebased(base);
+        }
         if let Some(expr) = &mut subscript.arithmetic_ast {
             Self::rebase_arithmetic_expr(expr, base);
         }
@@ -1684,7 +1687,7 @@ impl<'a> Parser<'a> {
             | WordPart::ProcessSubstitution { commands, .. } => {
                 Self::rebase_commands(commands, base)
             }
-            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch(_) => {}
+            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
         }
     }
 
@@ -1800,24 +1803,36 @@ impl<'a> Parser<'a> {
         SourceText::source(Span::from_positions(pos, pos))
     }
 
-    fn subscript_source_text(&self, raw: &str, span: Span) -> SourceText {
+    fn subscript_source_text(&self, raw: &str, span: Span) -> (SourceText, Option<SourceText>) {
         if raw.len() >= 2
             && ((raw.starts_with('"') && raw.ends_with('"'))
                 || (raw.starts_with('\'') && raw.ends_with('\'')))
         {
-            return self.source_text(raw[1..raw.len() - 1].to_string(), span.start, span.end);
+            let raw_text = raw.to_string();
+            let raw = if self.source_matches(span, raw) {
+                SourceText::source(span)
+            } else {
+                SourceText::cooked(span, raw_text.clone())
+            };
+            let cooked = raw_text[1..raw_text.len() - 1].to_string();
+            return (
+                self.source_text(cooked, span.start, span.end),
+                Some(raw),
+            );
         }
 
-        if self.source_matches(span, raw) {
+        let text = if self.source_matches(span, raw) {
             SourceText::source(span)
         } else {
             SourceText::cooked(span, raw.to_string())
-        }
+        };
+        (text, None)
     }
 
     fn subscript_from_source_text(
         &self,
         text: SourceText,
+        raw: Option<SourceText>,
         interpretation: SubscriptInterpretation,
     ) -> Subscript {
         let kind = match text.slice(self.input).trim() {
@@ -1833,6 +1848,7 @@ impl<'a> Parser<'a> {
         };
         Subscript {
             text,
+            raw,
             kind,
             interpretation,
             arithmetic_ast,
@@ -1873,8 +1889,8 @@ impl<'a> Parser<'a> {
         span: Span,
         interpretation: SubscriptInterpretation,
     ) -> Subscript {
-        let text = self.subscript_source_text(raw, span);
-        self.subscript_from_source_text(text, interpretation)
+        let (text, raw) = self.subscript_source_text(raw, span);
+        self.subscript_from_source_text(text, raw, interpretation)
     }
 
     fn var_ref(
@@ -3167,7 +3183,12 @@ impl<'a> Parser<'a> {
         let body = if quoted {
             Word::quoted_literal_with_span(content, content_span)
         } else {
-            self.decode_word_text(&content, content_span, content_span.start, !strip_tabs)
+            self.decode_word_text_preserving_quotes_if_needed(
+                &content,
+                content_span,
+                content_span.start,
+                !strip_tabs,
+            )
         };
 
         redirects.push(Redirect {
@@ -5516,7 +5537,7 @@ impl<'a> Parser<'a> {
                 WordPart::Variable(_)
                 | WordPart::CommandSubstitution { .. }
                 | WordPart::ProcessSubstitution { .. }
-                | WordPart::PrefixMatch(_) => true,
+                | WordPart::PrefixMatch { .. } => true,
                 WordPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
                 WordPart::ParameterExpansion {
                     reference,
@@ -5741,10 +5762,11 @@ impl<'a> Parser<'a> {
                 }
                 out.push('}');
             }
-            WordPart::PrefixMatch(prefix) => {
+            WordPart::PrefixMatch { prefix, kind } => {
                 out.push_str("${!");
                 out.push_str(prefix.as_str());
-                out.push_str("*}");
+                out.push(kind.as_char());
+                out.push('}');
             }
             WordPart::ProcessSubstitution { is_input, .. } => {
                 out.push(if *is_input { '<' } else { '>' });
@@ -5767,7 +5789,7 @@ impl<'a> Parser<'a> {
         out.push_str(reference.name.as_str());
         if let Some(subscript) = &reference.subscript {
             out.push('[');
-            out.push_str(subscript.text.slice(self.input));
+            out.push_str(subscript.syntax_text(self.input));
             out.push(']');
         }
     }
@@ -6099,8 +6121,10 @@ impl<'a> Parser<'a> {
             return Some(None);
         };
         let subscript_span = Span::from_positions(start, end);
+        let (text, raw) = self.subscript_source_text(&text, subscript_span);
         Some(Some(self.subscript_from_source_text(
-            self.subscript_source_text(&text, subscript_span),
+            text,
+            raw,
             interpretation,
         )))
     }
@@ -6624,15 +6648,34 @@ impl<'a> Parser<'a> {
                 let content_start = cursor;
                 let mut content = (!source_backed).then(String::new);
                 let mut content_end = content_start;
+                let mut closed = false;
 
                 while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
                     if c == '\'' {
+                        closed = true;
                         break;
                     }
                     if let Some(content) = content.as_mut() {
                         content.push(c);
                     }
                     content_end = cursor;
+                }
+
+                if !closed {
+                    if current.is_empty() {
+                        current_start = part_start;
+                    }
+                    let fragment = if source_backed {
+                        Span::from_positions(part_start, cursor)
+                            .slice(self.input)
+                            .to_string()
+                    } else {
+                        let mut fragment = String::from("'");
+                        fragment.push_str(content.as_deref().unwrap_or_default());
+                        fragment
+                    };
+                    current.push_str(&fragment);
+                    continue;
                 }
 
                 Self::push_word_part(
@@ -6663,6 +6706,7 @@ impl<'a> Parser<'a> {
                 let mut content = (!source_backed).then(String::new);
                 let mut content_end = content_start;
                 let mut escaped = false;
+                let mut closed = false;
 
                 while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
                     if escaped {
@@ -6682,7 +6726,10 @@ impl<'a> Parser<'a> {
                             content_end = cursor;
                             escaped = true;
                         }
-                        '"' => break,
+                        '"' => {
+                            closed = true;
+                            break;
+                        }
                         _ => {
                             if let Some(content) = content.as_mut() {
                                 content.push(c);
@@ -6690,6 +6737,23 @@ impl<'a> Parser<'a> {
                             content_end = cursor;
                         }
                     }
+                }
+
+                if !closed {
+                    if current.is_empty() {
+                        current_start = part_start;
+                    }
+                    let fragment = if source_backed {
+                        Span::from_positions(part_start, cursor)
+                            .slice(self.input)
+                            .to_string()
+                    } else {
+                        let mut fragment = String::from("\"");
+                        fragment.push_str(content.as_deref().unwrap_or_default());
+                        fragment
+                    };
+                    current.push_str(&fragment);
+                    continue;
                 }
 
                 let inner_span = Span::from_positions(content_start, content_end);
@@ -7073,10 +7137,14 @@ impl<'a> Parser<'a> {
                     let var_name =
                         Self::read_word_while(&mut chars, &mut cursor, |c| c != '}' && c != '[');
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
-                        let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
+                        let (index, raw_index) =
+                            self.read_array_index(&mut chars, &mut cursor, source_backed);
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        let subscript = self
-                            .subscript_from_source_text(index, SubscriptInterpretation::Contextual);
+                        let subscript = self.subscript_from_source_text(
+                            index,
+                            raw_index,
+                            SubscriptInterpretation::Contextual,
+                        );
                         let reference = self.parameter_var_ref(
                             part_start,
                             "${#",
@@ -7116,10 +7184,14 @@ impl<'a> Parser<'a> {
                     });
 
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
-                        let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
+                        let (index, raw_index) =
+                            self.read_array_index(&mut chars, &mut cursor, source_backed);
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        let subscript = self
-                            .subscript_from_source_text(index, SubscriptInterpretation::Contextual);
+                        let subscript = self.subscript_from_source_text(
+                            index,
+                            raw_index,
+                            SubscriptInterpretation::Contextual,
+                        );
                         let reference = self.parameter_var_ref(
                             part_start,
                             "${!",
@@ -7142,7 +7214,7 @@ impl<'a> Parser<'a> {
                                     reference
                                         .subscript
                                         .as_ref()
-                                        .map(|subscript| subscript.text.slice(self.input))
+                                        .map(|subscript| subscript.syntax_text(self.input))
                                         .unwrap_or_default()
                                 )
                                 .into(),
@@ -7235,9 +7307,16 @@ impl<'a> Parser<'a> {
                             suffix.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
                         }
                         let part = if suffix.ends_with('*') || suffix.ends_with('@') {
-                            WordPart::PrefixMatch(
-                                format!("{}{}", var_name, &suffix[..suffix.len() - 1]).into(),
-                            )
+                            let kind = if suffix.ends_with('@') {
+                                PrefixMatchKind::At
+                            } else {
+                                PrefixMatchKind::Star
+                            };
+                            WordPart::PrefixMatch {
+                                prefix: format!("{}{}", var_name, &suffix[..suffix.len() - 1])
+                                    .into(),
+                                kind,
+                            }
                         } else {
                             WordPart::Variable(format!("!{}{}", var_name, suffix).into())
                         };
@@ -7260,9 +7339,13 @@ impl<'a> Parser<'a> {
                 }
 
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
-                    let index = self.read_array_index(&mut chars, &mut cursor, source_backed);
-                    let subscript =
-                        self.subscript_from_source_text(index, SubscriptInterpretation::Contextual);
+                    let (index, raw_index) =
+                        self.read_array_index(&mut chars, &mut cursor, source_backed);
+                    let subscript = self.subscript_from_source_text(
+                        index,
+                        raw_index,
+                        SubscriptInterpretation::Contextual,
+                    );
 
                     let part = if let Some(next_c) = chars.peek().copied() {
                         if next_c == ':' {
@@ -7699,7 +7782,7 @@ impl<'a> Parser<'a> {
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
         cursor: &mut Position,
         source_backed: bool,
-    ) -> SourceText {
+    ) -> (SourceText, Option<SourceText>) {
         let start = *cursor;
         let mut text = (!source_backed).then(String::new);
         let mut end = *cursor;
@@ -7744,26 +7827,12 @@ impl<'a> Parser<'a> {
             end = *cursor;
         }
 
+        let span = Span::from_positions(start, end);
         if source_backed {
-            let span = Span::from_positions(start, end);
-            let raw = span.slice(self.input);
-            if raw.len() >= 2
-                && ((raw.starts_with('"') && raw.ends_with('"'))
-                    || (raw.starts_with('\'') && raw.ends_with('\'')))
-            {
-                SourceText::cooked(span, raw[1..raw.len() - 1].to_string())
-            } else {
-                SourceText::source(span)
-            }
+            self.subscript_source_text(span.slice(self.input), span)
         } else {
-            let mut text = text.unwrap_or_default();
-            if text.len() >= 2
-                && ((text.starts_with('"') && text.ends_with('"'))
-                    || (text.starts_with('\'') && text.ends_with('\'')))
-            {
-                text = text[1..text.len() - 1].to_string();
-            }
-            self.source_text(text, start, end)
+            let text = text.unwrap_or_default();
+            self.subscript_source_text(&text, span)
         }
     }
 
@@ -8031,6 +8100,27 @@ mod tests {
             .expect("expected subscripted reference");
         assert_eq!(subscript.text.slice(input), expected);
         subscript
+    }
+
+    fn expect_subscript_syntax<'a>(
+        reference: &'a VarRef,
+        input: &str,
+        expected_syntax: &str,
+        expected_cooked: &str,
+    ) -> &'a Subscript {
+        let subscript = expect_subscript(reference, input, expected_cooked);
+        assert_eq!(subscript.syntax_text(input), expected_syntax);
+        subscript
+    }
+
+    fn expect_array_access(word: &Word) -> &VarRef {
+        let [part] = word.parts.as_slice() else {
+            panic!("expected single expansion part");
+        };
+        let WordPart::ArrayAccess(reference) = &part.kind else {
+            panic!("expected array access part, got {:?}", part.kind);
+        };
+        reference
     }
 
     #[test]
@@ -8736,6 +8826,57 @@ mod tests {
             quoted_target.parts.as_slice(),
             [part] if matches!(&part.kind, WordPart::SingleQuoted { .. })
         ));
+    }
+
+    #[test]
+    fn test_unquoted_heredoc_body_preserves_multiple_quoted_fragments() {
+        let input = "cat <<EOF\nbefore '$HOME' and \"$USER\"\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let body = &redirect_heredoc(&command.redirects[0]).body;
+
+        assert!(!is_fully_quoted(body));
+        assert_eq!(
+            top_level_part_slices(body, input),
+            vec!["before ", "'$HOME'", " and ", "\"$USER\"", "\n"]
+        );
+        assert!(matches!(body.parts[1].kind, WordPart::SingleQuoted { .. }));
+        assert!(matches!(body.parts[3].kind, WordPart::DoubleQuoted { .. }));
+    }
+
+    #[test]
+    fn test_unquoted_heredoc_body_leaves_unmatched_single_quote_literal() {
+        let input = "cat <<EOF\n'$HOME\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let body = &redirect_heredoc(&command.redirects[0]).body;
+
+        assert!(!body
+            .parts
+            .iter()
+            .any(|part| matches!(part.kind, WordPart::SingleQuoted { .. })));
+        assert_eq!(body.render_syntax(input), "'$HOME\n");
+    }
+
+    #[test]
+    fn test_strip_tabs_heredoc_body_preserves_single_quoted_fragments() {
+        let input = "cat <<-EOF\n\t'$HOME'\nEOF\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let heredoc = redirect_heredoc(&command.redirects[0]);
+
+        assert!(heredoc.delimiter.strip_tabs);
+        assert!(matches!(heredoc.body.parts[0].kind, WordPart::SingleQuoted { .. }));
+        assert_eq!(heredoc.body.render_syntax(input), "'$HOME'\n");
     }
 
     #[test]
@@ -10730,6 +10871,27 @@ coproc worker { true; }
     }
 
     #[test]
+    fn test_parse_conditional_var_ref_operand_preserves_quoted_subscript_syntax() {
+        let input = "[[ -v assoc[\"key\"] ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command");
+        };
+
+        let ConditionalExpr::Unary(unary) = &command.expression else {
+            panic!("expected unary conditional");
+        };
+        let ConditionalExpr::VarRef(var_ref) = unary.expr.as_ref() else {
+            panic!("expected typed var-ref operand");
+        };
+
+        let subscript = expect_subscript_syntax(var_ref, input, "\"key\"", "key");
+        assert!(matches!(subscript.kind, SubscriptKind::Ordinary));
+    }
+
+    #[test]
     fn test_parse_conditional_var_ref_operand_preserves_spaced_zero_subscript() {
         let input = "[[ -v assoc[ 0 ] ]]\n";
         let script = Parser::new(input).parse().unwrap().script;
@@ -11150,6 +11312,105 @@ echo "${var-"}"}"
         assert_eq!(key.interpretation, SubscriptInterpretation::Associative);
 
         assert!(matches!(array.elements[3], ArrayElem::Sequential(_)));
+    }
+
+    #[test]
+    fn test_parse_parameter_expansion_preserves_quoted_associative_subscripts() {
+        let input = "printf '%s\\n' ${assoc[\"key\"]} ${assoc['k']}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        let first = expect_array_access(&command.args[1]);
+        let second = expect_array_access(&command.args[2]);
+
+        let first_subscript = expect_subscript_syntax(first, input, "\"key\"", "key");
+        assert!(matches!(first_subscript.kind, SubscriptKind::Ordinary));
+        assert_eq!(command.args[1].render_syntax(input), "${assoc[\"key\"]}");
+
+        let second_subscript = expect_subscript_syntax(second, input, "'k'", "k");
+        assert!(matches!(second_subscript.kind, SubscriptKind::Ordinary));
+        assert_eq!(command.args[2].render_syntax(input), "${assoc['k']}");
+    }
+
+    #[test]
+    fn test_parse_prefix_match_preserves_selector_kind() {
+        let input = "printf '%s\\n' \"${!prefix@}\" \"${!prefix*}\"\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        let first = &command.args[1];
+        let second = &command.args[2];
+
+        let [first_part] = first.parts.as_slice() else {
+            panic!("expected quoted prefix match");
+        };
+        let WordPart::DoubleQuoted {
+            parts: first_inner, ..
+        } = &first_part.kind
+        else {
+            panic!("expected double-quoted prefix match");
+        };
+        assert!(matches!(
+            &first_inner[0].kind,
+            WordPart::PrefixMatch {
+                prefix,
+                kind: PrefixMatchKind::At
+            } if prefix.as_str() == "prefix"
+        ));
+
+        let [second_part] = second.parts.as_slice() else {
+            panic!("expected quoted prefix match");
+        };
+        let WordPart::DoubleQuoted {
+            parts: second_inner, ..
+        } = &second_part.kind
+        else {
+            panic!("expected double-quoted prefix match");
+        };
+        assert!(matches!(
+            &second_inner[0].kind,
+            WordPart::PrefixMatch {
+                prefix,
+                kind: PrefixMatchKind::Star
+            } if prefix.as_str() == "prefix"
+        ));
+        assert_eq!(first.render_syntax(input), "\"${!prefix@}\"");
+        assert_eq!(second.render_syntax(input), "\"${!prefix*}\"");
+    }
+
+    #[test]
+    fn test_parse_declare_a_preserves_quoted_associative_keys() {
+        let input = "declare -A assoc=([\"key\"]=bar ['alt']+=baz)\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Decl(command) = &script.commands[0] else {
+            panic!("expected declaration clause");
+        };
+
+        let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+            panic!("expected assignment operand");
+        };
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound array assignment");
+        };
+
+        let ArrayElem::Keyed { key, .. } = &array.elements[0] else {
+            panic!("expected keyed element");
+        };
+        assert_eq!(key.text.slice(input), "key");
+        assert_eq!(key.syntax_text(input), "\"key\"");
+
+        let ArrayElem::KeyedAppend { key, .. } = &array.elements[1] else {
+            panic!("expected keyed append element");
+        };
+        assert_eq!(key.text.slice(input), "alt");
+        assert_eq!(key.syntax_text(input), "'alt'");
     }
 
     #[test]

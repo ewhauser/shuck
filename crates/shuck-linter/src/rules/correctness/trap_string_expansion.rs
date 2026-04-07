@@ -68,7 +68,7 @@ fn collect_double_quoted_expansion_spans(
             | WordPart::Substring { .. }
             | WordPart::ArraySlice { .. }
             | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch(_)
+            | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. }
                 if inside_double_quotes =>

@@ -803,7 +803,7 @@ fn render_subscript(subscript: &Subscript, source: &str) -> String {
         return selector.as_char().to_string();
     }
 
-    render_source_text(&subscript.text, source)
+    render_source_text(subscript.syntax_source_text(), source)
 }
 
 fn render_source_text(text: &SourceText, source: &str) -> String {

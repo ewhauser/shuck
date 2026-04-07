@@ -383,6 +383,30 @@ mod tests {
     }
 
     #[test]
+    fn preserves_quoted_associative_subscript_syntax_when_formatting() {
+        let options = ShellFormatOptions::default();
+
+        for source in [
+            "printf '%s\\n' ${assoc[\"key\"]}\n",
+            "printf '%s\\n' ${assoc['k']}\n",
+            "[[ -v assoc[\"k\"] ]]\n",
+            "declare -A assoc=([\"key\"]=v ['alt']+=w)\n",
+        ] {
+            assert_eq!(format_source(source, None, &options).unwrap(), FormattedSource::Unchanged);
+            assert_source_and_ast_paths_match(source, None, &options);
+        }
+    }
+
+    #[test]
+    fn preserves_prefix_match_selector_kind_when_formatting() {
+        let source = "printf '%s\\n' \"${!prefix@}\" \"${!prefix*}\"\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(format_source(source, None, &options).unwrap(), FormattedSource::Unchanged);
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn format_script_ast_matches_format_source_for_benchmark_corpus() {
         let options = ShellFormatOptions::default();
 

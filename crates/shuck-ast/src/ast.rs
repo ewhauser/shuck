@@ -250,6 +250,8 @@ impl SubscriptSelector {
 #[derive(Debug, Clone)]
 pub struct Subscript {
     pub text: SourceText,
+    /// Original subscript syntax when it differs from the cooked semantic text.
+    pub raw: Option<SourceText>,
     pub kind: SubscriptKind,
     pub interpretation: SubscriptInterpretation,
     /// Typed arithmetic view of this subscript when it parses as arithmetic.
@@ -259,6 +261,14 @@ pub struct Subscript {
 impl Subscript {
     pub fn span(&self) -> Span {
         self.text.span()
+    }
+
+    pub fn syntax_source_text(&self) -> &SourceText {
+        self.raw.as_ref().unwrap_or(&self.text)
+    }
+
+    pub fn syntax_text<'a>(&'a self, source: &'a str) -> &'a str {
+        self.syntax_source_text().slice(source)
     }
 
     pub fn is_array_selector(&self) -> bool {
@@ -273,7 +283,7 @@ impl Subscript {
     }
 
     pub fn is_source_backed(&self) -> bool {
-        self.text.is_source_backed()
+        self.syntax_source_text().is_source_backed()
     }
 }
 
@@ -929,6 +939,22 @@ pub enum ArithmeticExpansionSyntax {
     LegacyBracket,
 }
 
+/// Selector form for `${!prefix@}` versus `${!prefix*}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefixMatchKind {
+    At,
+    Star,
+}
+
+impl PrefixMatchKind {
+    pub const fn as_char(self) -> char {
+        match self {
+            Self::At => '@',
+            Self::Star => '*',
+        }
+    }
+}
+
 /// A word part paired with its source span.
 #[derive(Debug, Clone)]
 pub struct WordPartNode {
@@ -1230,9 +1256,12 @@ fn display_source_text<'a>(text: Option<&'a SourceText>, source: Option<&'a str>
 
 fn display_subscript_text<'a>(subscript: &'a Subscript, source: Option<&'a str>) -> Cow<'a, str> {
     match (source, subscript.selector()) {
-        (Some(source), _) => Cow::Borrowed(subscript.text.slice(source)),
+        (Some(source), _) => Cow::Borrowed(subscript.syntax_text(source)),
         (None, Some(selector)) => Cow::Owned(selector.as_char().to_string()),
-        (None, None) => Cow::Borrowed(display_source_text(Some(&subscript.text), source)),
+        (None, None) => Cow::Borrowed(display_source_text(
+            Some(subscript.syntax_source_text()),
+            source,
+        )),
     }
 }
 
@@ -1319,7 +1348,7 @@ pub enum WordPart {
         colon_variant: bool,
     },
     /// Prefix matching `${!prefix*}` or `${!prefix@}` - names of variables with given prefix
-    PrefixMatch(Name),
+    PrefixMatch { prefix: Name, kind: PrefixMatchKind },
     /// Process substitution <(cmd) or >(cmd)
     ProcessSubstitution {
         /// The commands to run
@@ -1702,7 +1731,9 @@ fn fmt_word_part_with_source_mode(
                 write!(f, "${{!{}}}", name)?
             }
         }
-        WordPart::PrefixMatch(prefix) => write!(f, "${{!{}*}}", prefix)?,
+        WordPart::PrefixMatch { prefix, kind } => {
+            write!(f, "${{!{}{}}}", prefix, kind.as_char())?
+        }
         WordPart::ProcessSubstitution { commands, is_input } => match source {
             Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
             _ => {
@@ -1761,7 +1792,7 @@ fn part_is_source_backed(part: &WordPart) -> bool {
         } => operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed),
         WordPart::CommandSubstitution { .. }
         | WordPart::Variable(_)
-        | WordPart::PrefixMatch(_)
+        | WordPart::PrefixMatch { .. }
         | WordPart::ProcessSubstitution { .. } => true,
     }
 }
@@ -2010,6 +2041,7 @@ mod tests {
             name_span: span,
             subscript: Some(Subscript {
                 text: index.into(),
+                raw: None,
                 kind: SubscriptKind::Ordinary,
                 interpretation: SubscriptInterpretation::Contextual,
                 arithmetic_ast: None,
@@ -2025,6 +2057,7 @@ mod tests {
             name_span: span,
             subscript: Some(Subscript {
                 text: selector.as_char().to_string().into(),
+                raw: None,
                 kind: SubscriptKind::Selector(selector),
                 interpretation: SubscriptInterpretation::Contextual,
                 arithmetic_ast: None,
@@ -2193,8 +2226,38 @@ mod tests {
 
     #[test]
     fn word_display_prefix_match() {
-        let w = word(vec![WordPart::PrefixMatch("MY_".into())]);
+        let w = word(vec![WordPart::PrefixMatch {
+            prefix: "MY_".into(),
+            kind: PrefixMatchKind::Star,
+        }]);
         assert_eq!(format!("{w}"), "${!MY_*}");
+    }
+
+    #[test]
+    fn word_display_prefix_match_at() {
+        let w = word(vec![WordPart::PrefixMatch {
+            prefix: "MY_".into(),
+            kind: PrefixMatchKind::At,
+        }]);
+        assert_eq!(format!("{w}"), "${!MY_@}");
+    }
+
+    #[test]
+    fn word_render_syntax_preserves_raw_quoted_subscript() {
+        let w = word(vec![WordPart::ArrayAccess(VarRef {
+            name: "assoc".into(),
+            name_span: Span::new(),
+            subscript: Some(Subscript {
+                text: "key".into(),
+                raw: Some("\"key\"".into()),
+                kind: SubscriptKind::Ordinary,
+                interpretation: SubscriptInterpretation::Associative,
+                arithmetic_ast: None,
+            }),
+            span: Span::new(),
+        })]);
+        assert_eq!(format!("{w}"), "${assoc[\"key\"]}");
+        assert_eq!(w.render_syntax(""), "${assoc[\"key\"]}");
     }
 
     #[test]
@@ -2691,7 +2754,7 @@ mod tests {
             a.target
                 .subscript
                 .as_ref()
-                .map(|subscript| subscript.text.slice("")),
+                .map(|subscript| subscript.syntax_text("")),
             Some("0")
         );
     }

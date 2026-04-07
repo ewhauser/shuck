@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     AssignmentValue, Command, DeclOperand, Name, ParameterOp, RedirectKind, SourceText, Span,
-    SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
+    VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::BindingId;
 use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
@@ -136,7 +136,7 @@ impl<'a> SafeValueIndex<'a> {
             WordPart::ArithmeticExpansion { .. } => true,
             WordPart::Length(_) | WordPart::ArrayLength(_) => true,
             WordPart::ArrayAccess(reference) => {
-                (query == SafeValueQuery::Quoted || !reference_has_array_selector(reference))
+                (query == SafeValueQuery::Quoted || !reference.has_array_selector())
                     && self.reference_is_safe(reference, span, query)
             }
             WordPart::Substring { reference, .. } => self.reference_is_safe(reference, span, query),
@@ -164,7 +164,7 @@ impl<'a> SafeValueIndex<'a> {
             WordPart::CommandSubstitution { .. }
             | WordPart::ArrayIndices(_)
             | WordPart::ArraySlice { .. }
-            | WordPart::PrefixMatch(_)
+            | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. } => query == SafeValueQuery::Quoted,
             WordPart::ParameterExpansion {
                 reference,
@@ -246,7 +246,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn reference_is_safe(&mut self, reference: &VarRef, at: Span, query: SafeValueQuery) -> bool {
-        if query != SafeValueQuery::Quoted && reference_has_array_selector(reference) {
+        if query != SafeValueQuery::Quoted && reference.has_array_selector() {
             return false;
         }
         self.name_is_safe(&reference.name, at, query)
@@ -275,7 +275,7 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
         query: SafeValueQuery,
     ) -> bool {
-        if query != SafeValueQuery::Quoted && reference_has_array_selector(reference) {
+        if query != SafeValueQuery::Quoted && reference.has_array_selector() {
             return false;
         }
 
@@ -293,7 +293,7 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
         query: SafeValueQuery,
     ) -> bool {
-        if query != SafeValueQuery::Quoted && reference_has_array_selector(reference) {
+        if query != SafeValueQuery::Quoted && reference.has_array_selector() {
             return false;
         }
 
@@ -382,15 +382,6 @@ fn source_text_needs_parse(text: &str) -> bool {
 
 fn safe_special_parameter(name: &Name) -> bool {
     matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
-}
-
-fn reference_has_array_selector(reference: &VarRef) -> bool {
-    matches!(
-        reference.subscript.as_ref().map(|subscript| subscript.kind),
-        Some(shuck_ast::SubscriptKind::Selector(
-            SubscriptSelector::At | SubscriptSelector::Star
-        ))
-    )
 }
 
 #[cfg(test)]

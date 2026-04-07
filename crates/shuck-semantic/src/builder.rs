@@ -1143,9 +1143,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                 );
             }
-            WordPart::PrefixMatch(name) => {
+            WordPart::PrefixMatch { prefix, .. } => {
                 self.add_reference(
-                    name.clone(),
+                    prefix.clone(),
                     if matches!(kind, WordVisitKind::Conditional) {
                         ReferenceKind::ConditionalOperand
                     } else {

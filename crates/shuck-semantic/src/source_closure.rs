@@ -480,7 +480,7 @@ fn walk_word_parts(
                     walk_arithmetic_expr(expr, model, source, facts);
                 }
             }
-            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch(_) => {}
+            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
         }
     }
 }

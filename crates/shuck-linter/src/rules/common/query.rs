@@ -550,7 +550,7 @@ fn collect_word_part_parameter_patterns<'a>(
             | WordPart::Substring { .. }
             | WordPart::ArraySlice { .. }
             | WordPart::IndirectExpansion { operator: None, .. }
-            | WordPart::PrefixMatch(_)
+            | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. } => {}
         }

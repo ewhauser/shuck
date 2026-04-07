@@ -345,9 +345,12 @@ fn collect_redirects(
         match redirect.word_target() {
             Some(word) => collect_word(word, source, spans, context),
             None => {
-                let body = &redirect.heredoc().expect("expected heredoc redirect").body;
+                let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                if !heredoc.delimiter.expands_body {
+                    continue;
+                }
+                let body = &heredoc.body;
                 collect_word(body, source, spans, context);
-                collect_heredoc_literal_single_quotes(body, source, spans, context);
             }
         }
     }
@@ -410,39 +413,6 @@ fn collect_parameter_operator_patterns(
         | ParameterOp::UpperAll
         | ParameterOp::LowerFirst
         | ParameterOp::LowerAll => {}
-    }
-}
-
-fn collect_heredoc_literal_single_quotes(
-    body: &Word,
-    source: &str,
-    spans: &mut Vec<Span>,
-    context: ScanContext<'_>,
-) {
-    if body.is_fully_quoted() {
-        return;
-    }
-
-    let text = body.span.slice(source);
-    let mut offset = 0usize;
-
-    while let Some(start_rel) = text[offset..].find('\'') {
-        let start = offset + start_rel;
-        let content_start = start + 1;
-        let Some(end_rel) = text[content_start..].find('\'') else {
-            break;
-        };
-        let end = content_start + end_rel + 1;
-        let content = &text[content_start..end - 1];
-
-        if should_report_single_quoted_literal(content, context) {
-            spans.push(Span::from_positions(
-                body.span.start.advanced_by(&text[..start]),
-                body.span.start.advanced_by(&text[..end]),
-            ));
-        }
-
-        offset = end;
     }
 }
 
@@ -714,5 +684,34 @@ mod tests {
             c005("cat <<EOF\n'$HOME should expand but does not'\nEOF\n",),
             1
         );
+    }
+
+    #[test]
+    fn reports_multiple_single_quoted_literals_inside_heredoc_bodies() {
+        let source = "cat <<EOF\n'$HOME' and '$(pwd)'\nEOF\n";
+        let diagnostics = c005_diagnostics(source);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["'$HOME'", "'$(pwd)'"]
+        );
+    }
+
+    #[test]
+    fn reports_single_quoted_literals_inside_tab_stripped_heredoc_bodies() {
+        assert_eq!(c005("cat <<-EOF\n\t'$HOME'\nEOF\n"), 1);
+    }
+
+    #[test]
+    fn ignores_unmatched_single_quotes_inside_heredoc_bodies() {
+        assert_eq!(c005("cat <<EOF\n'$HOME\nEOF\n"), 0);
+    }
+
+    #[test]
+    fn ignores_single_quoted_sequences_inside_quoted_heredoc_bodies() {
+        assert_eq!(c005("cat <<'EOF'\n'$HOME'\nEOF\n"), 0);
     }
 }

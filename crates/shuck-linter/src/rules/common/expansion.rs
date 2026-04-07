@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use shuck_ast::{Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart, WordPartNode};
+use shuck_ast::{
+    PrefixMatchKind, Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart,
+    WordPartNode,
+};
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
 use super::word::static_word_text;
@@ -271,9 +274,9 @@ struct AnalysisSummary {
     has_process_substitution: bool,
 }
 
-pub fn analyze_word(word: &Word, source: &str) -> ExpansionAnalysis {
+pub fn analyze_word(word: &Word, _source: &str) -> ExpansionAnalysis {
     let mut summary = AnalysisSummary::default();
-    analyze_parts(&word.parts, source, false, &mut summary);
+    analyze_parts(&word.parts, false, &mut summary);
 
     ExpansionAnalysis {
         quote: if is_fully_quoted(word) {
@@ -625,7 +628,6 @@ fn redirect_dup_output_sink(
 
 fn analyze_parts(
     parts: &[WordPartNode],
-    source: &str,
     in_double_quotes: bool,
     summary: &mut AnalysisSummary,
 ) {
@@ -633,10 +635,10 @@ fn analyze_parts(
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                analyze_parts(parts, source, true, summary);
+                analyze_parts(parts, true, summary);
             }
             kind => {
-                let analysis = analyze_part(kind, part.span, source, in_double_quotes);
+                let analysis = analyze_part(kind, in_double_quotes);
                 summary.has_non_literal = true;
                 summary.has_scalar_value |= analysis.value_shape == PartValueShape::Scalar;
                 summary.has_array_value |= analysis.array_valued;
@@ -657,7 +659,7 @@ fn analyze_parts(
     }
 }
 
-fn analyze_part(part: &WordPart, span: Span, source: &str, in_double_quotes: bool) -> PartAnalysis {
+fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
     match part {
         WordPart::CommandSubstitution { .. } => scalar_part(
             !in_double_quotes,
@@ -731,9 +733,8 @@ fn analyze_part(part: &WordPart, span: Span, source: &str, in_double_quotes: boo
         WordPart::ArraySlice { .. } | WordPart::ArrayIndices(_) => {
             array_part(true, false, false, false)
         }
-        WordPart::PrefixMatch(_) => {
-            let multi_field =
-                prefix_match_can_expand_to_multiple_fields(span, source, in_double_quotes);
+        WordPart::PrefixMatch { kind, .. } => {
+            let multi_field = prefix_match_can_expand_to_multiple_fields(*kind, in_double_quotes);
             PartAnalysis {
                 value_shape: if multi_field {
                     PartValueShape::Scalar
@@ -822,12 +823,10 @@ fn parameter_operator_uses_pattern(operator: &shuck_ast::ParameterOp) -> bool {
 }
 
 fn prefix_match_can_expand_to_multiple_fields(
-    span: Span,
-    source: &str,
+    kind: PrefixMatchKind,
     in_double_quotes: bool,
 ) -> bool {
-    let text = span.slice(source);
-    text.ends_with("@}") || !in_double_quotes
+    matches!(kind, PrefixMatchKind::At) || !in_double_quotes
 }
 
 fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
