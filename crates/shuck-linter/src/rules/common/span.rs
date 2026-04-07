@@ -1,8 +1,7 @@
 use shuck_ast::{
-    ArithmeticExpansionSyntax, Assignment, CommandListItem, CommandSubstitutionSyntax, Position,
-    Redirect, Span, SubscriptSelector, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode,
+    ArithmeticExpansionSyntax, Assignment, CommandListItem, CommandSubstitutionSyntax, Redirect,
+    Span, Word, WordPart, WordPartNode,
 };
-use shuck_indexer::{Indexer, RegionKind};
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
     assignment.target.name_span
@@ -47,15 +46,15 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn array_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_array_expansion_spans(&word.parts, source, false, false, &mut spans);
+    collect_array_expansion_spans(&word.parts, false, false, &mut spans);
     spans
 }
 
-pub fn unquoted_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn unquoted_array_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_array_expansion_spans(&word.parts, source, false, true, &mut spans);
+    collect_array_expansion_spans(&word.parts, false, true, &mut spans);
     spans
 }
 
@@ -65,22 +64,13 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn scalar_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn scalar_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_scalar_expansion_spans(&word.parts, source, &mut spans);
+    collect_scalar_expansion_spans(&word.parts, &mut spans);
     spans
 }
 
-pub fn single_quoted_region_span(indexer: &Indexer, span: Span) -> Span {
-    let offset = TextSize::new(span.start.offset as u32);
-    let Some(range) = indexer.region_index().single_quoted_range_at(offset) else {
-        return span;
-    };
-
-    text_range_span(indexer, range)
-}
-
-pub fn backtick_fragment_spans(word: &Word, _source: &str) -> Vec<Span> {
+pub fn backtick_fragment_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_backtick_spans(&word.parts, &mut spans);
     spans
@@ -90,36 +80,6 @@ pub fn legacy_arithmetic_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_legacy_arithmetic_spans(&word.parts, &mut spans);
     spans
-}
-
-pub fn position_for_offset(indexer: &Indexer, offset: TextSize) -> Position {
-    let line = indexer.line_index().line_number(offset);
-    let line_start = indexer
-        .line_index()
-        .line_start(line)
-        .unwrap_or_else(|| TextSize::new(0));
-
-    Position {
-        line,
-        column: usize::from(offset) - usize::from(line_start) + 1,
-        offset: usize::from(offset),
-    }
-}
-
-pub fn text_range_span(indexer: &Indexer, range: TextRange) -> Span {
-    Span::from_positions(
-        position_for_offset(indexer, range.start()),
-        position_for_offset(indexer, range.end()),
-    )
-}
-
-pub fn is_quoted_span(indexer: &Indexer, span: Span) -> bool {
-    matches!(
-        indexer
-            .region_index()
-            .region_at(TextSize::new(span.start.offset as u32)),
-        Some(RegionKind::SingleQuoted | RegionKind::DoubleQuoted)
-    )
 }
 
 fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
@@ -153,7 +113,6 @@ fn collect_unquoted_command_substitution_spans(
 
 fn collect_array_expansion_spans(
     parts: &[WordPartNode],
-    source: &str,
     quoted: bool,
     only_unquoted: bool,
     spans: &mut Vec<Span>,
@@ -162,11 +121,10 @@ fn collect_array_expansion_spans(
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_array_expansion_spans(parts, source, true, only_unquoted, spans)
+                collect_array_expansion_spans(parts, true, only_unquoted, spans)
             }
             WordPart::ArrayAccess(reference)
-                if reference_has_array_selector(reference, source)
-                    && (!quoted || !only_unquoted) =>
+                if reference.has_array_selector() && (!quoted || !only_unquoted) =>
             {
                 spans.push(part.span);
             }
@@ -203,12 +161,12 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     }
 }
 
-fn collect_scalar_expansion_spans(parts: &[WordPartNode], source: &str, spans: &mut Vec<Span>) {
+fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_scalar_expansion_spans(parts, source, spans)
+                collect_scalar_expansion_spans(parts, spans)
             }
             WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
             WordPart::Variable(_)
@@ -221,7 +179,7 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], source: &str, spans: &
             | WordPart::PrefixMatch(_)
             | WordPart::Transformation { .. } => spans.push(part.span),
             WordPart::ArrayAccess(reference) => {
-                if !reference_has_array_selector(reference, source) {
+                if !reference.has_array_selector() {
                     spans.push(part.span);
                 }
             }
@@ -260,16 +218,6 @@ fn collect_legacy_arithmetic_spans(parts: &[WordPartNode], spans: &mut Vec<Span>
     }
 }
 
-fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
-    matches!(
-        reference
-            .subscript
-            .as_ref()
-            .and_then(|subscript| subscript.selector()),
-        Some(SubscriptSelector::At | SubscriptSelector::Star)
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use shuck_parser::parser::Parser;
@@ -302,7 +250,7 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let spans = array_expansion_part_spans(&command.args[1], source);
+        let spans = array_expansion_part_spans(&command.args[1]);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].slice(source), "${arr[@]}");
     }
@@ -317,26 +265,70 @@ mod tests {
         };
 
         assert_eq!(
-            scalar_expansion_part_spans(&command.args[1], source)
+            scalar_expansion_part_spans(&command.args[1])
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${name}"]
         );
         assert!(
-            scalar_expansion_part_spans(&command.args[2], source).is_empty(),
+            scalar_expansion_part_spans(&command.args[2]).is_empty(),
             "array splats should be left to S008"
         );
         assert_eq!(
-            scalar_expansion_part_spans(&command.args[3], source)
+            scalar_expansion_part_spans(&command.args[3])
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${arr[0]}"]
         );
         assert!(
-            scalar_expansion_part_spans(&command.args[4], source).is_empty(),
+            scalar_expansion_part_spans(&command.args[4]).is_empty(),
             "command substitutions should be left to S004"
+        );
+    }
+
+    #[test]
+    fn selector_helpers_distinguish_splats_from_indexed_and_quoted_keys() {
+        let source = "printf '%s\\n' ${arr[@]} ${arr[*]} ${arr[0]} ${assoc[\"key\"]}\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.script.commands[0];
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            array_expansion_part_spans(&command.args[1])
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]}"]
+        );
+        assert_eq!(
+            array_expansion_part_spans(&command.args[2])
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[*]}"]
+        );
+        assert!(array_expansion_part_spans(&command.args[3]).is_empty());
+        assert!(array_expansion_part_spans(&command.args[4]).is_empty());
+
+        assert!(scalar_expansion_part_spans(&command.args[1]).is_empty());
+        assert!(scalar_expansion_part_spans(&command.args[2]).is_empty());
+        assert_eq!(
+            scalar_expansion_part_spans(&command.args[3])
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[0]}"]
+        );
+        assert_eq!(
+            scalar_expansion_part_spans(&command.args[4])
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${assoc[\"key\"]}"]
         );
     }
 
@@ -350,7 +342,7 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let spans = backtick_fragment_spans(word, source);
+        let spans = backtick_fragment_spans(word);
         assert_eq!(
             spans
                 .iter()

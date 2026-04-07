@@ -35,7 +35,7 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
                 return;
             };
 
-            if classify_word(word, source).has_plain_command_substitution() {
+            if classify_word(word).has_plain_command_substitution() {
                 for span in span::command_substitution_part_spans(word) {
                     checker.report_dedup(EchoedCommandSubstitution, span);
                 }

@@ -34,7 +34,7 @@ pub fn line_oriented_input(checker: &mut Checker) {
             };
 
             for word in words {
-                if classify_word(word, checker.source()).has_command_substitution() {
+                if classify_word(word).has_command_substitution() {
                     spans.push(word.span);
                 }
             }

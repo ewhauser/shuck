@@ -17,7 +17,6 @@ impl Violation for ConstantCaseSubject {
 }
 
 pub fn constant_case_subject(checker: &mut Checker) {
-    let source = checker.source();
     let mut spans = Vec::new();
 
     query::walk_commands(
@@ -30,7 +29,7 @@ pub fn constant_case_subject(checker: &mut Checker) {
                 return;
             };
 
-            if classify_word(&command.word, source).is_fixed_literal() {
+            if classify_word(&command.word).is_fixed_literal() {
                 spans.push(command.word.span);
             }
         },

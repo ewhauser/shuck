@@ -2008,6 +2008,114 @@ source \"${BASH_SOURCE[0]}__dep.bash\"
     }
 
     #[test]
+    fn bash_source_double_zero_suffix_reads_keep_top_level_assignment_live_transitively() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("loader.bash__dep.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"${BASH_SOURCE[00]}__dep.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn bash_source_spaced_zero_suffix_reads_keep_top_level_assignment_live_transitively() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("loader.bash__dep.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"${BASH_SOURCE[ 0 ]}__dep.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.is_empty(), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn bash_source_nonzero_suffix_does_not_keep_top_level_assignment_live_transitively() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("loader.bash__dep.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source ./loader.bash
+",
+        )
+        .unwrap();
+        fs::write(
+            &loader,
+            "\
+#!/bin/bash
+source \"${BASH_SOURCE[1]}__dep.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            !model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&mut model);
+        assert_eq!(unused, vec!["flag"]);
+    }
+
+    #[test]
     fn bash_source_dirname_reads_keep_top_level_assignment_live_transitively() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.bash");

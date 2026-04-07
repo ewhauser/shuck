@@ -30,7 +30,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
                     return;
                 }
 
-                let classification = classify_word(word, checker.source());
+                let classification = classify_word(word);
                 if classification.has_command_substitution() {
                     for span in span::unquoted_command_substitution_part_spans(word) {
                         checker.report_dedup(UnquotedCommandSubstitution, span);

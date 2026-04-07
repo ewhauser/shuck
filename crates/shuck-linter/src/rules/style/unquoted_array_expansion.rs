@@ -32,9 +32,9 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
                     return;
                 }
 
-                let classification = classify_word(word, source);
+                let classification = classify_word(word);
                 if classification.has_array_expansion() {
-                    for span in span::unquoted_array_expansion_part_spans(word, source) {
+                    for span in span::unquoted_array_expansion_part_spans(word) {
                         checker.report_dedup(UnquotedArrayExpansion, span);
                     }
                 }

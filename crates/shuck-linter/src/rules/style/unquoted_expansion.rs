@@ -1,13 +1,10 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{
-    AssignmentValue, DeclOperand, Name, Span, SubscriptSelector, VarRef, Word, WordPart,
-};
+use shuck_ast::{AssignmentValue, DeclOperand, Name, Span, Word, WordPart};
 use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
 
 use crate::rules::common::{
     expansion::ExpansionContext,
     query::{self, CommandWalkOptions},
-    span,
     word::classify_word,
 };
 use crate::{Checker, Rule, Violation};
@@ -26,7 +23,6 @@ impl Violation for UnquotedExpansion {
 
 pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
-    let indexer = checker.indexer();
     let mut safe_values = SafeValueIndex::build(
         checker.semantic(),
         checker.ast().commands.as_slice(),
@@ -49,10 +45,8 @@ pub fn unquoted_expansion(checker: &mut Checker) {
 
                 report_word_expansions(
                     checker,
-                    indexer,
                     &mut safe_values,
                     word,
-                    source,
                     PartSafetyMode::AllowSafeBindings,
                 );
             });
@@ -202,7 +196,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 }
 
-fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
+fn matches_scalar_expansion_part(part: &WordPart) -> bool {
     match part {
         WordPart::Literal(_)
         | WordPart::SingleQuoted { .. }
@@ -217,8 +211,8 @@ fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
         | WordPart::Substring { .. }
         | WordPart::IndirectExpansion { .. }
         | WordPart::PrefixMatch(_)
-        | WordPart::Transformation { .. } => true,
-        WordPart::ArrayAccess(reference) => !reference_has_array_selector(reference, source),
+            | WordPart::Transformation { .. } => true,
+        WordPart::ArrayAccess(reference) => !reference.has_array_selector(),
         WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => false,
     }
 }
@@ -233,33 +227,19 @@ fn safe_special_parameter(name: &Name) -> bool {
     matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
 }
 
-fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
-    matches!(
-        reference.subscript.as_ref().map(|subscript| subscript.kind),
-        Some(shuck_ast::SubscriptKind::Selector(
-            SubscriptSelector::At | SubscriptSelector::Star
-        ))
-    )
-}
-
 fn report_word_expansions(
     checker: &mut Checker,
-    indexer: &shuck_indexer::Indexer,
     safe_values: &mut SafeValueIndex<'_>,
     word: &Word,
-    source: &str,
     safety_mode: PartSafetyMode,
 ) {
-    let classification = classify_word(word, source);
+    let classification = classify_word(word);
     if !classification.has_scalar_expansion() {
         return;
     }
 
     for (part, part_span) in word.parts_with_spans() {
-        if !matches_scalar_expansion_part(part, source) {
-            continue;
-        }
-        if span::is_quoted_span(indexer, part_span) {
+        if !matches_scalar_expansion_part(part) {
             continue;
         }
         if matches!(safety_mode, PartSafetyMode::AllowSafeBindings)

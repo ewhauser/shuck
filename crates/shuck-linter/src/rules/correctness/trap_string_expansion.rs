@@ -1,12 +1,10 @@
-use crate::rules::common::span;
-use crate::rules::common::word::classify_word;
+use shuck_ast::{Span, Word, WordPart, WordPartNode};
+
 use crate::rules::common::{
     expansion::ExpansionContext,
     query::{self, CommandWalkOptions},
 };
 use crate::{Checker, Rule, Violation};
-
-use super::syntax::word_is_double_quoted;
 
 pub struct TrapStringExpansion;
 
@@ -22,7 +20,6 @@ impl Violation for TrapStringExpansion {
 
 pub fn trap_string_expansion(checker: &mut Checker) {
     let source = checker.source();
-    let indexer = checker.indexer();
 
     query::walk_commands(
         &checker.ast().commands,
@@ -35,15 +32,49 @@ pub fn trap_string_expansion(checker: &mut Checker) {
                     return;
                 }
 
-                if word_is_double_quoted(indexer, word) && classify_word(word, source).is_expanded()
-                {
-                    for span in span::expansion_part_spans(word) {
-                        checker.report_dedup(TrapStringExpansion, span);
-                    }
+                for span in double_quoted_expansion_part_spans(word) {
+                    checker.report_dedup(TrapStringExpansion, span);
                 }
             });
         },
     );
+}
+
+fn double_quoted_expansion_part_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_double_quoted_expansion_spans(&word.parts, false, &mut spans);
+    spans
+}
+
+fn collect_double_quoted_expansion_spans(
+    parts: &[WordPartNode],
+    inside_double_quotes: bool,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_double_quoted_expansion_spans(parts, true, spans);
+            }
+            WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch(_)
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } if inside_double_quotes => spans.push(part.span),
+            WordPart::Literal(_) => {}
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -73,5 +104,20 @@ mod tests {
             test_snippet(source, &LinterSettings::for_rule(Rule::TrapStringExpansion));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_expansions_inside_mixed_quoted_trap_words() {
+        let source = "trap foo\"$x\"bar\"$(date)\" EXIT\n";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::TrapStringExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$x", "$(date)"]
+        );
     }
 }

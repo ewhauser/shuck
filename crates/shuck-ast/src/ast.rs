@@ -261,6 +261,10 @@ impl Subscript {
         self.text.span()
     }
 
+    pub fn is_array_selector(&self) -> bool {
+        matches!(self.kind, SubscriptKind::Selector(_))
+    }
+
     pub fn selector(&self) -> Option<SubscriptSelector> {
         match self.kind {
             SubscriptKind::Ordinary => None,
@@ -283,6 +287,12 @@ pub struct VarRef {
 }
 
 impl VarRef {
+    pub fn has_array_selector(&self) -> bool {
+        self.subscript
+            .as_ref()
+            .is_some_and(Subscript::is_array_selector)
+    }
+
     pub fn is_source_backed(&self) -> bool {
         self.subscript
             .as_ref()
@@ -1028,6 +1038,24 @@ impl Word {
         self.parts.iter().map(|part| (&part.kind, part.span))
     }
 
+    pub fn is_fully_quoted(&self) -> bool {
+        matches!(self.parts.as_slice(), [part] if part.kind.is_quoted())
+    }
+
+    pub fn is_fully_double_quoted(&self) -> bool {
+        matches!(
+            self.parts.as_slice(),
+            [WordPartNode {
+                kind: WordPart::DoubleQuoted { .. },
+                ..
+            }]
+        )
+    }
+
+    pub fn has_quoted_parts(&self) -> bool {
+        self.parts.iter().any(|part| part.kind.is_quoted())
+    }
+
     /// Render this word using exact source slices when available and owned cooked
     /// text only where the parser normalized the input.
     pub fn render(&self, source: &str) -> String {
@@ -1301,6 +1329,12 @@ pub enum WordPart {
     },
     /// Parameter transformation `${var@op}` where op is Q, E, P, A, K, a, u, U, L
     Transformation { reference: VarRef, operator: char },
+}
+
+impl WordPart {
+    pub fn is_quoted(&self) -> bool {
+        matches!(self, Self::SingleQuoted { .. } | Self::DoubleQuoted { .. })
+    }
 }
 
 /// Compound array literal assigned with `(...)`.

@@ -34,7 +34,7 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
                     return;
                 }
 
-                if classify_word(word, source).quote != WordQuote::Unquoted
+                if classify_word(word).quote != WordQuote::Unquoted
                     && quoted_regex_requires_warning(word, source)
                 {
                     spans.push(word.span);
@@ -113,5 +113,14 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn keeps_reporting_mixed_quoted_regex_operands() {
+        let source = "#!/bin/bash\n[[ $value =~ ^\"foo\"bar$ ]]\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "^\"foo\"bar$");
     }
 }

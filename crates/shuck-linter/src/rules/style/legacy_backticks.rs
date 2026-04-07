@@ -15,15 +15,13 @@ impl Violation for LegacyBackticks {
 }
 
 pub fn legacy_backticks(checker: &mut Checker) {
-    let source = checker.source();
-
     query::walk_words(
         &checker.ast().commands,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
         &mut |word| {
-            for span in span::backtick_fragment_spans(word, source) {
+            for span in span::backtick_fragment_spans(word) {
                 checker.report_dedup(LegacyBackticks, span);
             }
         },

@@ -25,9 +25,7 @@ pub fn case_pattern_var(checker: &mut Checker) {
         },
         &mut |command, _| {
             query::visit_expansion_words(command, checker.source(), &mut |word, context| {
-                if context == ExpansionContext::CasePattern
-                    && classify_word(word, checker.source()).is_expanded()
-                {
+                if context == ExpansionContext::CasePattern && classify_word(word).is_expanded() {
                     spans.push(word.span);
                 }
             });
@@ -62,5 +60,13 @@ esac
                 .collect::<Vec<_>>(),
             vec!["$pat", "$(printf '%s' bar)"]
         );
+    }
+
+    #[test]
+    fn ignores_case_patterns_built_from_quoted_literal_fragments() {
+        let source = "#!/bin/bash\ncase $value in foo\"bar\"'baz') : ;; esac\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
+
+        assert!(diagnostics.is_empty());
     }
 }

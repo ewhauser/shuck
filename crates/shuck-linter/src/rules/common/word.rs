@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use shuck_ast::{
-    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, SubscriptSelector, VarRef,
-    Word, WordPart, WordPartNode,
+    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, Word, WordPart,
+    WordPartNode,
 };
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
@@ -128,9 +128,9 @@ pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
 }
 
-pub fn classify_word(word: &Word, source: &str) -> WordClassification {
+pub fn classify_word(word: &Word) -> WordClassification {
     let mut summary = PartSummary::default();
-    classify_parts(&word.parts, source, &mut summary);
+    classify_parts(&word.parts, &mut summary);
 
     let mut has_non_literal = false;
     let has_scalar_expansion = summary.has_scalar_expansion;
@@ -139,9 +139,9 @@ pub fn classify_word(word: &Word, source: &str) -> WordClassification {
     has_non_literal |= summary.has_non_literal;
 
     WordClassification {
-        quote: if is_fully_quoted(word) {
+        quote: if word.is_fully_quoted() {
             WordQuote::FullyQuoted
-        } else if word.parts.iter().any(|part| is_quoted_part(&part.kind)) {
+        } else if word.parts.iter().any(|part| part.kind.is_quoted()) {
             WordQuote::Mixed
         } else {
             WordQuote::Unquoted
@@ -192,11 +192,11 @@ fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut Stri
     true
 }
 
-fn classify_parts(parts: &[WordPartNode], source: &str, summary: &mut PartSummary) {
+fn classify_parts(parts: &[WordPartNode], summary: &mut PartSummary) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => classify_parts(parts, source, summary),
+            WordPart::DoubleQuoted { parts, .. } => classify_parts(parts, summary),
             WordPart::CommandSubstitution { .. } => {
                 summary.has_non_literal = true;
                 summary.command_substitution_count += 1;
@@ -214,7 +214,7 @@ fn classify_parts(parts: &[WordPartNode], source: &str, summary: &mut PartSummar
             }
             WordPart::ArrayAccess(reference) => {
                 summary.has_non_literal = true;
-                if reference_has_array_selector(reference, source) {
+                if reference.has_array_selector() {
                     summary.has_array_expansion = true;
                 } else {
                     summary.has_scalar_expansion = true;
@@ -236,16 +236,6 @@ fn classify_parts(parts: &[WordPartNode], source: &str, summary: &mut PartSummar
     }
 }
 
-fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
-    matches!(
-        reference
-            .subscript
-            .as_ref()
-            .and_then(|subscript| subscript.selector()),
-        Some(SubscriptSelector::At | SubscriptSelector::Star)
-    )
-}
-
 fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
     matches!(
         parts,
@@ -255,17 +245,6 @@ fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
             _ => false,
         }
     )
-}
-
-fn is_quoted_part(part: &WordPart) -> bool {
-    matches!(
-        part,
-        WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
-    )
-}
-
-fn is_fully_quoted(word: &Word) -> bool {
-    matches!(word.parts.as_slice(), [part] if is_quoted_part(&part.kind))
 }
 
 pub fn classify_test_operand(word: &Word, source: &str) -> TestOperandClass {
@@ -471,13 +450,13 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let literal = classify_word(&command.args[0], source);
+        let literal = classify_word(&command.args[0]);
         assert_eq!(literal.quote, WordQuote::FullyQuoted);
         assert_eq!(literal.literalness, WordLiteralness::FixedLiteral);
         assert_eq!(literal.expansion_kind, WordExpansionKind::None);
         assert_eq!(literal.substitution_shape, WordSubstitutionShape::None);
 
-        let expanded = classify_word(&command.args[1], source);
+        let expanded = classify_word(&command.args[1]);
         assert_eq!(expanded.quote, WordQuote::FullyQuoted);
         assert_eq!(expanded.literalness, WordLiteralness::Expanded);
         assert_eq!(expanded.expansion_kind, WordExpansionKind::Scalar);
@@ -493,11 +472,11 @@ mod tests {
         };
 
         assert_eq!(
-            classify_word(&command.args[0], source).substitution_shape,
+            classify_word(&command.args[0]).substitution_shape,
             WordSubstitutionShape::Plain
         );
         assert_eq!(
-            classify_word(&command.args[1], source).substitution_shape,
+            classify_word(&command.args[1]).substitution_shape,
             WordSubstitutionShape::Mixed
         );
     }
@@ -511,19 +490,19 @@ mod tests {
         };
 
         assert_eq!(
-            classify_word(&command.args[0], source).expansion_kind,
+            classify_word(&command.args[0]).expansion_kind,
             WordExpansionKind::Scalar
         );
         assert_eq!(
-            classify_word(&command.args[1], source).expansion_kind,
+            classify_word(&command.args[1]).expansion_kind,
             WordExpansionKind::Array
         );
         assert_eq!(
-            classify_word(&command.args[2], source).expansion_kind,
+            classify_word(&command.args[2]).expansion_kind,
             WordExpansionKind::Scalar
         );
         assert_eq!(
-            classify_word(&command.args[3], source).expansion_kind,
+            classify_word(&command.args[3]).expansion_kind,
             WordExpansionKind::Array
         );
     }

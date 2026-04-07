@@ -38,7 +38,7 @@ pub fn printf_format_variable(checker: &mut Checker) {
                 return;
             };
 
-            if !classify_word(format_word, source).is_fixed_literal() {
+            if !classify_word(format_word).is_fixed_literal() {
                 spans.push(format_word.span);
             }
         },

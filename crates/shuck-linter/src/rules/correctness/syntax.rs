@@ -1,5 +1,4 @@
-use shuck_ast::{Assignment, SimpleCommand, TextSize, Word};
-use shuck_indexer::{Indexer, RegionKind};
+use shuck_ast::{Assignment, SimpleCommand, Word};
 
 pub use crate::rules::common::word::static_word_text;
 
@@ -21,14 +20,6 @@ pub fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Opt
         "test" => Some(&command.args),
         _ => None,
     }
-}
-
-pub fn word_is_double_quoted(indexer: &Indexer, word: &Word) -> bool {
-    let span = word.part_span(0).unwrap_or(word.span);
-    indexer
-        .region_index()
-        .region_at(TextSize::new(span.start.offset as u32))
-        == Some(RegionKind::DoubleQuoted)
 }
 
 #[cfg(test)]

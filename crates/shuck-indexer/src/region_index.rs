@@ -70,16 +70,6 @@ impl RegionIndex {
         best.map(|region| (region.kind, region.range))
     }
 
-    /// Return the single-quoted range containing the given byte offset, if any.
-    pub fn single_quoted_range_at(&self, offset: TextSize) -> Option<TextRange> {
-        containing_range(&self.single_quoted, offset)
-    }
-
-    /// Return the double-quoted range containing the given byte offset, if any.
-    pub fn double_quoted_range_at(&self, offset: TextSize) -> Option<TextRange> {
-        containing_range(&self.double_quoted, offset)
-    }
-
     /// Check if a byte offset falls inside any quoted region.
     pub fn is_quoted(&self, offset: TextSize) -> bool {
         contains_any(&self.single_quoted, offset)
@@ -592,20 +582,6 @@ mod tests {
 
         assert_eq!(regions.region_at(single), Some(RegionKind::SingleQuoted));
         assert_eq!(regions.region_at(double), Some(RegionKind::DoubleQuoted));
-        assert_eq!(
-            regions
-                .single_quoted_range_at(single)
-                .unwrap()
-                .slice(source),
-            "'hello'"
-        );
-        assert_eq!(
-            regions
-                .double_quoted_range_at(double)
-                .unwrap()
-                .slice(source),
-            "\"world $name\""
-        );
     }
 
     #[test]
@@ -668,24 +644,5 @@ mod tests {
         let offset = TextSize::new(source.find("foo").unwrap() as u32);
 
         assert_eq!(regions.region_at(offset), Some(RegionKind::Conditional));
-    }
-
-    #[test]
-    fn quoted_range_helpers_return_none_outside_matching_quote_kind() {
-        let source = "echo unquoted \"$name\"\n";
-        let regions = regions(source);
-        let unquoted = TextSize::new(source.find("unquoted").unwrap() as u32);
-        let quoted = TextSize::new(source.find("$name").unwrap() as u32);
-
-        assert_eq!(regions.single_quoted_range_at(unquoted), None);
-        assert_eq!(regions.double_quoted_range_at(unquoted), None);
-        assert_eq!(regions.single_quoted_range_at(quoted), None);
-        assert_eq!(
-            regions
-                .double_quoted_range_at(quoted)
-                .unwrap()
-                .slice(source),
-            "\"$name\""
-        );
     }
 }

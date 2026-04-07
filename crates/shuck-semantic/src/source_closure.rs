@@ -554,11 +554,13 @@ fn walk_pattern_parts(
 }
 
 fn walk_source_text(
-    _text: &SourceText,
-    _model: &SemanticModel,
-    _source: &str,
-    _facts: &mut AstFacts,
+    text: &SourceText,
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
 ) {
+    let word = Parser::parse_word_fragment(source, text.slice(source), text.span());
+    walk_word(&word, model, source, facts);
 }
 
 fn walk_redirects(
@@ -596,8 +598,8 @@ fn walk_conditional_expr(
         }
         ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, model, source, facts),
         ConditionalExpr::VarRef(var_ref) => {
-            if let Some(index) = &var_ref.subscript {
-                walk_source_text(&index.text, model, source, facts);
+            if let Some(expr) = var_ref_subscript_expr(var_ref) {
+                walk_arithmetic_expr(expr, model, source, facts);
             }
         }
     }
@@ -729,7 +731,88 @@ fn is_bash_source_index_ref(reference: &VarRef, source: &str) -> bool {
         && reference
             .subscript
             .as_ref()
-            .is_some_and(|subscript| subscript.text.slice(source).trim() == "0")
+            .is_some_and(|subscript| subscript_is_semantic_zero(subscript, source))
+}
+
+fn subscript_is_semantic_zero(subscript: &shuck_ast::Subscript, source: &str) -> bool {
+    subscript
+        .arithmetic_ast
+        .as_ref()
+        .is_some_and(|expr| arithmetic_expr_is_semantic_zero(expr, source))
+}
+
+fn arithmetic_expr_is_semantic_zero(expr: &ArithmeticExprNode, source: &str) -> bool {
+    match &expr.kind {
+        ArithmeticExpr::Number(text) => shell_zero_literal(text.slice(source)),
+        ArithmeticExpr::ShellWord(word) => word_is_semantic_zero(word, source),
+        ArithmeticExpr::Parenthesized { expression } => {
+            arithmetic_expr_is_semantic_zero(expression, source)
+        }
+        ArithmeticExpr::Unary { expr, .. } => arithmetic_expr_is_semantic_zero(expr, source),
+        _ => false,
+    }
+}
+
+fn word_is_semantic_zero(word: &Word, source: &str) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [part] if match &part.kind {
+            WordPart::Literal(text) => shell_zero_literal(text.as_str(source, part.span)),
+            WordPart::SingleQuoted { value, .. } => shell_zero_literal(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => matches!(
+                parts.as_slice(),
+                [part] if word_part_is_semantic_zero(&part.kind, part.span, source)
+            ),
+            WordPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => arithmetic_expr_is_semantic_zero(expr, source),
+            _ => false,
+        }
+    )
+}
+
+fn word_part_is_semantic_zero(part: &WordPart, span: Span, source: &str) -> bool {
+    match part {
+        WordPart::Literal(text) => shell_zero_literal(text.as_str(source, span)),
+        WordPart::SingleQuoted { value, .. } => shell_zero_literal(value.slice(source)),
+        WordPart::DoubleQuoted { parts, .. } => matches!(
+            parts.as_slice(),
+            [part] if word_part_is_semantic_zero(&part.kind, part.span, source)
+        ),
+        WordPart::ArithmeticExpansion {
+            expression_ast: Some(expr),
+            ..
+        } => arithmetic_expr_is_semantic_zero(expr, source),
+        _ => false,
+    }
+}
+
+fn shell_zero_literal(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() {
+        return false;
+    }
+
+    let digits = text
+        .strip_prefix('+')
+        .or_else(|| text.strip_prefix('-'))
+        .unwrap_or(text);
+    if digits.is_empty() {
+        return false;
+    }
+
+    if let Some((base, value)) = digits.split_once('#') {
+        return base.parse::<u32>().is_ok_and(|base| {
+            (2..=64).contains(&base) && !value.is_empty() && value.chars().all(|ch| ch == '0')
+        });
+    }
+
+    let digits = digits
+        .strip_prefix("0x")
+        .or_else(|| digits.strip_prefix("0X"))
+        .unwrap_or(digits);
+    !digits.is_empty() && digits.chars().all(|ch| ch == '0')
 }
 
 fn dirname_source_template_part(commands: &[Command], source: &str) -> Option<TemplatePart> {

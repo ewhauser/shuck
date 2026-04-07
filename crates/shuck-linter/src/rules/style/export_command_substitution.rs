@@ -49,7 +49,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
                     continue;
                 };
 
-                if classify_word(word, checker.source()).has_command_substitution() {
+                if classify_word(word).has_command_substitution() {
                     checker.report_dedup(
                         ExportCommandSubstitution {
                             name: assignment.target.name.to_string(),
