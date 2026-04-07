@@ -24,33 +24,23 @@ pub struct FormatCompoundCommand;
 impl FormatNodeRule<Command> for FormatCommand {
     fn fmt(&self, command: &Command, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
         let source = formatter.context().source();
-        let source_map = formatter.context().comments().source_map();
-        let options = formatter.context().options();
-        if should_render_verbatim(command, source_map, options)
-            && let Some(document) = verbatim_command(command, source)
-        {
-            return write!(formatter, [document]);
+        let render_verbatim = {
+            let source_map = formatter.context().comments().source_map();
+            let options = formatter.context().options();
+            should_render_verbatim(command, source_map, options)
+        };
+        if render_verbatim {
+            let span = command_verbatim_span(command, source);
+            formatter.context_mut().comments_mut().claim_in_span(span);
+            if let Some(document) = verbatim_command(command, source) {
+                return write!(formatter, [document]);
+            }
         }
 
         match command {
             Command::Simple(command) => format_simple_command(command, formatter),
             Command::Builtin(command) => format_builtin_command(command, formatter),
-            Command::Decl(command) => {
-                if command.redirects.iter().any(is_heredoc) {
-                    let source = formatter.context().source();
-                    let span =
-                        merge_redirect_heredoc_spans(command.span, &command.redirects, source);
-                    if span.end.offset <= source.len() {
-                        return write!(formatter, [verbatim(span.slice(source))]);
-                    }
-                }
-                let source = formatter.context().source();
-                let rendered = source
-                    .get(command.span.start.offset..command.span.end.offset)
-                    .unwrap_or_default()
-                    .to_string();
-                write!(formatter, [text(rendered)])
-            }
+            Command::Decl(command) => format_decl_clause(command, formatter),
             Command::Pipeline(pipeline) => format_pipeline(pipeline, formatter),
             Command::List(list) => format_command_list(list, formatter),
             Command::Compound(compound, redirects) => {
@@ -95,6 +85,14 @@ pub(crate) fn format_command_sequence(
     commands: &[Command],
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
+    format_command_sequence_with_upper_bound(commands, formatter, None)
+}
+
+fn format_command_sequence_with_upper_bound(
+    commands: &[Command],
+    formatter: &mut ShellFormatter<'_, '_>,
+    upper_bound: Option<usize>,
+) -> FormatResult<()> {
     if commands.is_empty() {
         return Ok(());
     }
@@ -117,7 +115,7 @@ pub(crate) fn format_command_sequence(
             formatter
                 .context_mut()
                 .comments_mut()
-                .attach_sequence(&spans, None),
+                .attach_sequence(&spans, upper_bound),
         )
     };
     let compact = compact_layout
@@ -277,6 +275,59 @@ fn format_builtin_like(
     emit_heredocs(redirects, formatter)
 }
 
+fn format_decl_clause(
+    command: &DeclClause,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    let source = formatter.context().source();
+    let mut first = true;
+
+    for assignment in &command.assignments {
+        if !first {
+            write!(formatter, [space()])?;
+        }
+        write!(formatter, [text(render_assignment(assignment, source))])?;
+        first = false;
+    }
+
+    if !first {
+        write!(formatter, [space()])?;
+    }
+    write!(formatter, [text(command.variant.to_string())])?;
+    first = false;
+
+    for operand in &command.operands {
+        if !first {
+            write!(formatter, [space()])?;
+        }
+        format_decl_operand(operand, formatter)?;
+        first = false;
+    }
+
+    if !command.redirects.is_empty() {
+        if !first {
+            write!(formatter, [space()])?;
+        }
+        format_redirect_list(&command.redirects, formatter)?;
+    }
+
+    emit_heredocs(&command.redirects, formatter)
+}
+
+fn format_decl_operand(
+    operand: &DeclOperand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    let source = formatter.context().source();
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.format().fmt(formatter),
+        DeclOperand::Name(name) => write!(formatter, [text(render_var_ref(name, source))]),
+        DeclOperand::Assignment(assignment) => {
+            write!(formatter, [text(render_assignment(assignment, source))])
+        }
+    }
+}
+
 fn format_pipeline(
     pipeline: &Pipeline,
     formatter: &mut ShellFormatter<'_, '_>,
@@ -360,7 +411,7 @@ fn format_if(command: &IfCommand, formatter: &mut ShellFormatter<'_, '_>) -> For
     format_inline_commands(&command.condition, formatter)?;
     if command.elif_branches.is_empty()
         && command.else_branch.is_none()
-        && can_inline_sequence(&command.then_branch, formatter)
+        && can_inline_body(&command.then_branch, command.span, formatter)
     {
         write!(formatter, [text("; then ")])?;
         format_inline_commands(&command.then_branch, formatter)?;
@@ -406,7 +457,7 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
             word.format().fmt(formatter)?;
         }
     }
-    if can_inline_sequence(&command.body, formatter) {
+    if can_inline_body(&command.body, command.span, formatter) {
         write!(formatter, [text("; do ")])?;
         format_inline_commands(&command.body, formatter)?;
         return write!(formatter, [text("; done")]);
@@ -430,7 +481,7 @@ fn format_select(
         }
         word.format().fmt(formatter)?;
     }
-    if can_inline_sequence(&command.body, formatter) {
+    if can_inline_body(&command.body, command.span, formatter) {
         write!(formatter, [text("; do ")])?;
         format_inline_commands(&command.body, formatter)?;
         return write!(formatter, [text("; done")]);
@@ -446,7 +497,7 @@ fn format_while(
 ) -> FormatResult<()> {
     write!(formatter, [text("while ")])?;
     format_inline_commands(&command.condition, formatter)?;
-    if can_inline_sequence(&command.body, formatter) {
+    if can_inline_body(&command.body, command.span, formatter) {
         write!(formatter, [text("; do ")])?;
         format_inline_commands(&command.body, formatter)?;
         return write!(formatter, [text("; done")]);
@@ -462,7 +513,7 @@ fn format_until(
 ) -> FormatResult<()> {
     write!(formatter, [text("until ")])?;
     format_inline_commands(&command.condition, formatter)?;
-    if can_inline_sequence(&command.body, formatter) {
+    if can_inline_body(&command.body, command.span, formatter) {
         write!(formatter, [text("; do ")])?;
         format_inline_commands(&command.body, formatter)?;
         return write!(formatter, [text("; done")]);
@@ -565,11 +616,22 @@ fn format_block(
     formatter: &mut ShellFormatter<'_, '_>,
     leading_space: bool,
 ) -> FormatResult<()> {
+    format_block_with_upper_bound(open, close, commands, formatter, leading_space, None)
+}
+
+fn format_block_with_upper_bound(
+    open: &str,
+    close: &str,
+    commands: &[Command],
+    formatter: &mut ShellFormatter<'_, '_>,
+    leading_space: bool,
+    upper_bound: Option<usize>,
+) -> FormatResult<()> {
     if leading_space {
         write!(formatter, [space()])?;
     }
     write!(formatter, [text(open)])?;
-    format_body(commands, formatter)?;
+    format_body_with_upper_bound(commands, formatter, upper_bound)?;
     finish_block(close, formatter)
 }
 
@@ -654,7 +716,33 @@ fn format_function(
     } else {
         write!(formatter, [space()])?;
     }
-    function.body.format().fmt(formatter)
+    match function.body.as_ref() {
+        Command::Compound(CompoundCommand::BraceGroup(commands), redirects)
+            if redirects.is_empty() =>
+        {
+            format_block_with_upper_bound(
+                "{",
+                "}",
+                commands,
+                formatter,
+                false,
+                Some(function.span.end.offset),
+            )
+        }
+        Command::Compound(CompoundCommand::Subshell(commands), redirects)
+            if redirects.is_empty() =>
+        {
+            format_block_with_upper_bound(
+                "(",
+                ")",
+                commands,
+                formatter,
+                false,
+                Some(function.span.end.offset),
+            )
+        }
+        _ => function.body.format().fmt(formatter),
+    }
 }
 
 fn format_inline_commands(
@@ -671,16 +759,24 @@ fn format_inline_commands(
 }
 
 fn format_body(commands: &[Command], formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+    format_body_with_upper_bound(commands, formatter, None)
+}
+
+fn format_body_with_upper_bound(
+    commands: &[Command],
+    formatter: &mut ShellFormatter<'_, '_>,
+    upper_bound: Option<usize>,
+) -> FormatResult<()> {
     if commands.is_empty() {
         return Ok(());
     }
 
     if formatter.context().options().compact_layout() {
         write!(formatter, [space()])?;
-        format_command_sequence(commands, formatter)
+        format_command_sequence_with_upper_bound(commands, formatter, upper_bound)
     } else {
         let body = format_into_document(formatter, |nested| {
-            format_command_sequence(commands, nested)
+            format_command_sequence_with_upper_bound(commands, nested, upper_bound)
         })?;
         write!(formatter, [hard_line_break(), indent(body)])
     }
@@ -737,10 +833,6 @@ fn render_heredoc_tail(body_span: Span, delimiter: &str, source: &str) -> String
 }
 
 fn render_assignment(assignment: &Assignment, source: &str) -> String {
-    if assignment.span.end.offset <= source.len() {
-        return assignment.span.slice(source).to_string();
-    }
-
     let mut rendered = assignment.target.name.to_string();
     if let Some(index) = &assignment.target.subscript {
         rendered.push('[');
@@ -1186,8 +1278,36 @@ fn emit_attached_comments(
     Ok(())
 }
 
-fn can_inline_sequence(commands: &[Command], formatter: &ShellFormatter<'_, '_>) -> bool {
-    matches!(commands, [command] if can_inline_command(command, formatter))
+fn can_inline_body(
+    commands: &[Command],
+    enclosing_span: Span,
+    formatter: &ShellFormatter<'_, '_>,
+) -> bool {
+    let [command] = commands else {
+        return false;
+    };
+    if !can_inline_command(command, formatter) {
+        return false;
+    }
+
+    let has_comments = {
+        let source = formatter.context().source();
+        let source_map = formatter.context().comments().source_map();
+        let options = formatter.context().options();
+        let span = command_attachment_span(command, source, source_map, options);
+        formatter
+            .context()
+            .comments()
+            .inspect_sequence(&[span], Some(enclosing_span.end.offset))
+            .attachment
+            .has_comments()
+    };
+    if has_comments {
+        return false;
+    }
+
+    formatter.context().options().compact_layout()
+        || command_span(command).start.line == enclosing_span.start.line
 }
 
 fn can_inline_command(command: &Command, formatter: &ShellFormatter<'_, '_>) -> bool {
@@ -1230,7 +1350,6 @@ fn should_render_verbatim(
 ) -> bool {
     (options.keep_padding() && command_has_alignment_sensitive_padding(command, source_map))
         || (has_heredoc(command) && command_has_trailing_comment(command, source_map))
-        || matches!(command, Command::Decl(command) if command.redirects.iter().any(is_heredoc))
 }
 
 fn command_attachment_span(

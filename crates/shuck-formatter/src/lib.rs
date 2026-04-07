@@ -245,6 +245,48 @@ mod tests {
     }
 
     #[test]
+    fn preserves_multiline_if_body_comments() {
+        let formatted = format_source(
+            "if true; then\n# note\necho hi\nfi\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("if true; then\n\t# note\n\techo hi\nfi\n".to_string())
+        );
+    }
+
+    #[test]
+    fn preserves_heredoc_trailing_comments_without_duplication() {
+        let formatted = format_source(
+            "cat <<EOF # note\nhi\nEOF\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn formats_decl_heredoc_heads_structurally() {
+        let formatted = format_source(
+            "declare -x foo=1<<EOF\nhi\nEOF\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("declare -x foo=1 <<EOF\nhi\nEOF\n".to_string())
+        );
+    }
+
+    #[test]
     fn binary_next_line_pipeline_keeps_heredoc_body_unindented() {
         let options = ShellFormatOptions::default().with_binary_next_line(true);
         let formatted =

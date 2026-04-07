@@ -17,7 +17,10 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
             rendered.push('{');
             rendered.push_str(name.as_str());
             rendered.push('}');
-        } else if let Some(fd) = redirect.fd {
+        } else if let Some(fd) = redirect
+            .fd
+            .filter(|fd| should_render_explicit_fd(*fd, redirect.kind))
+        {
             rendered.push_str(&fd.to_string());
         }
 
@@ -52,5 +55,21 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         rendered.push_str(&target);
 
         write!(formatter, [text(rendered)])
+    }
+}
+
+fn should_render_explicit_fd(fd: i32, kind: RedirectKind) -> bool {
+    match kind {
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::DupOutput
+        | RedirectKind::OutputBoth => fd != 1,
+        RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput => fd != 0,
     }
 }
