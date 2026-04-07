@@ -1,39 +1,8 @@
-use std::collections::HashMap;
+use shuck_ast::{ConditionalExpr, Pattern, PatternPart, Word, WordPart, WordPartNode};
 
-use shuck_ast::{
-    ConditionalExpr, Pattern, PatternPart, Redirect, RedirectKind, Span, Word, WordPart,
-    WordPartNode,
+pub use super::expansion::{
+    ExpansionContext, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
 };
-
-use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WordQuote {
-    FullyQuoted,
-    Mixed,
-    Unquoted,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WordLiteralness {
-    FixedLiteral,
-    Expanded,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WordExpansionKind {
-    None,
-    Scalar,
-    Array,
-    Mixed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WordSubstitutionShape {
-    None,
-    Plain,
-    Mixed,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WordClassification {
@@ -87,92 +56,37 @@ impl TestOperandClass {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubstitutionOutputIntent {
-    Captured,
-    Discarded,
-    Rerouted,
-    Mixed,
-}
-
-impl SubstitutionOutputIntent {
-    fn merge(self, other: Self) -> Self {
-        if self == other { self } else { Self::Mixed }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SubstitutionClassification {
-    pub kind: CommandSubstitutionKind,
-    pub span: Span,
-    pub stdout_intent: SubstitutionOutputIntent,
-    pub has_stdout_redirect: bool,
-}
-
-impl SubstitutionClassification {
-    pub fn stdout_is_captured(self) -> bool {
-        self.stdout_intent == SubstitutionOutputIntent::Captured
-    }
-
-    pub fn stdout_is_discarded(self) -> bool {
-        self.stdout_intent == SubstitutionOutputIntent::Discarded
-    }
-
-    pub fn stdout_is_rerouted(self) -> bool {
-        self.stdout_intent == SubstitutionOutputIntent::Rerouted
-    }
-}
-
 pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
 }
 
-pub fn classify_word(word: &Word) -> WordClassification {
-    let mut summary = PartSummary::default();
-    classify_parts(&word.parts, &mut summary);
-
-    let mut has_non_literal = false;
-    let has_scalar_expansion = summary.has_scalar_expansion;
-    let has_array_expansion = summary.has_array_expansion;
-    let command_substitution_count = summary.command_substitution_count;
-    has_non_literal |= summary.has_non_literal;
+pub fn classify_word(word: &Word, source: &str) -> WordClassification {
+    let analysis = super::expansion::analyze_word(word, source);
 
     WordClassification {
-        quote: if word.is_fully_quoted() {
-            WordQuote::FullyQuoted
-        } else if word.parts.iter().any(|part| part.kind.is_quoted()) {
-            WordQuote::Mixed
-        } else {
-            WordQuote::Unquoted
-        },
-        literalness: if has_non_literal {
-            WordLiteralness::Expanded
-        } else {
-            WordLiteralness::FixedLiteral
-        },
-        expansion_kind: match (has_scalar_expansion, has_array_expansion) {
-            (false, false) => WordExpansionKind::None,
-            (true, false) => WordExpansionKind::Scalar,
-            (false, true) => WordExpansionKind::Array,
-            (true, true) => WordExpansionKind::Mixed,
-        },
-        substitution_shape: if command_substitution_count == 0 {
-            WordSubstitutionShape::None
-        } else if is_plain_command_substitution(&word.parts) {
-            WordSubstitutionShape::Plain
-        } else {
-            WordSubstitutionShape::Mixed
-        },
+        quote: analysis.quote,
+        literalness: analysis.literalness,
+        expansion_kind: analysis.expansion_kind(),
+        substitution_shape: analysis.substitution_shape,
     }
 }
 
-#[derive(Default)]
-struct PartSummary {
-    has_non_literal: bool,
-    has_scalar_expansion: bool,
-    has_array_expansion: bool,
-    command_substitution_count: usize,
+pub fn classify_contextual_operand(
+    word: &Word,
+    source: &str,
+    context: ExpansionContext,
+) -> TestOperandClass {
+    let analysis = super::expansion::analyze_word(word, source);
+    if analysis.literalness == WordLiteralness::Expanded {
+        return TestOperandClass::RuntimeSensitive;
+    }
+
+    if super::expansion::analyze_literal_runtime(word, source, context).is_runtime_sensitive() {
+        TestOperandClass::RuntimeSensitive
+    } else {
+        TestOperandClass::FixedLiteral
+    }
 }
 
 fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
@@ -192,67 +106,8 @@ fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut Stri
     true
 }
 
-fn classify_parts(parts: &[WordPartNode], summary: &mut PartSummary) {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => classify_parts(parts, summary),
-            WordPart::CommandSubstitution { .. } => {
-                summary.has_non_literal = true;
-                summary.command_substitution_count += 1;
-            }
-            WordPart::ProcessSubstitution { .. } => summary.has_non_literal = true,
-            WordPart::Variable(_)
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::Substring { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::Transformation { .. } => {
-                summary.has_non_literal = true;
-                summary.has_scalar_expansion = true;
-            }
-            WordPart::ArrayAccess(reference) => {
-                summary.has_non_literal = true;
-                if reference.has_array_selector() {
-                    summary.has_array_expansion = true;
-                } else {
-                    summary.has_scalar_expansion = true;
-                }
-            }
-            WordPart::ArraySlice { .. } => {
-                summary.has_non_literal = true;
-                summary.has_array_expansion = true;
-            }
-            WordPart::ArrayLength(_) | WordPart::PrefixMatch(_) => {
-                summary.has_non_literal = true;
-                summary.has_scalar_expansion = true;
-            }
-            WordPart::ArrayIndices(_) => {
-                summary.has_non_literal = true;
-                summary.has_array_expansion = true;
-            }
-        }
-    }
-}
-
-fn is_plain_command_substitution(parts: &[WordPartNode]) -> bool {
-    matches!(
-        parts,
-        [part] if match &part.kind {
-            WordPart::CommandSubstitution { .. } => true,
-            WordPart::DoubleQuoted { parts, .. } => is_plain_command_substitution(parts),
-            _ => false,
-        }
-    )
-}
-
 pub fn classify_test_operand(word: &Word, source: &str) -> TestOperandClass {
-    if static_word_text(word, source).is_some() {
-        TestOperandClass::FixedLiteral
-    } else {
-        TestOperandClass::RuntimeSensitive
-    }
+    classify_contextual_operand(word, source, ExpansionContext::CommandArgument)
 }
 
 pub fn classify_conditional_operand(
@@ -261,7 +116,12 @@ pub fn classify_conditional_operand(
 ) -> TestOperandClass {
     match expression {
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            classify_test_operand(word, source)
+            let context = match expression {
+                ConditionalExpr::Word(_) => ExpansionContext::StringTestOperand,
+                ConditionalExpr::Regex(_) => ExpansionContext::RegexOperand,
+                _ => unreachable!(),
+            };
+            classify_contextual_operand(word, source, context)
         }
         ConditionalExpr::Pattern(pattern) => classify_pattern_operand(pattern, source),
         ConditionalExpr::VarRef(_) => TestOperandClass::RuntimeSensitive,
@@ -284,146 +144,23 @@ fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestOperandClass
                 {
                     return TestOperandClass::RuntimeSensitive;
                 }
+                return TestOperandClass::RuntimeSensitive;
             }
             PatternPart::Word(word) => {
-                if !classify_test_operand(word, source).is_fixed_literal() {
+                if !classify_contextual_operand(word, source, ExpansionContext::CasePattern)
+                    .is_fixed_literal()
+                {
                     return TestOperandClass::RuntimeSensitive;
                 }
             }
-            PatternPart::Literal(_)
-            | PatternPart::AnyString
-            | PatternPart::AnyChar
-            | PatternPart::CharClass(_) => {}
+            PatternPart::AnyString | PatternPart::AnyChar | PatternPart::CharClass(_) => {
+                return TestOperandClass::RuntimeSensitive;
+            }
+            PatternPart::Literal(_) => {}
         }
     }
 
     TestOperandClass::FixedLiteral
-}
-
-pub fn classify_substitution(
-    substitution: NestedCommandSubstitution<'_>,
-    source: &str,
-) -> SubstitutionClassification {
-    let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
-    let mut has_stdout_redirect = false;
-
-    query::walk_commands(
-        substitution.commands,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-        &mut |command, _| {
-            let state = classify_command_redirects(query::command_redirects(command), source);
-            has_stdout_redirect |= state.has_stdout_redirect;
-            stdout_intent = Some(match stdout_intent {
-                Some(current) => current.merge(state.stdout_intent),
-                None => state.stdout_intent,
-            });
-        },
-    );
-
-    SubstitutionClassification {
-        kind: substitution.kind,
-        span: substitution.span,
-        stdout_intent: stdout_intent.unwrap_or(SubstitutionOutputIntent::Captured),
-        has_stdout_redirect,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutputSink {
-    Captured,
-    DevNull,
-    Other,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RedirectState {
-    stdout_intent: SubstitutionOutputIntent,
-    has_stdout_redirect: bool,
-}
-
-fn classify_command_redirects(redirects: &[Redirect], source: &str) -> RedirectState {
-    let mut fds = HashMap::from([(1, OutputSink::Captured), (2, OutputSink::Other)]);
-    let mut has_stdout_redirect = false;
-
-    for redirect in redirects {
-        match redirect.kind {
-            RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
-                let sink = redirect_file_sink(redirect, source);
-                let fd = redirect.fd.unwrap_or(1);
-                has_stdout_redirect |= fd == 1;
-                fds.insert(fd, sink);
-            }
-            RedirectKind::OutputBoth => {
-                let sink = redirect_file_sink(redirect, source);
-                has_stdout_redirect = true;
-                fds.insert(1, sink);
-                fds.insert(2, sink);
-            }
-            RedirectKind::DupOutput => {
-                let fd = redirect.fd.unwrap_or(1);
-                let sink = redirect_dup_output_sink(redirect, &fds, source);
-                has_stdout_redirect |= fd == 1;
-                fds.insert(fd, sink);
-            }
-            RedirectKind::Input
-            | RedirectKind::ReadWrite
-            | RedirectKind::HereDoc
-            | RedirectKind::HereDocStrip
-            | RedirectKind::HereString
-            | RedirectKind::DupInput => {}
-        }
-    }
-
-    let stdout_sink = *fds.get(&1).unwrap_or(&OutputSink::Other);
-    let stderr_sink = *fds.get(&2).unwrap_or(&OutputSink::Other);
-    let stdout_intent = if matches!(stdout_sink, OutputSink::Captured)
-        || matches!(stderr_sink, OutputSink::Captured)
-    {
-        SubstitutionOutputIntent::Captured
-    } else if matches!(stdout_sink, OutputSink::DevNull) {
-        SubstitutionOutputIntent::Discarded
-    } else {
-        SubstitutionOutputIntent::Rerouted
-    };
-
-    RedirectState {
-        stdout_intent,
-        has_stdout_redirect,
-    }
-}
-
-fn redirect_file_sink(redirect: &Redirect, source: &str) -> OutputSink {
-    if redirect
-        .word_target()
-        .and_then(|word| static_word_text(word, source))
-        .as_deref()
-        == Some("/dev/null")
-    {
-        OutputSink::DevNull
-    } else {
-        OutputSink::Other
-    }
-}
-
-fn redirect_dup_output_sink(
-    redirect: &Redirect,
-    fds: &HashMap<i32, OutputSink>,
-    source: &str,
-) -> OutputSink {
-    let Some(target) = redirect
-        .word_target()
-        .and_then(|word| static_word_text(word, source))
-    else {
-        return OutputSink::Other;
-    };
-
-    let Ok(fd) = target.parse::<i32>() else {
-        return OutputSink::Other;
-    };
-
-    *fds.get(&fd).unwrap_or(&OutputSink::Other)
 }
 
 #[cfg(test)]
@@ -432,11 +169,10 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        SubstitutionOutputIntent, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
-        WordSubstitutionShape, classify_conditional_operand, classify_substitution,
+        ExpansionContext, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
+        WordSubstitutionShape, classify_conditional_operand, classify_contextual_operand,
         classify_test_operand, classify_word,
     };
-    use crate::rules::common::query::iter_word_command_substitutions;
 
     fn parse_commands(source: &str) -> Vec<Command> {
         Parser::new(source).parse().unwrap().script.commands
@@ -450,13 +186,13 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let literal = classify_word(&command.args[0]);
+        let literal = classify_word(&command.args[0], source);
         assert_eq!(literal.quote, WordQuote::FullyQuoted);
         assert_eq!(literal.literalness, WordLiteralness::FixedLiteral);
         assert_eq!(literal.expansion_kind, WordExpansionKind::None);
         assert_eq!(literal.substitution_shape, WordSubstitutionShape::None);
 
-        let expanded = classify_word(&command.args[1]);
+        let expanded = classify_word(&command.args[1], source);
         assert_eq!(expanded.quote, WordQuote::FullyQuoted);
         assert_eq!(expanded.literalness, WordLiteralness::Expanded);
         assert_eq!(expanded.expansion_kind, WordExpansionKind::Scalar);
@@ -472,11 +208,11 @@ mod tests {
         };
 
         assert_eq!(
-            classify_word(&command.args[0]).substitution_shape,
+            classify_word(&command.args[0], source).substitution_shape,
             WordSubstitutionShape::Plain
         );
         assert_eq!(
-            classify_word(&command.args[1]).substitution_shape,
+            classify_word(&command.args[1], source).substitution_shape,
             WordSubstitutionShape::Mixed
         );
     }
@@ -490,26 +226,26 @@ mod tests {
         };
 
         assert_eq!(
-            classify_word(&command.args[0]).expansion_kind,
+            classify_word(&command.args[0], source).expansion_kind,
             WordExpansionKind::Scalar
         );
         assert_eq!(
-            classify_word(&command.args[1]).expansion_kind,
+            classify_word(&command.args[1], source).expansion_kind,
             WordExpansionKind::Array
         );
         assert_eq!(
-            classify_word(&command.args[2]).expansion_kind,
+            classify_word(&command.args[2], source).expansion_kind,
             WordExpansionKind::Scalar
         );
         assert_eq!(
-            classify_word(&command.args[3]).expansion_kind,
+            classify_word(&command.args[3], source).expansion_kind,
             WordExpansionKind::Array
         );
     }
 
     #[test]
     fn classify_test_and_conditional_operands_share_literal_runtime_decisions() {
-        let source = "test foo\n[[ \"$re\" ]]\n[[ literal ]]\n";
+        let source = "test foo\ntest ~\n[[ \"$re\" ]]\n[[ literal ]]\n[[ ~ ]]\n";
         let commands = parse_commands(source);
 
         let Command::Simple(simple_test) = &commands[0] else {
@@ -520,7 +256,15 @@ mod tests {
             TestOperandClass::FixedLiteral
         );
 
-        let Command::Compound(CompoundCommand::Conditional(runtime), _) = &commands[1] else {
+        let Command::Simple(runtime_test) = &commands[1] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(
+            classify_test_operand(&runtime_test.args[0], source),
+            TestOperandClass::RuntimeSensitive
+        );
+
+        let Command::Compound(CompoundCommand::Conditional(runtime), _) = &commands[2] else {
             panic!("expected conditional");
         };
         assert_eq!(
@@ -528,93 +272,42 @@ mod tests {
             TestOperandClass::RuntimeSensitive
         );
 
-        let Command::Compound(CompoundCommand::Conditional(literal), _) = &commands[2] else {
+        let Command::Compound(CompoundCommand::Conditional(literal), _) = &commands[3] else {
             panic!("expected conditional");
         };
         assert_eq!(
             classify_conditional_operand(&literal.expression, source),
             TestOperandClass::FixedLiteral
         );
+
+        let Command::Compound(CompoundCommand::Conditional(runtime), _) = &commands[4] else {
+            panic!("expected conditional");
+        };
+        assert_eq!(
+            classify_conditional_operand(&runtime.expression, source),
+            TestOperandClass::RuntimeSensitive
+        );
     }
 
     #[test]
-    fn classify_substitution_reports_stdout_intent_and_redirects() {
-        let cases = [
-            (
-                "out=$(printf hi)\n",
-                SubstitutionOutputIntent::Captured,
-                false,
-            ),
-            (
-                "out=$(printf hi > out.txt)\n",
-                SubstitutionOutputIntent::Rerouted,
-                true,
-            ),
-            (
-                "out=$(printf hi >/dev/null 2>&1)\n",
-                SubstitutionOutputIntent::Discarded,
-                true,
-            ),
-            (
-                "out=$(whiptail 3>&1 1>&2 2>&3)\n",
-                SubstitutionOutputIntent::Captured,
-                true,
-            ),
-            (
-                "out=$(jq -r . <<< \"$status\" || die >&2)\n",
-                SubstitutionOutputIntent::Mixed,
-                true,
-            ),
-            (
-                "out=$(awk 'BEGIN { print \"ok\" }' || warn >&2)\n",
-                SubstitutionOutputIntent::Mixed,
-                true,
-            ),
-            (
-                "out=$(getopt -o a -- \"$@\" || { usage >&2 && false; })\n",
-                SubstitutionOutputIntent::Mixed,
-                true,
-            ),
-            (
-                "out=$(\"${cmd[@]}\" \"${options[@]}\" 2>&1 >/dev/tty)\n",
-                SubstitutionOutputIntent::Captured,
-                true,
-            ),
-            (
-                "out=$(cat <<'EOF'\nhello\nEOF\n)\n",
-                SubstitutionOutputIntent::Captured,
-                false,
-            ),
-            (
-                "out=$(printf quiet >/dev/null; printf loud)\n",
-                SubstitutionOutputIntent::Mixed,
-                true,
-            ),
-            (
-                "out=$(printf quiet >/dev/null; printf loud > out.txt)\n",
-                SubstitutionOutputIntent::Mixed,
-                true,
-            ),
-        ];
+    fn contextual_operand_classification_respects_regex_and_case_contexts() {
+        let source = "printf ~ *.sh {a,b}\n";
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands[0] else {
+            panic!("expected simple command");
+        };
 
-        for (source, expected_intent, expected_redirect) in cases {
-            let commands = parse_commands(source);
-            let Command::Simple(command) = &commands[0] else {
-                panic!("expected simple command");
-            };
-            let substitution =
-                iter_word_command_substitutions(match &command.assignments[0].value {
-                    shuck_ast::AssignmentValue::Scalar(word) => word,
-                    shuck_ast::AssignmentValue::Compound(_) => {
-                        panic!("expected scalar assignment")
-                    }
-                })
-                .next()
-                .expect("expected command substitution");
-
-            let classification = classify_substitution(substitution, source);
-            assert_eq!(classification.stdout_intent, expected_intent);
-            assert_eq!(classification.has_stdout_redirect, expected_redirect);
-        }
+        assert_eq!(
+            classify_contextual_operand(&command.args[0], source, ExpansionContext::RegexOperand),
+            TestOperandClass::RuntimeSensitive
+        );
+        assert_eq!(
+            classify_contextual_operand(&command.args[1], source, ExpansionContext::CasePattern),
+            TestOperandClass::FixedLiteral
+        );
+        assert_eq!(
+            classify_contextual_operand(&command.args[2], source, ExpansionContext::CasePattern),
+            TestOperandClass::FixedLiteral
+        );
     }
 }

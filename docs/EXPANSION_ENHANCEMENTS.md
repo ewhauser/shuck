@@ -165,10 +165,10 @@ This should replace the current narrow shape checks in [`classify_word`](../crat
 
 Action items:
 
-- [ ] Introduce a new expansion analysis record under `rules/common`.
-- [ ] Re-implement `classify_word` on top of the new analysis rather than local `WordPart` shortcuts.
-- [ ] Distinguish "array-valued" from "can expand to multiple argv fields".
-- [ ] Add regression tests for `${arr[@]}`, `${arr[*]}`, `${!prefix@}`, indirect expansions, and transformation operators.
+- [x] Introduce a new expansion analysis record under `rules/common`.
+- [x] Re-implement `classify_word` on top of the new analysis rather than local `WordPart` shortcuts.
+- [x] Distinguish "array-valued" from "can expand to multiple argv fields".
+- [x] Add regression tests for `${arr[@]}`, `${arr[*]}`, `${!prefix@}`, indirect expansions, and transformation operators.
 
 gbash references:
 

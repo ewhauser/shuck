@@ -1,5 +1,5 @@
+use crate::rules::common::expansion::analyze_word;
 use crate::rules::common::span;
-use crate::rules::common::word::classify_word;
 use crate::rules::common::{
     expansion::ExpansionContext,
     query::{self, CommandWalkOptions},
@@ -32,9 +32,9 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
                     return;
                 }
 
-                let classification = classify_word(word);
-                if classification.has_array_expansion() {
-                    for span in span::unquoted_array_expansion_part_spans(word) {
+                let analysis = analyze_word(word, source);
+                if analysis.array_valued && analysis.can_expand_to_multiple_fields {
+                    for span in span::unquoted_array_expansion_part_spans(word, source) {
                         checker.report_dedup(UnquotedArrayExpansion, span);
                     }
                 }
@@ -75,6 +75,20 @@ printf '%s\\n' prefix${arr[@]}suffix ${arr[0]} ${names[*]}
 arr=(a b)
 printf '%s\\n' ok >${paths[@]}
 cat <<< ${items[@]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_array_values_that_stay_single_field_when_quoted() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${names[*]}\" \"${arr[0]}\"
 ";
         let diagnostics = test_snippet(
             source,
