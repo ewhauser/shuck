@@ -79,12 +79,9 @@ pub(super) fn parse_expression(
 ) -> Result<ArithmeticExprNode> {
     let mut parser = ArithmeticParser::new(input, base, max_depth, max_fuel);
     let expr = parser.parse_expression()?;
-    let trailing = parser.peek_token()?;
-    if !matches!(trailing.kind, TokenKind::End) {
-        return Err(parser.error_at(
-            trailing.span.start,
-            "unexpected token in arithmetic expression",
-        ));
+    if !matches!(parser.peek_token()?.kind, TokenKind::End) {
+        let trailing_start = parser.peek_token()?.span.start;
+        return Err(parser.error_at(trailing_start, "unexpected token in arithmetic expression"));
     }
     Ok(expr)
 }
@@ -139,7 +136,7 @@ impl<'a> ArithmeticParser<'a> {
 
     fn parse_assignment(&mut self) -> Result<ArithmeticExprNode> {
         let left = self.parse_conditional()?;
-        let op = match self.peek_token()?.kind {
+        let op = match &self.peek_token()?.kind {
             TokenKind::Assign => ArithmeticAssignOp::Assign,
             TokenKind::PlusAssign => ArithmeticAssignOp::AddAssign,
             TokenKind::MinusAssign => ArithmeticAssignOp::SubAssign,
@@ -287,19 +284,36 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn parse_unary(&mut self) -> Result<ArithmeticExprNode> {
-        let token = self.peek_token()?;
-        let op = match token.kind {
-            TokenKind::Increment => ArithmeticUnaryOp::PreIncrement,
-            TokenKind::Decrement => ArithmeticUnaryOp::PreDecrement,
-            TokenKind::Plus => ArithmeticUnaryOp::Plus,
-            TokenKind::Minus => ArithmeticUnaryOp::Minus,
-            TokenKind::Bang => ArithmeticUnaryOp::LogicalNot,
-            TokenKind::Tilde => ArithmeticUnaryOp::BitwiseNot,
+        let (op, start_span) = match self.peek_token()? {
+            Token {
+                kind: TokenKind::Increment,
+                span,
+            } => (ArithmeticUnaryOp::PreIncrement, *span),
+            Token {
+                kind: TokenKind::Decrement,
+                span,
+            } => (ArithmeticUnaryOp::PreDecrement, *span),
+            Token {
+                kind: TokenKind::Plus,
+                span,
+            } => (ArithmeticUnaryOp::Plus, *span),
+            Token {
+                kind: TokenKind::Minus,
+                span,
+            } => (ArithmeticUnaryOp::Minus, *span),
+            Token {
+                kind: TokenKind::Bang,
+                span,
+            } => (ArithmeticUnaryOp::LogicalNot, *span),
+            Token {
+                kind: TokenKind::Tilde,
+                span,
+            } => (ArithmeticUnaryOp::BitwiseNot, *span),
             _ => return self.parse_postfix(),
         };
         self.next_token()?;
         let expr = self.parse_unary()?;
-        let span = token.span.merge(expr.span);
+        let span = start_span.merge(expr.span);
         self.ensure_lvalue_if_update(op, &expr)?;
         Ok(ArithmeticExprNode::new(
             ArithmeticExpr::Unary {
@@ -313,39 +327,42 @@ impl<'a> ArithmeticParser<'a> {
     fn parse_postfix(&mut self) -> Result<ArithmeticExprNode> {
         let mut expr = self.parse_primary()?;
         loop {
-            let token = self.peek_token()?;
-            match token.kind {
-                TokenKind::LeftBracket => {
-                    self.next_token()?;
-                    let index = self.parse_comma()?;
-                    let closing = self.next_token()?;
-                    if !matches!(closing.kind, TokenKind::RightBracket) {
-                        return Err(
-                            self.error_at(closing.span.start, "expected ']' in arithmetic index")
-                        );
-                    }
-                    let span = expr.span.merge(closing.span);
-                    expr = self.index_expr(expr, index, span)?;
-                }
-                TokenKind::Increment | TokenKind::Decrement => {
-                    self.next_token()?;
-                    self.ensure_postfix_target(&expr, token.span.start)?;
-                    let op = match token.kind {
-                        TokenKind::Increment => ArithmeticPostfixOp::Increment,
-                        TokenKind::Decrement => ArithmeticPostfixOp::Decrement,
-                        _ => unreachable!(),
-                    };
-                    let span = expr.span.merge(token.span);
-                    expr = ArithmeticExprNode::new(
-                        ArithmeticExpr::Postfix {
-                            expr: Box::new(expr),
-                            op,
-                        },
-                        span,
+            if matches!(self.peek_token()?.kind, TokenKind::LeftBracket) {
+                self.next_token()?;
+                let index = self.parse_comma()?;
+                let closing = self.next_token()?;
+                if !matches!(closing.kind, TokenKind::RightBracket) {
+                    return Err(
+                        self.error_at(closing.span.start, "expected ']' in arithmetic index")
                     );
                 }
-                _ => break,
+                let span = expr.span.merge(closing.span);
+                expr = self.index_expr(expr, index, span)?;
+                continue;
             }
+
+            let (op, at, span) = match self.peek_token()? {
+                Token {
+                    kind: TokenKind::Increment,
+                    span,
+                } => (ArithmeticPostfixOp::Increment, span.start, *span),
+                Token {
+                    kind: TokenKind::Decrement,
+                    span,
+                } => (ArithmeticPostfixOp::Decrement, span.start, *span),
+                _ => break,
+            };
+
+            self.next_token()?;
+            self.ensure_postfix_target(&expr, at)?;
+            let expr_span = expr.span;
+            expr = ArithmeticExprNode::new(
+                ArithmeticExpr::Postfix {
+                    expr: Box::new(expr),
+                    op,
+                },
+                expr_span.merge(span),
+            );
         }
         Ok(expr)
     }
@@ -390,11 +407,11 @@ impl<'a> ArithmeticParser<'a> {
     fn parse_left_associative(
         &mut self,
         subparser: fn(&mut Self) -> Result<ArithmeticExprNode>,
-        op_of: fn(TokenKind) -> Option<ArithmeticBinaryOp>,
+        op_of: fn(&TokenKind) -> Option<ArithmeticBinaryOp>,
     ) -> Result<ArithmeticExprNode> {
         let mut expr = subparser(self)?;
         loop {
-            let Some(op) = op_of(self.peek_token()?.kind.clone()) else {
+            let Some(op) = op_of(&self.peek_token()?.kind) else {
                 break;
             };
             self.next_token()?;
@@ -475,11 +492,11 @@ impl<'a> ArithmeticParser<'a> {
         self.lex_token()
     }
 
-    fn peek_token(&mut self) -> Result<Token> {
+    fn peek_token(&mut self) -> Result<&Token> {
         if self.peeked.is_none() {
             self.peeked = Some(self.lex_token()?);
         }
-        Ok(self.peeked.clone().unwrap())
+        Ok(self.peeked.as_ref().unwrap())
     }
 
     fn lex_token(&mut self) -> Result<Token> {

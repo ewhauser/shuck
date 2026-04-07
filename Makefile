@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -91,6 +91,12 @@ profile-parser:
 profile-parser-view:
 	SAMPLY_VIEW=1 $(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh parser "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
 
+profile-arithmetic:
+	$(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh arithmetic "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
+
+profile-arithmetic-view:
+	SAMPLY_VIEW=1 $(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh arithmetic "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
+
 profile-linter:
 	$(NIX_DEVELOP) ./scripts/profiling/profile_bench.sh linter "$(PROFILE_CASE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
 
@@ -105,12 +111,17 @@ profile-cli-view:
 
 flame-parser:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck-benchmark --bench parser -o $(PROFILE_DIR)/flame-parser-$(PROFILE_CASE).svg -- $(PROFILE_CASE) --noplot
+	cargo flamegraph --profile profiling -p shuck-benchmark --bench parser -o $(PROFILE_DIR)/flame-parser-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
 	open $(PROFILE_DIR)/flame-parser-$(PROFILE_CASE).svg
+
+flame-arithmetic:
+	@mkdir -p $(PROFILE_DIR)
+	cargo flamegraph --profile profiling -p shuck-benchmark --bench arithmetic -o $(PROFILE_DIR)/flame-arithmetic-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
+	open $(PROFILE_DIR)/flame-arithmetic-$(PROFILE_CASE).svg
 
 flame-linter:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck-benchmark --bench linter -o $(PROFILE_DIR)/flame-linter-$(PROFILE_CASE).svg -- $(PROFILE_CASE) --noplot
+	cargo flamegraph --profile profiling -p shuck-benchmark --bench linter -o $(PROFILE_DIR)/flame-linter-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
 	open $(PROFILE_DIR)/flame-linter-$(PROFILE_CASE).svg
 
 flame-cli:

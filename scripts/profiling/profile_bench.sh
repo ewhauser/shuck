@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-bench_name=${1:?Usage: profile_bench.sh <parser|linter> [case] [output-dir] [rate] [iterations]}
+bench_name=${1:?Usage: profile_bench.sh <bench-name> [case] [output-dir] [rate] [iterations]}
 case_name=${2:-nvm}
 profile_root=${3:-.cache/profiles}
 rate=${4:-1000}
@@ -40,7 +40,7 @@ samply record \
     --iteration-count "$iterations" \
     --profile-name "$bench_name/$case_name" \
     -- \
-    "$binary" "$case_name" --noplot
+    "$binary" --bench "$case_name" --noplot
 
 if [ "${SAMPLY_VIEW:-0}" = "1" ]; then
     echo "Opening profile in samply..."
