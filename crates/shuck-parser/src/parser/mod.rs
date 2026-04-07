@@ -7005,6 +7005,70 @@ mod tests {
     }
 
     #[test]
+    fn test_backtick_command_substitution_inside_double_quotes_preserves_syntax_form() {
+        let input = "echo \"pre `printf hi` post\"\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let word = &command.args[0];
+
+        assert!(is_fully_quoted(word));
+        assert_eq!(top_level_part_slices(word, input), vec!["\"pre `printf hi` post\""]);
+
+        let WordPart::DoubleQuoted { parts, dollar } = &word.parts[0].kind else {
+            panic!("expected double-quoted word");
+        };
+        assert!(!dollar);
+
+        let slices: Vec<&str> = parts.iter().map(|part| part.span.slice(input)).collect();
+        assert_eq!(slices, vec!["pre ", "`printf hi`", " post"]);
+
+        let WordPart::CommandSubstitution { commands, syntax } = &parts[1].kind else {
+            panic!("expected command substitution");
+        };
+        assert_eq!(*syntax, CommandSubstitutionSyntax::Backtick);
+
+        let Command::Simple(inner) = &commands[0] else {
+            panic!("expected simple command in substitution");
+        };
+        assert_eq!(inner.name.render(input), "printf");
+        assert_eq!(inner.args[0].render(input), "hi");
+    }
+
+    #[test]
+    fn test_dollar_quoted_words_preserve_quote_variants() {
+        let input = "printf $'line\\n' $\"prefix $HOME\"\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 2);
+
+        let ansi = &command.args[0];
+        assert!(is_fully_quoted(ansi));
+        assert_eq!(top_level_part_slices(ansi, input), vec!["$'line\\n'"]);
+        let WordPart::SingleQuoted { value, dollar } = &ansi.parts[0].kind else {
+            panic!("expected single-quoted word");
+        };
+        assert!(*dollar);
+        assert_eq!(value.slice(input), "line\n");
+
+        let translated = &command.args[1];
+        assert!(is_fully_quoted(translated));
+        assert_eq!(top_level_part_slices(translated, input), vec!["$\"prefix $HOME\""]);
+        let WordPart::DoubleQuoted { parts, dollar } = &translated.parts[0].kind else {
+            panic!("expected double-quoted word");
+        };
+        assert!(*dollar);
+        let slices: Vec<&str> = parts.iter().map(|part| part.span.slice(input)).collect();
+        assert_eq!(slices, vec!["prefix ", "$HOME"]);
+        assert!(matches!(parts[1].kind, WordPart::Variable(ref name) if name == "HOME"));
+    }
+
+    #[test]
     fn test_word_part_spans_track_nested_array_expansions() {
         let input = "echo ${arr[$RANDOM % ${#arr[@]}]}\n";
         let script = Parser::new(input).parse().unwrap().script;
@@ -7072,6 +7136,53 @@ mod tests {
         assert_eq!(*syntax, ArithmeticExpansionSyntax::DollarParenParen);
         assert!(expression.is_source_backed());
         assert_eq!(expression.slice(input), "(a) + ((b))");
+    }
+
+    #[test]
+    fn test_arithmetic_expansion_inside_double_quotes_preserves_legacy_and_modern_syntax() {
+        let input = "echo \"$((1 + 2))\" \"$[3 + 4]\"\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 2);
+
+        let modern = &command.args[0];
+        assert!(is_fully_quoted(modern));
+        let WordPart::DoubleQuoted { parts, dollar } = &modern.parts[0].kind else {
+            panic!("expected double-quoted modern arithmetic");
+        };
+        assert!(!dollar);
+        assert_eq!(parts[0].span.slice(input), "$((1 + 2))");
+        let WordPart::ArithmeticExpansion {
+            expression,
+            syntax,
+        } = &parts[0].kind
+        else {
+            panic!("expected arithmetic expansion");
+        };
+        assert_eq!(*syntax, ArithmeticExpansionSyntax::DollarParenParen);
+        assert!(expression.is_source_backed());
+        assert_eq!(expression.slice(input), "1 + 2");
+
+        let legacy = &command.args[1];
+        assert!(is_fully_quoted(legacy));
+        let WordPart::DoubleQuoted { parts, dollar } = &legacy.parts[0].kind else {
+            panic!("expected double-quoted legacy arithmetic");
+        };
+        assert!(!dollar);
+        assert_eq!(parts[0].span.slice(input), "$[3 + 4]");
+        let WordPart::ArithmeticExpansion {
+            expression,
+            syntax,
+        } = &parts[0].kind
+        else {
+            panic!("expected arithmetic expansion");
+        };
+        assert_eq!(*syntax, ArithmeticExpansionSyntax::LegacyBracket);
+        assert!(expression.is_source_backed());
+        assert_eq!(expression.slice(input), "3 + 4");
     }
 
     #[test]
