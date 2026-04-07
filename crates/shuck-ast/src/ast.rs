@@ -136,11 +136,52 @@ pub struct Comment {
     pub range: TextRange,
 }
 
-/// A complete bash script.
+/// A complete bash source file.
 #[derive(Debug, Clone)]
-pub struct Script {
-    pub commands: Vec<Command>,
-    /// Source span of the entire script
+pub struct File {
+    pub body: StmtSeq,
+    /// Source span of the entire file.
+    pub span: Span,
+}
+
+/// A sequence of statements plus comments that belong around that sequence.
+#[derive(Debug, Clone)]
+pub struct StmtSeq {
+    /// Comments before the first statement in this sequence.
+    pub leading_comments: Vec<Comment>,
+    /// Statements in source order.
+    pub stmts: Vec<Stmt>,
+    /// Comments after the final statement and before the enclosing terminator.
+    pub trailing_comments: Vec<Comment>,
+    /// Source span covering the full sequence.
+    pub span: Span,
+}
+
+/// A statement terminator in a surrounding sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StmtTerminator {
+    Semicolon,
+    Background,
+}
+
+/// A single shell statement together with statement-local syntax.
+#[derive(Debug, Clone)]
+pub struct Stmt {
+    /// Own-line comments immediately preceding this statement.
+    pub leading_comments: Vec<Comment>,
+    /// The statement payload.
+    pub command: Command,
+    /// Whether this statement was prefixed with `!`.
+    pub negated: bool,
+    /// Redirections attached to the statement.
+    pub redirects: Vec<Redirect>,
+    /// Optional `;` or `&` terminator in the containing sequence.
+    pub terminator: Option<StmtTerminator>,
+    /// Source span of the terminator token when present.
+    pub terminator_span: Option<Span>,
+    /// Trailing inline comment on the statement line.
+    pub inline_comment: Option<Comment>,
+    /// Source span of the full statement.
     pub span: Span,
 }
 
@@ -157,28 +198,23 @@ pub enum Command {
     /// A declaration builtin clause (`declare`, `local`, `export`, `readonly`, `typeset`)
     Decl(DeclClause),
 
-    /// A pipeline (e.g., `ls | grep foo`)
-    Pipeline(Pipeline),
+    /// A binary shell command such as `a && b`, `a || b`, or `a | b`.
+    Binary(BinaryCommand),
 
-    /// A command list (e.g., `a && b || c`)
-    List(CommandList),
-
-    /// A compound command (if, for, while, case, etc.) with optional redirections
-    Compound(CompoundCommand, Vec<Redirect>),
+    /// A compound command (if, for, while, case, etc.).
+    Compound(CompoundCommand),
 
     /// A function definition
     Function(FunctionDef),
 }
 
-/// A simple command with arguments and redirections.
+/// A simple command with arguments.
 #[derive(Debug, Clone)]
 pub struct SimpleCommand {
     /// Command name
     pub name: Word,
     /// Command arguments
     pub args: Vec<Word>,
-    /// Redirections
-    pub redirects: Vec<Redirect>,
     /// Variable assignments before the command
     pub assignments: Vec<Assignment>,
     /// Source span of this command
@@ -194,8 +230,6 @@ pub struct DeclClause {
     pub variant_span: Span,
     /// Parsed declaration operands.
     pub operands: Vec<DeclOperand>,
-    /// Redirections attached to the declaration clause.
-    pub redirects: Vec<Redirect>,
     /// Variable assignments before the declaration clause.
     pub assignments: Vec<Assignment>,
     /// Source span of this command.
@@ -330,8 +364,6 @@ pub struct BreakCommand {
     pub depth: Option<Word>,
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
-    /// Redirections attached to the builtin
-    pub redirects: Vec<Redirect>,
     /// Variable assignments before the builtin
     pub assignments: Vec<Assignment>,
     /// Source span of this command
@@ -345,8 +377,6 @@ pub struct ContinueCommand {
     pub depth: Option<Word>,
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
-    /// Redirections attached to the builtin
-    pub redirects: Vec<Redirect>,
     /// Variable assignments before the builtin
     pub assignments: Vec<Assignment>,
     /// Source span of this command
@@ -360,8 +390,6 @@ pub struct ReturnCommand {
     pub code: Option<Word>,
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
-    /// Redirections attached to the builtin
-    pub redirects: Vec<Redirect>,
     /// Variable assignments before the builtin
     pub assignments: Vec<Assignment>,
     /// Source span of this command
@@ -375,55 +403,29 @@ pub struct ExitCommand {
     pub code: Option<Word>,
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
-    /// Redirections attached to the builtin
-    pub redirects: Vec<Redirect>,
     /// Variable assignments before the builtin
     pub assignments: Vec<Assignment>,
     /// Source span of this command
     pub span: Span,
 }
 
-/// A pipeline of commands.
+/// A binary shell command such as `a && b`, `a || b`, or `a | b`.
 #[derive(Debug, Clone)]
-pub struct Pipeline {
-    /// Whether the pipeline is negated (!)
-    pub negated: bool,
-    /// Commands in the pipeline
-    pub commands: Vec<Command>,
-    /// Source span of this pipeline
+pub struct BinaryCommand {
+    pub left: Box<Stmt>,
+    pub op: BinaryOp,
+    pub op_span: Span,
+    pub right: Box<Stmt>,
     pub span: Span,
 }
 
-/// A list of commands with operators.
-#[derive(Debug, Clone)]
-pub struct CommandList {
-    /// First command
-    pub first: Box<Command>,
-    /// Remaining commands with their operators
-    pub rest: Vec<CommandListItem>,
-    /// Source span of this command list
-    pub span: Span,
-}
-
-/// A command following a list operator such as `&&`, `||`, `;`, or `&`.
-#[derive(Debug, Clone)]
-pub struct CommandListItem {
-    pub operator: ListOperator,
-    pub operator_span: Span,
-    pub command: Command,
-}
-
-/// Operators for command lists.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ListOperator {
-    /// && - execute next if previous succeeded
+/// Binary shell operators with statement-level operands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
     And,
-    /// || - execute next if previous failed
     Or,
-    /// ; - execute next unconditionally
-    Semicolon,
-    /// & - execute in background
-    Background,
+    Pipe,
+    PipeAll,
 }
 
 /// Compound commands (control structures).
@@ -444,9 +446,9 @@ pub enum CompoundCommand {
     /// Select loop
     Select(SelectCommand),
     /// Subshell (commands in parentheses)
-    Subshell(Vec<Command>),
+    Subshell(StmtSeq),
     /// Brace group
-    BraceGroup(Vec<Command>),
+    BraceGroup(StmtSeq),
     /// Arithmetic command ((expression))
     Arithmetic(ArithmeticCommand),
     /// Time command - measure execution time
@@ -469,7 +471,7 @@ pub struct CoprocCommand {
     /// Source span of the explicit coprocess name, when present.
     pub name_span: Option<Span>,
     /// The command to run as a coprocess
-    pub body: Box<Command>,
+    pub body: Box<Stmt>,
     /// Source span of this command
     pub span: Span,
 }
@@ -484,7 +486,7 @@ pub struct TimeCommand {
     /// Use POSIX output format (-p flag)
     pub posix_format: bool,
     /// The command to time (optional - timing with no command is valid)
-    pub command: Option<Box<Command>>,
+    pub command: Option<Box<Stmt>>,
     /// Source span of this command
     pub span: Span,
 }
@@ -682,10 +684,10 @@ impl ConditionalUnaryOp {
 /// If statement.
 #[derive(Debug, Clone)]
 pub struct IfCommand {
-    pub condition: Vec<Command>,
-    pub then_branch: Vec<Command>,
-    pub elif_branches: Vec<(Vec<Command>, Vec<Command>)>,
-    pub else_branch: Option<Vec<Command>>,
+    pub condition: StmtSeq,
+    pub then_branch: StmtSeq,
+    pub elif_branches: Vec<(StmtSeq, StmtSeq)>,
+    pub else_branch: Option<StmtSeq>,
     /// Source span of this command
     pub span: Span,
 }
@@ -696,7 +698,7 @@ pub struct ForCommand {
     pub variable: Name,
     pub variable_span: Span,
     pub words: Option<Vec<Word>>,
-    pub body: Vec<Command>,
+    pub body: StmtSeq,
     /// Source span of this command
     pub span: Span,
 }
@@ -707,7 +709,7 @@ pub struct SelectCommand {
     pub variable: Name,
     pub variable_span: Span,
     pub words: Vec<Word>,
-    pub body: Vec<Command>,
+    pub body: StmtSeq,
     /// Source span of this command
     pub span: Span,
 }
@@ -740,7 +742,7 @@ pub struct ArithmeticForCommand {
     pub step_ast: Option<ArithmeticExprNode>,
     pub right_paren_span: Span,
     /// Loop body
-    pub body: Vec<Command>,
+    pub body: StmtSeq,
     /// Source span of this command
     pub span: Span,
 }
@@ -872,8 +874,8 @@ pub enum ArithmeticAssignOp {
 /// While loop.
 #[derive(Debug, Clone)]
 pub struct WhileCommand {
-    pub condition: Vec<Command>,
-    pub body: Vec<Command>,
+    pub condition: StmtSeq,
+    pub body: StmtSeq,
     /// Source span of this command
     pub span: Span,
 }
@@ -881,8 +883,8 @@ pub struct WhileCommand {
 /// Until loop.
 #[derive(Debug, Clone)]
 pub struct UntilCommand {
-    pub condition: Vec<Command>,
-    pub body: Vec<Command>,
+    pub condition: StmtSeq,
+    pub body: StmtSeq,
     /// Source span of this command
     pub span: Span,
 }
@@ -911,7 +913,7 @@ pub enum CaseTerminator {
 #[derive(Debug, Clone)]
 pub struct CaseItem {
     pub patterns: Vec<Pattern>,
-    pub commands: Vec<Command>,
+    pub body: StmtSeq,
     pub terminator: CaseTerminator,
 }
 
@@ -947,7 +949,7 @@ pub struct FunctionDef {
     pub name: Name,
     pub name_span: Span,
     pub surface: FunctionSurface,
-    pub body: Box<Command>,
+    pub body: Box<Stmt>,
     /// Source span of this function definition
     pub span: Span,
 }
@@ -1457,7 +1459,7 @@ pub enum WordPart {
     Variable(Name),
     /// Command substitution ($(...)) or legacy backticks.
     CommandSubstitution {
-        commands: Vec<Command>,
+        body: StmtSeq,
         syntax: CommandSubstitutionSyntax,
     },
     /// Arithmetic expansion ($((...)) or legacy $[...]).
@@ -1516,7 +1518,7 @@ pub enum WordPart {
     /// Process substitution <(cmd) or >(cmd)
     ProcessSubstitution {
         /// The commands to run
-        commands: Vec<Command>,
+        body: StmtSeq,
         /// True for <(cmd), false for >(cmd)
         is_input: bool,
     },
@@ -1682,11 +1684,11 @@ fn fmt_word_part_with_source_mode(
             },
         },
         WordPart::Variable(name) => write!(f, "${}", name)?,
-        WordPart::CommandSubstitution { commands, syntax } => match source {
+        WordPart::CommandSubstitution { body, syntax } => match source {
             Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
             _ => match syntax {
-                CommandSubstitutionSyntax::DollarParen => write!(f, "$({:?})", commands)?,
-                CommandSubstitutionSyntax::Backtick => write!(f, "`{:?}`", commands)?,
+                CommandSubstitutionSyntax::DollarParen => write!(f, "$({:?})", body)?,
+                CommandSubstitutionSyntax::Backtick => write!(f, "`{:?}`", body)?,
             },
         },
         WordPart::ArithmeticExpansion {
@@ -1913,11 +1915,11 @@ fn fmt_word_part_with_source_mode(
             }
         }
         WordPart::PrefixMatch { prefix, kind } => write!(f, "${{!{}{}}}", prefix, kind.as_char())?,
-        WordPart::ProcessSubstitution { commands, is_input } => match source {
+        WordPart::ProcessSubstitution { body, is_input } => match source {
             Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
             _ => {
                 let prefix = if *is_input { "<" } else { ">" };
-                write!(f, "{}({:?})", prefix, commands)?
+                write!(f, "{}({:?})", prefix, body)?
             }
         },
         WordPart::Transformation {

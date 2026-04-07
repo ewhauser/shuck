@@ -23,17 +23,21 @@ pub use lexer::{
 use shuck_ast::{
     ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
-    AssignmentValue, BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
-    BreakCommand, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList,
-    CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalBinaryExpr,
-    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, DeclClause,
-    DeclOperand, ExitCommand, ForCommand, FunctionDef, FunctionSurface, Heredoc, HeredocDelimiter,
-    IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Pipeline, Position, PrefixMatchKind, Redirect, RedirectKind,
-    RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
-    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand,
-    TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    AssignmentValue, BinaryCommand, BinaryOp, CaseCommand, CaseItem, CaseTerminator,
+    BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
+    Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
+    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand,
+    DeclClause as AstDeclClause, DeclOperand, ExitCommand as AstExitCommand, File, ForCommand,
+    FunctionDef, FunctionSurface, Heredoc, HeredocDelimiter, IfCommand, LiteralText, Name,
+    ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode, Position,
+    PrefixMatchKind, Redirect, RedirectKind, RedirectTarget, SelectCommand,
+    SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator,
+    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize,
+    TimeCommand, TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    BuiltinCommand as AstBuiltinCommand,
+    BreakCommand as AstBreakCommand, ContinueCommand as AstContinueCommand,
+    ReturnCommand as AstReturnCommand,
 };
 
 use crate::error::{Error, Result};
@@ -58,8 +62,111 @@ const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 /// The result of a successful parse: a script plus collected comments.
 #[derive(Debug, Clone)]
 pub struct ParseOutput {
-    pub script: Script,
-    pub comments: Vec<Comment>,
+    pub file: File,
+}
+
+#[derive(Debug, Clone)]
+struct SimpleCommand {
+    name: Word,
+    args: Vec<Word>,
+    redirects: Vec<Redirect>,
+    assignments: Vec<Assignment>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct BreakCommand {
+    depth: Option<Word>,
+    extra_args: Vec<Word>,
+    redirects: Vec<Redirect>,
+    assignments: Vec<Assignment>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct ContinueCommand {
+    depth: Option<Word>,
+    extra_args: Vec<Word>,
+    redirects: Vec<Redirect>,
+    assignments: Vec<Assignment>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct ReturnCommand {
+    code: Option<Word>,
+    extra_args: Vec<Word>,
+    redirects: Vec<Redirect>,
+    assignments: Vec<Assignment>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct ExitCommand {
+    code: Option<Word>,
+    extra_args: Vec<Word>,
+    redirects: Vec<Redirect>,
+    assignments: Vec<Assignment>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+enum BuiltinCommand {
+    Break(BreakCommand),
+    Continue(ContinueCommand),
+    Return(ReturnCommand),
+    Exit(ExitCommand),
+}
+
+#[derive(Debug, Clone)]
+struct DeclClause {
+    variant: Name,
+    variant_span: Span,
+    operands: Vec<DeclOperand>,
+    redirects: Vec<Redirect>,
+    assignments: Vec<Assignment>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct Pipeline {
+    negated: bool,
+    commands: Vec<Command>,
+    operators: Vec<(BinaryOp, Span)>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct CommandList {
+    first: Box<Command>,
+    rest: Vec<CommandListItem>,
+    span: Span,
+}
+
+#[derive(Debug, Clone)]
+struct CommandListItem {
+    operator: ListOperator,
+    operator_span: Span,
+    command: Command,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListOperator {
+    And,
+    Or,
+    Semicolon,
+    Background,
+}
+
+#[derive(Debug, Clone)]
+enum Command {
+    Simple(SimpleCommand),
+    Builtin(BuiltinCommand),
+    Decl(DeclClause),
+    Pipeline(Pipeline),
+    List(CommandList),
+    Compound(CompoundCommand, Vec<Redirect>),
+    Function(FunctionDef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -125,8 +232,7 @@ pub struct ParseDiagnostic {
 /// The result of a recovered parse: a partial script plus parse diagnostics.
 #[derive(Debug, Clone)]
 pub struct RecoveredParse {
-    pub script: Script,
-    pub comments: Vec<Comment>,
+    pub file: File,
     pub diagnostics: Vec<ParseDiagnostic>,
 }
 
@@ -1419,34 +1525,39 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn nested_commands_from_source(&mut self, source: &str, base: Position) -> Vec<Command> {
+    fn nested_stmt_seq_from_source(&mut self, source: &str, base: Position) -> StmtSeq {
         let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
         let inner_parser =
             Parser::with_limits_and_dialect(source, remaining_depth, self.fuel, self.dialect);
         match inner_parser.parse() {
             Ok(mut output) => {
-                let base_offset = TextSize::new(base.offset as u32);
-                for comment in &mut output.comments {
-                    comment.range = comment.range.offset_by(base_offset);
-                }
-                self.comments.extend(output.comments);
-                Self::rebase_commands(&mut output.script.commands, base);
-                output.script.commands
+                Self::rebase_file(&mut output.file, base);
+                output.file.body
             }
-            Err(_) => Vec::new(),
+            Err(_) => StmtSeq {
+                leading_comments: Vec::new(),
+                stmts: Vec::new(),
+                trailing_comments: Vec::new(),
+                span: Span::from_positions(base, base),
+            },
         }
     }
 
-    fn nested_commands_from_current_input(
+    fn nested_stmt_seq_from_current_input(
         &mut self,
         start: Position,
         end: Position,
-    ) -> Vec<Command> {
+    ) -> StmtSeq {
         if start.offset > end.offset || end.offset > self.input.len() {
-            return Vec::new();
+            return StmtSeq {
+                leading_comments: Vec::new(),
+                stmts: Vec::new(),
+                trailing_comments: Vec::new(),
+                span: Span::from_positions(start, start),
+            };
         }
         let source = &self.input[start.offset..end.offset];
-        self.nested_commands_from_source(source, start)
+        self.nested_stmt_seq_from_source(source, start)
     }
 
     fn merge_optional_span(primary: Span, other: Span) -> Span {
@@ -1537,6 +1648,39 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn rebase_file(file: &mut File, base: Position) {
+        file.span = file.span.rebased(base);
+        Self::rebase_stmt_seq(&mut file.body, base);
+    }
+
+    fn rebase_comments(comments: &mut [Comment], base: Position) {
+        let base_offset = TextSize::new(base.offset as u32);
+        for comment in comments {
+            comment.range = comment.range.offset_by(base_offset);
+        }
+    }
+
+    fn rebase_stmt_seq(sequence: &mut StmtSeq, base: Position) {
+        sequence.span = sequence.span.rebased(base);
+        Self::rebase_comments(&mut sequence.leading_comments, base);
+        for stmt in &mut sequence.stmts {
+            Self::rebase_stmt(stmt, base);
+        }
+        Self::rebase_comments(&mut sequence.trailing_comments, base);
+    }
+
+    fn rebase_stmt(stmt: &mut Stmt, base: Position) {
+        stmt.span = stmt.span.rebased(base);
+        Self::rebase_comments(&mut stmt.leading_comments, base);
+        stmt.terminator_span = stmt.terminator_span.map(|span| span.rebased(base));
+        if let Some(comment) = &mut stmt.inline_comment {
+            let base_offset = TextSize::new(base.offset as u32);
+            comment.range = comment.range.offset_by(base_offset);
+        }
+        Self::rebase_redirects(&mut stmt.redirects, base);
+        Self::rebase_ast_command(&mut stmt.command, base);
+    }
+
     fn rebase_command(command: &mut Command, base: Position) {
         match command {
             Command::Simple(simple) => {
@@ -1573,6 +1717,79 @@ impl<'a> Parser<'a> {
                 function.name_span = function.name_span.rebased(base);
                 function.surface.rebased(base);
                 Self::rebase_command(&mut function.body, base);
+            }
+        }
+    }
+
+    fn rebase_ast_command(command: &mut AstCommand, base: Position) {
+        match command {
+            AstCommand::Simple(simple) => {
+                simple.span = simple.span.rebased(base);
+                Self::rebase_word(&mut simple.name, base);
+                Self::rebase_words(&mut simple.args, base);
+                Self::rebase_assignments(&mut simple.assignments, base);
+            }
+            AstCommand::Builtin(builtin) => match builtin {
+                AstBuiltinCommand::Break(command) => {
+                    command.span = command.span.rebased(base);
+                    if let Some(depth) = &mut command.depth {
+                        Self::rebase_word(depth, base);
+                    }
+                    Self::rebase_words(&mut command.extra_args, base);
+                    Self::rebase_assignments(&mut command.assignments, base);
+                }
+                AstBuiltinCommand::Continue(command) => {
+                    command.span = command.span.rebased(base);
+                    if let Some(depth) = &mut command.depth {
+                        Self::rebase_word(depth, base);
+                    }
+                    Self::rebase_words(&mut command.extra_args, base);
+                    Self::rebase_assignments(&mut command.assignments, base);
+                }
+                AstBuiltinCommand::Return(command) => {
+                    command.span = command.span.rebased(base);
+                    if let Some(code) = &mut command.code {
+                        Self::rebase_word(code, base);
+                    }
+                    Self::rebase_words(&mut command.extra_args, base);
+                    Self::rebase_assignments(&mut command.assignments, base);
+                }
+                AstBuiltinCommand::Exit(command) => {
+                    command.span = command.span.rebased(base);
+                    if let Some(code) = &mut command.code {
+                        Self::rebase_word(code, base);
+                    }
+                    Self::rebase_words(&mut command.extra_args, base);
+                    Self::rebase_assignments(&mut command.assignments, base);
+                }
+            },
+            AstCommand::Decl(decl) => {
+                decl.span = decl.span.rebased(base);
+                decl.variant_span = decl.variant_span.rebased(base);
+                Self::rebase_assignments(&mut decl.assignments, base);
+                for operand in &mut decl.operands {
+                    match operand {
+                        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                            Self::rebase_word(word, base);
+                        }
+                        DeclOperand::Name(name) => Self::rebase_var_ref(name, base),
+                        DeclOperand::Assignment(assignment) => {
+                            Self::rebase_assignments(std::slice::from_mut(assignment), base);
+                        }
+                    }
+                }
+            }
+            AstCommand::Binary(binary) => {
+                binary.span = binary.span.rebased(base);
+                binary.op_span = binary.op_span.rebased(base);
+                Self::rebase_stmt(binary.left.as_mut(), base);
+                Self::rebase_stmt(binary.right.as_mut(), base);
+            }
+            AstCommand::Compound(compound) => Self::rebase_compound(compound, base),
+            AstCommand::Function(function) => {
+                function.span = function.span.rebased(base);
+                function.name_span = function.name_span.rebased(base);
+                Self::rebase_stmt(function.body.as_mut(), base);
             }
         }
     }
@@ -2655,6 +2872,304 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn is_empty_stmt_placeholder(command: &Command) -> bool {
+        matches!(
+            command,
+            Command::Simple(SimpleCommand {
+                name,
+                args,
+                redirects,
+                assignments,
+                ..
+            }) if name.render("").is_empty()
+                && args.is_empty()
+                && redirects.is_empty()
+                && assignments.is_empty()
+        )
+    }
+
+    fn compound_span(compound: &CompoundCommand) -> Span {
+        match compound {
+            CompoundCommand::If(command) => command.span,
+            CompoundCommand::For(command) => command.span,
+            CompoundCommand::ArithmeticFor(command) => command.span,
+            CompoundCommand::While(command) => command.span,
+            CompoundCommand::Until(command) => command.span,
+            CompoundCommand::Case(command) => command.span,
+            CompoundCommand::Select(command) => command.span,
+            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => body.span,
+            CompoundCommand::Arithmetic(command) => command.span,
+            CompoundCommand::Time(command) => command.span,
+            CompoundCommand::Conditional(command) => command.span,
+            CompoundCommand::Coproc(command) => command.span,
+        }
+    }
+
+    fn stmt_seq_with_span(span: Span, stmts: Vec<Stmt>) -> StmtSeq {
+        StmtSeq {
+            leading_comments: Vec::new(),
+            stmts,
+            trailing_comments: Vec::new(),
+            span,
+        }
+    }
+
+    fn lower_commands_to_stmt_seq(commands: Vec<Command>, span: Span) -> StmtSeq {
+        let mut stmts = Vec::new();
+        for command in commands {
+            Self::lower_command_into_stmts(command, &mut stmts);
+        }
+        Self::stmt_seq_with_span(span, stmts)
+    }
+
+    fn lower_command_into_stmts(command: Command, stmts: &mut Vec<Stmt>) {
+        match command {
+            Command::List(list) => Self::lower_list_into_stmts(list, stmts),
+            other => stmts.push(Self::lower_non_sequence_command_to_stmt(other)),
+        }
+    }
+
+    fn lower_list_into_stmts(list: CommandList, stmts: &mut Vec<Stmt>) {
+        let CommandList { first, rest, .. } = list;
+        let mut current = *first;
+        let mut pending = Vec::new();
+
+        for item in rest {
+            match item.operator {
+                ListOperator::And | ListOperator::Or => pending.push(item),
+                ListOperator::Semicolon | ListOperator::Background => {
+                    let terminator = match item.operator {
+                        ListOperator::Semicolon => StmtTerminator::Semicolon,
+                        ListOperator::Background => StmtTerminator::Background,
+                        ListOperator::And | ListOperator::Or => unreachable!(),
+                    };
+                    let mut stmt =
+                        Self::lower_and_or_segment(current, std::mem::take(&mut pending));
+                    stmt.terminator = Some(terminator);
+                    stmt.terminator_span = Some(item.operator_span);
+                    stmts.push(stmt);
+
+                    if Self::is_empty_stmt_placeholder(&item.command) {
+                        return;
+                    }
+                    current = item.command;
+                }
+            }
+        }
+
+        stmts.push(Self::lower_and_or_segment(current, pending));
+    }
+
+    fn lower_and_or_segment(first: Command, rest: Vec<CommandListItem>) -> Stmt {
+        let mut stmt = Self::lower_non_sequence_command_to_stmt(first);
+
+        for item in rest {
+            let op = match item.operator {
+                ListOperator::And => BinaryOp::And,
+                ListOperator::Or => BinaryOp::Or,
+                ListOperator::Semicolon | ListOperator::Background => unreachable!(),
+            };
+            let right = Self::lower_non_sequence_command_to_stmt(item.command);
+            let span = stmt.span.merge(right.span);
+            stmt = Stmt {
+                leading_comments: Vec::new(),
+                command: AstCommand::Binary(BinaryCommand {
+                    left: Box::new(stmt),
+                    op,
+                    op_span: item.operator_span,
+                    right: Box::new(right),
+                    span,
+                }),
+                negated: false,
+                redirects: Vec::new(),
+                terminator: None,
+                terminator_span: None,
+                inline_comment: None,
+                span,
+            };
+        }
+
+        stmt
+    }
+
+    fn lower_builtin_command(builtin: BuiltinCommand) -> (AstBuiltinCommand, Vec<Redirect>, Span) {
+        match builtin {
+            BuiltinCommand::Break(command) => {
+                let span = command.span;
+                let redirects = command.redirects;
+                (
+                    AstBuiltinCommand::Break(AstBreakCommand {
+                        depth: command.depth,
+                        extra_args: command.extra_args,
+                        assignments: command.assignments,
+                        span,
+                    }),
+                    redirects,
+                    span,
+                )
+            }
+            BuiltinCommand::Continue(command) => {
+                let span = command.span;
+                let redirects = command.redirects;
+                (
+                    AstBuiltinCommand::Continue(AstContinueCommand {
+                        depth: command.depth,
+                        extra_args: command.extra_args,
+                        assignments: command.assignments,
+                        span,
+                    }),
+                    redirects,
+                    span,
+                )
+            }
+            BuiltinCommand::Return(command) => {
+                let span = command.span;
+                let redirects = command.redirects;
+                (
+                    AstBuiltinCommand::Return(AstReturnCommand {
+                        code: command.code,
+                        extra_args: command.extra_args,
+                        assignments: command.assignments,
+                        span,
+                    }),
+                    redirects,
+                    span,
+                )
+            }
+            BuiltinCommand::Exit(command) => {
+                let span = command.span;
+                let redirects = command.redirects;
+                (
+                    AstBuiltinCommand::Exit(AstExitCommand {
+                        code: command.code,
+                        extra_args: command.extra_args,
+                        assignments: command.assignments,
+                        span,
+                    }),
+                    redirects,
+                    span,
+                )
+            }
+        }
+    }
+
+    fn lower_non_sequence_command_to_stmt(command: Command) -> Stmt {
+        match command {
+            Command::Simple(command) => Stmt {
+                leading_comments: Vec::new(),
+                command: AstCommand::Simple(AstSimpleCommand {
+                    name: command.name,
+                    args: command.args,
+                    assignments: command.assignments,
+                    span: command.span,
+                }),
+                negated: false,
+                redirects: command.redirects,
+                terminator: None,
+                terminator_span: None,
+                inline_comment: None,
+                span: command.span,
+            },
+            Command::Builtin(command) => {
+                let (command, redirects, span) = Self::lower_builtin_command(command);
+                Stmt {
+                    leading_comments: Vec::new(),
+                    command: AstCommand::Builtin(command),
+                    negated: false,
+                    redirects,
+                    terminator: None,
+                    terminator_span: None,
+                    inline_comment: None,
+                    span,
+                }
+            }
+            Command::Decl(command) => Stmt {
+                leading_comments: Vec::new(),
+                command: AstCommand::Decl(AstDeclClause {
+                    variant: command.variant,
+                    variant_span: command.variant_span,
+                    operands: command.operands,
+                    assignments: command.assignments,
+                    span: command.span,
+                }),
+                negated: false,
+                redirects: command.redirects,
+                terminator: None,
+                terminator_span: None,
+                inline_comment: None,
+                span: command.span,
+            },
+            Command::Pipeline(pipeline) => {
+                let Pipeline {
+                    negated,
+                    commands,
+                    operators,
+                    span,
+                } = pipeline;
+                let mut commands = commands.into_iter();
+                let mut stmt = Self::lower_non_sequence_command_to_stmt(
+                    commands
+                        .next()
+                        .expect("pipeline should contain at least one command"),
+                );
+                for ((op, op_span), command) in operators.into_iter().zip(commands) {
+                    let right = Self::lower_non_sequence_command_to_stmt(command);
+                    let binary_span = stmt.span.merge(right.span);
+                    stmt = Stmt {
+                        leading_comments: Vec::new(),
+                        command: AstCommand::Binary(BinaryCommand {
+                            left: Box::new(stmt),
+                            op,
+                            op_span,
+                            right: Box::new(right),
+                            span: binary_span,
+                        }),
+                        negated: false,
+                        redirects: Vec::new(),
+                        terminator: None,
+                        terminator_span: None,
+                        inline_comment: None,
+                        span: binary_span,
+                    };
+                }
+                stmt.negated = negated;
+                stmt.span = span;
+                stmt
+            }
+            Command::Compound(compound, redirects) => {
+                let span = Self::compound_span(&compound);
+                Stmt {
+                    leading_comments: Vec::new(),
+                    command: AstCommand::Compound(compound),
+                    negated: false,
+                    redirects,
+                    terminator: None,
+                    terminator_span: None,
+                    inline_comment: None,
+                    span,
+                }
+            }
+            Command::Function(function) => Stmt {
+                leading_comments: Vec::new(),
+                span: function.span,
+                command: AstCommand::Function(function),
+                negated: false,
+                redirects: Vec::new(),
+                terminator: None,
+                terminator_span: None,
+                inline_comment: None,
+            },
+            Command::List(list) => {
+                let mut stmts = Vec::new();
+                Self::lower_list_into_stmts(list, &mut stmts);
+                stmts
+                    .into_iter()
+                    .next()
+                    .expect("command list should lower to at least one statement")
+            }
+        }
+    }
+
     fn parse_command_list_required(&mut self) -> Result<Command> {
         self.parse_command_list()?
             .ok_or_else(|| self.error("expected command"))
@@ -3000,18 +3515,20 @@ impl<'a> Parser<'a> {
 
         let mut commands = Vec::with_capacity(2);
         commands.push(first);
+        let mut operators = Vec::with_capacity(1);
 
         while self.at_in_set(PIPE_OPERATOR_TOKENS) {
-            let pipe_both = self.at(TokenKind::PipeBoth);
+            let op = if self.at(TokenKind::PipeBoth) {
+                BinaryOp::PipeAll
+            } else {
+                BinaryOp::Pipe
+            };
             let operator_span = self.current_span;
             self.advance();
             self.skip_newlines()?;
 
-            if pipe_both {
-                Self::append_pipe_both_redirect(commands.last_mut().unwrap(), operator_span);
-            }
-
             if let Some(cmd) = self.parse_command()? {
+                operators.push((op, operator_span));
                 commands.push(cmd);
             } else {
                 return Err(self.error("expected command after |"));
@@ -3024,33 +3541,9 @@ impl<'a> Parser<'a> {
             Ok(Some(Command::Pipeline(Pipeline {
                 negated,
                 commands,
+                operators,
                 span: start_span.merge(self.current_span),
             })))
-        }
-    }
-
-    fn append_pipe_both_redirect(command: &mut Command, span: Span) {
-        let redirect = Redirect {
-            fd: Some(2),
-            fd_var: None,
-            fd_var_span: None,
-            kind: RedirectKind::DupOutput,
-            span,
-            target: RedirectTarget::Word(Word::literal("1")),
-        };
-
-        match command {
-            Command::Simple(simple) => simple.redirects.push(redirect),
-            Command::Builtin(BuiltinCommand::Break(command)) => command.redirects.push(redirect),
-            Command::Builtin(BuiltinCommand::Continue(command)) => command.redirects.push(redirect),
-            Command::Builtin(BuiltinCommand::Return(command)) => command.redirects.push(redirect),
-            Command::Builtin(BuiltinCommand::Exit(command)) => command.redirects.push(redirect),
-            Command::Decl(decl) => decl.redirects.push(redirect),
-            Command::Compound(_, redirects) => redirects.push(redirect),
-            Command::Function(function) => {
-                Self::append_pipe_both_redirect(function.body.as_mut(), span);
-            }
-            Command::Pipeline(_) | Command::List(_) => {}
         }
     }
 
