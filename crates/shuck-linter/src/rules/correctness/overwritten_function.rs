@@ -79,6 +79,7 @@ fn unset_function_between(
 
     query::walk_commands(
         &checker.ast().commands,
+        checker.source(),
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },

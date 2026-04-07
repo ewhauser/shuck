@@ -28,7 +28,9 @@ impl SafeValueQuery {
             | ExpansionContext::CommandArgument
             | ExpansionContext::DeclarationAssignmentValue => Some(Self::Argv),
             ExpansionContext::RedirectTarget(_) => Some(Self::RedirectTarget),
-            ExpansionContext::CasePattern | ExpansionContext::ParameterPattern => {
+            ExpansionContext::CasePattern
+            | ExpansionContext::ConditionalPattern
+            | ExpansionContext::ParameterPattern => {
                 Some(Self::Pattern)
             }
             ExpansionContext::RegexOperand => Some(Self::Regex),
@@ -86,18 +88,19 @@ impl<'a> SafeValueIndex<'a> {
 
         for visit in query::iter_commands(
             commands,
+            source,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
             },
         ) {
-            for assignment in query::command_assignments(visit.command) {
+            for assignment in query::command_assignments(&visit.command) {
                 let AssignmentValue::Scalar(word) = &assignment.value else {
                     continue;
                 };
                 scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
             }
 
-            for operand in query::declaration_operands(visit.command) {
+            for operand in query::declaration_operands(&visit.command) {
                 let DeclOperand::Assignment(assignment) = operand else {
                     continue;
                 };
@@ -416,6 +419,10 @@ mod tests {
             Some(SafeValueQuery::Pattern)
         );
         assert_eq!(
+            SafeValueQuery::from_context(ExpansionContext::ConditionalPattern),
+            Some(SafeValueQuery::Pattern)
+        );
+        assert_eq!(
             SafeValueQuery::from_context(ExpansionContext::ParameterPattern),
             Some(SafeValueQuery::Pattern)
         );
@@ -473,37 +480,37 @@ esac
 
         let pattern_plain = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::CasePattern && word.span.slice(source) == "$plain"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::CasePattern && word.span.slice(source) == "$plain")
+                    .then_some(word)
             })
-            .expect("expected plain case-pattern word")
-            .0;
+            .expect("expected plain case-pattern word");
         let pattern_glob = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::CasePattern && word.span.slice(source) == "$glob"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::CasePattern && word.span.slice(source) == "$glob")
+                    .then_some(word)
             })
-            .expect("expected glob case-pattern word")
-            .0;
+            .expect("expected glob case-pattern word");
         let regex_plain = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::RegexOperand && word.span.slice(source) == "$plain"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::RegexOperand && word.span.slice(source) == "$plain")
+                    .then_some(word)
             })
-            .expect("expected plain regex word")
-            .0;
+            .expect("expected plain regex word");
         let regex_runtime = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::RegexOperand && word.span.slice(source) == "$regex"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::RegexOperand && word.span.slice(source) == "$regex")
+                    .then_some(word)
             })
-            .expect("expected runtime regex word")
-            .0;
+            .expect("expected runtime regex word");
 
-        assert!(safe_values.word_is_safe(pattern_plain, SafeValueQuery::Pattern));
-        assert!(!safe_values.word_is_safe(pattern_glob, SafeValueQuery::Pattern));
-        assert!(safe_values.word_is_safe(regex_plain, SafeValueQuery::Regex));
-        assert!(!safe_values.word_is_safe(regex_runtime, SafeValueQuery::Regex));
+        assert!(safe_values.word_is_safe(&pattern_plain, SafeValueQuery::Pattern));
+        assert!(!safe_values.word_is_safe(&pattern_glob, SafeValueQuery::Pattern));
+        assert!(safe_values.word_is_safe(&regex_plain, SafeValueQuery::Regex));
+        assert!(!safe_values.word_is_safe(&regex_runtime, SafeValueQuery::Regex));
     }
 
     #[test]
@@ -531,40 +538,40 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
 
         let fallback = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$fallback"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::CommandArgument
+                    && word.span.slice(source) == "$fallback")
+                    .then_some(word)
             })
-            .expect("expected fallback argument")
-            .0;
+            .expect("expected fallback argument");
         let trimmed = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$trimmed"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::CommandArgument
+                    && word.span.slice(source) == "$trimmed")
+                    .then_some(word)
             })
-            .expect("expected trimmed argument")
-            .0;
+            .expect("expected trimmed argument");
         let replaced = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$replaced"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::CommandArgument
+                    && word.span.slice(source) == "$replaced")
+                    .then_some(word)
             })
-            .expect("expected replaced argument")
-            .0;
+            .expect("expected replaced argument");
         let unsafe_replacement = words
             .iter()
-            .find(|(word, context)| {
-                *context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$unsafe"
+            .find_map(|(word, context)| {
+                (*context == ExpansionContext::CommandArgument
+                    && word.span.slice(source) == "$unsafe")
+                    .then_some(word)
             })
-            .expect("expected unsafe argument")
-            .0;
+            .expect("expected unsafe argument");
 
-        assert!(safe_values.word_is_safe(fallback, SafeValueQuery::Argv));
-        assert!(safe_values.word_is_safe(trimmed, SafeValueQuery::Argv));
-        assert!(safe_values.word_is_safe(replaced, SafeValueQuery::Argv));
-        assert!(!safe_values.word_is_safe(unsafe_replacement, SafeValueQuery::Argv));
+        assert!(safe_values.word_is_safe(&fallback, SafeValueQuery::Argv));
+        assert!(safe_values.word_is_safe(&trimmed, SafeValueQuery::Argv));
+        assert!(safe_values.word_is_safe(&replaced, SafeValueQuery::Argv));
+        assert!(!safe_values.word_is_safe(&unsafe_replacement, SafeValueQuery::Argv));
     }
 }

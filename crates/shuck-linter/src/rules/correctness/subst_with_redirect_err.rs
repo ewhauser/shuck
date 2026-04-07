@@ -22,11 +22,12 @@ pub fn subst_with_redirect_err(checker: &mut Checker) {
 
     query::walk_commands(
         &checker.ast().commands,
+        checker.source(),
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
         &mut |command, _| {
-            visit_command_words(command, &mut |word| {
+            visit_command_words(command, source, &mut |word| {
                 for substitution in query::iter_word_command_substitutions(word) {
                     if substitution.kind != CommandSubstitutionKind::Command {
                         continue;

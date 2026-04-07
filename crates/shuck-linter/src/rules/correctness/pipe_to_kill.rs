@@ -50,7 +50,11 @@ fn collect_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                         collect_word(word, source, spans);
                     }
-                    DeclOperand::Name(_) => {}
+                    DeclOperand::Name(reference) => {
+                        query::visit_var_ref_subscript_words(reference, source, &mut |word| {
+                            collect_word(word, source, spans);
+                        });
+                    }
                     DeclOperand::Assignment(assignment) => {
                         collect_assignment(assignment, source, spans);
                     }
@@ -183,14 +187,20 @@ fn collect_assignments(assignments: &[Assignment], source: &str, spans: &mut Vec
 }
 
 fn collect_assignment(assignment: &Assignment, source: &str, spans: &mut Vec<Span>) {
+    query::visit_var_ref_subscript_words(&assignment.target, source, &mut |word| {
+        collect_word(word, source, spans);
+    });
     match &assignment.value {
         AssignmentValue::Scalar(word) => collect_word(word, source, spans),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
                     shuck_ast::ArrayElem::Sequential(word) => collect_word(word, source, spans),
-                    shuck_ast::ArrayElem::Keyed { value, .. }
-                    | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
+                    shuck_ast::ArrayElem::Keyed { key, value }
+                    | shuck_ast::ArrayElem::KeyedAppend { key, value } => {
+                        query::visit_subscript_words(Some(key), source, &mut |word| {
+                            collect_word(word, source, spans);
+                        });
                         collect_word(value, source, spans)
                     }
                 }
@@ -263,7 +273,7 @@ fn collect_conditional_expr(expression: &ConditionalExpr, source: &str, spans: &
         }
         ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans),
         ConditionalExpr::VarRef(reference) => {
-            query::visit_var_ref_subscript_words(reference, &mut |word| {
+            query::visit_var_ref_subscript_words(reference, source, &mut |word| {
                 collect_word(word, source, spans);
             });
         }

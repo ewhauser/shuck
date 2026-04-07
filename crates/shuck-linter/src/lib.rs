@@ -363,6 +363,7 @@ echo $bar
         let suppressions = SuppressionIndex::new(
             &directives,
             &output.script,
+            source,
             first_statement_line(&output.script).unwrap_or(u32::MAX),
         );
 
@@ -1420,6 +1421,7 @@ foo=1
         let suppressions = SuppressionIndex::new(
             &directives,
             &output.script,
+            source,
             first_statement_line(&output.script).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
@@ -1450,6 +1452,7 @@ printf '%s\\n' \"$foo\"
         let suppressions = SuppressionIndex::new(
             &directives,
             &output.script,
+            source,
             first_statement_line(&output.script).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(

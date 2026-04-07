@@ -2418,6 +2418,66 @@ executed-helper.sh
     }
 
     #[test]
+    fn non_arithmetic_subscript_reads_are_recorded_in_conditionals_and_declarations() {
+        let source = "\
+#!/bin/bash
+[[ -v assoc[\"$key\"] ]]
+declare -A map=([\"$other\"]=1)
+";
+        let model = model(source);
+        let unresolved = unresolved_names(&model);
+
+        assert_names_present(&["key", "other"], &unresolved);
+
+        let conditional_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "key")
+            .expect("expected conditional subscript reference");
+        assert_eq!(conditional_reference.kind, ReferenceKind::ConditionalOperand);
+
+        let declaration_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "other")
+            .expect("expected declaration subscript reference");
+        assert_eq!(declaration_reference.kind, ReferenceKind::Expansion);
+    }
+
+    #[test]
+    fn recorded_program_and_cfg_capture_non_arithmetic_var_ref_nested_regions() {
+        let source = "\
+[[ -v assoc[\"$(printf inner)\"] ]]
+echo done
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.script, source, &indexer);
+
+        assert_eq!(model.recorded_program.file_commands.len(), 2);
+        let conditional = &model.recorded_program.file_commands[0];
+        assert_eq!(conditional.nested_regions.len(), 1);
+        assert_eq!(conditional.nested_regions[0].commands.len(), 1);
+        let nested = &conditional.nested_regions[0].commands[0];
+        assert_eq!(nested.span.slice(source), "printf inner");
+
+        let cfg = build_control_flow_graph(
+            &model.recorded_program,
+            &model.command_bindings,
+            &model.command_references,
+        );
+
+        assert!(!cfg.block_ids_for_span(conditional.span).is_empty());
+        assert!(!cfg.block_ids_for_span(nested.span).is_empty());
+        assert!(
+            cfg.blocks()
+                .iter()
+                .flat_map(|block| block.commands.iter())
+                .any(|span| span.slice(source) == "printf inner")
+        );
+    }
+
+    #[test]
     fn recorded_program_and_cfg_capture_arithmetic_var_ref_nested_regions() {
         let source = "\
 [[ -v assoc[$(( $(printf inner) + 1 ))] ]]

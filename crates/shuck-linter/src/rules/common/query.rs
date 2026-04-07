@@ -1,9 +1,10 @@
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
     BuiltinCommand, Command, CommandList, CompoundCommand, ConditionalExpr, DeclOperand,
-    FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, Span, VarRef, Word, WordPart,
-    WordPartNode,
+    FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, Span, Subscript, VarRef, Word,
+    WordPart, WordPartNode,
 };
+use shuck_parser::parser::Parser;
 
 use super::expansion::ExpansionContext;
 use super::word::static_word_text;
@@ -40,27 +41,43 @@ pub struct NestedCommandSubstitution<'a> {
 
 pub fn walk_commands(
     commands: &[Command],
+    source: &str,
     options: CommandWalkOptions,
     visitor: &mut impl FnMut(&Command, WalkContext),
 ) {
-    CommandWalker { options, visitor }.walk_commands(commands, WalkContext::default());
+    CommandWalker {
+        source,
+        options,
+        visitor,
+    }
+    .walk_commands(commands, WalkContext::default());
 }
 
 pub fn iter_commands<'a>(
     commands: &'a [Command],
+    source: &'a str,
     options: CommandWalkOptions,
 ) -> impl Iterator<Item = CommandVisit<'a>> {
     let mut visits = Vec::new();
-    collect_command_visits(commands, options, WalkContext::default(), &mut visits);
+    collect_command_visits(
+        commands,
+        source,
+        options,
+        WalkContext::default(),
+        &mut visits,
+    );
     visits.into_iter()
 }
 
 pub fn walk_words(
     commands: &[Command],
+    source: &str,
     options: CommandWalkOptions,
     visitor: &mut impl FnMut(&Word),
 ) {
-    WordWalker { options, visitor }.walk_commands(commands);
+    walk_commands(commands, source, options, &mut |command, _| {
+        visit_command_words(command, source, visitor);
+    });
 }
 
 pub fn command_assignments(command: &Command) -> &[Assignment] {
@@ -97,9 +114,9 @@ pub fn command_redirects(command: &Command) -> &[Redirect] {
     }
 }
 
-pub fn iter_command_words(command: &Command) -> impl Iterator<Item = &Word> {
+pub fn iter_command_words(command: &Command, source: &str) -> impl Iterator<Item = Word> {
     let mut words = Vec::new();
-    collect_command_words(command, &mut words);
+    collect_command_words(command, source, &mut words);
     words.into_iter()
 }
 
@@ -111,84 +128,123 @@ pub fn iter_word_command_substitutions<'a>(
     substitutions.into_iter()
 }
 
-pub fn iter_command_substitutions<'a>(
-    command: &'a Command,
-) -> impl Iterator<Item = NestedCommandSubstitution<'a>> {
+#[derive(Debug, Clone)]
+pub struct CollectedCommandSubstitution {
+    pub commands: Vec<Command>,
+    pub span: Span,
+    pub kind: CommandSubstitutionKind,
+}
+
+pub fn iter_command_substitutions(
+    command: &Command,
+    source: &str,
+) -> impl Iterator<Item = CollectedCommandSubstitution> {
     let mut substitutions = Vec::new();
-    for word in iter_command_words(command) {
-        substitutions.extend(iter_word_command_substitutions(word));
+    for word in iter_command_words(command, source) {
+        substitutions.extend(iter_word_command_substitutions(&word).map(|substitution| {
+            CollectedCommandSubstitution {
+                commands: substitution.commands.to_vec(),
+                span: substitution.span,
+                kind: substitution.kind,
+            }
+        }));
     }
     substitutions.into_iter()
 }
 
 pub fn visit_arithmetic_words(expression: &ArithmeticExprNode, visitor: &mut impl FnMut(&Word)) {
     let mut words = Vec::new();
-    collect_arithmetic_words(expression, &mut words);
+    collect_arithmetic_word_refs(expression, &mut words);
     for word in words {
         visitor(word);
     }
 }
 
-pub fn visit_var_ref_subscript_words(reference: &VarRef, visitor: &mut impl FnMut(&Word)) {
+pub fn visit_var_ref_subscript_words(
+    reference: &VarRef,
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
+    visit_subscript_words(reference.subscript.as_ref(), source, visitor);
+}
+
+pub fn visit_subscript_words(
+    subscript: Option<&Subscript>,
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
     let mut words = Vec::new();
-    collect_var_ref_subscript_words(reference, &mut words);
+    collect_subscript_words(subscript, source, &mut words);
     for word in words {
-        visitor(word);
+        visitor(&word);
     }
 }
 
-fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut Vec<&'a Word>) {
+fn collect_arithmetic_word_refs<'a>(expression: &'a ArithmeticExprNode, words: &mut Vec<&'a Word>) {
     match &expression.kind {
         ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
-        ArithmeticExpr::Indexed { index, .. } => collect_arithmetic_words(index, words),
+        ArithmeticExpr::Indexed { index, .. } => collect_arithmetic_word_refs(index, words),
         ArithmeticExpr::ShellWord(word) => words.push(word),
-        ArithmeticExpr::Parenthesized { expression } => collect_arithmetic_words(expression, words),
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_arithmetic_word_refs(expression, words)
+        }
         ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            collect_arithmetic_words(expr, words)
+            collect_arithmetic_word_refs(expr, words)
         }
         ArithmeticExpr::Binary { left, right, .. } => {
-            collect_arithmetic_words(left, words);
-            collect_arithmetic_words(right, words);
+            collect_arithmetic_word_refs(left, words);
+            collect_arithmetic_word_refs(right, words);
         }
         ArithmeticExpr::Conditional {
             condition,
             then_expr,
             else_expr,
         } => {
-            collect_arithmetic_words(condition, words);
-            collect_arithmetic_words(then_expr, words);
-            collect_arithmetic_words(else_expr, words);
+            collect_arithmetic_word_refs(condition, words);
+            collect_arithmetic_word_refs(then_expr, words);
+            collect_arithmetic_word_refs(else_expr, words);
         }
         ArithmeticExpr::Assignment { target, value, .. } => {
-            collect_arithmetic_lvalue_words(target, words);
-            collect_arithmetic_words(value, words);
+            collect_arithmetic_lvalue_word_refs(target, words);
+            collect_arithmetic_word_refs(value, words);
         }
     }
 }
 
-fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'a Word>) {
-    collect_optional_arithmetic_words(
-        reference
-            .subscript
-            .as_ref()
-            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
-        words,
-    );
+fn collect_arithmetic_words(expression: &ArithmeticExprNode, words: &mut Vec<Word>) {
+    let mut borrowed_words = Vec::new();
+    collect_arithmetic_word_refs(expression, &mut borrowed_words);
+    words.extend(borrowed_words.into_iter().cloned());
 }
 
-fn collect_optional_arithmetic_words<'a>(
-    expression: Option<&'a ArithmeticExprNode>,
-    words: &mut Vec<&'a Word>,
-) {
-    if let Some(expression) = expression {
-        collect_arithmetic_words(expression, words);
+fn collect_var_ref_subscript_words(reference: &VarRef, source: &str, words: &mut Vec<Word>) {
+    collect_subscript_words(reference.subscript.as_ref(), source, words);
+}
+
+fn collect_subscript_words(subscript: Option<&Subscript>, source: &str, words: &mut Vec<Word>) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if subscript.selector().is_some() {
+        return;
     }
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
+        collect_arithmetic_words(expression, words);
+        return;
+    }
+
+    let text = subscript.syntax_source_text();
+    words.push(Parser::parse_word_fragment(
+        source,
+        text.slice(source),
+        text.span(),
+    ));
 }
 
-fn collect_arithmetic_lvalue_words<'a>(target: &'a ArithmeticLvalue, words: &mut Vec<&'a Word>) {
+fn collect_arithmetic_lvalue_word_refs<'a>(target: &'a ArithmeticLvalue, words: &mut Vec<&'a Word>) {
     match target {
         ArithmeticLvalue::Variable(_) => {}
-        ArithmeticLvalue::Indexed { index, .. } => collect_arithmetic_words(index, words),
+        ArithmeticLvalue::Indexed { index, .. } => collect_arithmetic_word_refs(index, words),
     }
 }
 
@@ -197,15 +253,24 @@ fn visit_optional_arithmetic_words(
     visitor: &mut impl FnMut(&Word),
 ) {
     let mut words = Vec::new();
-    collect_optional_arithmetic_words(expression, &mut words);
+    collect_optional_arithmetic_word_refs(expression, &mut words);
     for word in words {
         visitor(word);
     }
 }
 
-pub fn visit_command_words(command: &Command, visitor: &mut impl FnMut(&Word)) {
-    for word in iter_command_words(command) {
-        visitor(word);
+fn collect_optional_arithmetic_word_refs<'a>(
+    expression: Option<&'a ArithmeticExprNode>,
+    words: &mut Vec<&'a Word>,
+) {
+    if let Some(expression) = expression {
+        collect_arithmetic_word_refs(expression, words);
+    }
+}
+
+pub fn visit_command_words(command: &Command, source: &str, visitor: &mut impl FnMut(&Word)) {
+    for word in iter_command_words(command, source) {
+        visitor(&word);
     }
 }
 
@@ -257,7 +322,7 @@ pub fn visit_argument_words(command: &Command, visitor: &mut impl FnMut(&Word)) 
 pub fn iter_expansion_words<'a>(
     command: &'a Command,
     source: &str,
-) -> impl Iterator<Item = (&'a Word, ExpansionContext)> {
+) -> impl Iterator<Item = (Word, ExpansionContext)> {
     let mut words = Vec::new();
     collect_expansion_words(command, source, &mut words);
     words.into_iter()
@@ -269,7 +334,7 @@ pub fn visit_expansion_words(
     visitor: &mut impl FnMut(&Word, ExpansionContext),
 ) {
     for (word, context) in iter_expansion_words(command, source) {
-        visitor(word, context);
+        visitor(&word, context);
     }
 }
 
@@ -282,26 +347,26 @@ pub fn visit_command_redirects(command: &Command, visitor: &mut impl FnMut(&Redi
 fn collect_expansion_words<'a>(
     command: &'a Command,
     source: &str,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     collect_command_name_context_words(command, source, words);
 
     collect_argument_context_words(command, source, words);
 
-    collect_expansion_assignment_value_words(command, words);
+    collect_expansion_assignment_value_words(command, source, words);
 
     match command {
         Command::Compound(command, _) => match command {
             CompoundCommand::For(command) => {
                 if let Some(items) = &command.words {
                     for word in items {
-                        words.push((word, ExpansionContext::ForList));
+                        words.push((word.clone(), ExpansionContext::ForList));
                     }
                 }
             }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
-                    words.push((word, ExpansionContext::SelectList));
+                    words.push((word.clone(), ExpansionContext::SelectList));
                 }
             }
             CompoundCommand::Case(command) => {
@@ -316,7 +381,7 @@ fn collect_expansion_words<'a>(
                 }
             }
             CompoundCommand::Conditional(command) => {
-                collect_conditional_expansion_words(&command.expression, words);
+                collect_conditional_expansion_words(&command.expression, source, words);
             }
             CompoundCommand::If(_)
             | CompoundCommand::ArithmeticFor(_)
@@ -343,34 +408,34 @@ fn collect_expansion_words<'a>(
         let word = redirect
             .word_target()
             .expect("expected non-heredoc redirect target");
-        words.push((word, context));
+        words.push((word.clone(), context));
     }
 
     if let Some(action) = trap_action_word(command, source) {
-        words.push((action, ExpansionContext::TrapAction));
+        words.push((action.clone(), ExpansionContext::TrapAction));
     }
 
-    for word in iter_command_words(command) {
-        collect_word_parameter_patterns(word, words);
+    for word in iter_command_words(command, source) {
+        collect_word_parameter_patterns(&word, words);
     }
 }
 
 fn collect_command_name_context_words<'a>(
     command: &'a Command,
     source: &str,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     if let Command::Simple(command) = command
         && static_word_text(&command.name, source).is_none()
     {
-        words.push((&command.name, ExpansionContext::CommandName));
+        words.push((command.name.clone(), ExpansionContext::CommandName));
     }
 }
 
 fn collect_argument_context_words<'a>(
     command: &'a Command,
     source: &str,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     match command {
         Command::Simple(command) => {
@@ -378,47 +443,47 @@ fn collect_argument_context_words<'a>(
                 return;
             }
             for word in &command.args {
-                words.push((word, ExpansionContext::CommandArgument));
+                words.push((word.clone(), ExpansionContext::CommandArgument));
             }
         }
         Command::Builtin(command) => match command {
             BuiltinCommand::Break(command) => {
                 if let Some(word) = &command.depth {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
                 for word in &command.extra_args {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
             }
             BuiltinCommand::Continue(command) => {
                 if let Some(word) = &command.depth {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
                 for word in &command.extra_args {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
             }
             BuiltinCommand::Return(command) => {
                 if let Some(word) = &command.code {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
                 for word in &command.extra_args {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
             }
             BuiltinCommand::Exit(command) => {
                 if let Some(word) = &command.code {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
                 for word in &command.extra_args {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
             }
         },
         Command::Decl(command) => {
             for operand in &command.operands {
                 if let DeclOperand::Dynamic(word) = operand {
-                    words.push((word, ExpansionContext::CommandArgument));
+                    words.push((word.clone(), ExpansionContext::CommandArgument));
                 }
             }
         }
@@ -431,36 +496,57 @@ fn collect_argument_context_words<'a>(
 
 fn collect_expansion_assignment_value_words<'a>(
     command: &'a Command,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    source: &str,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     for assignment in command_assignments(command) {
-        collect_expansion_assignment_words(assignment, ExpansionContext::AssignmentValue, words);
+        collect_expansion_assignment_words(
+            assignment,
+            source,
+            ExpansionContext::AssignmentValue,
+            words,
+        );
     }
 
     for operand in declaration_operands(command) {
-        if let DeclOperand::Assignment(assignment) = operand {
-            collect_expansion_assignment_words(
-                assignment,
-                ExpansionContext::DeclarationAssignmentValue,
-                words,
-            );
+        match operand {
+            DeclOperand::Name(reference) => {
+                collect_var_ref_subscript_context_words(
+                    reference,
+                    source,
+                    ExpansionContext::DeclarationAssignmentValue,
+                    words,
+                );
+            }
+            DeclOperand::Assignment(assignment) => {
+                collect_expansion_assignment_words(
+                    assignment,
+                    source,
+                    ExpansionContext::DeclarationAssignmentValue,
+                    words,
+                );
+            }
+            DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => {}
         }
     }
 }
 
 fn collect_expansion_assignment_words<'a>(
     assignment: &'a Assignment,
+    source: &str,
     context: ExpansionContext,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
+    collect_var_ref_subscript_context_words(&assignment.target, source, context, words);
     match &assignment.value {
-        AssignmentValue::Scalar(word) => words.push((word, context)),
+        AssignmentValue::Scalar(word) => words.push((word.clone(), context)),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
-                    ArrayElem::Sequential(word) => words.push((word, context)),
-                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                        words.push((value, context))
+                    ArrayElem::Sequential(word) => words.push((word.clone(), context)),
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        collect_subscript_context_words(Some(key), source, context, words);
+                        words.push((value.clone(), context))
                     }
                 }
             }
@@ -471,7 +557,7 @@ fn collect_expansion_assignment_words<'a>(
 fn collect_pattern_context_words<'a>(
     pattern: &'a Pattern,
     context: ExpansionContext,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     for (part, _) in pattern.parts_with_spans() {
         match part {
@@ -480,7 +566,7 @@ fn collect_pattern_context_words<'a>(
                     collect_pattern_context_words(pattern, context, words);
                 }
             }
-            PatternPart::Word(word) => words.push((word, context)),
+            PatternPart::Word(word) => words.push((word.clone(), context)),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
@@ -491,40 +577,67 @@ fn collect_pattern_context_words<'a>(
 
 fn collect_conditional_expansion_words<'a>(
     expression: &'a ConditionalExpr,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    source: &str,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     match expression {
         ConditionalExpr::Binary(expr) => {
-            collect_conditional_expansion_words(&expr.left, words);
-            collect_conditional_expansion_words(&expr.right, words);
+            collect_conditional_expansion_words(&expr.left, source, words);
+            collect_conditional_expansion_words(&expr.right, source, words);
         }
-        ConditionalExpr::Unary(expr) => collect_conditional_expansion_words(&expr.expr, words),
+        ConditionalExpr::Unary(expr) => {
+            collect_conditional_expansion_words(&expr.expr, source, words)
+        }
         ConditionalExpr::Parenthesized(expr) => {
-            collect_conditional_expansion_words(&expr.expr, words)
+            collect_conditional_expansion_words(&expr.expr, source, words)
         }
-        ConditionalExpr::Word(word) => words.push((word, ExpansionContext::StringTestOperand)),
-        ConditionalExpr::Regex(word) => words.push((word, ExpansionContext::RegexOperand)),
-        ConditionalExpr::Pattern(_) => {}
+        ConditionalExpr::Word(word) => {
+            words.push((word.clone(), ExpansionContext::StringTestOperand))
+        }
+        ConditionalExpr::Regex(word) => words.push((word.clone(), ExpansionContext::RegexOperand)),
+        ConditionalExpr::Pattern(pattern) => {
+            collect_pattern_context_words(pattern, ExpansionContext::ConditionalPattern, words);
+        }
         ConditionalExpr::VarRef(reference) => {
-            let mut subscript_words = Vec::new();
-            collect_var_ref_subscript_words(reference, &mut subscript_words);
-            for word in subscript_words {
-                words.push((word, ExpansionContext::ConditionalVarRefSubscript));
-            }
+            collect_var_ref_subscript_context_words(
+                reference,
+                source,
+                ExpansionContext::ConditionalVarRefSubscript,
+                words,
+            );
         }
     }
 }
 
-fn collect_word_parameter_patterns<'a>(
-    word: &'a Word,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+fn collect_var_ref_subscript_context_words(
+    reference: &VarRef,
+    source: &str,
+    context: ExpansionContext,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
+    collect_subscript_context_words(reference.subscript.as_ref(), source, context, words);
+}
+
+fn collect_subscript_context_words(
+    subscript: Option<&Subscript>,
+    source: &str,
+    context: ExpansionContext,
+    words: &mut Vec<(Word, ExpansionContext)>,
+) {
+    let mut subscript_words = Vec::new();
+    collect_subscript_words(subscript, source, &mut subscript_words);
+    for word in subscript_words {
+        words.push((word, context));
+    }
+}
+
+fn collect_word_parameter_patterns(word: &Word, words: &mut Vec<(Word, ExpansionContext)>) {
     collect_word_part_parameter_patterns(&word.parts, words);
 }
 
-fn collect_word_part_parameter_patterns<'a>(
-    parts: &'a [WordPartNode],
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+fn collect_word_part_parameter_patterns(
+    parts: &[WordPartNode],
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     for part in parts {
         match &part.kind {
@@ -559,7 +672,7 @@ fn collect_word_part_parameter_patterns<'a>(
 
 fn collect_parameter_operator_patterns<'a>(
     operator: &'a ParameterOp,
-    words: &mut Vec<(&'a Word, ExpansionContext)>,
+    words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     match operator {
         ParameterOp::RemovePrefixShort { pattern }
@@ -611,17 +724,19 @@ fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> 
 
 fn collect_command_visits<'a>(
     commands: &'a [Command],
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     for command in commands {
-        collect_command_visit(command, options, context, visits);
+        collect_command_visit(command, source, options, context, visits);
     }
 }
 
 fn collect_command_visit<'a>(
     command: &'a Command,
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
@@ -630,112 +745,119 @@ fn collect_command_visit<'a>(
 
     match command {
         Command::Simple(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
-            collect_word_visits(&command.name, options, context, visits);
-            collect_word_slice_visits(&command.args, options, context, visits);
-            collect_redirect_visits(&command.redirects, options, context, visits);
+            collect_assignment_visits(&command.assignments, source, options, context, visits);
+            collect_word_visits(&command.name, source, options, context, visits);
+            collect_word_slice_visits(&command.args, source, options, context, visits);
+            collect_redirect_visits(&command.redirects, source, options, context, visits);
         }
-        Command::Builtin(command) => collect_builtin_visits(command, options, context, visits),
+        Command::Builtin(command) => {
+            collect_builtin_visits(command, source, options, context, visits)
+        }
         Command::Decl(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, source, options, context, visits);
             for operand in &command.operands {
                 match operand {
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        collect_word_visits(word, options, context, visits);
+                        collect_word_visits(word, source, options, context, visits);
                     }
-                    DeclOperand::Name(_) => {}
+                    DeclOperand::Name(reference) => {
+                        let _ = reference;
+                    }
                     DeclOperand::Assignment(assignment) => {
-                        collect_assignment_visit(assignment, options, context, visits);
+                        collect_assignment_visit(assignment, source, options, context, visits);
                     }
                 }
             }
-            collect_redirect_visits(&command.redirects, options, context, visits);
+            collect_redirect_visits(&command.redirects, source, options, context, visits);
         }
         Command::Pipeline(command) => {
-            collect_command_visits(&command.commands, options, context, visits);
+            collect_command_visits(&command.commands, source, options, context, visits);
         }
         Command::List(CommandList { first, rest, .. }) => {
-            collect_command_visit(first, options, context, visits);
+            collect_command_visit(first, source, options, context, visits);
             for item in rest {
-                collect_command_visit(&item.command, options, context, visits);
+                collect_command_visit(&item.command, source, options, context, visits);
             }
         }
         Command::Compound(command, redirects) => {
-            collect_compound_visits(command, options, context, visits);
-            collect_redirect_visits(redirects, options, context, visits);
+            collect_compound_visits(command, source, options, context, visits);
+            collect_redirect_visits(redirects, source, options, context, visits);
         }
         Command::Function(FunctionDef { body, .. }) => {
-            collect_command_visit(body, options, context, visits);
+            collect_command_visit(body, source, options, context, visits);
         }
     }
 }
 
 fn collect_builtin_visits<'a>(
     command: &'a BuiltinCommand,
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     match command {
         BuiltinCommand::Break(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, source, options, context, visits);
             if let Some(word) = &command.depth {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, source, options, context, visits);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
-            collect_redirect_visits(&command.redirects, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, source, options, context, visits);
+            collect_redirect_visits(&command.redirects, source, options, context, visits);
         }
         BuiltinCommand::Continue(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, source, options, context, visits);
             if let Some(word) = &command.depth {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, source, options, context, visits);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
-            collect_redirect_visits(&command.redirects, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, source, options, context, visits);
+            collect_redirect_visits(&command.redirects, source, options, context, visits);
         }
         BuiltinCommand::Return(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, source, options, context, visits);
             if let Some(word) = &command.code {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, source, options, context, visits);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
-            collect_redirect_visits(&command.redirects, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, source, options, context, visits);
+            collect_redirect_visits(&command.redirects, source, options, context, visits);
         }
         BuiltinCommand::Exit(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, source, options, context, visits);
             if let Some(word) = &command.code {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, source, options, context, visits);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
-            collect_redirect_visits(&command.redirects, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, source, options, context, visits);
+            collect_redirect_visits(&command.redirects, source, options, context, visits);
         }
     }
 }
 
 fn collect_compound_visits<'a>(
     command: &'a CompoundCommand,
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     match command {
         CompoundCommand::If(command) => {
-            collect_command_visits(&command.condition, options, context, visits);
-            collect_command_visits(&command.then_branch, options, context, visits);
+            collect_command_visits(&command.condition, source, options, context, visits);
+            collect_command_visits(&command.then_branch, source, options, context, visits);
             for (condition, body) in &command.elif_branches {
-                collect_command_visits(condition, options, context, visits);
-                collect_command_visits(body, options, context, visits);
+                collect_command_visits(condition, source, options, context, visits);
+                collect_command_visits(body, source, options, context, visits);
             }
             if let Some(body) = &command.else_branch {
-                collect_command_visits(body, options, context, visits);
+                collect_command_visits(body, source, options, context, visits);
             }
         }
         CompoundCommand::For(command) => {
             if let Some(words) = &command.words {
-                collect_word_slice_visits(words, options, context, visits);
+                collect_word_slice_visits(words, source, options, context, visits);
             }
             collect_command_visits(
                 &command.body,
+                source,
                 options,
                 WalkContext {
                     loop_depth: context.loop_depth + 1,
@@ -745,6 +867,7 @@ fn collect_compound_visits<'a>(
         }
         CompoundCommand::ArithmeticFor(command) => collect_command_visits(
             &command.body,
+            source,
             options,
             WalkContext {
                 loop_depth: context.loop_depth + 1,
@@ -755,27 +878,28 @@ fn collect_compound_visits<'a>(
             let loop_context = WalkContext {
                 loop_depth: context.loop_depth + 1,
             };
-            collect_command_visits(&command.condition, options, loop_context, visits);
-            collect_command_visits(&command.body, options, loop_context, visits);
+            collect_command_visits(&command.condition, source, options, loop_context, visits);
+            collect_command_visits(&command.body, source, options, loop_context, visits);
         }
         CompoundCommand::Until(command) => {
             let loop_context = WalkContext {
                 loop_depth: context.loop_depth + 1,
             };
-            collect_command_visits(&command.condition, options, loop_context, visits);
-            collect_command_visits(&command.body, options, loop_context, visits);
+            collect_command_visits(&command.condition, source, options, loop_context, visits);
+            collect_command_visits(&command.body, source, options, loop_context, visits);
         }
         CompoundCommand::Case(command) => {
-            collect_word_visits(&command.word, options, context, visits);
+            collect_word_visits(&command.word, source, options, context, visits);
             for case in &command.cases {
-                collect_pattern_slice_visits(&case.patterns, options, context, visits);
-                collect_command_visits(&case.commands, options, context, visits);
+                collect_pattern_slice_visits(&case.patterns, source, options, context, visits);
+                collect_command_visits(&case.commands, source, options, context, visits);
             }
         }
         CompoundCommand::Select(command) => {
-            collect_word_slice_visits(&command.words, options, context, visits);
+            collect_word_slice_visits(&command.words, source, options, context, visits);
             collect_command_visits(
                 &command.body,
+                source,
                 options,
                 WalkContext {
                     loop_depth: context.loop_depth + 1,
@@ -784,50 +908,52 @@ fn collect_compound_visits<'a>(
             );
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            collect_command_visits(commands, options, context, visits);
+            collect_command_visits(commands, source, options, context, visits);
         }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
-                collect_command_visit(command, options, context, visits);
+                collect_command_visit(command, source, options, context, visits);
             }
         }
         CompoundCommand::Conditional(command) => {
-            collect_conditional_visits(&command.expression, options, context, visits);
+            collect_conditional_visits(&command.expression, source, options, context, visits);
         }
         CompoundCommand::Coproc(command) => {
-            collect_command_visit(&command.body, options, context, visits);
+            collect_command_visit(&command.body, source, options, context, visits);
         }
     }
 }
 
 fn collect_assignment_visits<'a>(
     assignments: &'a [Assignment],
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     for assignment in assignments {
-        collect_assignment_visit(assignment, options, context, visits);
+        collect_assignment_visit(assignment, source, options, context, visits);
     }
 }
 
 fn collect_assignment_visit<'a>(
     assignment: &'a Assignment,
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => collect_word_visits(word, options, context, visits),
+        AssignmentValue::Scalar(word) => collect_word_visits(word, source, options, context, visits),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
                     ArrayElem::Sequential(word) => {
-                        collect_word_visits(word, options, context, visits);
+                        collect_word_visits(word, source, options, context, visits);
                     }
                     ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                        collect_word_visits(value, options, context, visits);
+                        collect_word_visits(value, source, options, context, visits);
                     }
                 }
             }
@@ -837,28 +963,31 @@ fn collect_assignment_visit<'a>(
 
 fn collect_word_slice_visits<'a>(
     words: &'a [Word],
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     for word in words {
-        collect_word_visits(word, options, context, visits);
+        collect_word_visits(word, source, options, context, visits);
     }
 }
 
 fn collect_pattern_slice_visits<'a>(
     patterns: &'a [Pattern],
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     for pattern in patterns {
-        collect_pattern_visits(pattern, options, context, visits);
+        collect_pattern_visits(pattern, source, options, context, visits);
     }
 }
 
 fn collect_word_visits<'a>(
     word: &'a Word,
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
@@ -868,12 +997,13 @@ fn collect_word_visits<'a>(
     }
 
     for substitution in iter_word_command_substitutions(word) {
-        collect_command_visits(substitution.commands, options, context, visits);
+        collect_command_visits(substitution.commands, source, options, context, visits);
     }
 }
 
 fn collect_pattern_visits<'a>(
     pattern: &'a Pattern,
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
@@ -881,9 +1011,9 @@ fn collect_pattern_visits<'a>(
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
-                collect_pattern_slice_visits(patterns, options, context, visits);
+                collect_pattern_slice_visits(patterns, source, options, context, visits);
             }
-            PatternPart::Word(word) => collect_word_visits(word, options, context, visits),
+            PatternPart::Word(word) => collect_word_visits(word, source, options, context, visits),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
@@ -894,49 +1024,48 @@ fn collect_pattern_visits<'a>(
 
 fn collect_redirect_visits<'a>(
     redirects: &'a [Redirect],
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     for redirect in redirects {
-        collect_word_visits(redirect_walk_word(redirect), options, context, visits);
+        collect_word_visits(redirect_walk_word(redirect), source, options, context, visits);
     }
 }
 
 fn collect_conditional_visits<'a>(
     expression: &'a ConditionalExpr,
+    source: &str,
     options: CommandWalkOptions,
     context: WalkContext,
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     match expression {
         ConditionalExpr::Binary(expr) => {
-            collect_conditional_visits(&expr.left, options, context, visits);
-            collect_conditional_visits(&expr.right, options, context, visits);
+            collect_conditional_visits(&expr.left, source, options, context, visits);
+            collect_conditional_visits(&expr.right, source, options, context, visits);
         }
         ConditionalExpr::Unary(expr) => {
-            collect_conditional_visits(&expr.expr, options, context, visits)
+            collect_conditional_visits(&expr.expr, source, options, context, visits)
         }
         ConditionalExpr::Parenthesized(expr) => {
-            collect_conditional_visits(&expr.expr, options, context, visits);
+            collect_conditional_visits(&expr.expr, source, options, context, visits);
         }
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            collect_word_visits(word, options, context, visits)
+            collect_word_visits(word, source, options, context, visits)
         }
         ConditionalExpr::Pattern(pattern) => {
-            collect_pattern_visits(pattern, options, context, visits)
+            collect_pattern_visits(pattern, source, options, context, visits)
         }
         ConditionalExpr::VarRef(reference) => {
-            let mut subscript_words = Vec::new();
-            collect_var_ref_subscript_words(reference, &mut subscript_words);
-            for word in subscript_words {
-                collect_word_visits(word, options, context, visits);
-            }
+            let _ = reference;
         }
     }
 }
 
 struct CommandWalker<'a, F> {
+    source: &'a str,
     options: CommandWalkOptions,
     visitor: &'a mut F,
 }
@@ -963,13 +1092,19 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
                 self.walk_assignments(&command.assignments, context);
                 for operand in &command.operands {
                     match operand {
-                        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        self.walk_word(word, context);
+                    }
+                    DeclOperand::Name(reference) => {
+                        let mut subscript_words = Vec::new();
+                        collect_var_ref_subscript_words(reference, self.source, &mut subscript_words);
+                        for word in &subscript_words {
                             self.walk_word(word, context);
                         }
-                        DeclOperand::Name(_) => {}
-                        DeclOperand::Assignment(assignment) => {
-                            self.walk_assignment(assignment, context);
-                        }
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        self.walk_assignment(assignment, context);
+                    }
                     }
                 }
                 self.walk_redirects(&command.redirects, context);
@@ -1109,13 +1244,23 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
     }
 
     fn walk_assignment(&mut self, assignment: &Assignment, context: WalkContext) {
+        let mut target_words = Vec::new();
+        collect_var_ref_subscript_words(&assignment.target, self.source, &mut target_words);
+        for word in &target_words {
+            self.walk_word(word, context);
+        }
         match &assignment.value {
             AssignmentValue::Scalar(word) => self.walk_word(word, context),
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
                     match element {
                         ArrayElem::Sequential(word) => self.walk_word(word, context),
-                        ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                        ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                            let mut key_words = Vec::new();
+                            collect_subscript_words(Some(key), self.source, &mut key_words);
+                            for word in &key_words {
+                                self.walk_word(word, context);
+                            }
                             self.walk_word(value, context)
                         }
                     }
@@ -1188,7 +1333,7 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
             }
             ConditionalExpr::Pattern(pattern) => self.walk_pattern(pattern, context),
             ConditionalExpr::VarRef(reference) => {
-                visit_var_ref_subscript_words(reference, &mut |word| {
+                visit_var_ref_subscript_words(reference, self.source, &mut |word| {
                     self.walk_word(word, context);
                 });
             }
@@ -1198,245 +1343,6 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
     fn walk_redirects(&mut self, redirects: &[Redirect], context: WalkContext) {
         for redirect in redirects {
             self.walk_word(redirect_walk_word(redirect), context);
-        }
-    }
-}
-
-struct WordWalker<'a, F> {
-    options: CommandWalkOptions,
-    visitor: &'a mut F,
-}
-
-impl<F: FnMut(&Word)> WordWalker<'_, F> {
-    fn walk_commands(&mut self, commands: &[Command]) {
-        for command in commands {
-            self.walk_command(command);
-        }
-    }
-
-    fn walk_command(&mut self, command: &Command) {
-        match command {
-            Command::Simple(command) => {
-                self.walk_assignments(&command.assignments);
-                self.walk_word(&command.name);
-                self.walk_words(&command.args);
-                self.walk_redirects(&command.redirects);
-            }
-            Command::Builtin(command) => self.walk_builtin(command),
-            Command::Decl(command) => {
-                self.walk_assignments(&command.assignments);
-                for operand in &command.operands {
-                    match operand {
-                        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                            self.walk_word(word);
-                        }
-                        DeclOperand::Name(_) => {}
-                        DeclOperand::Assignment(assignment) => self.walk_assignment(assignment),
-                    }
-                }
-                self.walk_redirects(&command.redirects);
-            }
-            Command::Pipeline(command) => self.walk_commands(&command.commands),
-            Command::List(CommandList { first, rest, .. }) => {
-                self.walk_command(first);
-                for item in rest {
-                    self.walk_command(&item.command);
-                }
-            }
-            Command::Compound(command, redirects) => {
-                self.walk_compound(command);
-                self.walk_redirects(redirects);
-            }
-            Command::Function(FunctionDef { body, .. }) => self.walk_command(body),
-        }
-    }
-
-    fn walk_builtin(&mut self, command: &BuiltinCommand) {
-        match command {
-            BuiltinCommand::Break(command) => {
-                self.walk_assignments(&command.assignments);
-                if let Some(word) = &command.depth {
-                    self.walk_word(word);
-                }
-                self.walk_words(&command.extra_args);
-                self.walk_redirects(&command.redirects);
-            }
-            BuiltinCommand::Continue(command) => {
-                self.walk_assignments(&command.assignments);
-                if let Some(word) = &command.depth {
-                    self.walk_word(word);
-                }
-                self.walk_words(&command.extra_args);
-                self.walk_redirects(&command.redirects);
-            }
-            BuiltinCommand::Return(command) => {
-                self.walk_assignments(&command.assignments);
-                if let Some(word) = &command.code {
-                    self.walk_word(word);
-                }
-                self.walk_words(&command.extra_args);
-                self.walk_redirects(&command.redirects);
-            }
-            BuiltinCommand::Exit(command) => {
-                self.walk_assignments(&command.assignments);
-                if let Some(word) = &command.code {
-                    self.walk_word(word);
-                }
-                self.walk_words(&command.extra_args);
-                self.walk_redirects(&command.redirects);
-            }
-        }
-    }
-
-    fn walk_compound(&mut self, command: &CompoundCommand) {
-        match command {
-            CompoundCommand::If(command) => {
-                self.walk_commands(&command.condition);
-                self.walk_commands(&command.then_branch);
-                for (condition, body) in &command.elif_branches {
-                    self.walk_commands(condition);
-                    self.walk_commands(body);
-                }
-                if let Some(body) = &command.else_branch {
-                    self.walk_commands(body);
-                }
-            }
-            CompoundCommand::For(command) => {
-                if let Some(words) = &command.words {
-                    self.walk_words(words);
-                }
-                self.walk_commands(&command.body);
-            }
-            CompoundCommand::ArithmeticFor(command) => self.walk_commands(&command.body),
-            CompoundCommand::While(command) => {
-                self.walk_commands(&command.condition);
-                self.walk_commands(&command.body);
-            }
-            CompoundCommand::Until(command) => {
-                self.walk_commands(&command.condition);
-                self.walk_commands(&command.body);
-            }
-            CompoundCommand::Case(command) => {
-                self.walk_word(&command.word);
-                for case in &command.cases {
-                    self.walk_patterns(&case.patterns);
-                    self.walk_commands(&case.commands);
-                }
-            }
-            CompoundCommand::Select(command) => {
-                self.walk_words(&command.words);
-                self.walk_commands(&command.body);
-            }
-            CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-                self.walk_commands(commands);
-            }
-            CompoundCommand::Arithmetic(_) => {}
-            CompoundCommand::Time(command) => {
-                if let Some(command) = &command.command {
-                    self.walk_command(command);
-                }
-            }
-            CompoundCommand::Conditional(command) => {
-                self.walk_conditional_expr(&command.expression);
-            }
-            CompoundCommand::Coproc(command) => self.walk_command(&command.body),
-        }
-    }
-
-    fn walk_assignments(&mut self, assignments: &[Assignment]) {
-        for assignment in assignments {
-            self.walk_assignment(assignment);
-        }
-    }
-
-    fn walk_assignment(&mut self, assignment: &Assignment) {
-        match &assignment.value {
-            AssignmentValue::Scalar(word) => self.walk_word(word),
-            AssignmentValue::Compound(array) => {
-                for element in &array.elements {
-                    match element {
-                        ArrayElem::Sequential(word) => self.walk_word(word),
-                        ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                            self.walk_word(value)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn walk_words(&mut self, words: &[Word]) {
-        for word in words {
-            self.walk_word(word);
-        }
-    }
-
-    fn walk_patterns(&mut self, patterns: &[Pattern]) {
-        for pattern in patterns {
-            self.walk_pattern(pattern);
-        }
-    }
-
-    fn walk_word(&mut self, word: &Word) {
-        (self.visitor)(word);
-
-        if !self.options.descend_nested_word_commands {
-            return;
-        }
-
-        self.walk_word_parts(&word.parts);
-    }
-
-    fn walk_pattern(&mut self, pattern: &Pattern) {
-        for (part, _) in pattern.parts_with_spans() {
-            match part {
-                PatternPart::Group { patterns, .. } => self.walk_patterns(patterns),
-                PatternPart::Word(word) => self.walk_word(word),
-                PatternPart::Literal(_)
-                | PatternPart::AnyString
-                | PatternPart::AnyChar
-                | PatternPart::CharClass(_) => {}
-            }
-        }
-    }
-
-    fn walk_word_parts(&mut self, parts: &[WordPartNode]) {
-        for part in parts {
-            match &part.kind {
-                WordPart::DoubleQuoted { parts, .. } => self.walk_word_parts(parts),
-                WordPart::ArithmeticExpansion { expression_ast, .. } => {
-                    visit_optional_arithmetic_words(expression_ast.as_ref(), &mut |word| {
-                        self.walk_word(word);
-                    });
-                }
-                WordPart::CommandSubstitution { commands, .. }
-                | WordPart::ProcessSubstitution { commands, .. } => self.walk_commands(commands),
-                _ => {}
-            }
-        }
-    }
-
-    fn walk_redirects(&mut self, redirects: &[Redirect]) {
-        for redirect in redirects {
-            self.walk_word(redirect_walk_word(redirect));
-        }
-    }
-
-    fn walk_conditional_expr(&mut self, expression: &ConditionalExpr) {
-        match expression {
-            ConditionalExpr::Binary(expr) => {
-                self.walk_conditional_expr(&expr.left);
-                self.walk_conditional_expr(&expr.right);
-            }
-            ConditionalExpr::Unary(expr) => self.walk_conditional_expr(&expr.expr),
-            ConditionalExpr::Parenthesized(expr) => self.walk_conditional_expr(&expr.expr),
-            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.walk_word(word),
-            ConditionalExpr::Pattern(pattern) => self.walk_pattern(pattern),
-            ConditionalExpr::VarRef(reference) => {
-                visit_var_ref_subscript_words(reference, &mut |word| {
-                    self.walk_word(word);
-                });
-            }
         }
     }
 }
@@ -1459,19 +1365,19 @@ fn builtin_redirects(command: &BuiltinCommand) -> &[Redirect] {
     }
 }
 
-fn collect_command_words<'a>(command: &'a Command, words: &mut Vec<&'a Word>) {
+fn collect_command_words(command: &Command, source: &str, words: &mut Vec<Word>) {
     match command {
         Command::Simple(command) => {
-            collect_assignments_words(&command.assignments, words);
-            words.push(&command.name);
+            collect_assignments_words(&command.assignments, source, words);
+            words.push(command.name.clone());
             collect_words(&command.args, words);
             collect_redirect_target_words(&command.redirects, words);
         }
-        Command::Builtin(command) => collect_builtin_words(command, words),
+        Command::Builtin(command) => collect_builtin_words(command, source, words),
         Command::Decl(command) => {
-            collect_assignments_words(&command.assignments, words);
+            collect_assignments_words(&command.assignments, source, words);
             for operand in &command.operands {
-                collect_decl_operand_words(operand, words);
+                collect_decl_operand_words(operand, source, words);
             }
             collect_redirect_target_words(&command.redirects, words);
         }
@@ -1484,14 +1390,14 @@ fn collect_command_words<'a>(command: &'a Command, words: &mut Vec<&'a Word>) {
                     }
                 }
                 CompoundCommand::Case(command) => {
-                    words.push(&command.word);
+                    words.push(command.word.clone());
                     for case in &command.cases {
                         collect_pattern_words(&case.patterns, words);
                     }
                 }
                 CompoundCommand::Select(command) => collect_words(&command.words, words),
                 CompoundCommand::Conditional(command) => {
-                    collect_conditional_words(&command.expression, words);
+                    collect_conditional_words(&command.expression, source, words);
                 }
                 CompoundCommand::If(_)
                 | CompoundCommand::ArithmeticFor(_)
@@ -1509,21 +1415,23 @@ fn collect_command_words<'a>(command: &'a Command, words: &mut Vec<&'a Word>) {
     }
 }
 
-fn collect_assignments_words<'a>(assignments: &'a [Assignment], words: &mut Vec<&'a Word>) {
+fn collect_assignments_words(assignments: &[Assignment], source: &str, words: &mut Vec<Word>) {
     for assignment in assignments {
-        collect_assignment_words(assignment, words);
+        collect_assignment_words(assignment, source, words);
     }
 }
 
-fn collect_assignment_words<'a>(assignment: &'a Assignment, words: &mut Vec<&'a Word>) {
+fn collect_assignment_words(assignment: &Assignment, source: &str, words: &mut Vec<Word>) {
+    collect_var_ref_subscript_words(&assignment.target, source, words);
     match &assignment.value {
-        AssignmentValue::Scalar(word) => words.push(word),
+        AssignmentValue::Scalar(word) => words.push(word.clone()),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
-                    ArrayElem::Sequential(word) => words.push(word),
-                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                        words.push(value);
+                    ArrayElem::Sequential(word) => words.push(word.clone()),
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        collect_subscript_words(Some(key), source, words);
+                        words.push(value.clone());
                     }
                 }
             }
@@ -1531,36 +1439,36 @@ fn collect_assignment_words<'a>(assignment: &'a Assignment, words: &mut Vec<&'a 
     }
 }
 
-fn collect_builtin_words<'a>(command: &'a BuiltinCommand, words: &mut Vec<&'a Word>) {
+fn collect_builtin_words(command: &BuiltinCommand, source: &str, words: &mut Vec<Word>) {
     match command {
         BuiltinCommand::Break(command) => {
-            collect_assignments_words(&command.assignments, words);
+            collect_assignments_words(&command.assignments, source, words);
             if let Some(word) = &command.depth {
-                words.push(word);
+                words.push(word.clone());
             }
             collect_words(&command.extra_args, words);
             collect_redirect_target_words(&command.redirects, words);
         }
         BuiltinCommand::Continue(command) => {
-            collect_assignments_words(&command.assignments, words);
+            collect_assignments_words(&command.assignments, source, words);
             if let Some(word) = &command.depth {
-                words.push(word);
+                words.push(word.clone());
             }
             collect_words(&command.extra_args, words);
             collect_redirect_target_words(&command.redirects, words);
         }
         BuiltinCommand::Return(command) => {
-            collect_assignments_words(&command.assignments, words);
+            collect_assignments_words(&command.assignments, source, words);
             if let Some(word) = &command.code {
-                words.push(word);
+                words.push(word.clone());
             }
             collect_words(&command.extra_args, words);
             collect_redirect_target_words(&command.redirects, words);
         }
         BuiltinCommand::Exit(command) => {
-            collect_assignments_words(&command.assignments, words);
+            collect_assignments_words(&command.assignments, source, words);
             if let Some(word) = &command.code {
-                words.push(word);
+                words.push(word.clone());
             }
             collect_words(&command.extra_args, words);
             collect_redirect_target_words(&command.redirects, words);
@@ -1579,7 +1487,7 @@ fn collect_word_command_substitutions<'a>(
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 let mut arithmetic_words = Vec::new();
-                collect_optional_arithmetic_words(expression_ast.as_ref(), &mut arithmetic_words);
+                collect_optional_arithmetic_word_refs(expression_ast.as_ref(), &mut arithmetic_words);
                 for word in arithmetic_words {
                     collect_word_command_substitutions(&word.parts, substitutions);
                 }
@@ -1607,27 +1515,27 @@ fn collect_word_command_substitutions<'a>(
     }
 }
 
-fn collect_decl_operand_words<'a>(operand: &'a DeclOperand, words: &mut Vec<&'a Word>) {
+fn collect_decl_operand_words(operand: &DeclOperand, source: &str, words: &mut Vec<Word>) {
     match operand {
-        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => words.push(word),
-        DeclOperand::Name(_) => {}
-        DeclOperand::Assignment(assignment) => collect_assignment_words(assignment, words),
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => words.push(word.clone()),
+        DeclOperand::Name(reference) => collect_var_ref_subscript_words(reference, source, words),
+        DeclOperand::Assignment(assignment) => collect_assignment_words(assignment, source, words),
     }
 }
 
-fn collect_words<'a>(command_words: &'a [Word], words: &mut Vec<&'a Word>) {
-    words.extend(command_words);
+fn collect_words(command_words: &[Word], words: &mut Vec<Word>) {
+    words.extend(command_words.iter().cloned());
 }
 
-fn collect_pattern_words<'a>(patterns: &'a [Pattern], words: &mut Vec<&'a Word>) {
+fn collect_pattern_words(patterns: &[Pattern], words: &mut Vec<Word>) {
     for pattern in patterns {
         collect_pattern_words_from_pattern(pattern, words);
     }
 }
 
-fn collect_redirect_target_words<'a>(redirects: &'a [Redirect], words: &mut Vec<&'a Word>) {
+fn collect_redirect_target_words(redirects: &[Redirect], words: &mut Vec<Word>) {
     for redirect in redirects {
-        words.push(redirect_walk_word(redirect));
+        words.push(redirect_walk_word(redirect).clone());
     }
 }
 
@@ -1638,27 +1546,27 @@ fn redirect_walk_word(redirect: &Redirect) -> &Word {
     }
 }
 
-fn collect_conditional_words<'a>(expression: &'a ConditionalExpr, words: &mut Vec<&'a Word>) {
+fn collect_conditional_words(expression: &ConditionalExpr, source: &str, words: &mut Vec<Word>) {
     match expression {
         ConditionalExpr::Binary(expr) => {
-            collect_conditional_words(&expr.left, words);
-            collect_conditional_words(&expr.right, words);
+            collect_conditional_words(&expr.left, source, words);
+            collect_conditional_words(&expr.right, source, words);
         }
-        ConditionalExpr::Unary(expr) => collect_conditional_words(&expr.expr, words),
-        ConditionalExpr::Parenthesized(expr) => collect_conditional_words(&expr.expr, words),
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => words.push(word),
+        ConditionalExpr::Unary(expr) => collect_conditional_words(&expr.expr, source, words),
+        ConditionalExpr::Parenthesized(expr) => collect_conditional_words(&expr.expr, source, words),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => words.push(word.clone()),
         ConditionalExpr::Pattern(pattern) => collect_pattern_words_from_pattern(pattern, words),
         ConditionalExpr::VarRef(reference) => {
-            collect_var_ref_subscript_words(reference, words);
+            collect_var_ref_subscript_words(reference, source, words);
         }
     }
 }
 
-fn collect_pattern_words_from_pattern<'a>(pattern: &'a Pattern, words: &mut Vec<&'a Word>) {
+fn collect_pattern_words_from_pattern(pattern: &Pattern, words: &mut Vec<Word>) {
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => collect_pattern_words(patterns, words),
-            PatternPart::Word(word) => words.push(word),
+            PatternPart::Word(word) => words.push(word.clone()),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
@@ -1702,12 +1610,13 @@ mod tests {
 
         let structural = iter_commands(
             &commands,
+            source,
             CommandWalkOptions {
                 descend_nested_word_commands: false,
             },
         )
         .filter_map(|visit| {
-            let Command::Simple(command) = visit.command else {
+            let Command::Simple(command) = &visit.command else {
                 return None;
             };
 
@@ -1717,12 +1626,13 @@ mod tests {
 
         let nested = iter_commands(
             &commands,
+            source,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
             },
         )
         .filter_map(|visit| {
-            let Command::Simple(command) = visit.command else {
+            let Command::Simple(command) = &visit.command else {
                 return None;
             };
 
@@ -1743,12 +1653,13 @@ done\n";
         let commands = parse_commands(source);
         let seen = iter_commands(
             &commands,
+            source,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
             },
         )
         .filter_map(|visit| {
-            let Command::Simple(command) = visit.command else {
+            let Command::Simple(command) = &visit.command else {
                 return None;
             };
             let name = static_word_text(&command.name, source)?;
@@ -1802,8 +1713,8 @@ foo=1 export foo=1 >decl\nfor item in foo bar; do :; done >compound\n";
         let word_lists: Vec<Vec<String>> = commands
             .iter()
             .map(|command| {
-                iter_command_words(command)
-                    .map(|word| static_word_text(word, source).unwrap())
+                iter_command_words(command, source)
+                    .map(|word| static_word_text(&word, source).unwrap())
                     .collect()
             })
             .collect();
@@ -1870,7 +1781,7 @@ foo=1 export foo=1 >decl\nfor item in foo bar; do :; done >compound\n";
     fn word_command_substitution_iterator_reports_kind_and_span() {
         let source = "echo \"$(printf cmd)\" <(printf in) >(printf out)\n";
         let commands = parse_commands(source);
-        let substitutions = iter_command_substitutions(&commands[0])
+        let substitutions = iter_command_substitutions(&commands[0], source)
             .map(|substitution| {
                 let label = substitution
                     .commands
@@ -1917,12 +1828,13 @@ for item in \"$(printf loop)\"; do :; done\n";
 
         let substitution_labels = iter_commands(
             &commands,
+            source,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
             },
         )
         .map(|visit| {
-            iter_command_substitutions(visit.command)
+            iter_command_substitutions(&visit.command, source)
                 .map(|substitution| {
                     substitution
                         .commands
@@ -2035,6 +1947,57 @@ trap -- \"echo $trap_body\" EXIT
     }
 
     #[test]
+    fn visit_expansion_words_covers_conditional_patterns_and_non_arithmetic_subscripts() {
+        let source = "\
+declare arr[$(printf decl-subscript)]=1
+name[$(printf assign-subscript)]=1
+declare -A map=([\"$(printf keyed-subscript)\"]=1)
+[[ $lhs == \"$(printf pattern-substitution)\" ]]
+[[ -v assoc[\"$(printf conditional-subscript)\"] ]]
+";
+        let commands = parse_commands(source);
+        let seen = commands
+            .iter()
+            .flat_map(|command| {
+                let mut words = Vec::new();
+                visit_expansion_words(command, source, &mut |word, context| {
+                    let text = word.span.slice(source);
+                    if text.contains("printf") {
+                        words.push((context, text.to_owned()));
+                    }
+                });
+                words
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            seen,
+            vec![
+                (
+                    ExpansionContext::DeclarationAssignmentValue,
+                    "$(printf decl-subscript)".to_owned(),
+                ),
+                (
+                    ExpansionContext::AssignmentValue,
+                    "$(printf assign-subscript)".to_owned(),
+                ),
+                (
+                    ExpansionContext::DeclarationAssignmentValue,
+                    "\"$(printf keyed-subscript)\"".to_owned(),
+                ),
+                (
+                    ExpansionContext::ConditionalPattern,
+                    "\"$(printf pattern-substitution)\"".to_owned(),
+                ),
+                (
+                    ExpansionContext::ConditionalVarRefSubscript,
+                    "\"$(printf conditional-subscript)\"".to_owned(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn iter_expansion_words_distinguishes_same_word_by_shell_context() {
         let source = "\
 $same '%s\\n' $same >$same
@@ -2067,6 +2030,46 @@ esac
     }
 
     #[test]
+    fn iter_command_substitutions_descends_into_non_arithmetic_subscripts_and_patterns() {
+        let source = "\
+declare arr[$(printf decl-subscript)]=1
+name[$(printf assign-subscript)]=1
+declare -A map=([\"$(printf keyed-subscript)\"]=1)
+[[ $lhs == \"$(printf pattern-substitution)\" ]]
+[[ -v assoc[\"$(printf conditional-subscript)\"] ]]
+";
+        let commands = parse_commands(source);
+        let seen = commands
+            .iter()
+            .flat_map(|command| iter_command_substitutions(command, source))
+            .map(|substitution| {
+                let Command::Simple(command) = &substitution.commands[0] else {
+                    panic!("expected simple command in substitution");
+                };
+                static_word_text(
+                    command
+                        .args
+                        .first()
+                        .expect("expected substitution argument"),
+                    source,
+                )
+                .expect("expected static substitution argument")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            seen,
+            vec![
+                "decl-subscript".to_owned(),
+                "assign-subscript".to_owned(),
+                "keyed-subscript".to_owned(),
+                "pattern-substitution".to_owned(),
+                "conditional-subscript".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
     fn iter_command_substitutions_descends_into_arithmetic_and_var_ref_subscripts() {
         let source = "\
 echo $(( $(printf outer) + 1 ))
@@ -2075,7 +2078,7 @@ echo $(( $(printf outer) + 1 ))
         let commands = parse_commands(source);
         let seen = commands
             .iter()
-            .flat_map(iter_command_substitutions)
+            .flat_map(|command| iter_command_substitutions(command, source))
             .map(|substitution| {
                 let Command::Simple(command) = &substitution.commands[0] else {
                     panic!("expected simple command in substitution");

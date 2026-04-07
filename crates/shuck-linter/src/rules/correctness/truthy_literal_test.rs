@@ -26,6 +26,7 @@ pub fn truthy_literal_test(checker: &mut Checker) {
 
     query::walk_commands(
         &checker.ast().commands,
+        checker.source(),
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },

@@ -25,6 +25,7 @@ pub fn printf_format_variable(checker: &mut Checker) {
 
     query::walk_commands(
         &checker.ast().commands,
+        checker.source(),
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },

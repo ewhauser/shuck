@@ -230,11 +230,7 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                         walk_word(word, model, source, facts);
                     }
-                    DeclOperand::Name(name) => {
-                        if let Some(expr) = var_ref_subscript_expr(name) {
-                            walk_arithmetic_expr(expr, model, source, facts);
-                        }
-                    }
+                    DeclOperand::Name(name) => walk_var_ref_subscript(name, model, source, facts),
                     DeclOperand::Assignment(assignment) => {
                         walk_assignment(assignment, model, source, facts);
                     }
@@ -349,9 +345,7 @@ fn walk_assignment(
     source: &str,
     facts: &mut AstFacts,
 ) {
-    if let Some(expr) = var_ref_subscript_expr(&assignment.target) {
-        walk_arithmetic_expr(expr, model, source, facts);
-    }
+    walk_var_ref_subscript(&assignment.target, model, source, facts);
     match &assignment.value {
         AssignmentValue::Scalar(word) => walk_word(word, model, source, facts),
         AssignmentValue::Compound(array) => {
@@ -359,9 +353,7 @@ fn walk_assignment(
                 match element {
                     ArrayElem::Sequential(word) => walk_word(word, model, source, facts),
                     ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        if let Some(expr) = &key.arithmetic_ast {
-                            walk_arithmetic_expr(expr, model, source, facts);
-                        }
+                        walk_subscript(Some(key), model, source, facts);
                         walk_word(value, model, source, facts);
                     }
                 }
@@ -415,9 +407,7 @@ fn walk_word_parts(
                 operand,
                 ..
             } => {
-                if let Some(expr) = var_ref_subscript_expr(reference) {
-                    walk_arithmetic_expr(expr, model, source, facts);
-                }
+                walk_var_ref_subscript(reference, model, source, facts);
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
                 }
@@ -452,9 +442,7 @@ fn walk_word_parts(
                 length_ast,
                 ..
             } => {
-                if let Some(expr) = var_ref_subscript_expr(reference) {
-                    walk_arithmetic_expr(expr, model, source, facts);
-                }
+                walk_var_ref_subscript(reference, model, source, facts);
                 if let Some(offset_ast) = offset_ast {
                     walk_arithmetic_expr(offset_ast, model, source, facts);
                 }
@@ -463,9 +451,7 @@ fn walk_word_parts(
                 }
             }
             WordPart::ArrayAccess(reference) => {
-                if let Some(index_ast) = var_ref_subscript_expr(reference) {
-                    walk_arithmetic_expr(index_ast, model, source, facts);
-                }
+                walk_var_ref_subscript(reference, model, source, facts);
             }
             WordPart::IndirectExpansion { operand, .. } => {
                 if let Some(operand) = operand {
@@ -476,9 +462,7 @@ fn walk_word_parts(
             | WordPart::Length(reference)
             | WordPart::ArrayLength(reference)
             | WordPart::ArrayIndices(reference) => {
-                if let Some(expr) = var_ref_subscript_expr(reference) {
-                    walk_arithmetic_expr(expr, model, source, facts);
-                }
+                walk_var_ref_subscript(reference, model, source, facts);
             }
             WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
         }
@@ -592,12 +576,37 @@ fn walk_conditional_expr(
             walk_word(word, model, source, facts)
         }
         ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, model, source, facts),
-        ConditionalExpr::VarRef(var_ref) => {
-            if let Some(expr) = var_ref_subscript_expr(var_ref) {
-                walk_arithmetic_expr(expr, model, source, facts);
-            }
-        }
+        ConditionalExpr::VarRef(var_ref) => walk_var_ref_subscript(var_ref, model, source, facts),
     }
+}
+
+fn walk_var_ref_subscript(
+    reference: &VarRef,
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    walk_subscript(reference.subscript.as_ref(), model, source, facts);
+}
+
+fn walk_subscript(
+    subscript: Option<&shuck_ast::Subscript>,
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if subscript.selector().is_some() {
+        return;
+    }
+    if let Some(expr) = subscript.arithmetic_ast.as_ref() {
+        walk_arithmetic_expr(expr, model, source, facts);
+        return;
+    }
+
+    walk_source_text(subscript.syntax_source_text(), model, source, facts);
 }
 
 fn source_path_template(
@@ -712,13 +721,6 @@ fn positional_index(name: &Name) -> Option<usize> {
 
 fn is_bash_source_var(name: &Name) -> bool {
     name.as_str() == "BASH_SOURCE"
-}
-
-fn var_ref_subscript_expr(reference: &VarRef) -> Option<&ArithmeticExprNode> {
-    reference
-        .subscript
-        .as_ref()
-        .and_then(|subscript| subscript.arithmetic_ast.as_ref())
 }
 
 fn is_bash_source_index_ref(reference: &VarRef, source: &str) -> bool {

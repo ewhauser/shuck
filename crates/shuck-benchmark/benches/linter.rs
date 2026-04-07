@@ -20,6 +20,7 @@ fn lint_source(
         SuppressionIndex::new(
             &directives,
             &output.script,
+            source,
             first_statement_line(&output.script).unwrap_or(u32::MAX),
         )
     });

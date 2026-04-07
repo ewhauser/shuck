@@ -1,9 +1,10 @@
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList,
     CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, FunctionDef, Pattern, PatternPart,
-    PatternPartNode, Redirect, RedirectKind, Script, TextRange, TextSize, Word, WordPart,
-    WordPartNode,
+    PatternPartNode, Redirect, RedirectKind, Script, Subscript, TextRange, TextSize, VarRef,
+    Word, WordPart, WordPartNode,
 };
+use shuck_parser::parser::Parser;
 
 /// A syntactic region that affects lint rule behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,8 +38,8 @@ pub struct RegionIndex {
 
 impl RegionIndex {
     /// Build from source text and the parsed script.
-    pub fn new(_source: &str, script: &Script) -> Self {
-        let mut collector = RegionCollector::new();
+    pub fn new(source: &str, script: &Script) -> Self {
+        let mut collector = RegionCollector::new(source);
         collector.visit_script(script);
         collector.finish()
     }
@@ -98,7 +99,8 @@ impl RegionIndex {
     }
 }
 
-struct RegionCollector {
+struct RegionCollector<'a> {
+    source: &'a str,
     single_quoted: Vec<TextRange>,
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
@@ -108,9 +110,10 @@ struct RegionCollector {
     quoted_heredocs: Vec<TextRange>,
 }
 
-impl RegionCollector {
-    fn new() -> Self {
+impl<'a> RegionCollector<'a> {
+    fn new(source: &'a str) -> Self {
         Self {
+            source,
             single_quoted: Vec::new(),
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
@@ -211,9 +214,9 @@ impl RegionCollector {
     fn visit_command(&mut self, command: &Command) {
         match command {
             Command::Simple(command) => {
-                self.visit_word(&command.name, true);
+                self.visit_word(&command.name);
                 for argument in &command.args {
-                    self.visit_word(argument, true);
+                    self.visit_word(argument);
                 }
                 for redirect in &command.redirects {
                     self.visit_redirect(redirect);
@@ -245,10 +248,10 @@ impl RegionCollector {
         match command {
             BuiltinCommand::Break(command) => {
                 if let Some(depth) = &command.depth {
-                    self.visit_word(depth, true);
+                    self.visit_word(depth);
                 }
                 for argument in &command.extra_args {
-                    self.visit_word(argument, true);
+                    self.visit_word(argument);
                 }
                 for redirect in &command.redirects {
                     self.visit_redirect(redirect);
@@ -259,10 +262,10 @@ impl RegionCollector {
             }
             BuiltinCommand::Continue(command) => {
                 if let Some(depth) = &command.depth {
-                    self.visit_word(depth, true);
+                    self.visit_word(depth);
                 }
                 for argument in &command.extra_args {
-                    self.visit_word(argument, true);
+                    self.visit_word(argument);
                 }
                 for redirect in &command.redirects {
                     self.visit_redirect(redirect);
@@ -273,10 +276,10 @@ impl RegionCollector {
             }
             BuiltinCommand::Return(command) => {
                 if let Some(code) = &command.code {
-                    self.visit_word(code, true);
+                    self.visit_word(code);
                 }
                 for argument in &command.extra_args {
-                    self.visit_word(argument, true);
+                    self.visit_word(argument);
                 }
                 for redirect in &command.redirects {
                     self.visit_redirect(redirect);
@@ -287,10 +290,10 @@ impl RegionCollector {
             }
             BuiltinCommand::Exit(command) => {
                 if let Some(code) = &command.code {
-                    self.visit_word(code, true);
+                    self.visit_word(code);
                 }
                 for argument in &command.extra_args {
-                    self.visit_word(argument, true);
+                    self.visit_word(argument);
                 }
                 for redirect in &command.redirects {
                     self.visit_redirect(redirect);
@@ -305,8 +308,8 @@ impl RegionCollector {
     fn visit_decl(&mut self, command: &DeclClause) {
         for operand in &command.operands {
             match operand {
-                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => self.visit_word(word, true),
-                DeclOperand::Name(_) => {}
+                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => self.visit_word(word),
+                DeclOperand::Name(reference) => self.visit_var_ref_subscript(reference),
                 DeclOperand::Assignment(assignment) => self.visit_assignment(assignment),
             }
         }
@@ -334,7 +337,7 @@ impl RegionCollector {
             CompoundCommand::For(command) => {
                 if let Some(words) = &command.words {
                     for word in words {
-                        self.visit_word(word, true);
+                        self.visit_word(word);
                     }
                 }
                 self.visit_commands(&command.body);
@@ -352,7 +355,7 @@ impl RegionCollector {
                 self.visit_commands(&command.body);
             }
             CompoundCommand::Case(command) => {
-                self.visit_word(&command.word, true);
+                self.visit_word(&command.word);
                 for item in &command.cases {
                     for pattern in &item.patterns {
                         self.visit_pattern(pattern);
@@ -362,7 +365,7 @@ impl RegionCollector {
             }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
-                    self.visit_word(word, true);
+                    self.visit_word(word);
                 }
                 self.visit_commands(&command.body);
             }
@@ -404,10 +407,10 @@ impl RegionCollector {
                 self.visit_conditional_expr(&expression.expr);
             }
             ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-                self.visit_word(word, true)
+                self.visit_word(word)
             }
             ConditionalExpr::Pattern(pattern) => self.visit_pattern(pattern),
-            ConditionalExpr::VarRef(_) => {}
+            ConditionalExpr::VarRef(reference) => self.visit_var_ref_subscript(reference),
         }
     }
 
@@ -417,7 +420,7 @@ impl RegionCollector {
                 let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                 let range = heredoc.body.span.to_range();
                 push_range(&mut self.heredocs, range);
-                if is_fully_quoted_word(&heredoc.body) {
+                if heredoc.delimiter.quoted {
                     push_range(&mut self.quoted_heredocs, range);
                 }
                 self.visit_word_parts(&heredoc.body.parts);
@@ -426,21 +429,22 @@ impl RegionCollector {
                 redirect
                     .word_target()
                     .expect("expected non-heredoc redirect target"),
-                true,
             ),
         }
     }
 
     fn visit_assignment(&mut self, assignment: &Assignment) {
+        self.visit_var_ref_subscript(&assignment.target);
         match &assignment.value {
-            AssignmentValue::Scalar(word) => self.visit_word(word, true),
+            AssignmentValue::Scalar(word) => self.visit_word(word),
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
                     match element {
-                        shuck_ast::ArrayElem::Sequential(word) => self.visit_word(word, true),
-                        shuck_ast::ArrayElem::Keyed { value, .. }
-                        | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
-                            self.visit_word(value, true);
+                        shuck_ast::ArrayElem::Sequential(word) => self.visit_word(word),
+                        shuck_ast::ArrayElem::Keyed { key, value }
+                        | shuck_ast::ArrayElem::KeyedAppend { key, value } => {
+                            self.visit_subscript(Some(key));
+                            self.visit_word(value);
                         }
                     }
                 }
@@ -448,8 +452,7 @@ impl RegionCollector {
         }
     }
 
-    fn visit_word(&mut self, word: &Word, scan_quotes: bool) {
-        let _ = scan_quotes;
+    fn visit_word(&mut self, word: &Word) {
         self.visit_word_parts(&word.parts);
     }
 
@@ -465,7 +468,7 @@ impl RegionCollector {
                         self.visit_pattern(pattern);
                     }
                 }
-                PatternPart::Word(word) => self.visit_word(word, true),
+                PatternPart::Word(word) => self.visit_word(word),
                 PatternPart::Literal(_)
                 | PatternPart::AnyString
                 | PatternPart::AnyChar
@@ -508,16 +511,63 @@ impl RegionCollector {
             }
         }
     }
-}
 
-fn is_fully_quoted_word(word: &Word) -> bool {
-    matches!(
-        word.parts.as_slice(),
-        [part] if matches!(
-            &part.kind,
-            WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
-        )
-    )
+    fn visit_var_ref_subscript(&mut self, reference: &VarRef) {
+        self.visit_subscript(reference.subscript.as_ref());
+    }
+
+    fn visit_subscript(&mut self, subscript: Option<&Subscript>) {
+        let Some(subscript) = subscript else {
+            return;
+        };
+        if subscript.selector().is_some() {
+            return;
+        }
+        if let Some(expression_ast) = subscript.arithmetic_ast.as_ref() {
+            self.visit_arithmetic_shell_words(expression_ast);
+            return;
+        }
+
+        let text = subscript.syntax_source_text();
+        let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
+        self.visit_word(&word);
+    }
+
+    fn visit_arithmetic_shell_words(&mut self, expression: &shuck_ast::ArithmeticExprNode) {
+        match &expression.kind {
+            shuck_ast::ArithmeticExpr::Number(_) | shuck_ast::ArithmeticExpr::Variable(_) => {}
+            shuck_ast::ArithmeticExpr::Indexed { index, .. } => {
+                self.visit_arithmetic_shell_words(index)
+            }
+            shuck_ast::ArithmeticExpr::ShellWord(word) => self.visit_word(word),
+            shuck_ast::ArithmeticExpr::Parenthesized { expression } => {
+                self.visit_arithmetic_shell_words(expression)
+            }
+            shuck_ast::ArithmeticExpr::Unary { expr, .. }
+            | shuck_ast::ArithmeticExpr::Postfix { expr, .. } => {
+                self.visit_arithmetic_shell_words(expr)
+            }
+            shuck_ast::ArithmeticExpr::Binary { left, right, .. } => {
+                self.visit_arithmetic_shell_words(left);
+                self.visit_arithmetic_shell_words(right);
+            }
+            shuck_ast::ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.visit_arithmetic_shell_words(condition);
+                self.visit_arithmetic_shell_words(then_expr);
+                self.visit_arithmetic_shell_words(else_expr);
+            }
+            shuck_ast::ArithmeticExpr::Assignment { target, value, .. } => {
+                if let shuck_ast::ArithmeticLvalue::Indexed { index, .. } = target {
+                    self.visit_arithmetic_shell_words(index);
+                }
+                self.visit_arithmetic_shell_words(value);
+            }
+        }
+    }
 }
 
 fn sort_ranges(ranges: &mut [TextRange]) {
@@ -599,6 +649,16 @@ mod tests {
         assert_eq!(regions.region_at(arithmetic), Some(RegionKind::Arithmetic));
         assert!(regions.is_command_substitution(command));
         assert!(regions.is_arithmetic(arithmetic));
+    }
+
+    #[test]
+    fn tracks_quoted_regions_inside_keyed_array_subscripts() {
+        let source = "declare -A map=(['$HOME']=1)\n";
+        let regions = regions(source);
+        let offset = TextSize::new(source.find("$HOME").unwrap() as u32);
+
+        assert_eq!(regions.region_at(offset), Some(RegionKind::SingleQuoted));
+        assert!(regions.is_quoted(offset));
     }
 
     #[test]

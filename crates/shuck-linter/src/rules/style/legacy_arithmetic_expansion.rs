@@ -21,6 +21,7 @@ pub fn legacy_arithmetic_expansion(checker: &mut Checker) {
 
     query::walk_words(
         &checker.ast().commands,
+        checker.source(),
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },

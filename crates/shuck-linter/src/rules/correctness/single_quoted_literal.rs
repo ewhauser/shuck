@@ -152,7 +152,11 @@ fn collect_decl_command(command: &DeclClause, source: &str, spans: &mut Vec<Span
             DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                 collect_word(word, source, spans, context);
             }
-            DeclOperand::Name(_) => {}
+            DeclOperand::Name(reference) => {
+                query::visit_var_ref_subscript_words(reference, source, &mut |word| {
+                    collect_word(word, source, spans, context);
+                });
+            }
             DeclOperand::Assignment(assignment) => {
                 collect_assignment(assignment, source, spans, context);
             }
@@ -234,6 +238,9 @@ fn collect_assignment(
     context: ScanContext<'_>,
 ) {
     let context = context.with_assignment_target(assignment_target_name(assignment));
+    query::visit_var_ref_subscript_words(&assignment.target, source, &mut |word| {
+        collect_word(word, source, spans, context);
+    });
     match &assignment.value {
         AssignmentValue::Scalar(word) => collect_word(word, source, spans, context),
         AssignmentValue::Compound(array) => {
@@ -242,8 +249,11 @@ fn collect_assignment(
                     shuck_ast::ArrayElem::Sequential(word) => {
                         collect_word(word, source, spans, context)
                     }
-                    shuck_ast::ArrayElem::Keyed { value, .. }
-                    | shuck_ast::ArrayElem::KeyedAppend { value, .. } => {
+                    shuck_ast::ArrayElem::Keyed { key, value }
+                    | shuck_ast::ArrayElem::KeyedAppend { key, value } => {
+                        query::visit_subscript_words(Some(key), source, &mut |word| {
+                            collect_word(word, source, spans, context);
+                        });
                         collect_word(value, source, spans, context)
                     }
                 }
@@ -383,7 +393,7 @@ fn collect_conditional_expr(
         }
         ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans, context),
         ConditionalExpr::VarRef(reference) => {
-            query::visit_var_ref_subscript_words(reference, &mut |word| {
+            query::visit_var_ref_subscript_words(reference, source, &mut |word| {
                 collect_word(word, source, spans, context);
             });
         }
@@ -676,6 +686,11 @@ mod tests {
     #[test]
     fn reports_single_quoted_literals_inside_parameter_patterns() {
         assert_eq!(c005("echo ${value#'$HOME'}\n"), 1);
+    }
+
+    #[test]
+    fn reports_single_quoted_literals_inside_keyed_array_subscripts() {
+        assert_eq!(c005("declare -A map=(['$HOME']=1)\n"), 1);
     }
 
     #[test]

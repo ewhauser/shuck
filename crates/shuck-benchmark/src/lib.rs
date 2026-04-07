@@ -209,6 +209,7 @@ mod tests {
                 SuppressionIndex::new(
                     &directives,
                     &output.script,
+                    file.source,
                     first_statement_line(&output.script).unwrap_or(u32::MAX),
                 )
             });

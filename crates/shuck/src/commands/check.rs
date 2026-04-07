@@ -227,6 +227,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                         SuppressionIndex::new(
                             &directives,
                             &output.script,
+                            &source,
                             first_statement_line(&output.script).unwrap_or(u32::MAX),
                         )
                     });

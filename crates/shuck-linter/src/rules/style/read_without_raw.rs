@@ -22,6 +22,7 @@ pub fn read_without_raw(checker: &mut Checker) {
 
     query::walk_commands(
         &checker.ast().commands,
+        checker.source(),
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
