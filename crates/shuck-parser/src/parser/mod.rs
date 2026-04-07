@@ -6,6 +6,7 @@
 // This is safe because we check bounds before accessing.
 #![allow(clippy::unwrap_used)]
 
+mod arithmetic;
 mod lexer;
 
 use std::{
@@ -20,15 +21,16 @@ pub use lexer::{
 };
 
 use shuck_ast::{
-    ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticForCommand, Assignment,
-    AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
-    CommandList, CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand,
-    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
-    DeclClause, DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc,
-    HeredocDelimiter, IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position,
-    Redirect, RedirectKind, RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand,
-    SourceText, Span, TextSize, TimeCommand, TokenKind, UntilCommand, WhileCommand, Word, WordPart,
+    ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BreakCommand,
+    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CommandListItem,
+    CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalBinaryExpr,
+    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
+    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, DeclClause,
+    DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter,
+    IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position, Redirect,
+    RedirectKind, RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText,
+    Span, TextSize, TimeCommand, TokenKind, UntilCommand, WhileCommand, Word, WordPart,
     WordPartNode,
 };
 
@@ -1001,6 +1003,9 @@ impl<'a> Parser<'a> {
                     if let Some(index) = &mut name.index {
                         index.rebased(base);
                     }
+                    if let Some(expr) = &mut name.index_ast {
+                        Self::rebase_arithmetic_expr(expr, base);
+                    }
                 }
                 DeclOperand::Assignment(assignment) => {
                     Self::rebase_assignments(std::slice::from_mut(assignment), base);
@@ -1035,10 +1040,19 @@ impl<'a> Parser<'a> {
                 command.span = command.span.rebased(base);
                 command.left_paren_span = command.left_paren_span.rebased(base);
                 command.init_span = command.init_span.map(|span| span.rebased(base));
+                if let Some(expr) = &mut command.init_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
                 command.first_semicolon_span = command.first_semicolon_span.rebased(base);
                 command.condition_span = command.condition_span.map(|span| span.rebased(base));
+                if let Some(expr) = &mut command.condition_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
                 command.second_semicolon_span = command.second_semicolon_span.rebased(base);
                 command.step_span = command.step_span.map(|span| span.rebased(base));
+                if let Some(expr) = &mut command.step_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
                 command.right_paren_span = command.right_paren_span.rebased(base);
                 Self::rebase_commands(&mut command.body, base);
             }
@@ -1073,6 +1087,9 @@ impl<'a> Parser<'a> {
                 command.span = command.span.rebased(base);
                 command.left_paren_span = command.left_paren_span.rebased(base);
                 command.expr_span = command.expr_span.map(|span| span.rebased(base));
+                if let Some(expr) = &mut command.expr_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
                 command.right_paren_span = command.right_paren_span.rebased(base);
             }
             CompoundCommand::Time(command) => {
@@ -1122,12 +1139,37 @@ impl<'a> Parser<'a> {
                     operand.rebased(base);
                 }
             }
-            WordPart::ArrayAccess { index, .. } => index.rebased(base),
-            WordPart::Substring { offset, length, .. }
-            | WordPart::ArraySlice { offset, length, .. } => {
+            WordPart::ArrayAccess {
+                index, index_ast, ..
+            } => {
+                index.rebased(base);
+                if let Some(expr) = index_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
+            }
+            WordPart::Substring {
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+                ..
+            } => {
                 offset.rebased(base);
+                if let Some(expr) = offset_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
                 if let Some(length) = length {
                     length.rebased(base);
+                }
+                if let Some(expr) = length_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
                 }
             }
             WordPart::IndirectExpansion { operand, .. } => {
@@ -1135,7 +1177,16 @@ impl<'a> Parser<'a> {
                     operand.rebased(base);
                 }
             }
-            WordPart::ArithmeticExpansion { expression, .. } => expression.rebased(base),
+            WordPart::ArithmeticExpansion {
+                expression,
+                expression_ast,
+                ..
+            } => {
+                expression.rebased(base);
+                if let Some(expr) = expression_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
+            }
             WordPart::CommandSubstitution { commands, .. }
             | WordPart::ProcessSubstitution { commands, .. } => {
                 Self::rebase_commands(commands, base)
@@ -1171,6 +1222,46 @@ impl<'a> Parser<'a> {
             | ConditionalExpr::Regex(word) => {
                 Self::rebase_word(word, base);
             }
+        }
+    }
+
+    fn rebase_arithmetic_expr(expr: &mut ArithmeticExprNode, base: Position) {
+        expr.span = expr.span.rebased(base);
+        match &mut expr.kind {
+            ArithmeticExpr::Number(text) => text.rebased(base),
+            ArithmeticExpr::Variable(_) => {}
+            ArithmeticExpr::Indexed { index, .. } => Self::rebase_arithmetic_expr(index, base),
+            ArithmeticExpr::ShellWord(word) => Self::rebase_word(word, base),
+            ArithmeticExpr::Parenthesized { expression } => {
+                Self::rebase_arithmetic_expr(expression, base)
+            }
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                Self::rebase_arithmetic_expr(expr, base)
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                Self::rebase_arithmetic_expr(left, base);
+                Self::rebase_arithmetic_expr(right, base);
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                Self::rebase_arithmetic_expr(condition, base);
+                Self::rebase_arithmetic_expr(then_expr, base);
+                Self::rebase_arithmetic_expr(else_expr, base);
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                Self::rebase_arithmetic_lvalue(target, base);
+                Self::rebase_arithmetic_expr(value, base);
+            }
+        }
+    }
+
+    fn rebase_arithmetic_lvalue(target: &mut ArithmeticLvalue, base: Position) {
+        match target {
+            ArithmeticLvalue::Variable(_) => {}
+            ArithmeticLvalue::Indexed { index, .. } => Self::rebase_arithmetic_expr(index, base),
         }
     }
 
@@ -1220,6 +1311,48 @@ impl<'a> Parser<'a> {
 
     fn empty_source_text(&self, pos: Position) -> SourceText {
         SourceText::source(Span::from_positions(pos, pos))
+    }
+
+    fn parse_explicit_arithmetic_span(
+        &self,
+        span: Option<Span>,
+        context: &'static str,
+    ) -> Result<Option<ArithmeticExprNode>> {
+        let Some(span) = span else {
+            return Ok(None);
+        };
+        if span.slice(self.input).trim().is_empty() {
+            return Ok(None);
+        }
+        arithmetic::parse_expression(
+            span.slice(self.input),
+            span,
+            self.max_depth.saturating_sub(self.current_depth),
+            self.fuel,
+        )
+        .map(Some)
+        .map_err(|error| match error {
+            Error::Parse { message, .. } => self.error(&format!("{context}: {message}")),
+        })
+    }
+
+    fn parse_source_text_as_arithmetic(&self, text: &SourceText) -> Result<ArithmeticExprNode> {
+        arithmetic::parse_expression(
+            text.slice(self.input),
+            text.span(),
+            self.max_depth.saturating_sub(self.current_depth),
+            self.fuel,
+        )
+    }
+
+    fn maybe_parse_source_text_as_arithmetic(
+        &self,
+        text: &SourceText,
+    ) -> Option<ArithmeticExprNode> {
+        if !text.is_source_backed() {
+            return None;
+        }
+        self.parse_source_text_as_arithmetic(text).ok()
     }
 
     fn source_matches(&self, span: Span, text: &str) -> bool {
@@ -1596,6 +1729,9 @@ impl<'a> Parser<'a> {
             assignment.name_span = assignment.name_span.rebased(base);
             if let Some(index) = &mut assignment.index {
                 index.rebased(base);
+            }
+            if let Some(expr) = &mut assignment.index_ast {
+                Self::rebase_arithmetic_expr(expr, base);
             }
             match &mut assignment.value {
                 AssignmentValue::Scalar(word) => Self::rebase_word(word, base),
@@ -2614,11 +2750,35 @@ impl<'a> Parser<'a> {
     fn is_operand_like_double_paren_token(token: &LexedToken<'_>) -> bool {
         match token.kind {
             TokenKind::LiteralWord | TokenKind::QuotedWord => true,
-            TokenKind::Word => token
-                .word_string()
-                .is_some_and(|text| !text.chars().all(|ch| ch.is_ascii_punctuation())),
+            TokenKind::Word => token.word_string().is_some_and(|text| {
+                !text.chars().all(|ch| ch.is_ascii_punctuation())
+                    && !Self::word_contains_obvious_arithmetic_punctuation(&text)
+            }),
             _ => false,
         }
+    }
+
+    fn word_contains_obvious_arithmetic_punctuation(text: &str) -> bool {
+        text.chars().any(|ch| {
+            matches!(
+                ch,
+                ',' | '='
+                    | '+'
+                    | '*'
+                    | '/'
+                    | '%'
+                    | '<'
+                    | '>'
+                    | '&'
+                    | '|'
+                    | '^'
+                    | '!'
+                    | '?'
+                    | ':'
+                    | '['
+                    | ']'
+            )
+        })
     }
 
     fn looks_like_command_style_double_paren(&self) -> bool {
@@ -3105,6 +3265,12 @@ impl<'a> Parser<'a> {
             Error::parse("expected second ';' in arithmetic for header".to_string())
         })?;
         let step_span = Self::optional_span(segment_start, right_paren_span.start);
+        let init_ast =
+            self.parse_explicit_arithmetic_span(init_span, "invalid arithmetic for init")?;
+        let condition_ast = self
+            .parse_explicit_arithmetic_span(condition_span, "invalid arithmetic for condition")?;
+        let step_ast =
+            self.parse_explicit_arithmetic_span(step_span, "invalid arithmetic for step")?;
 
         self.skip_newlines()?;
 
@@ -3142,10 +3308,13 @@ impl<'a> Parser<'a> {
         Ok(CompoundCommand::ArithmeticFor(ArithmeticForCommand {
             left_paren_span,
             init_span,
+            init_ast,
             first_semicolon_span,
             condition_span,
+            condition_ast,
             second_semicolon_span,
             step_span,
+            step_ast,
             right_paren_span,
             body,
             span: start_span.merge(end_span),
@@ -3979,10 +4148,14 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let expr_span = Self::optional_span(left_paren_span.end, right_paren_span.start);
+        let expr_ast =
+            self.parse_explicit_arithmetic_span(expr_span, "invalid arithmetic command")?;
         Ok(CompoundCommand::Arithmetic(ArithmeticCommand {
             span: left_paren_span.merge(right_paren_span),
             left_paren_span,
-            expr_span: Self::optional_span(left_paren_span.end, right_paren_span.start),
+            expr_span,
+            expr_ast,
             right_paren_span,
         }))
     }
@@ -4553,6 +4726,9 @@ impl<'a> Parser<'a> {
             let index = index
                 .zip(index_span)
                 .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
+            let index_ast = index
+                .as_ref()
+                .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index));
 
             let value = if value.starts_with('(') && value.ends_with(')') {
                 let inner = &value[1..value.len() - 1];
@@ -4573,6 +4749,7 @@ impl<'a> Parser<'a> {
                 name,
                 name_span,
                 index,
+                index_ast,
                 value,
                 append: is_append,
                 span: assignment_span,
@@ -4605,6 +4782,9 @@ impl<'a> Parser<'a> {
         let index = index
             .zip(index_span)
             .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
+        let index_ast = index
+            .as_ref()
+            .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index));
 
         let value = if value.starts_with('(') && value.ends_with(')') {
             let inner = &value[1..value.len() - 1];
@@ -4627,6 +4807,7 @@ impl<'a> Parser<'a> {
             name,
             name_span,
             index,
+            index_ast,
             value,
             append: is_append,
             span: assignment_span,
@@ -4654,6 +4835,9 @@ impl<'a> Parser<'a> {
         let index = index
             .zip(index_span)
             .map(|(index, span)| self.source_text(index.to_string(), span.start, span.end));
+        let index_ast = index
+            .as_ref()
+            .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index));
         let value_str = value.to_string();
 
         let value = if value_str.starts_with('(') && value_str.ends_with(')') {
@@ -4706,13 +4890,14 @@ impl<'a> Parser<'a> {
             name,
             name_span,
             index,
+            index_ast,
             value,
             append: is_append,
             span: assignment_span,
         })
     }
 
-    fn parse_decl_name_from_text(word: &str, span: Span) -> Option<DeclName> {
+    fn parse_decl_name_from_text(&self, word: &str, span: Span) -> Option<DeclName> {
         if let Some(bracket_pos) = word.find('[') {
             let name = &word[..bracket_pos];
             if !Self::is_valid_identifier(name) || !word.ends_with(']') {
@@ -4724,10 +4909,12 @@ impl<'a> Parser<'a> {
             let index_start = name_span.end.advanced_by("[");
             let index_span = Span::from_positions(index_start, index_start.advanced_by(index));
 
+            let index = SourceText::source(index_span);
             return Some(DeclName {
                 name: Name::from(name),
                 name_span,
-                index: Some(index_span.into()),
+                index_ast: self.maybe_parse_source_text_as_arithmetic(&index),
+                index: Some(index),
                 span,
             });
         }
@@ -4739,6 +4926,7 @@ impl<'a> Parser<'a> {
         Some(DeclName {
             name: Name::from(word),
             name_span: span,
+            index_ast: None,
             index: None,
             span,
         })
@@ -4808,7 +4996,7 @@ impl<'a> Parser<'a> {
             return DeclOperand::Assignment(assignment);
         }
 
-        if let Some(name) = Self::parse_decl_name_from_text(&raw, word.span) {
+        if let Some(name) = self.parse_decl_name_from_text(&raw, word.span) {
             return DeclOperand::Name(name);
         }
 
@@ -4845,6 +5033,13 @@ impl<'a> Parser<'a> {
                         index: index.zip(index_span).map(|(index, span)| {
                             self.source_text(index.to_string(), span.start, span.end)
                         }),
+                        index_ast: index
+                            .zip(index_span)
+                            .map(|(index, span)| {
+                                self.source_text(index.to_string(), span.start, span.end)
+                            })
+                            .as_ref()
+                            .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index)),
                         value: AssignmentValue::Array(elements),
                         append: is_append,
                         span: Self::merge_optional_span(
@@ -4874,6 +5069,13 @@ impl<'a> Parser<'a> {
                     index: index.zip(index_span).map(|(index, span)| {
                         self.source_text(index.to_string(), span.start, span.end)
                     }),
+                    index_ast: index
+                        .zip(index_span)
+                        .map(|(index, span)| {
+                            self.source_text(index.to_string(), span.start, span.end)
+                        })
+                        .as_ref()
+                        .and_then(|index| self.maybe_parse_source_text_as_arithmetic(index)),
                     value: AssignmentValue::Scalar(Word::literal_with_span("", value_span)),
                     append: is_append,
                     span: assignment_span,
@@ -5373,6 +5575,7 @@ impl<'a> Parser<'a> {
                     Self::push_word_part(
                         parts,
                         WordPart::ArithmeticExpansion {
+                            expression_ast: self.parse_source_text_as_arithmetic(&expression).ok(),
                             expression,
                             syntax: ArithmeticExpansionSyntax::DollarParenParen,
                         },
@@ -5483,6 +5686,7 @@ impl<'a> Parser<'a> {
                 Self::push_word_part(
                     parts,
                     WordPart::ArithmeticExpansion {
+                        expression_ast: self.parse_source_text_as_arithmetic(&expression).ok(),
                         expression,
                         syntax: ArithmeticExpansionSyntax::LegacyBracket,
                     },
@@ -5699,10 +5903,17 @@ impl<'a> Parser<'a> {
                                         None
                                     };
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                                let offset_ast =
+                                    self.maybe_parse_source_text_as_arithmetic(&offset);
+                                let length_ast = length.as_ref().and_then(|length| {
+                                    self.maybe_parse_source_text_as_arithmetic(length)
+                                });
                                 WordPart::ArraySlice {
                                     name: var_name.into(),
                                     offset,
+                                    offset_ast,
                                     length,
+                                    length_ast,
                                 }
                             }
                         } else if matches!(next_c, '-' | '+' | '=' | '?') {
@@ -5725,15 +5936,19 @@ impl<'a> Parser<'a> {
                             }
                         } else {
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            let index_ast = self.maybe_parse_source_text_as_arithmetic(&index);
                             WordPart::ArrayAccess {
                                 name: var_name.into(),
                                 index,
+                                index_ast,
                             }
                         }
                     } else {
+                        let index_ast = self.maybe_parse_source_text_as_arithmetic(&index);
                         WordPart::ArrayAccess {
                             name: var_name.into(),
                             index,
+                            index_ast,
                         }
                     };
 
@@ -5789,10 +6004,17 @@ impl<'a> Parser<'a> {
                                             None
                                         };
                                     Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                                    let offset_ast =
+                                        self.maybe_parse_source_text_as_arithmetic(&offset);
+                                    let length_ast = length.as_ref().and_then(|length| {
+                                        self.maybe_parse_source_text_as_arithmetic(length)
+                                    });
                                     WordPart::Substring {
                                         name: var_name.into(),
                                         offset,
+                                        offset_ast,
                                         length,
+                                        length_ast,
                                     }
                                 }
                             }
@@ -6263,6 +6485,9 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shuck_ast::{
+        ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp,
+    };
 
     fn is_fully_quoted(word: &Word) -> bool {
         Parser::is_fully_quoted_word(word)
@@ -6290,6 +6515,27 @@ mod tests {
             panic!("expected compound command");
         };
         (compound, redirects.as_slice())
+    }
+
+    fn expect_variable(expr: &ArithmeticExprNode, expected: &str) {
+        let ArithmeticExpr::Variable(name) = &expr.kind else {
+            panic!("expected arithmetic variable, got {:?}", expr.kind);
+        };
+        assert_eq!(name, expected);
+    }
+
+    fn expect_number(expr: &ArithmeticExprNode, input: &str, expected: &str) {
+        let ArithmeticExpr::Number(number) = &expr.kind else {
+            panic!("expected arithmetic number, got {:?}", expr.kind);
+        };
+        assert_eq!(number.slice(input), expected);
+    }
+
+    fn expect_shell_word(expr: &ArithmeticExprNode, input: &str, expected: &str) {
+        let ArithmeticExpr::ShellWord(word) = &expr.kind else {
+            panic!("expected arithmetic shell word, got {:?}", expr.kind);
+        };
+        assert_eq!(word.render(input), expected);
     }
 
     #[test]
@@ -7092,7 +7338,7 @@ mod tests {
             let has_array_access = arg.parts.iter().any(|p| {
                 matches!(
                     &p.kind,
-                    WordPart::ArrayAccess { name, index }
+                    WordPart::ArrayAccess { name, index, .. }
                     if name == "arr" && index.slice(input).contains("${#arr[@]}")
                 )
             });
@@ -7148,6 +7394,152 @@ mod tests {
             "(1+2)*3"
         );
         assert!(command.name.render(input).is_empty());
+    }
+
+    #[test]
+    fn test_assignment_index_ast_tracks_arithmetic_subscripts() {
+        let input = "a[i + 1]=x\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let assignment = &command.assignments[0];
+        let expr = assignment
+            .index_ast
+            .as_ref()
+            .expect("expected arithmetic subscript AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected additive subscript");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        expect_variable(left, "i");
+        expect_number(right, input, "1");
+    }
+
+    #[test]
+    fn test_decl_name_and_array_access_attach_arithmetic_index_asts() {
+        let input = "declare foo[1+2]\necho ${arr[i+1]}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Decl(command) = &script.commands[0] else {
+            panic!("expected declaration command");
+        };
+        let DeclOperand::Name(name) = &command.operands[0] else {
+            panic!("expected declaration name operand");
+        };
+        let expr = name
+            .index_ast
+            .as_ref()
+            .expect("expected declaration index AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected additive expression in declaration index");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        expect_number(left, input, "1");
+        expect_number(right, input, "2");
+
+        let Command::Simple(command) = &script.commands[1] else {
+            panic!("expected simple command");
+        };
+        let WordPart::ArrayAccess {
+            index, index_ast, ..
+        } = &command.args[0].parts[0].kind
+        else {
+            panic!("expected array access word part");
+        };
+        assert_eq!(index.slice(input), "i+1");
+        let expr = index_ast.as_ref().expect("expected array access index AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected additive array index");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        expect_variable(left, "i");
+        expect_number(right, input, "1");
+    }
+
+    #[test]
+    fn test_substring_and_array_slice_attach_arithmetic_companion_asts() {
+        let input = "echo ${s:i+1:len*2} ${arr[@]:i:j}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        let WordPart::Substring {
+            offset_ast,
+            length_ast,
+            ..
+        } = &command.args[0].parts[0].kind
+        else {
+            panic!("expected substring expansion");
+        };
+        let offset_ast = offset_ast.as_ref().expect("expected substring offset AST");
+        let ArithmeticExpr::Binary { left, op, right } = &offset_ast.kind else {
+            panic!("expected additive substring offset");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        expect_variable(left, "i");
+        expect_number(right, input, "1");
+        let length_ast = length_ast.as_ref().expect("expected substring length AST");
+        let ArithmeticExpr::Binary {
+            left: len_left,
+            op: len_op,
+            right: len_right,
+        } = &length_ast.kind
+        else {
+            panic!("expected multiplicative substring length");
+        };
+        assert_eq!(*len_op, ArithmeticBinaryOp::Multiply);
+        expect_variable(len_left, "len");
+        expect_number(len_right, input, "2");
+
+        let WordPart::ArraySlice {
+            offset_ast,
+            length_ast,
+            ..
+        } = &command.args[1].parts[0].kind
+        else {
+            panic!("expected array slice expansion");
+        };
+        expect_variable(
+            offset_ast
+                .as_ref()
+                .expect("expected array slice offset AST"),
+            "i",
+        );
+        expect_variable(
+            length_ast
+                .as_ref()
+                .expect("expected array slice length AST"),
+            "j",
+        );
+    }
+
+    #[test]
+    fn test_non_arithmetic_subscripts_leave_companion_ast_empty() {
+        let input = "echo ${arr[@]} ${arr[*]} ${map[\"key\"]}\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+
+        let WordPart::ArrayAccess { index_ast, .. } = &command.args[0].parts[0].kind else {
+            panic!("expected first array access");
+        };
+        assert!(index_ast.is_none());
+
+        let WordPart::ArrayAccess { index_ast, .. } = &command.args[1].parts[0].kind else {
+            panic!("expected second array access");
+        };
+        assert!(index_ast.is_none());
+
+        let WordPart::ArrayAccess { index_ast, .. } = &command.args[2].parts[0].kind else {
+            panic!("expected quoted-key array access");
+        };
+        assert!(index_ast.is_none());
     }
 
     #[test]
@@ -7392,12 +7784,40 @@ mod tests {
             "$((a <= (1 || 2)))"
         );
 
-        let WordPart::ArithmeticExpansion { expression, syntax } = &word.parts[0].kind else {
+        let WordPart::ArithmeticExpansion {
+            expression,
+            expression_ast,
+            syntax,
+            ..
+        } = &word.parts[0].kind
+        else {
             panic!("expected arithmetic expansion");
         };
         assert_eq!(*syntax, ArithmeticExpansionSyntax::DollarParenParen);
         assert!(expression.is_source_backed());
         assert_eq!(expression.slice(input), "a <= (1 || 2)");
+        let expr = expression_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected binary arithmetic expression");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::LessThanOrEqual);
+        expect_variable(left, "a");
+        let ArithmeticExpr::Parenthesized { expression } = &right.kind else {
+            panic!("expected parenthesized right operand");
+        };
+        let ArithmeticExpr::Binary {
+            left: inner_left,
+            op: inner_op,
+            right: inner_right,
+        } = &expression.kind
+        else {
+            panic!("expected logical-or inside parentheses");
+        };
+        assert_eq!(*inner_op, ArithmeticBinaryOp::LogicalOr);
+        expect_number(inner_left, input, "1");
+        expect_number(inner_right, input, "2");
     }
 
     #[test]
@@ -7413,12 +7833,27 @@ mod tests {
         assert_eq!(word.parts.len(), 1);
         assert_eq!(word.part_span(0).unwrap().slice(input), "$(((a) + ((b))))");
 
-        let WordPart::ArithmeticExpansion { expression, syntax } = &word.parts[0].kind else {
+        let WordPart::ArithmeticExpansion {
+            expression,
+            expression_ast,
+            syntax,
+            ..
+        } = &word.parts[0].kind
+        else {
             panic!("expected arithmetic expansion");
         };
         assert_eq!(*syntax, ArithmeticExpansionSyntax::DollarParenParen);
         assert!(expression.is_source_backed());
         assert_eq!(expression.slice(input), "(a) + ((b))");
+        let expr = expression_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected binary arithmetic expression");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        assert!(matches!(left.kind, ArithmeticExpr::Parenthesized { .. }));
+        assert!(matches!(right.kind, ArithmeticExpr::Parenthesized { .. }));
     }
 
     #[test]
@@ -7438,12 +7873,27 @@ mod tests {
         };
         assert!(!dollar);
         assert_eq!(parts[0].span.slice(input), "$((1 + 2))");
-        let WordPart::ArithmeticExpansion { expression, syntax } = &parts[0].kind else {
+        let WordPart::ArithmeticExpansion {
+            expression,
+            expression_ast,
+            syntax,
+            ..
+        } = &parts[0].kind
+        else {
             panic!("expected arithmetic expansion");
         };
         assert_eq!(*syntax, ArithmeticExpansionSyntax::DollarParenParen);
         assert!(expression.is_source_backed());
         assert_eq!(expression.slice(input), "1 + 2");
+        let expr = expression_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected binary arithmetic expression");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        expect_number(left, input, "1");
+        expect_number(right, input, "2");
 
         let legacy = &command.args[1];
         assert!(is_fully_quoted(legacy));
@@ -7452,12 +7902,27 @@ mod tests {
         };
         assert!(!dollar);
         assert_eq!(parts[0].span.slice(input), "$[3 + 4]");
-        let WordPart::ArithmeticExpansion { expression, syntax } = &parts[0].kind else {
+        let WordPart::ArithmeticExpansion {
+            expression,
+            expression_ast,
+            syntax,
+            ..
+        } = &parts[0].kind
+        else {
             panic!("expected arithmetic expansion");
         };
         assert_eq!(*syntax, ArithmeticExpansionSyntax::LegacyBracket);
         assert!(expression.is_source_backed());
         assert_eq!(expression.slice(input), "3 + 4");
+        let expr = expression_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected binary arithmetic expression");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        expect_number(left, input, "3");
+        expect_number(right, input, "4");
     }
 
     #[test]
@@ -7597,6 +8062,41 @@ mod tests {
         assert_eq!(command.left_paren_span.slice(input), "((");
         assert_eq!(command.right_paren_span.slice(input), "))");
         assert_eq!(command.expr_span.unwrap().slice(input), " 1 +\n 2 <= 3 ");
+        let expr = command
+            .expr_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected binary arithmetic expression");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::LessThanOrEqual);
+        let ArithmeticExpr::Binary {
+            left: add_left,
+            op: add_op,
+            right: add_right,
+        } = &left.kind
+        else {
+            panic!("expected additive left operand");
+        };
+        assert_eq!(*add_op, ArithmeticBinaryOp::Add);
+        expect_number(add_left, input, "1");
+        expect_number(add_right, input, "2");
+        expect_number(right, input, "3");
+    }
+
+    #[test]
+    fn test_parse_empty_arithmetic_command_keeps_span_without_typed_ast() {
+        let input = "((   ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
+            panic!("expected arithmetic compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.expr_span.unwrap().slice(input), "   ");
+        assert!(command.expr_ast.is_none());
     }
 
     #[test]
@@ -7632,6 +8132,16 @@ mod tests {
         assert_eq!(command.left_paren_span.slice(input), "((");
         assert_eq!(command.right_paren_span.slice(input), "))");
         assert_eq!(command.expr_span.unwrap().slice(input), "$(date -u) > DATE");
+        let expr = command
+            .expr_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected binary arithmetic expression");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::GreaterThan);
+        expect_shell_word(left, input, "$(date -u)");
+        expect_variable(right, "DATE");
     }
 
     #[test]
@@ -7648,6 +8158,183 @@ mod tests {
         assert_eq!(command.left_paren_span.slice(input), "((");
         assert_eq!(command.right_paren_span.slice(input), "))");
         assert_eq!(command.expr_span.unwrap().slice(input), " a <= (1 || 2)");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_respects_precedence_and_associativity() {
+        let input = "(( a + b * c ** d ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
+            panic!("expected arithmetic compound command");
+        };
+
+        let expr = command
+            .expr_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary {
+            left,
+            op: add_op,
+            right,
+        } = &expr.kind
+        else {
+            panic!("expected additive expression");
+        };
+        assert_eq!(*add_op, ArithmeticBinaryOp::Add);
+        expect_variable(left, "a");
+
+        let ArithmeticExpr::Binary {
+            left: mul_left,
+            op: mul_op,
+            right: mul_right,
+        } = &right.kind
+        else {
+            panic!("expected multiplicative expression");
+        };
+        assert_eq!(*mul_op, ArithmeticBinaryOp::Multiply);
+        expect_variable(mul_left, "b");
+
+        let ArithmeticExpr::Binary {
+            left: pow_left,
+            op: pow_op,
+            right: pow_right,
+        } = &mul_right.kind
+        else {
+            panic!("expected power expression");
+        };
+        assert_eq!(*pow_op, ArithmeticBinaryOp::Power);
+        expect_variable(pow_left, "c");
+        expect_variable(pow_right, "d");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_distinguishes_assignment_from_comparison() {
+        let input = "(( a = b == c ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
+            panic!("expected arithmetic compound command");
+        };
+
+        let expr = command
+            .expr_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Assignment { target, op, value } = &expr.kind else {
+            panic!("expected arithmetic assignment");
+        };
+        assert_eq!(*op, ArithmeticAssignOp::Assign);
+        let ArithmeticLvalue::Variable(name) = target else {
+            panic!("expected variable assignment target");
+        };
+        assert_eq!(name, "a");
+
+        let ArithmeticExpr::Binary {
+            left,
+            op: cmp_op,
+            right,
+        } = &value.kind
+        else {
+            panic!("expected comparison on assignment right-hand side");
+        };
+        assert_eq!(*cmp_op, ArithmeticBinaryOp::Equal);
+        expect_variable(left, "b");
+        expect_variable(right, "c");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_parses_updates_ternary_and_comma() {
+        let input = "(( ++i ? j-- : (k = 1), m ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
+            panic!("expected arithmetic compound command");
+        };
+
+        let expr = command
+            .expr_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary {
+            left,
+            op: comma_op,
+            right,
+        } = &expr.kind
+        else {
+            panic!("expected comma expression");
+        };
+        assert_eq!(*comma_op, ArithmeticBinaryOp::Comma);
+        expect_variable(right, "m");
+
+        let ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } = &left.kind
+        else {
+            panic!("expected conditional expression");
+        };
+
+        let ArithmeticExpr::Unary { op: unary_op, expr } = &condition.kind else {
+            panic!("expected prefix update condition");
+        };
+        assert_eq!(*unary_op, ArithmeticUnaryOp::PreIncrement);
+        expect_variable(expr, "i");
+
+        let ArithmeticExpr::Postfix {
+            expr,
+            op: postfix_op,
+        } = &then_expr.kind
+        else {
+            panic!("expected postfix update in then branch");
+        };
+        assert_eq!(*postfix_op, ArithmeticPostfixOp::Decrement);
+        expect_variable(expr, "j");
+
+        let ArithmeticExpr::Parenthesized { expression } = &else_expr.kind else {
+            panic!("expected parenthesized else branch");
+        };
+        let ArithmeticExpr::Assignment { target, op, value } = &expression.kind else {
+            panic!("expected assignment inside else branch");
+        };
+        assert_eq!(*op, ArithmeticAssignOp::Assign);
+        let ArithmeticLvalue::Variable(name) = target else {
+            panic!("expected variable else target");
+        };
+        assert_eq!(name, "k");
+        expect_number(value, input, "1");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_command_accepts_command_substitutions_and_quoted_words() {
+        let input = "(( \"$(date -u)\" + '3' ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, _) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
+            panic!("expected arithmetic compound command");
+        };
+
+        let expr = command
+            .expr_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST");
+        let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+            panic!("expected binary arithmetic expression");
+        };
+        assert_eq!(*op, ArithmeticBinaryOp::Add);
+        let ArithmeticExpr::ShellWord(left_word) = &left.kind else {
+            panic!("expected quoted shell word on left");
+        };
+        assert_eq!(left_word.span.slice(input), "\"$(date -u)\"");
+        let ArithmeticExpr::ShellWord(right_word) = &right.kind else {
+            panic!("expected quoted shell word on right");
+        };
+        assert_eq!(right_word.span.slice(input), "'3'");
     }
 
     #[test]
@@ -7698,6 +8385,59 @@ mod tests {
         assert_eq!(command.second_semicolon_span.slice(input), ";");
         assert_eq!(command.step_span.unwrap().slice(input), " i += 2 ");
         assert_eq!(command.right_paren_span.slice(input), "))");
+        let ArithmeticExpr::Assignment {
+            target,
+            op: init_op,
+            value: init_value,
+        } = &command
+            .init_ast
+            .as_ref()
+            .expect("expected init arithmetic AST")
+            .kind
+        else {
+            panic!("expected assignment init expression");
+        };
+        assert_eq!(*init_op, ArithmeticAssignOp::Assign);
+        let ArithmeticLvalue::Variable(name) = target else {
+            panic!("expected variable init target");
+        };
+        assert_eq!(name, "i");
+        expect_number(init_value, input, "0");
+
+        let ArithmeticExpr::Binary {
+            left: condition_left,
+            op: condition_op,
+            right: condition_right,
+        } = &command
+            .condition_ast
+            .as_ref()
+            .expect("expected condition arithmetic AST")
+            .kind
+        else {
+            panic!("expected binary condition expression");
+        };
+        assert_eq!(*condition_op, ArithmeticBinaryOp::LessThan);
+        expect_variable(condition_left, "i");
+        expect_number(condition_right, input, "10");
+
+        let ArithmeticExpr::Assignment {
+            target,
+            op: step_op,
+            value: step_value,
+        } = &command
+            .step_ast
+            .as_ref()
+            .expect("expected step arithmetic AST")
+            .kind
+        else {
+            panic!("expected assignment step expression");
+        };
+        assert_eq!(*step_op, ArithmeticAssignOp::AddAssign);
+        let ArithmeticLvalue::Variable(name) = target else {
+            panic!("expected variable step target");
+        };
+        assert_eq!(name, "i");
+        expect_number(step_value, input, "2");
     }
 
     #[test]
@@ -7738,6 +8478,9 @@ mod tests {
         assert_eq!(command.second_semicolon_span.slice(input), ";");
         assert!(command.step_span.is_none());
         assert_eq!(command.right_paren_span.slice(input), "))");
+        assert!(command.init_ast.is_none());
+        assert!(command.condition_ast.is_none());
+        assert!(command.step_ast.is_none());
     }
 
     #[test]

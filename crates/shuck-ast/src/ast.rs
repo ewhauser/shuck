@@ -222,6 +222,8 @@ pub struct DeclName {
     pub name_span: Span,
     /// Optional array index for indexed references like `arr[0]`.
     pub index: Option<SourceText>,
+    /// Typed arithmetic view of `index` when the operand parses as arithmetic.
+    pub index_ast: Option<ArithmeticExprNode>,
     /// Source span of this declaration name operand.
     pub span: Span,
 }
@@ -631,6 +633,8 @@ pub struct ArithmeticCommand {
     pub span: Span,
     pub left_paren_span: Span,
     pub expr_span: Option<Span>,
+    /// Typed arithmetic view of `expr_span`.
+    pub expr_ast: Option<ArithmeticExprNode>,
     pub right_paren_span: Span,
 }
 
@@ -639,15 +643,145 @@ pub struct ArithmeticCommand {
 pub struct ArithmeticForCommand {
     pub left_paren_span: Span,
     pub init_span: Option<Span>,
+    /// Typed arithmetic view of `init_span`.
+    pub init_ast: Option<ArithmeticExprNode>,
     pub first_semicolon_span: Span,
     pub condition_span: Option<Span>,
+    /// Typed arithmetic view of `condition_span`.
+    pub condition_ast: Option<ArithmeticExprNode>,
     pub second_semicolon_span: Span,
     pub step_span: Option<Span>,
+    /// Typed arithmetic view of `step_span`.
+    pub step_ast: Option<ArithmeticExprNode>,
     pub right_paren_span: Span,
     /// Loop body
     pub body: Vec<Command>,
     /// Source span of this command
     pub span: Span,
+}
+
+/// A typed arithmetic expression plus its source span.
+#[derive(Debug, Clone)]
+pub struct ArithmeticExprNode {
+    pub kind: ArithmeticExpr,
+    pub span: Span,
+}
+
+impl ArithmeticExprNode {
+    pub fn new(kind: ArithmeticExpr, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+/// A typed arithmetic expression used by shell arithmetic contexts.
+#[derive(Debug, Clone)]
+pub enum ArithmeticExpr {
+    /// Numeric literal spelling such as `42`, `16#ff`, or `'a'`.
+    Number(SourceText),
+    /// Bare arithmetic variable reference such as `i`.
+    Variable(Name),
+    /// Indexed arithmetic reference such as `arr[i + 1]`.
+    Indexed {
+        name: Name,
+        index: Box<ArithmeticExprNode>,
+    },
+    /// Shell-evaluated primary such as `$x`, `${x}`, `"3"`, or `$(cmd)`.
+    ShellWord(Word),
+    Parenthesized {
+        expression: Box<ArithmeticExprNode>,
+    },
+    Unary {
+        op: ArithmeticUnaryOp,
+        expr: Box<ArithmeticExprNode>,
+    },
+    Postfix {
+        expr: Box<ArithmeticExprNode>,
+        op: ArithmeticPostfixOp,
+    },
+    Binary {
+        left: Box<ArithmeticExprNode>,
+        op: ArithmeticBinaryOp,
+        right: Box<ArithmeticExprNode>,
+    },
+    Conditional {
+        condition: Box<ArithmeticExprNode>,
+        then_expr: Box<ArithmeticExprNode>,
+        else_expr: Box<ArithmeticExprNode>,
+    },
+    Assignment {
+        target: ArithmeticLvalue,
+        op: ArithmeticAssignOp,
+        value: Box<ArithmeticExprNode>,
+    },
+}
+
+/// Assignment target inside arithmetic.
+#[derive(Debug, Clone)]
+pub enum ArithmeticLvalue {
+    Variable(Name),
+    Indexed {
+        name: Name,
+        index: Box<ArithmeticExprNode>,
+    },
+}
+
+/// Prefix unary arithmetic operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticUnaryOp {
+    PreIncrement,
+    PreDecrement,
+    Plus,
+    Minus,
+    LogicalNot,
+    BitwiseNot,
+}
+
+/// Postfix arithmetic operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticPostfixOp {
+    Increment,
+    Decrement,
+}
+
+/// Binary arithmetic operators ordered by normal shell arithmetic precedence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticBinaryOp {
+    Comma,
+    Power,
+    Multiply,
+    Divide,
+    Modulo,
+    Add,
+    Subtract,
+    ShiftLeft,
+    ShiftRight,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+    Equal,
+    NotEqual,
+    BitwiseAnd,
+    BitwiseXor,
+    BitwiseOr,
+    LogicalAnd,
+    LogicalOr,
+}
+
+/// Arithmetic assignment operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticAssignOp {
+    Assign,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    ModAssign,
+    ShiftLeftAssign,
+    ShiftRightAssign,
+    AndAssign,
+    XorAssign,
+    OrAssign,
 }
 
 /// While loop.
@@ -889,6 +1023,8 @@ pub enum WordPart {
     /// Arithmetic expansion ($((...)) or legacy $[...]).
     ArithmeticExpansion {
         expression: SourceText,
+        /// Typed arithmetic view of `expression`.
+        expression_ast: Option<ArithmeticExprNode>,
         syntax: ArithmeticExpansionSyntax,
     },
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.
@@ -902,7 +1038,12 @@ pub enum WordPart {
     /// Length expansion ${#var}
     Length(Name),
     /// Array element access `${arr[index]}` or `${arr[@]}` or `${arr[*]}`
-    ArrayAccess { name: Name, index: SourceText },
+    ArrayAccess {
+        name: Name,
+        index: SourceText,
+        /// Typed arithmetic view of `index` when the operand parses as arithmetic.
+        index_ast: Option<ArithmeticExprNode>,
+    },
     /// Array length `${#arr[@]}` or `${#arr[*]}`
     ArrayLength(Name),
     /// Array indices `${!arr[@]}` or `${!arr[*]}`
@@ -911,13 +1052,21 @@ pub enum WordPart {
     Substring {
         name: Name,
         offset: SourceText,
+        /// Typed arithmetic view of `offset` when it parses as arithmetic.
+        offset_ast: Option<ArithmeticExprNode>,
         length: Option<SourceText>,
+        /// Typed arithmetic view of `length` when it parses as arithmetic.
+        length_ast: Option<ArithmeticExprNode>,
     },
     /// Array slice `${arr[@]:offset:length}`
     ArraySlice {
         name: Name,
         offset: SourceText,
+        /// Typed arithmetic view of `offset` when it parses as arithmetic.
+        offset_ast: Option<ArithmeticExprNode>,
         length: Option<SourceText>,
+        /// Typed arithmetic view of `length` when it parses as arithmetic.
+        length_ast: Option<ArithmeticExprNode>,
     },
     /// Indirect expansion `${!var}` - expands to value of variable named by var's value
     /// Optionally composed with an operator: `${!var:-default}`, `${!var:=val}`, etc.
@@ -979,7 +1128,9 @@ fn fmt_word_part_with_source(
                 CommandSubstitutionSyntax::Backtick => write!(f, "`{:?}`", commands)?,
             },
         },
-        WordPart::ArithmeticExpansion { expression, syntax } => match source {
+        WordPart::ArithmeticExpansion {
+            expression, syntax, ..
+        } => match source {
             Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
             _ => match syntax {
                 ArithmeticExpansionSyntax::DollarParenParen => {
@@ -1086,7 +1237,7 @@ fn fmt_word_part_with_source(
             ParameterOp::LowerAll => write!(f, "${{{},,}}", name)?,
         },
         WordPart::Length(name) => write!(f, "${{#{}}}", name)?,
-        WordPart::ArrayAccess { name, index } => write!(
+        WordPart::ArrayAccess { name, index, .. } => write!(
             f,
             "${{{}[{}]}}",
             name,
@@ -1098,6 +1249,7 @@ fn fmt_word_part_with_source(
             name,
             offset,
             length,
+            ..
         } => {
             if let Some(length) = length {
                 write!(
@@ -1120,6 +1272,7 @@ fn fmt_word_part_with_source(
             name,
             offset,
             length,
+            ..
         } => {
             if let Some(length) = length {
                 write!(
@@ -1336,6 +1489,8 @@ pub struct Assignment {
     pub name_span: Span,
     /// Optional array index for indexed assignments like `arr[0]=value`
     pub index: Option<SourceText>,
+    /// Typed arithmetic view of `index` when the operand parses as arithmetic.
+    pub index_ast: Option<ArithmeticExprNode>,
     pub value: AssignmentValue,
     /// Whether this is an append assignment (+=)
     pub append: bool,
@@ -1409,6 +1564,7 @@ mod tests {
     fn word_display_arithmetic_expansion() {
         let w = word(vec![WordPart::ArithmeticExpansion {
             expression: "1+2".into(),
+            expression_ast: None,
             syntax: ArithmeticExpansionSyntax::DollarParenParen,
         }]);
         assert_eq!(format!("{w}"), "$((1+2))");
@@ -1425,6 +1581,7 @@ mod tests {
         let w = word(vec![WordPart::ArrayAccess {
             name: "arr".into(),
             index: "0".into(),
+            index_ast: None,
         }]);
         assert_eq!(format!("{w}"), "${arr[0]}");
     }
@@ -1446,7 +1603,9 @@ mod tests {
         let w = word(vec![WordPart::Substring {
             name: "var".into(),
             offset: "2".into(),
+            offset_ast: None,
             length: Some("3".into()),
+            length_ast: None,
         }]);
         assert_eq!(format!("{w}"), "${var:2:3}");
     }
@@ -1456,7 +1615,9 @@ mod tests {
         let w = word(vec![WordPart::Substring {
             name: "var".into(),
             offset: "2".into(),
+            offset_ast: None,
             length: None,
+            length_ast: None,
         }]);
         assert_eq!(format!("{w}"), "${var:2}");
     }
@@ -1466,7 +1627,9 @@ mod tests {
         let w = word(vec![WordPart::ArraySlice {
             name: "arr".into(),
             offset: "1".into(),
+            offset_ast: None,
             length: Some("2".into()),
+            length_ast: None,
         }]);
         assert_eq!(format!("{w}"), "${arr[@]:1:2}");
     }
@@ -1476,7 +1639,9 @@ mod tests {
         let w = word(vec![WordPart::ArraySlice {
             name: "arr".into(),
             offset: "1".into(),
+            offset_ast: None,
             length: None,
+            length_ast: None,
         }]);
         assert_eq!(format!("{w}"), "${arr[@]:1}");
     }
@@ -1698,6 +1863,7 @@ mod tests {
                 name: "FOO".into(),
                 name_span: Span::new(),
                 index: None,
+                index_ast: None,
                 value: AssignmentValue::Scalar(Word::literal("bar")),
                 append: false,
                 span: Span::new(),
@@ -1747,6 +1913,7 @@ mod tests {
                 name: "FOO".into(),
                 name_span: Span::new(),
                 index: None,
+                index_ast: None,
                 value: AssignmentValue::Scalar(Word::literal("bar")),
                 append: false,
                 span: Span::new(),
@@ -1927,6 +2094,7 @@ mod tests {
             name: "X".into(),
             name_span: Span::new(),
             index: None,
+            index_ast: None,
             value: AssignmentValue::Scalar(Word::literal("1")),
             append: false,
             span: Span::new(),
@@ -1942,6 +2110,7 @@ mod tests {
             name: "ARR".into(),
             name_span: Span::new(),
             index: None,
+            index_ast: None,
             value: AssignmentValue::Array(vec![
                 Word::literal("a"),
                 Word::literal("b"),
@@ -1963,6 +2132,7 @@ mod tests {
             name: "PATH".into(),
             name_span: Span::new(),
             index: None,
+            index_ast: None,
             value: AssignmentValue::Scalar(Word::literal("/usr/bin")),
             append: true,
             span: Span::new(),
@@ -1976,6 +2146,7 @@ mod tests {
             name: "arr".into(),
             name_span: Span::new(),
             index: Some("0".into()),
+            index_ast: None,
             value: AssignmentValue::Scalar(Word::literal("val")),
             append: false,
             span: Span::new(),
@@ -2038,10 +2209,13 @@ mod tests {
         let cmd = ArithmeticForCommand {
             left_paren_span: Span::new(),
             init_span: Some(Span::new()),
+            init_ast: None,
             first_semicolon_span: Span::new(),
             condition_span: Some(Span::new()),
+            condition_ast: None,
             second_semicolon_span: Span::new(),
             step_span: Some(Span::new()),
+            step_ast: None,
             right_paren_span: Span::new(),
             body: vec![],
             span: Span::new(),
@@ -2140,6 +2314,7 @@ mod tests {
             span: Span::new(),
             left_paren_span: Span::new(),
             expr_span: Some(Span::new()),
+            expr_ast: None,
             right_paren_span: Span::new(),
         });
         assert!(matches!(cmd, CompoundCommand::Arithmetic(_)));

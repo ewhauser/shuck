@@ -785,6 +785,44 @@ mod tests {
         }
     }
 
+    fn arithmetic_read_count(model: &SemanticModel, name: &str) -> usize {
+        model
+            .references()
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::ArithmeticRead && reference.name == name
+            })
+            .count()
+    }
+
+    fn arithmetic_write_count(model: &SemanticModel, name: &str) -> usize {
+        model
+            .bindings()
+            .iter()
+            .filter(|binding| {
+                binding.kind == BindingKind::ArithmeticAssignment && binding.name == name
+            })
+            .count()
+    }
+
+    fn assert_arithmetic_usage(
+        model: &SemanticModel,
+        name: &str,
+        expected_reads: usize,
+        expected_writes: usize,
+    ) {
+        assert_eq!(
+            arithmetic_read_count(model, name),
+            expected_reads,
+            "unexpected arithmetic read count for {name}"
+        );
+        assert_eq!(
+            arithmetic_write_count(model, name),
+            expected_writes,
+            "unexpected arithmetic write count for {name}"
+        );
+    }
+
     fn common_runtime_source(shebang: &str) -> String {
         format!(
             "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$LANG\" \"$SUDO_USER\" \"$DOAS_USER\"\n"
@@ -856,6 +894,62 @@ mod tests {
             .filter(|scope| matches!(scope.kind, ScopeKind::Pipeline))
             .count();
         assert_eq!(pipeline_scopes, 3);
+    }
+
+    #[test]
+    fn arithmetic_plain_assignment_is_write_only() {
+        let model = model("(( i = 0 ))\n");
+        assert_arithmetic_usage(&model, "i", 0, 1);
+    }
+
+    #[test]
+    fn arithmetic_compound_assignment_is_read_write() {
+        let model = model("(( i += 2 ))\n");
+        assert_arithmetic_usage(&model, "i", 1, 1);
+    }
+
+    #[test]
+    fn arithmetic_prefix_update_is_read_write() {
+        let model = model("(( ++i ))\n");
+        assert_arithmetic_usage(&model, "i", 1, 1);
+    }
+
+    #[test]
+    fn arithmetic_postfix_update_is_read_write() {
+        let model = model("(( i++ ))\n");
+        assert_arithmetic_usage(&model, "i", 1, 1);
+    }
+
+    #[test]
+    fn arithmetic_assignment_reads_index_expressions() {
+        let model = model("(( a[i++] = 1 ))\n");
+        assert_arithmetic_usage(&model, "a", 0, 1);
+        assert_arithmetic_usage(&model, "i", 1, 1);
+    }
+
+    #[test]
+    fn arithmetic_conditional_tracks_branch_reads_and_writes() {
+        let model = model("(( x ? y++ : (z = 1) ))\n");
+        assert_arithmetic_usage(&model, "x", 1, 0);
+        assert_arithmetic_usage(&model, "y", 1, 1);
+        assert_arithmetic_usage(&model, "z", 0, 1);
+    }
+
+    #[test]
+    fn arithmetic_comma_walks_each_expression_in_order() {
+        let model = model("(( x = 1, y += x, z ))\n");
+        assert_arithmetic_usage(&model, "x", 1, 1);
+        assert_arithmetic_usage(&model, "y", 1, 1);
+        assert_arithmetic_usage(&model, "z", 1, 0);
+    }
+
+    #[test]
+    fn arithmetic_shell_words_still_walk_nested_expansions() {
+        let model = model("echo $(( $(printf '%s' \"$x\") + y ))\n");
+        assert!(model.references().iter().any(|reference| {
+            reference.kind == ReferenceKind::Expansion && reference.name == "x"
+        }));
+        assert_arithmetic_usage(&model, "y", 1, 0);
     }
 
     #[test]

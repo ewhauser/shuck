@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
-    DeclOperand, FunctionDef, Name, Redirect, Script, SourceText, Span, Word, WordPart,
-    WordPartNode,
+    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, Assignment, AssignmentValue,
+    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Name,
+    Redirect, Script, SourceText, Span, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -229,7 +229,11 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                         walk_word(word, model, source, facts);
                     }
-                    DeclOperand::Name(_) => {}
+                    DeclOperand::Name(name) => {
+                        if let Some(expr) = &name.index_ast {
+                            walk_arithmetic_expr(expr, model, source, facts);
+                        }
+                    }
                     DeclOperand::Assignment(assignment) => {
                         walk_assignment(assignment, model, source, facts);
                     }
@@ -277,6 +281,15 @@ fn walk_compound(
             walk_commands(&command.body, model, source, facts);
         }
         CompoundCommand::ArithmeticFor(command) => {
+            if let Some(expr) = &command.init_ast {
+                walk_arithmetic_expr(expr, model, source, facts);
+            }
+            if let Some(expr) = &command.condition_ast {
+                walk_arithmetic_expr(expr, model, source, facts);
+            }
+            if let Some(expr) = &command.step_ast {
+                walk_arithmetic_expr(expr, model, source, facts);
+            }
             walk_commands(&command.body, model, source, facts)
         }
         CompoundCommand::While(command) => {
@@ -301,7 +314,11 @@ fn walk_compound(
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             walk_commands(commands, model, source, facts);
         }
-        CompoundCommand::Arithmetic(_) => {}
+        CompoundCommand::Arithmetic(command) => {
+            if let Some(expr) = &command.expr_ast {
+                walk_arithmetic_expr(expr, model, source, facts);
+            }
+        }
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
                 walk_command(command, model, source, facts);
@@ -331,6 +348,9 @@ fn walk_assignment(
     source: &str,
     facts: &mut AstFacts,
 ) {
+    if let Some(expr) = &assignment.index_ast {
+        walk_arithmetic_expr(expr, model, source, facts);
+    }
     match &assignment.value {
         AssignmentValue::Scalar(word) => walk_word(word, model, source, facts),
         AssignmentValue::Array(words) => walk_words(words, model, source, facts),
@@ -361,22 +381,38 @@ fn walk_word_parts(
             | WordPart::ProcessSubstitution { commands, .. } => {
                 walk_commands(commands, model, source, facts)
             }
-            WordPart::ArithmeticExpansion { expression, .. } => {
-                walk_arithmetic(expression, model, source, facts)
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expr) = expression_ast {
+                    walk_arithmetic_expr(expr, model, source, facts);
+                }
             }
             WordPart::ParameterExpansion { operand, .. } => {
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
                 }
             }
-            WordPart::Substring { offset, length, .. }
-            | WordPart::ArraySlice { offset, length, .. } => {
-                walk_source_text(offset, model, source, facts);
-                if let Some(length) = length {
-                    walk_source_text(length, model, source, facts);
+            WordPart::Substring {
+                offset_ast,
+                length_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                if let Some(offset_ast) = offset_ast {
+                    walk_arithmetic_expr(offset_ast, model, source, facts);
+                }
+                if let Some(length_ast) = length_ast {
+                    walk_arithmetic_expr(length_ast, model, source, facts);
                 }
             }
-            WordPart::ArrayAccess { index, .. } => walk_source_text(index, model, source, facts),
+            WordPart::ArrayAccess { index_ast, .. } => {
+                if let Some(index_ast) = index_ast {
+                    walk_arithmetic_expr(index_ast, model, source, facts);
+                }
+            }
             WordPart::IndirectExpansion { operand, .. } => {
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
@@ -393,10 +429,53 @@ fn walk_word_parts(
     }
 }
 
-fn walk_arithmetic(text: &SourceText, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    let inner = text.slice(source);
-    if let Ok(output) = Parser::new(inner).parse() {
-        walk_commands(&output.script.commands, model, inner, facts);
+fn walk_arithmetic_expr(
+    expr: &ArithmeticExprNode,
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    match &expr.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => walk_arithmetic_expr(index, model, source, facts),
+        ArithmeticExpr::ShellWord(word) => walk_word(word, model, source, facts),
+        ArithmeticExpr::Parenthesized { expression } => {
+            walk_arithmetic_expr(expression, model, source, facts)
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            walk_arithmetic_expr(expr, model, source, facts)
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            walk_arithmetic_expr(left, model, source, facts);
+            walk_arithmetic_expr(right, model, source, facts);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            walk_arithmetic_expr(condition, model, source, facts);
+            walk_arithmetic_expr(then_expr, model, source, facts);
+            walk_arithmetic_expr(else_expr, model, source, facts);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            walk_arithmetic_lvalue(target, model, source, facts);
+            walk_arithmetic_expr(value, model, source, facts);
+        }
+    }
+}
+
+fn walk_arithmetic_lvalue(
+    target: &ArithmeticLvalue,
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => {
+            walk_arithmetic_expr(index, model, source, facts)
+        }
     }
 }
 
@@ -519,7 +598,7 @@ fn collect_source_template_parts(
                     return false;
                 }
             }
-            WordPart::ArrayAccess { name, index }
+            WordPart::ArrayAccess { name, index, .. }
                 if bash_runtime_vars_enabled && is_bash_source_index(name, index, source) =>
             {
                 *saw_dynamic = true;
@@ -585,7 +664,7 @@ fn current_source_file_word(word: &Word, source: &str) -> bool {
 fn is_current_source_part(part: &WordPart, source: &str) -> bool {
     match part {
         WordPart::Variable(name) => is_bash_source_var(name),
-        WordPart::ArrayAccess { name, index } => is_bash_source_index(name, index, source),
+        WordPart::ArrayAccess { name, index, .. } => is_bash_source_index(name, index, source),
         WordPart::DoubleQuoted { parts, .. } => {
             matches!(parts.as_slice(), [part] if is_current_source_part(&part.kind, source))
         }

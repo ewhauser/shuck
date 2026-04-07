@@ -1,8 +1,9 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
+    ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArithmeticUnaryOp,
     Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name, ParameterOp, Script, SourceText,
-    Span, Word, WordPart, WordPartNode,
+    ConditionalExpr, DeclOperand, FunctionDef, ListOperator, Name, ParameterOp, Script, Span, Word,
+    WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 
@@ -85,14 +86,6 @@ struct FlowState {
 enum WordVisitKind {
     Expansion,
     Conditional,
-}
-
-#[derive(Debug, Clone)]
-struct ArithmeticEvent {
-    name: Name,
-    span: Span,
-    read: bool,
-    write: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -370,6 +363,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions.extend(self.visit_word(word, WordVisitKind::Expansion, flow));
                 }
                 DeclOperand::Name(name) => {
+                    nested_regions
+                        .extend(self.visit_optional_arithmetic_expr(name.index_ast.as_ref(), flow));
                     self.visit_name_only_declaration_operand(
                         builtin,
                         &flags,
@@ -541,19 +536,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
             CompoundCommand::ArithmeticFor(command) => {
-                if let Some(span) = command.init_span {
-                    self.visit_arithmetic_span(span);
-                }
-                if let Some(span) = command.condition_span {
-                    self.visit_arithmetic_span(span);
-                }
-                if let Some(span) = command.step_span {
-                    self.visit_arithmetic_span(span);
-                }
-
+                let mut nested_regions =
+                    self.visit_optional_arithmetic_expr(command.init_ast.as_ref(), flow);
+                nested_regions.extend(
+                    self.visit_optional_arithmetic_expr(command.condition_ast.as_ref(), flow),
+                );
+                nested_regions
+                    .extend(self.visit_optional_arithmetic_expr(command.step_ast.as_ref(), flow));
+                nested_regions.extend(self.visit_redirects(redirects, flow));
                 RecordedCommand {
                     span: command.span,
-                    nested_regions: self.visit_redirects(redirects, flow),
+                    nested_regions,
                     kind: RecordedCommandKind::ArithmeticFor {
                         body: self.visit_commands(
                             &command.body,
@@ -703,12 +696,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 },
             },
             CompoundCommand::Arithmetic(command) => {
-                if let Some(span) = command.expr_span {
-                    self.visit_arithmetic_span(span);
-                }
+                let mut nested_regions =
+                    self.visit_optional_arithmetic_expr(command.expr_ast.as_ref(), flow);
+                nested_regions.extend(self.visit_redirects(redirects, flow));
                 RecordedCommand {
                     span: command.span,
-                    nested_regions: self.visit_redirects(redirects, flow),
+                    nested_regions,
                     kind: RecordedCommandKind::Linear,
                 }
             }
@@ -783,7 +776,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         mut attributes: BindingAttributes,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
-        let nested_regions = self.visit_assignment_value(assignment, flow);
+        let mut nested_regions =
+            self.visit_optional_arithmetic_expr(assignment.index_ast.as_ref(), flow);
+        nested_regions.extend(self.visit_assignment_value(assignment, flow));
         let (kind, scope) = declaration_kind.unwrap_or_else(|| {
             let kind = if assignment.append {
                 BindingKind::AppendAssignment
@@ -921,8 +916,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.mark_scope_completed(scope);
                 nested_regions.push(IsolatedRegion { scope, commands });
             }
-            WordPart::ArithmeticExpansion { expression, .. } => {
-                self.visit_arithmetic_source_text(expression)
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                nested_regions
+                    .extend(self.visit_optional_arithmetic_expr(expression_ast.as_ref(), flow));
             }
             WordPart::ParameterExpansion { name, operator, .. } => {
                 self.add_reference(
@@ -948,7 +944,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                 );
             }
-            WordPart::ArrayAccess { name, .. } => {
+            WordPart::ArrayAccess {
+                name, index_ast, ..
+            } => {
                 self.add_reference(
                     name.clone(),
                     if matches!(kind, WordVisitKind::Conditional) {
@@ -958,6 +956,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     span,
                 );
+                nested_regions
+                    .extend(self.visit_optional_arithmetic_expr(index_ast.as_ref(), flow));
             }
             WordPart::ArrayIndices(name) | WordPart::PrefixMatch(name) => {
                 self.add_reference(
@@ -982,9 +982,47 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
                 self.indirect_expansion_refs.insert(id);
             }
-            WordPart::Substring { name, .. }
-            | WordPart::ArraySlice { name, .. }
-            | WordPart::Transformation { name, .. } => {
+            WordPart::Substring {
+                name,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::ParameterExpansion
+                    },
+                    span,
+                );
+                nested_regions
+                    .extend(self.visit_optional_arithmetic_expr(offset_ast.as_ref(), flow));
+                nested_regions
+                    .extend(self.visit_optional_arithmetic_expr(length_ast.as_ref(), flow));
+            }
+            WordPart::ArraySlice {
+                name,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                self.add_reference(
+                    name.clone(),
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::ParameterExpansion
+                    },
+                    span,
+                );
+                nested_regions
+                    .extend(self.visit_optional_arithmetic_expr(offset_ast.as_ref(), flow));
+                nested_regions
+                    .extend(self.visit_optional_arithmetic_expr(length_ast.as_ref(), flow));
+            }
+            WordPart::Transformation { name, .. } => {
                 self.add_reference(
                     name.clone(),
                     if matches!(kind, WordVisitKind::Conditional) {
@@ -1019,34 +1057,144 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_arithmetic_span(&mut self, span: Span) {
-        let text = span.slice(self.source);
-        self.visit_arithmetic_text(text, span);
+    fn visit_optional_arithmetic_expr(
+        &mut self,
+        expr: Option<&'a ArithmeticExprNode>,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        expr.map(|expr| self.visit_arithmetic_expr(expr, flow))
+            .unwrap_or_default()
     }
 
-    fn visit_arithmetic_source_text(&mut self, text: &SourceText) {
-        let source = text.slice(self.source);
-        self.visit_arithmetic_text(source, text.span());
-    }
-
-    fn visit_arithmetic_text(&mut self, text: &str, base: Span) {
-        for event in scan_arithmetic(text, base) {
-            if event.read {
-                self.add_reference(
-                    event.name.clone(),
-                    ReferenceKind::ArithmeticRead,
-                    event.span,
-                );
+    fn visit_arithmetic_expr(
+        &mut self,
+        expr: &'a ArithmeticExprNode,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        match &expr.kind {
+            ArithmeticExpr::Number(_) => Vec::new(),
+            ArithmeticExpr::Variable(name) => {
+                self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, expr.span);
+                Vec::new()
             }
-            if event.write {
+            ArithmeticExpr::Indexed { name, index } => {
+                self.add_reference(
+                    name.clone(),
+                    ReferenceKind::ArithmeticRead,
+                    arithmetic_name_span(expr.span, name),
+                );
+                self.visit_arithmetic_expr(index, flow)
+            }
+            ArithmeticExpr::ShellWord(word) => {
+                self.visit_word(word, WordVisitKind::Expansion, flow)
+            }
+            ArithmeticExpr::Parenthesized { expression } => {
+                self.visit_arithmetic_expr(expression, flow)
+            }
+            ArithmeticExpr::Unary { op, expr: inner } => {
+                if matches!(
+                    op,
+                    ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
+                ) {
+                    self.visit_arithmetic_update(inner, flow)
+                } else {
+                    self.visit_arithmetic_expr(inner, flow)
+                }
+            }
+            ArithmeticExpr::Postfix { expr: inner, .. } => {
+                self.visit_arithmetic_update(inner, flow)
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                let mut nested_regions = self.visit_arithmetic_expr(left, flow);
+                nested_regions.extend(self.visit_arithmetic_expr(right, flow));
+                nested_regions
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                let mut nested_regions = self.visit_arithmetic_expr(condition, flow);
+                nested_regions.extend(self.visit_arithmetic_expr(then_expr, flow));
+                nested_regions.extend(self.visit_arithmetic_expr(else_expr, flow));
+                nested_regions
+            }
+            ArithmeticExpr::Assignment { target, op, value } => {
+                self.visit_arithmetic_assignment(target, expr.span, *op, value, flow)
+            }
+        }
+    }
+
+    fn visit_arithmetic_update(
+        &mut self,
+        expr: &'a ArithmeticExprNode,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        match &expr.kind {
+            ArithmeticExpr::Variable(name) => {
+                self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, expr.span);
                 self.add_binding(
-                    event.name,
+                    name.clone(),
                     BindingKind::ArithmeticAssignment,
                     self.current_scope(),
-                    event.span,
+                    expr.span,
                     BindingAttributes::empty(),
                 );
+                Vec::new()
             }
+            ArithmeticExpr::Indexed { name, index } => {
+                let nested_regions = self.visit_arithmetic_expr(index, flow);
+                let span = arithmetic_name_span(expr.span, name);
+                self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, span);
+                self.add_binding(
+                    name.clone(),
+                    BindingKind::ArithmeticAssignment,
+                    self.current_scope(),
+                    span,
+                    BindingAttributes::ARRAY,
+                );
+                nested_regions
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn visit_arithmetic_assignment(
+        &mut self,
+        target: &'a ArithmeticLvalue,
+        target_span: Span,
+        op: ArithmeticAssignOp,
+        value: &'a ArithmeticExprNode,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = self.visit_arithmetic_lvalue_indices(target, flow);
+        let (name, attributes) = match target {
+            ArithmeticLvalue::Variable(name) => (name, BindingAttributes::empty()),
+            ArithmeticLvalue::Indexed { name, .. } => (name, BindingAttributes::ARRAY),
+        };
+        let name_span = arithmetic_name_span(target_span, name);
+        if !matches!(op, ArithmeticAssignOp::Assign) {
+            self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, name_span);
+        }
+        nested_regions.extend(self.visit_arithmetic_expr(value, flow));
+        self.add_binding(
+            name.clone(),
+            BindingKind::ArithmeticAssignment,
+            self.current_scope(),
+            name_span,
+            attributes,
+        );
+        nested_regions
+    }
+
+    fn visit_arithmetic_lvalue_indices(
+        &mut self,
+        target: &'a ArithmeticLvalue,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        match target {
+            ArithmeticLvalue::Variable(_) => Vec::new(),
+            ArithmeticLvalue::Indexed { index, .. } => self.visit_arithmetic_expr(index, flow),
         }
     }
 
@@ -1836,92 +1984,8 @@ fn parse_source_directives(
     directives
 }
 
-fn scan_arithmetic(text: &str, base: Span) -> Vec<ArithmeticEvent> {
-    let bytes = text.as_bytes();
-    let mut index = 0usize;
-    let mut events = Vec::new();
-
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if is_ident_start(byte) {
-            let start = index;
-            index += 1;
-            while index < bytes.len() && is_ident_continue(bytes[index]) {
-                index += 1;
-            }
-            let name = &text[start..index];
-            let before = prev_non_whitespace(text, start);
-            let after = next_non_whitespace(text, index);
-            let (read, write) = classify_arithmetic_usage(before, after);
-            let span = relative_span(base, text, start, index);
-            events.push(ArithmeticEvent {
-                name: Name::from(name),
-                span,
-                read,
-                write,
-            });
-        } else {
-            index += 1;
-        }
-    }
-
-    events
-}
-
-fn classify_arithmetic_usage(before: &str, after: &str) -> (bool, bool) {
-    if before.ends_with("++") || before.ends_with("--") {
-        return (true, true);
-    }
-    if after.starts_with("++") || after.starts_with("--") {
-        return (true, true);
-    }
-    if after.starts_with("+=")
-        || after.starts_with("-=")
-        || after.starts_with("*=")
-        || after.starts_with("/=")
-        || after.starts_with("%=")
-        || after.starts_with("&=")
-        || after.starts_with("|=")
-        || after.starts_with("^=")
-        || after.starts_with("<<=")
-        || after.starts_with(">>=")
-    {
-        return (true, true);
-    }
-    if after.starts_with('=') && !after.starts_with("==") {
-        return (false, true);
-    }
-    (true, false)
-}
-
-fn prev_non_whitespace(text: &str, index: usize) -> &str {
-    let mut cursor = index;
-    while cursor > 0 && text.as_bytes()[cursor - 1].is_ascii_whitespace() {
-        cursor -= 1;
-    }
-    &text[..cursor]
-}
-
-fn next_non_whitespace(text: &str, index: usize) -> &str {
-    let mut cursor = index;
-    while cursor < text.len() && text.as_bytes()[cursor].is_ascii_whitespace() {
-        cursor += 1;
-    }
-    &text[cursor..]
-}
-
-fn relative_span(base: Span, source: &str, start: usize, end: usize) -> Span {
-    let start_position = base.start.advanced_by(&source[..start]);
-    let end_position = base.start.advanced_by(&source[..end]);
-    Span::from_positions(start_position, end_position)
-}
-
-fn is_ident_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
-}
-
-fn is_ident_continue(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
+fn arithmetic_name_span(span: Span, name: &Name) -> Span {
+    Span::from_positions(span.start, span.start.advanced_by(name.as_str()))
 }
 
 fn is_name(value: &str) -> bool {
