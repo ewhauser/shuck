@@ -121,7 +121,7 @@ macro_rules! configure_benchmark_allocator {
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
-    use shuck_formatter::{FormattedSource, ShellFormatOptions, format_source};
+    use shuck_formatter::{FormattedSource, ShellFormatOptions, format_script_ast, format_source};
     use shuck_indexer::Indexer;
     use shuck_linter::{
         LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
@@ -236,6 +236,25 @@ mod tests {
             match format_source(file.source, None, &options) {
                 Ok(FormattedSource::Unchanged) | Ok(FormattedSource::Formatted(_)) => {}
                 Err(error) => panic!("{} should format successfully: {error}", file.name),
+            }
+        }
+    }
+
+    #[test]
+    fn benchmark_corpus_survives_ast_formatter_pipeline() {
+        let options = ShellFormatOptions::default();
+
+        for file in TEST_FILES {
+            let output = parse_fixture(file.source);
+            match format_script_ast(
+                file.source,
+                &output.script,
+                &output.comments,
+                None,
+                &options,
+            ) {
+                Ok(FormattedSource::Unchanged) | Ok(FormattedSource::Formatted(_)) => {}
+                Err(error) => panic!("{} should format from AST successfully: {error}", file.name),
             }
         }
     }

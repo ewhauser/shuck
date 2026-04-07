@@ -7,6 +7,9 @@ authors.workspace = true
 repository.workspace = true
 description = "Shell formatter library for shuck"
 
+[features]
+benchmarking = []
+
 [dependencies]
 shuck-ast = { path = "../shuck-ast" }
 shuck-format = { path = "../shuck-format" }

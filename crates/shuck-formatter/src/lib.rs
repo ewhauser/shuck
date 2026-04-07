@@ -12,6 +12,7 @@ mod word;
 
 use std::path::Path;
 
+use shuck_ast::{Comment, Script};
 use shuck_format::{FormatResult, format};
 use shuck_parser::{Error as ParseError, parser::Parser};
 
@@ -78,18 +79,39 @@ pub fn format_source(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
-    let resolved = options.resolve(source, path);
-    let parsed = Parser::with_dialect(source, resolved.dialect())
+    let dialect = options.resolve(source, path).dialect();
+    let parsed = Parser::with_dialect(source, dialect)
         .parse()
         .map_err(map_parse_error)?;
 
-    let mut script = parsed.script;
+    format_script_ast(source, &parsed.script, &parsed.comments, path, options)
+}
+
+pub fn format_script_ast(
+    source: &str,
+    script: &Script,
+    comments: &[Comment],
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<FormattedSource> {
+    let resolved = options.resolve(source, path);
     if resolved.simplify() || resolved.minify() {
-        let simplify_report = simplify::simplify_script(&mut script, source);
+        let mut rewritten = script.clone();
+        let simplify_report = simplify::simplify_script(&mut rewritten, source);
         debug_assert!(simplify_report.total_changes() >= simplify_report.applied().len());
+        return format_script(source, &rewritten, comments, resolved);
     }
 
-    let comments = comments::Comments::from_ast(source, &parsed.comments);
+    format_script(source, script, comments, resolved)
+}
+
+fn format_script(
+    source: &str,
+    script: &Script,
+    comment_ranges: &[Comment],
+    resolved: ResolvedShellFormatOptions,
+) -> Result<FormattedSource> {
+    let comments = comments::Comments::from_ast(source, comment_ranges);
     let context = context::ShellFormatContext::new(resolved, source, comments);
     let formatted = format!(context, [script.format()])
         .map_err(|error| FormatError::Internal(error.to_string()))?;
@@ -104,6 +126,13 @@ pub fn format_source(
     } else {
         Ok(FormattedSource::Formatted(output))
     }
+}
+
+#[cfg(feature = "benchmarking")]
+#[doc(hidden)]
+#[must_use]
+pub fn build_comment_index(source: &str, comments: &[Comment]) -> usize {
+    comments::Comments::from_ast(source, comments).len()
 }
 
 fn ensure_single_trailing_newline(output: &mut String) {
@@ -131,7 +160,33 @@ fn map_parse_error(error: ParseError) -> FormatError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use shuck_benchmark::TEST_FILES;
+
     use super::*;
+
+    fn parse_for_ast_format(
+        source: &str,
+        path: Option<&Path>,
+        options: &ShellFormatOptions,
+    ) -> shuck_parser::parser::ParseOutput {
+        let dialect = options.resolve(source, path).dialect();
+        Parser::with_dialect(source, dialect).parse().unwrap()
+    }
+
+    fn assert_source_and_ast_paths_match(
+        source: &str,
+        path: Option<&Path>,
+        options: &ShellFormatOptions,
+    ) {
+        let parsed = parse_for_ast_format(source, path, options);
+        let from_source = format_source(source, path, options).unwrap();
+        let from_ast =
+            format_script_ast(source, &parsed.script, &parsed.comments, path, options).unwrap();
+        assert_eq!(from_source, from_ast);
+    }
 
     #[test]
     fn formats_simple_command_with_tabs_by_default() {
@@ -325,5 +380,93 @@ mod tests {
             error,
             FormatError::Parse { message, .. } if message.contains("[[ ]] conditionals")
         ));
+    }
+
+    #[test]
+    fn format_script_ast_matches_format_source_for_benchmark_corpus() {
+        let options = ShellFormatOptions::default();
+
+        for file in TEST_FILES {
+            let filename = std::format!("{}.bash", file.name);
+            assert_source_and_ast_paths_match(file.source, Some(Path::new(&filename)), &options);
+        }
+    }
+
+    #[test]
+    fn format_script_ast_matches_format_source_for_formatter_fixtures() {
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle-fixtures");
+        let cases = vec![
+            (
+                "function_next_line.sh",
+                "function_next_line.sh",
+                ShellFormatOptions::default().with_function_next_line(true),
+            ),
+            (
+                "case_default.sh",
+                "case_default.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "space_redirects.sh",
+                "space_redirects.sh",
+                ShellFormatOptions::default().with_space_redirects(true),
+            ),
+            (
+                "keep_padding.sh",
+                "keep_padding.sh",
+                ShellFormatOptions::default().with_keep_padding(true),
+            ),
+            (
+                "never_split.sh",
+                "never_split.sh",
+                ShellFormatOptions::default().with_never_split(true),
+            ),
+            (
+                "nested_heredoc.sh",
+                "nested_heredoc.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "binary_next_line.sh",
+                "binary_next_line.sh",
+                ShellFormatOptions::default().with_binary_next_line(true),
+            ),
+            (
+                "simplify.sh",
+                "simplify.bash",
+                ShellFormatOptions::default().with_simplify(true),
+            ),
+            (
+                "minify.sh",
+                "minify.sh",
+                ShellFormatOptions::default().with_minify(true),
+            ),
+            (
+                "mksh_select.sh",
+                "script.mksh",
+                ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
+            ),
+        ];
+
+        for (fixture, filename, options) in cases {
+            let source = fs::read_to_string(fixture_root.join(fixture)).unwrap();
+            assert_source_and_ast_paths_match(&source, Some(Path::new(filename)), &options);
+        }
+
+        assert_source_and_ast_paths_match(
+            "if true; then\n# note\necho hi\nfi\n",
+            Some(Path::new("if_body_comment.sh")),
+            &ShellFormatOptions::default(),
+        );
+        assert_source_and_ast_paths_match(
+            "cat <<EOF # note\nhi\nEOF\n",
+            Some(Path::new("heredoc_trailing_comment.sh")),
+            &ShellFormatOptions::default(),
+        );
+        assert_source_and_ast_paths_match(
+            "declare -x foo=1<<EOF\nhi\nEOF\n",
+            Some(Path::new("decl_heredoc.sh")),
+            &ShellFormatOptions::default(),
+        );
     }
 }

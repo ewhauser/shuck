@@ -34,6 +34,11 @@ impl<'a> ShellFormatContext<'a> {
         &self.options
     }
 
+    #[must_use]
+    pub fn comments(&self) -> &Comments<'a> {
+        &self.comments
+    }
+
     pub fn comments_mut(&mut self) -> &mut Comments<'a> {
         &mut self.comments
     }
@@ -44,5 +49,9 @@ impl FormatContext for ShellFormatContext<'_> {
 
     fn options(&self) -> &Self::Options {
         &self.options
+    }
+
+    fn source_length_hint(&self) -> usize {
+        self.source.len()
     }
 }

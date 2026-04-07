@@ -23,15 +23,11 @@ pub struct FormatCompoundCommand;
 
 impl FormatNodeRule<Command> for FormatCommand {
     fn fmt(&self, command: &Command, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-        if formatter.context().options().keep_padding()
-            && let Some(document) = verbatim_command(command, formatter.context().source())
-        {
-            return write!(formatter, [document]);
-        }
-
-        if has_heredoc(command)
-            && command_has_trailing_comment(command, formatter.context().source())
-            && let Some(document) = verbatim_command(command, formatter.context().source())
+        let source = formatter.context().source();
+        let source_map = formatter.context().comments().source_map();
+        let options = formatter.context().options();
+        if should_render_verbatim(command, source_map, options)
+            && let Some(document) = verbatim_command(command, source)
         {
             return write!(formatter, [document]);
         }
@@ -103,11 +99,20 @@ pub(crate) fn format_command_sequence(
         return Ok(());
     }
 
-    let compact = formatter.context().options().compact_layout();
-    let attachments = if formatter.context().options().minify() {
+    let source = formatter.context().source();
+    let compact_layout = formatter.context().options().compact_layout();
+    let minify = formatter.context().options().minify();
+    let attachments = if minify {
         None
     } else {
-        let spans = commands.iter().map(command_format_span).collect::<Vec<_>>();
+        let spans = {
+            let options = formatter.context().options();
+            let source_map = formatter.context().comments().source_map();
+            commands
+                .iter()
+                .map(|command| command_attachment_span(command, source, source_map, options))
+                .collect::<Vec<_>>()
+        };
         Some(
             formatter
                 .context_mut()
@@ -115,26 +120,32 @@ pub(crate) fn format_command_sequence(
                 .attach_sequence(&spans, None),
         )
     };
+    let compact = compact_layout
+        && attachments
+            .as_ref()
+            .is_none_or(|attachment| !attachment.has_comments());
 
     if attachments
         .as_ref()
         .is_some_and(|value| value.is_ambiguous())
-        && let Some(document) = verbatim_commands(commands, formatter.context().source())
+        && let Some(document) = verbatim_commands(commands, source)
     {
+        let span = commands
+            .iter()
+            .map(|command| command_verbatim_span(command, source))
+            .reduce(|left, right| left.merge(right))
+            .unwrap_or_default();
+        formatter.context_mut().comments_mut().claim_in_span(span);
         return write!(formatter, [document]);
     }
 
     for (index, command) in commands.iter().enumerate() {
         if let Some(attachment) = &attachments {
             emit_attached_comments(attachment.leading_for(index), formatter, false)?;
-        } else {
-            emit_leading_comments(command_start_line(command), formatter)?;
         }
         command.format().fmt(formatter)?;
         if let Some(attachment) = &attachments {
             emit_attached_comments(attachment.trailing_for(index), formatter, true)?;
-        } else {
-            emit_inline_comments(command_end_line(command), formatter)?;
         }
         if index + 1 < commands.len() {
             if compact {
@@ -1013,19 +1024,6 @@ fn merge_command_sequence_verbatim_span(
     span
 }
 
-fn command_start_line(command: &Command) -> usize {
-    command_format_span(command).start.line
-}
-
-fn command_end_line(command: &Command) -> usize {
-    let span = command_format_span(command);
-    if span.end.column == 1 && span.end.line > span.start.line {
-        span.end.line - 1
-    } else {
-        span.end.line
-    }
-}
-
 fn command_format_span(command: &Command) -> Span {
     match command {
         Command::Simple(command) => simple_command_format_span(command),
@@ -1170,39 +1168,6 @@ fn merge_non_empty_span(current: Span, next: Span) -> Span {
     }
 }
 
-fn emit_leading_comments(line: usize, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-    if formatter.context().options().minify() {
-        return Ok(());
-    }
-
-    let comments = formatter
-        .context_mut()
-        .comments_mut()
-        .take_leading_before(line);
-    for comment in comments {
-        write!(
-            formatter,
-            [text(comment.text().to_string()), hard_line_break()]
-        )?;
-    }
-    Ok(())
-}
-
-fn emit_inline_comments(line: usize, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-    if formatter.context().options().minify() {
-        return Ok(());
-    }
-
-    let comments = formatter
-        .context_mut()
-        .comments_mut()
-        .take_inline_for_line(line);
-    for comment in comments {
-        write!(formatter, [text("  "), text(comment.text().to_string())])?;
-    }
-    Ok(())
-}
-
 fn emit_attached_comments(
     comments: &[crate::comments::SourceComment<'_>],
     formatter: &mut ShellFormatter<'_, '_>,
@@ -1226,7 +1191,9 @@ fn can_inline_sequence(commands: &[Command], formatter: &ShellFormatter<'_, '_>)
 }
 
 fn can_inline_command(command: &Command, formatter: &ShellFormatter<'_, '_>) -> bool {
-    if has_heredoc(command) || command_has_trailing_comment(command, formatter.context().source()) {
+    if has_heredoc(command)
+        || command_has_trailing_comment(command, formatter.context().comments().source_map())
+    {
         return false;
     }
 
@@ -1246,13 +1213,150 @@ fn can_inline_command(command: &Command, formatter: &ShellFormatter<'_, '_>) -> 
     )
 }
 
-fn command_has_trailing_comment(command: &Command, source: &str) -> bool {
+fn command_has_trailing_comment(
+    command: &Command,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> bool {
     let raw = command_span(command);
     let formatted = command_format_span(command);
     raw.end.offset > formatted.end.offset
-        && raw.start.offset <= source.len()
-        && raw.end.offset <= source.len()
-        && source[formatted.end.offset..raw.end.offset].contains('#')
+        && source_map.contains_comment_between(formatted.end.offset, raw.end.offset)
+}
+
+fn should_render_verbatim(
+    command: &Command,
+    source_map: &crate::comments::SourceMap<'_>,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> bool {
+    (options.keep_padding() && command_has_alignment_sensitive_padding(command, source_map))
+        || (has_heredoc(command) && command_has_trailing_comment(command, source_map))
+        || matches!(command, Command::Decl(command) if command.redirects.iter().any(is_heredoc))
+}
+
+fn command_attachment_span(
+    command: &Command,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> Span {
+    if should_render_verbatim(command, source_map, options) {
+        command_verbatim_span(command, source)
+    } else {
+        command_format_span(command)
+    }
+}
+
+fn command_has_alignment_sensitive_padding(
+    command: &Command,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> bool {
+    let mut spans = command_token_spans(command);
+    spans.retain(|span| span != &Span::new() && span.start.offset < span.end.offset);
+    spans.sort_by_key(|span| span.start.offset);
+    spans.windows(2).any(|window| {
+        let [left, right] = window else {
+            return false;
+        };
+        if right.start.offset <= left.end.offset {
+            return false;
+        }
+        source_map.has_alignment_padding_between(left.end.offset, right.start.offset)
+    })
+}
+
+fn command_token_spans(command: &Command) -> Vec<Span> {
+    match command {
+        Command::Simple(command) => {
+            let mut spans = command
+                .assignments
+                .iter()
+                .map(|assignment| assignment.span)
+                .collect::<Vec<_>>();
+            if !command.name.parts.is_empty() {
+                spans.push(command.name.span);
+            }
+            spans.extend(command.args.iter().map(|word| word.span));
+            spans.extend(command.redirects.iter().map(|redirect| redirect.span));
+            spans
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => builtin_like_token_spans(
+                command.span.start,
+                "break",
+                &command.assignments,
+                command.depth.as_ref(),
+                &command.extra_args,
+                &command.redirects,
+            ),
+            BuiltinCommand::Continue(command) => builtin_like_token_spans(
+                command.span.start,
+                "continue",
+                &command.assignments,
+                command.depth.as_ref(),
+                &command.extra_args,
+                &command.redirects,
+            ),
+            BuiltinCommand::Return(command) => builtin_like_token_spans(
+                command.span.start,
+                "return",
+                &command.assignments,
+                command.code.as_ref(),
+                &command.extra_args,
+                &command.redirects,
+            ),
+            BuiltinCommand::Exit(command) => builtin_like_token_spans(
+                command.span.start,
+                "exit",
+                &command.assignments,
+                command.code.as_ref(),
+                &command.extra_args,
+                &command.redirects,
+            ),
+        },
+        Command::Decl(command) => {
+            let mut spans = command
+                .assignments
+                .iter()
+                .map(|assignment| assignment.span)
+                .collect::<Vec<_>>();
+            spans.push(command.variant_span);
+            spans.extend(command.operands.iter().map(|operand| match operand {
+                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
+                DeclOperand::Name(name) => name.span,
+                DeclOperand::Assignment(assignment) => assignment.span,
+            }));
+            spans.extend(command.redirects.iter().map(|redirect| redirect.span));
+            spans
+        }
+        Command::Compound(command, redirects) => {
+            let mut spans = vec![compound_format_span(command)];
+            spans.extend(redirects.iter().map(|redirect| redirect.span));
+            spans
+        }
+        Command::Function(command) => vec![command.name_span, command_format_span(&command.body)],
+        _ => vec![command_format_span(command)],
+    }
+}
+
+fn builtin_like_token_spans(
+    start: shuck_ast::Position,
+    name: &str,
+    assignments: &[Assignment],
+    primary: Option<&shuck_ast::Word>,
+    extra_args: &[shuck_ast::Word],
+    redirects: &[Redirect],
+) -> Vec<Span> {
+    let mut spans = assignments
+        .iter()
+        .map(|assignment| assignment.span)
+        .collect::<Vec<_>>();
+    spans.push(Span::from_positions(start, start.advanced_by(name)));
+    if let Some(primary) = primary {
+        spans.push(primary.span);
+    }
+    spans.extend(extra_args.iter().map(|argument| argument.span));
+    spans.extend(redirects.iter().map(|redirect| redirect.span));
+    spans
 }
 
 fn format_conditional_expr(

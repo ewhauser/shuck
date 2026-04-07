@@ -90,7 +90,15 @@ impl Printer {
     }
 
     pub fn print(&self, document: &Document) -> Result<Printed, PrintError> {
-        let mut output = String::new();
+        self.print_with_capacity(document, 0)
+    }
+
+    pub fn print_with_capacity(
+        &self,
+        document: &Document,
+        output_capacity: usize,
+    ) -> Result<Printed, PrintError> {
+        let mut output = String::with_capacity(output_capacity);
         let mut state = PrinterState::new(self.options);
         self.print_document(document, PrintMode::Expanded, &mut state, &mut output)?;
         Ok(Printed { code: output })

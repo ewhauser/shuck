@@ -48,6 +48,13 @@ impl Document {
     }
 
     #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            elements: Vec::with_capacity(capacity),
+        }
+    }
+
+    #[must_use]
     pub fn from_element(element: FormatElement) -> Self {
         Self {
             elements: vec![element],

@@ -1,4 +1,139 @@
-use shuck_ast::{Comment, Span};
+use std::sync::Arc;
+
+use shuck_ast::{Comment, Position, Span};
+
+#[derive(Debug, Clone)]
+pub struct SourceMap<'a> {
+    source: &'a str,
+    data: Arc<SourceMapData>,
+}
+
+#[derive(Debug)]
+struct SourceMapData {
+    line_starts: Vec<usize>,
+    first_non_whitespace: Vec<Option<usize>>,
+    hash_offsets: Vec<usize>,
+    tab_offsets: Vec<usize>,
+    double_space_offsets: Vec<usize>,
+}
+
+impl<'a> SourceMap<'a> {
+    #[must_use]
+    pub fn new(source: &'a str) -> Self {
+        let line_starts = line_starts(source);
+        let first_non_whitespace = line_starts
+            .iter()
+            .enumerate()
+            .map(|(index, start)| {
+                let end = line_starts.get(index + 1).copied().unwrap_or(source.len());
+                source[*start..end]
+                    .char_indices()
+                    .find(|(_, ch)| *ch != '\n' && !ch.is_whitespace())
+                    .map(|(offset, _)| start + offset)
+            })
+            .collect();
+
+        let mut hash_offsets = Vec::new();
+        let mut tab_offsets = Vec::new();
+        let mut double_space_offsets = Vec::new();
+        let bytes = source.as_bytes();
+        for offset in 0..bytes.len() {
+            match bytes[offset] {
+                b'#' => hash_offsets.push(offset),
+                b'\t' => tab_offsets.push(offset),
+                b' ' if offset + 1 < bytes.len() && bytes[offset + 1] == b' ' => {
+                    double_space_offsets.push(offset);
+                }
+                _ => {}
+            }
+        }
+
+        Self {
+            source,
+            data: Arc::new(SourceMapData {
+                line_starts,
+                first_non_whitespace,
+                hash_offsets,
+                tab_offsets,
+                double_space_offsets,
+            }),
+        }
+    }
+
+    #[must_use]
+    pub fn source(&self) -> &'a str {
+        self.source
+    }
+
+    #[must_use]
+    pub fn line_number_for_offset(&self, offset: usize) -> usize {
+        self.line_index_for_offset(offset) + 1
+    }
+
+    #[must_use]
+    pub fn span_for_offsets(&self, start: usize, end: usize) -> Span {
+        let line_index = self.line_index_for_offset(start);
+        let line_start = self.data.line_starts[line_index];
+        let text = self.source.get(start..end).unwrap_or("");
+        let start_position = Position {
+            line: line_index + 1,
+            column: self.source[line_start..start].chars().count() + 1,
+            offset: start,
+        };
+        let end_position = start_position.advanced_by(text);
+        Span::from_positions(start_position, end_position)
+    }
+
+    #[must_use]
+    pub fn is_inline_comment(&self, offset: usize) -> bool {
+        self.data.first_non_whitespace[self.line_index_for_offset(offset)]
+            .is_some_and(|first| first < offset)
+    }
+
+    #[must_use]
+    pub fn contains_comment_between(&self, start: usize, end: usize) -> bool {
+        contains_offset_in_range(&self.data.hash_offsets, start, end)
+    }
+
+    #[must_use]
+    pub fn contains_newline_between(&self, start: usize, end: usize) -> bool {
+        if start >= end {
+            return false;
+        }
+
+        let index = self
+            .data
+            .line_starts
+            .partition_point(|offset| *offset <= start);
+        self.data
+            .line_starts
+            .get(index)
+            .is_some_and(|offset| *offset < end)
+    }
+
+    #[must_use]
+    pub fn has_alignment_padding_between(&self, start: usize, end: usize) -> bool {
+        if start >= end || self.contains_newline_between(start, end) {
+            return false;
+        }
+
+        contains_offset_in_range(&self.data.tab_offsets, start, end)
+            || end.saturating_sub(start) >= 2
+                && contains_offset_in_range(
+                    &self.data.double_space_offsets,
+                    start,
+                    end.saturating_sub(1),
+                )
+    }
+
+    fn line_index_for_offset(&self, offset: usize) -> usize {
+        let offset = offset.min(self.source.len().saturating_sub(1));
+        match self.data.line_starts.binary_search(&offset) {
+            Ok(index) => index,
+            Err(index) => index.saturating_sub(1),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceComment<'a> {
@@ -67,12 +202,28 @@ impl<'a> SequenceCommentAttachment<'a> {
     pub fn is_ambiguous(&self) -> bool {
         self.ambiguous
     }
+
+    #[must_use]
+    pub fn has_comments(&self) -> bool {
+        self.ambiguous
+            || !self.dangling.is_empty()
+            || self.leading.iter().any(|comments| !comments.is_empty())
+            || self.trailing.iter().any(|comments| !comments.is_empty())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SequenceCommentAnalysis<'a> {
+    pub(crate) attachment: SequenceCommentAttachment<'a>,
+    pub(crate) claimed_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CommentAttachmentIndex<'a> {
-    items: Vec<SourceComment<'a>>,
+    source_map: SourceMap<'a>,
+    items: Arc<[SourceComment<'a>]>,
     claimed: Vec<bool>,
+    next_unclaimed: usize,
 }
 
 pub type Comments<'a> = CommentAttachmentIndex<'a>;
@@ -80,27 +231,61 @@ pub type Comments<'a> = CommentAttachmentIndex<'a>;
 impl<'a> CommentAttachmentIndex<'a> {
     #[must_use]
     pub fn from_ast(source: &'a str, comments: &[Comment]) -> Self {
-        let line_starts = line_starts(source);
-        let mut items = Vec::with_capacity(comments.len());
-
-        for comment in comments {
-            let start = usize::from(comment.range.start());
-            let end = usize::from(comment.range.end());
-            if start >= end || end > source.len() {
-                continue;
-            }
-
-            let line = line_number_for_offset(&line_starts, start);
-            items.push(SourceComment {
-                text: &source[start..end],
-                span: span_for_offsets(source, start, end),
-                line,
-                inline: is_inline_comment(source, start),
-            });
-        }
+        let source_map = SourceMap::new(source);
+        let mut items = comments
+            .iter()
+            .filter_map(|comment| {
+                let start = usize::from(comment.range.start());
+                let end = usize::from(comment.range.end());
+                (start < end && end <= source.len()).then(|| SourceComment {
+                    text: &source[start..end],
+                    span: source_map.span_for_offsets(start, end),
+                    line: source_map.line_number_for_offset(start),
+                    inline: source_map.is_inline_comment(start),
+                })
+            })
+            .collect::<Vec<_>>();
+        items.sort_by_key(|comment| comment.span.start.offset);
 
         let claimed = vec![false; items.len()];
-        Self { items, claimed }
+        Self {
+            source_map,
+            items: Arc::from(items.into_boxed_slice()),
+            claimed,
+            next_unclaimed: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn source_map(&self) -> &SourceMap<'a> {
+        &self.source_map
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    #[must_use]
+    pub(crate) fn inspect_sequence(
+        &self,
+        child_spans: &[Span],
+        upper_bound: Option<usize>,
+    ) -> SequenceCommentAnalysis<'a> {
+        compute_sequence_attachment(
+            &self.items,
+            &self.claimed,
+            self.next_unclaimed,
+            child_spans,
+            upper_bound,
+        )
+    }
+
+    pub(crate) fn claim_sequence(&mut self, analysis: &SequenceCommentAnalysis<'a>) {
+        for index in &analysis.claimed_indices {
+            self.claimed[*index] = true;
+        }
+        self.advance_next_unclaimed();
     }
 
     pub fn attach_sequence(
@@ -108,147 +293,165 @@ impl<'a> CommentAttachmentIndex<'a> {
         child_spans: &[Span],
         upper_bound: Option<usize>,
     ) -> SequenceCommentAttachment<'a> {
-        let mut attachment = SequenceCommentAttachment::new(child_spans.len());
-        if child_spans.is_empty() {
-            return attachment;
-        }
-
-        let first_child_start = child_spans[0].start.offset;
-        let last_child_end = child_spans
-            .last()
-            .map(|span| span.end.offset)
-            .unwrap_or(first_child_start);
-        let limit_end = upper_bound.unwrap_or(usize::MAX);
-
-        for index in 0..self.items.len() {
-            if self.claimed[index] {
-                continue;
-            }
-            let comment = self.items[index];
-            let start = comment.span.start.offset;
-            let end = comment.span.end.offset;
-
-            if end > limit_end {
-                continue;
-            }
-
-            if comment.inline {
-                if let Some((prev_idx, _)) =
-                    child_spans.iter().enumerate().rev().find(|(_, span)| {
-                        span.end.line == comment.line && span.start.offset <= start
-                    })
-                {
-                    attachment.trailing[prev_idx].push(comment);
-                    self.claimed[index] = true;
-                    continue;
-                }
-
-                if child_spans
-                    .iter()
-                    .any(|span| span.start.offset <= start && end <= span.end.offset)
-                {
-                    attachment.ambiguous = true;
-                    continue;
-                }
-
-                let prev = child_spans
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(_, span)| span.end.offset <= start)
-                    .map(|(idx, _)| idx);
-                let next = child_spans
-                    .iter()
-                    .enumerate()
-                    .find(|(_, span)| span.start.offset >= end)
-                    .map(|(idx, _)| idx);
-
-                match (prev, next) {
-                    (Some(prev_idx), Some(next_idx))
-                        if prev_idx + 1 == next_idx
-                            && child_spans[prev_idx].end.line == comment.line =>
-                    {
-                        attachment.trailing[prev_idx].push(comment);
-                        self.claimed[index] = true;
-                    }
-                    (Some(prev_idx), None) if child_spans[prev_idx].end.line == comment.line => {
-                        attachment.trailing[prev_idx].push(comment);
-                        self.claimed[index] = true;
-                    }
-                    _ => attachment.ambiguous = true,
-                }
-                continue;
-            }
-
-            if child_spans
-                .iter()
-                .any(|span| span.start.offset <= start && end <= span.end.offset)
-            {
-                continue;
-            }
-
-            if end <= first_child_start {
-                attachment.leading[0].push(comment);
-                self.claimed[index] = true;
-                continue;
-            }
-
-            let next = child_spans
-                .iter()
-                .enumerate()
-                .find(|(_, span)| span.start.offset >= end)
-                .map(|(idx, _)| idx);
-
-            if let Some(next_idx) = next {
-                attachment.leading[next_idx].push(comment);
-                self.claimed[index] = true;
-            } else if start >= last_child_end {
-                attachment.dangling.push(comment);
-                self.claimed[index] = true;
-            }
-        }
-
-        attachment
-    }
-
-    pub fn take_leading_before(&mut self, line: usize) -> Vec<SourceComment<'a>> {
-        let mut taken = Vec::new();
-        for (index, comment) in self.items.iter().copied().enumerate() {
-            if self.claimed[index] {
-                continue;
-            }
-            if comment.line < line || (comment.line == line && comment.inline) {
-                self.claimed[index] = true;
-                taken.push(comment);
-            }
-        }
-        taken
-    }
-
-    pub fn take_inline_for_line(&mut self, line: usize) -> Vec<SourceComment<'a>> {
-        let mut taken = Vec::new();
-        for (index, comment) in self.items.iter().copied().enumerate() {
-            if self.claimed[index] {
-                continue;
-            }
-            if comment.line == line && comment.inline {
-                self.claimed[index] = true;
-                taken.push(comment);
-            }
-        }
-        taken
+        let analysis = self.inspect_sequence(child_spans, upper_bound);
+        self.claim_sequence(&analysis);
+        analysis.attachment
     }
 
     pub fn take_remaining(&mut self) -> Vec<SourceComment<'a>> {
         let mut remaining = Vec::new();
-        for (index, comment) in self.items.iter().copied().enumerate() {
+        for index in self.next_unclaimed..self.items.len() {
             if self.claimed[index] {
                 continue;
             }
             self.claimed[index] = true;
-            remaining.push(comment);
+            remaining.push(self.items[index]);
         }
+        self.advance_next_unclaimed();
         remaining
+    }
+
+    pub fn claim_in_span(&mut self, span: Span) {
+        for index in self.next_unclaimed..self.items.len() {
+            let comment = self.items[index];
+            if comment.span.start.offset > span.end.offset {
+                break;
+            }
+            if self.claimed[index] {
+                continue;
+            }
+            if span.start.offset <= comment.span.start.offset
+                && comment.span.end.offset <= span.end.offset
+            {
+                self.claimed[index] = true;
+            }
+        }
+        self.advance_next_unclaimed();
+    }
+
+    pub fn claim_lines(&mut self, start_line: usize, end_line: usize) {
+        for index in self.next_unclaimed..self.items.len() {
+            let comment = self.items[index];
+            if comment.line > end_line {
+                break;
+            }
+            if self.claimed[index] {
+                continue;
+            }
+            if (start_line..=end_line).contains(&comment.line) {
+                self.claimed[index] = true;
+            }
+        }
+        self.advance_next_unclaimed();
+    }
+
+    fn advance_next_unclaimed(&mut self) {
+        while self.next_unclaimed < self.claimed.len() && self.claimed[self.next_unclaimed] {
+            self.next_unclaimed += 1;
+        }
+    }
+}
+
+fn compute_sequence_attachment<'a>(
+    items: &[SourceComment<'a>],
+    claimed: &[bool],
+    start_index: usize,
+    child_spans: &[Span],
+    upper_bound: Option<usize>,
+) -> SequenceCommentAnalysis<'a> {
+    let mut attachment = SequenceCommentAttachment::new(child_spans.len());
+    if child_spans.is_empty() {
+        return SequenceCommentAnalysis {
+            attachment,
+            claimed_indices: Vec::new(),
+        };
+    }
+
+    let mut claimed_indices = Vec::new();
+    let first_child_start = child_spans[0].start.offset;
+    let last_child_end = child_spans
+        .last()
+        .map(|span| span.end.offset)
+        .unwrap_or(first_child_start);
+    let limit_end = upper_bound.unwrap_or(usize::MAX);
+    let mut child_cursor = 0;
+
+    for index in start_index..items.len() {
+        if claimed[index] {
+            continue;
+        }
+
+        let comment = items[index];
+        let start = comment.span.start.offset;
+        let end = comment.span.end.offset;
+        if start >= limit_end {
+            break;
+        }
+        if end > limit_end {
+            continue;
+        }
+
+        while child_cursor < child_spans.len() && child_spans[child_cursor].end.offset <= start {
+            child_cursor += 1;
+        }
+
+        let prev = child_cursor.checked_sub(1);
+        let next = child_spans
+            .get(child_cursor)
+            .and_then(|span| (span.start.offset >= end).then_some(child_cursor));
+        let current = child_spans.get(child_cursor);
+        let inside_current =
+            current.is_some_and(|span| span.start.offset <= start && end <= span.end.offset);
+
+        if inside_current {
+            continue;
+        }
+
+        if comment.inline {
+            if let Some(prev_idx) = prev
+                && child_spans[prev_idx].end.line == comment.line
+                && child_spans[prev_idx].start.offset <= start
+            {
+                attachment.trailing[prev_idx].push(comment);
+                claimed_indices.push(index);
+                continue;
+            }
+
+            match (prev, next) {
+                (Some(prev_idx), Some(next_idx))
+                    if prev_idx + 1 == next_idx
+                        && child_spans[prev_idx].end.line == comment.line =>
+                {
+                    attachment.trailing[prev_idx].push(comment);
+                    claimed_indices.push(index);
+                }
+                (Some(prev_idx), None) if child_spans[prev_idx].end.line == comment.line => {
+                    attachment.trailing[prev_idx].push(comment);
+                    claimed_indices.push(index);
+                }
+                _ => attachment.ambiguous = true,
+            }
+            continue;
+        }
+
+        if end <= first_child_start {
+            attachment.leading[0].push(comment);
+            claimed_indices.push(index);
+            continue;
+        }
+
+        if let Some(next_idx) = next {
+            attachment.leading[next_idx].push(comment);
+            claimed_indices.push(index);
+        } else if start >= last_child_end {
+            attachment.dangling.push(comment);
+            claimed_indices.push(index);
+        }
+    }
+
+    SequenceCommentAnalysis {
+        attachment,
+        claimed_indices,
     }
 }
 
@@ -262,34 +465,11 @@ fn line_starts(source: &str) -> Vec<usize> {
     starts
 }
 
-fn line_number_for_offset(line_starts: &[usize], offset: usize) -> usize {
-    match line_starts.binary_search(&offset) {
-        Ok(index) => index + 1,
-        Err(index) => index,
+fn contains_offset_in_range(offsets: &[usize], start: usize, end: usize) -> bool {
+    if start >= end {
+        return false;
     }
-}
 
-fn span_for_offsets(source: &str, start: usize, end: usize) -> Span {
-    let start_text = &source[..start];
-    let text = &source[start..end];
-    let line = start_text.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = start_text
-        .rsplit_once('\n')
-        .map_or(start_text.chars().count() + 1, |(_, tail)| {
-            tail.chars().count() + 1
-        });
-    let start_position = shuck_ast::Position {
-        line,
-        column,
-        offset: start,
-    };
-    let end_position = start_position.advanced_by(text);
-    Span::from_positions(start_position, end_position)
-}
-
-fn is_inline_comment(source: &str, start: usize) -> bool {
-    let line_start = source[..start].rfind('\n').map_or(0, |index| index + 1);
-    source[line_start..start]
-        .chars()
-        .any(|character| !character.is_whitespace())
+    let index = offsets.partition_point(|offset| *offset < start);
+    offsets.get(index).is_some_and(|offset| *offset < end)
 }

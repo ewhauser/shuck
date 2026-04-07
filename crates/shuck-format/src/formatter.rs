@@ -29,6 +29,10 @@ pub trait FormatContext {
     type Options: FormatOptions;
 
     fn options(&self) -> &Self::Options;
+
+    fn source_length_hint(&self) -> usize {
+        0
+    }
 }
 
 pub trait FormatOptions {
@@ -79,15 +83,21 @@ pub struct Formatter<Context> {
     document: Document,
 }
 
-impl<Context> Formatter<Context> {
+impl<Context> Formatter<Context>
+where
+    Context: FormatContext,
+{
     #[must_use]
     pub fn new(context: Context) -> Self {
+        let capacity = estimate_document_capacity(context.source_length_hint());
         Self {
             context,
-            document: Document::new(),
+            document: Document::with_capacity(capacity),
         }
     }
+}
 
+impl<Context> Formatter<Context> {
     #[must_use]
     pub fn context(&self) -> &Context {
         &self.context
@@ -123,7 +133,7 @@ where
     pub fn print(&self) -> FormatResult<Printed> {
         let printer = Printer::new(self.context.options().as_print_options());
         printer
-            .print(&self.document)
+            .print_with_capacity(&self.document, self.context.source_length_hint())
             .map_err(|err| FormatError::new(err.to_string()))
     }
 
@@ -136,6 +146,10 @@ where
     pub fn document(&self) -> &Document {
         &self.document
     }
+}
+
+fn estimate_document_capacity(source_length_hint: usize) -> usize {
+    source_length_hint / 2
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
