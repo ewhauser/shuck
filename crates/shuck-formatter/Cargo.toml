@@ -1,0 +1,11 @@
+[package]
+name = "shuck-formatter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shell formatter library for shuck"
+
+[dependencies]
+shuck-parser = { path = "../shuck-parser" }

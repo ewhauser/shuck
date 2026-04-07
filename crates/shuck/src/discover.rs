@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 
 use crate::config::{resolve_project_root_for_file, resolve_project_root_for_input};
 
-const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
+pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
     ".shuck_cache",
     ".bzr",
     ".cache",
@@ -107,7 +107,7 @@ fn collect_input(
     Ok(())
 }
 
-fn add_file(
+pub(crate) fn add_file(
     path: &Path,
     cwd: &Path,
     fallback_start: &Path,
@@ -154,17 +154,17 @@ fn add_file(
     Ok(())
 }
 
-fn display_path(path: &Path, cwd: &Path) -> PathBuf {
+pub(crate) fn display_path(path: &Path, cwd: &Path) -> PathBuf {
     path.strip_prefix(cwd)
         .map(Path::to_path_buf)
         .unwrap_or_else(|_| normalize_path(path))
 }
 
-fn normalize_path(path: &Path) -> PathBuf {
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-fn is_shell_script(path: &Path) -> Result<bool> {
+pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
     if let Some("sh" | "bash" | "zsh" | "ksh") = path
         .extension()
         .and_then(|ext| ext.to_str())

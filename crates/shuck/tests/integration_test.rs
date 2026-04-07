@@ -11,6 +11,7 @@ fn help_shows_commands() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("check"))
+        .stdout(predicate::str::contains("format"))
         .stdout(predicate::str::contains("clean"));
 }
 
@@ -90,6 +91,136 @@ fn check_writes_versioned_bin_cache_file() {
         entries[0].path().extension().and_then(|ext| ext.to_str()),
         Some("bin")
     );
+}
+
+#[test]
+fn format_good_file_succeeds_and_preserves_contents() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("ok.sh");
+    let source = "#!/bin/bash\necho ok\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path()).arg("format");
+    cmd.assert().success().stdout("");
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
+fn format_check_and_diff_are_clean_for_valid_input() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
+
+    let mut check = Command::cargo_bin("shuck").unwrap();
+    check
+        .current_dir(tempdir.path())
+        .args(["format", "--check"]);
+    check.assert().success().stdout("");
+
+    let mut diff = Command::cargo_bin("shuck").unwrap();
+    diff.current_dir(tempdir.path()).args(["format", "--diff"]);
+    diff.assert().success().stdout("");
+}
+
+#[test]
+fn format_broken_file_reports_parse_error() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path()).arg("format");
+    cmd.assert()
+        .code(2)
+        .stdout(predicate::str::contains("broken.sh:2:"))
+        .stdout(predicate::str::contains("parse error"));
+}
+
+#[test]
+fn format_stdin_round_trips_valid_input() {
+    let source = "#!/bin/bash\necho ok\n";
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["format", "-"]).write_stdin(source);
+    cmd.assert().success().stdout(source);
+}
+
+#[test]
+fn format_stdin_filename_reports_parse_error_with_filename() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["format", "--stdin-filename", "foo.sh"])
+        .write_stdin("#!/bin/bash\nif true\n");
+    cmd.assert()
+        .code(2)
+        .stdout(predicate::str::contains("foo.sh:2:"))
+        .stdout(predicate::str::contains("parse error"));
+}
+
+#[test]
+fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclude() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
+    fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut walked = Command::cargo_bin("shuck").unwrap();
+    walked
+        .current_dir(tempdir.path())
+        .args(["format", "--exclude", "ignored.sh"]);
+    walked.assert().success().stdout("");
+
+    let mut explicit = Command::cargo_bin("shuck").unwrap();
+    explicit
+        .current_dir(tempdir.path())
+        .args(["format", "--exclude", "ignored.sh", "ignored.sh"]);
+    explicit
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("ignored.sh:2:"));
+
+    let mut forced = Command::cargo_bin("shuck").unwrap();
+    forced.current_dir(tempdir.path()).args([
+        "format",
+        "--exclude",
+        "ignored.sh",
+        "--force-exclude",
+        "ignored.sh",
+    ]);
+    forced.assert().success().stdout("");
+}
+
+#[test]
+fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join(".gitignore"), "ignored.sh\n").unwrap();
+    fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut default_walk = Command::cargo_bin("shuck").unwrap();
+    default_walk.current_dir(tempdir.path()).arg("format");
+    default_walk.assert().success().stdout("");
+
+    let mut no_respect = Command::cargo_bin("shuck").unwrap();
+    no_respect
+        .current_dir(tempdir.path())
+        .args(["format", "--no-respect-gitignore"]);
+    no_respect
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("ignored.sh:2:"));
+
+    let mut explicit = Command::cargo_bin("shuck").unwrap();
+    explicit
+        .current_dir(tempdir.path())
+        .args(["format", "ignored.sh"]);
+    explicit
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("ignored.sh:2:"));
+
+    let mut forced = Command::cargo_bin("shuck").unwrap();
+    forced
+        .current_dir(tempdir.path())
+        .args(["format", "--force-exclude", "ignored.sh"]);
+    forced.assert().success().stdout("");
 }
 
 #[test]
