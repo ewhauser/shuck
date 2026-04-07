@@ -730,6 +730,64 @@ fn large_corpus_conforms_with_shellcheck() {
     );
 }
 
+#[test]
+#[ignore = "requires the large corpus; run `make test-large-corpus`"]
+fn large_corpus_zsh_fixtures_parse() {
+    let cfg = match resolve_large_corpus_config() {
+        Some(cfg) => cfg,
+        None => {
+            eprintln!("large corpus test skipped (set {LARGE_CORPUS_ENV}=1 to enable)");
+            return;
+        }
+    };
+
+    let fixtures = load_fixtures(&cfg);
+    if fixtures.is_empty() {
+        panic!(
+            "no fixtures found in {}",
+            cfg.corpus_dir.join("scripts").display()
+        );
+    }
+
+    let all_fixture_refs: Vec<_> = fixtures.iter().collect();
+    let zsh_fixtures: Vec<_> = fixtures
+        .iter()
+        .filter(|fixture| fixture_selected_for_large_corpus_zsh_parse(fixture))
+        .collect();
+    if zsh_fixtures.is_empty() {
+        eprintln!("large corpus zsh parse skipped (no zsh fixtures found for this shard/sample)");
+        return;
+    }
+
+    let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&all_fixture_refs));
+    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules);
+    let failure_collection = collect_fixture_failures(&zsh_fixtures, cfg.keep_going, |fixture| {
+        evaluate_fixture_zsh_parse(
+            fixture,
+            cfg.shuck_timeout,
+            &linter_settings,
+            Arc::clone(&shuck_path_resolver),
+        )
+    });
+    let timeout_cap_note = if failure_collection.timeout_cap_reached {
+        format!(
+            "; stopped after reaching timeout cap of {} fixture timeouts",
+            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+        )
+    } else {
+        String::new()
+    };
+
+    assert!(
+        failure_collection.blocking_failures() == 0,
+        "large corpus zsh parse had {} blocking issue(s) across {} fixture(s){}:\n\n{}",
+        failure_collection.blocking_failures(),
+        zsh_fixtures.len(),
+        timeout_cap_note,
+        format_large_corpus_report(&failure_collection)
+    );
+}
+
 fn collect_fixture_failures<F>(
     fixtures: &[&LargeCorpusFixture],
     keep_going: bool,
@@ -1029,6 +1087,39 @@ fn evaluate_fixture_compatibility(
                 ),
             });
         }
+    }
+
+    evaluation
+}
+
+fn evaluate_fixture_zsh_parse(
+    fixture: &LargeCorpusFixture,
+    shuck_timeout: Duration,
+    linter_settings: &shuck_linter::LinterSettings,
+    shuck_path_resolver: Arc<LargeCorpusPathResolver>,
+) -> FixtureEvaluation {
+    let mut evaluation = FixtureEvaluation::default();
+    let shuck_run = match run_shuck_for_effective_large_corpus_shell_with_timeout(
+        fixture,
+        linter_settings,
+        shuck_timeout,
+        shuck_path_resolver,
+    ) {
+        Ok(run) => run,
+        Err(err) => {
+            evaluation.harness_failure = Some(FixtureFailure {
+                kind: fixture_failure_kind_for_message(&err, "shuck"),
+                message: format_fixture_failure(&fixture.path, &[err]),
+            });
+            return evaluation;
+        }
+    };
+
+    if let Some(err) = shuck_run.parse_error {
+        evaluation.harness_failure = Some(FixtureFailure {
+            kind: FixtureFailureKind::Other,
+            message: format_fixture_failure(&fixture.path, &[format!("shuck parse error: {err}")]),
+        });
     }
 
     evaluation
@@ -1505,15 +1596,28 @@ fn fixture_supported_for_large_corpus(
     fixture: &LargeCorpusFixture,
     shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
 ) -> bool {
-    if fixture_looks_like_zsh(fixture)
-        || path_is_sample_file(&fixture.path)
+    if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
     }
 
-    shell_supported_for_large_corpus(fixture.shell.as_str(), shellcheck_supported_shells)
+    shell_supported_for_large_corpus(
+        effective_large_corpus_shell(fixture),
+        shellcheck_supported_shells,
+    )
+}
+
+fn fixture_selected_for_large_corpus_zsh_parse(fixture: &LargeCorpusFixture) -> bool {
+    if path_is_sample_file(&fixture.path)
+        || path_is_fish_file(&fixture.path)
+        || fixture_is_repo_git_entry(fixture)
+    {
+        return false;
+    }
+
+    effective_large_corpus_shell(fixture) == "zsh"
 }
 
 fn shell_supported_for_large_corpus(
@@ -1527,6 +1631,14 @@ fn shell_supported_for_large_corpus(
     shellcheck_supported_shells
         .map(|supported| supported.contains_key(shell))
         .unwrap_or(true)
+}
+
+fn effective_large_corpus_shell(fixture: &LargeCorpusFixture) -> &str {
+    if fixture_looks_like_zsh(fixture) {
+        "zsh"
+    } else {
+        fixture.shell.as_str()
+    }
 }
 
 fn fixture_looks_like_zsh(fixture: &LargeCorpusFixture) -> bool {
@@ -1876,10 +1988,25 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
 // Shuck runner
 // ---------------------------------------------------------------------------
 
-fn run_shuck(
+fn parser_dialect_for_large_corpus_shell(shell: &str) -> shuck_parser::ShellDialect {
+    match shuck_linter::ShellDialect::from_name(shell) {
+        shuck_linter::ShellDialect::Sh
+        | shuck_linter::ShellDialect::Dash
+        | shuck_linter::ShellDialect::Ksh => shuck_parser::ShellDialect::Posix,
+        shuck_linter::ShellDialect::Mksh => shuck_parser::ShellDialect::Mksh,
+        shuck_linter::ShellDialect::Zsh => shuck_parser::ShellDialect::Zsh,
+        shuck_linter::ShellDialect::Unknown | shuck_linter::ShellDialect::Bash => {
+            shuck_parser::ShellDialect::Bash
+        }
+    }
+}
+
+fn run_shuck_with_parse_dialect(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
     source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
+    parse_dialect: shuck_parser::ShellDialect,
+    shell: &str,
 ) -> ShuckRun {
     let source = match fs::read_to_string(&fixture.path) {
         Ok(s) => s,
@@ -1891,7 +2018,7 @@ fn run_shuck(
         }
     };
 
-    let output = match shuck_parser::parser::Parser::new(&source).parse() {
+    let output = match shuck_parser::parser::Parser::with_dialect(&source, parse_dialect).parse() {
         Ok(o) => o,
         Err(e) => {
             return ShuckRun {
@@ -1904,7 +2031,7 @@ fn run_shuck(
     let indexer = shuck_indexer::Indexer::new(&source, &output);
     let linter_settings = linter_settings
         .clone()
-        .with_shell(shuck_linter::ShellDialect::from_name(&fixture.shell));
+        .with_shell(shuck_linter::ShellDialect::from_name(shell));
     let diagnostics = shuck_linter::lint_file_at_path_with_resolver(
         &output.file,
         &source,
@@ -1921,6 +2048,35 @@ fn run_shuck(
     }
 }
 
+fn run_shuck(
+    fixture: &LargeCorpusFixture,
+    linter_settings: &shuck_linter::LinterSettings,
+    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
+) -> ShuckRun {
+    run_shuck_with_parse_dialect(
+        fixture,
+        linter_settings,
+        source_path_resolver,
+        shuck_parser::ShellDialect::Bash,
+        &fixture.shell,
+    )
+}
+
+fn run_shuck_for_effective_large_corpus_shell(
+    fixture: &LargeCorpusFixture,
+    linter_settings: &shuck_linter::LinterSettings,
+    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
+) -> ShuckRun {
+    let shell = effective_large_corpus_shell(fixture);
+    run_shuck_with_parse_dialect(
+        fixture,
+        linter_settings,
+        source_path_resolver,
+        parser_dialect_for_large_corpus_shell(shell),
+        shell,
+    )
+}
+
 fn run_shuck_with_timeout(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
@@ -1932,6 +2088,25 @@ fn run_shuck_with_timeout(
     let source_path_resolver = Arc::clone(&source_path_resolver);
     run_with_timeout("shuck", timeout, move || {
         run_shuck(
+            &fixture,
+            &linter_settings,
+            Some(source_path_resolver.as_ref()
+                as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)),
+        )
+    })
+}
+
+fn run_shuck_for_effective_large_corpus_shell_with_timeout(
+    fixture: &LargeCorpusFixture,
+    linter_settings: &shuck_linter::LinterSettings,
+    timeout: Duration,
+    source_path_resolver: Arc<LargeCorpusPathResolver>,
+) -> Result<ShuckRun, String> {
+    let fixture = fixture.clone();
+    let linter_settings = linter_settings.clone();
+    let source_path_resolver = Arc::clone(&source_path_resolver);
+    run_with_timeout("shuck", timeout, move || {
+        run_shuck_for_effective_large_corpus_shell(
             &fixture,
             &linter_settings,
             Some(source_path_resolver.as_ref()
@@ -2621,6 +2796,14 @@ mod tests {
     }
 
     #[test]
+    fn parser_dialect_for_large_corpus_zsh_shell_is_zsh() {
+        assert_eq!(
+            parser_dialect_for_large_corpus_shell("zsh"),
+            shuck_parser::ShellDialect::Zsh
+        );
+    }
+
+    #[test]
     fn zsh_is_not_supported_for_large_corpus_even_if_shellcheck_supports_it() {
         let supported = HashMap::from([("sh", ()), ("bash", ()), ("zsh", ())]);
 
@@ -2640,6 +2823,32 @@ mod tests {
 
         assert!(fixture_looks_like_zsh(&fixture));
         assert!(!fixture_supported_for_large_corpus(&fixture, None));
+    }
+
+    #[test]
+    fn zsh_shebangs_are_selected_for_large_corpus_zsh_parse() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("bin/plugin"),
+            cache_rel_path: PathBuf::from("bin/plugin"),
+            shell: "zsh".into(),
+            source_hash: String::new(),
+        };
+
+        assert_eq!(effective_large_corpus_shell(&fixture), "zsh");
+        assert!(fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
+    fn zsh_paths_force_effective_zsh_shell() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from(".zshrc"),
+            cache_rel_path: PathBuf::from(".zshrc"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert_eq!(effective_large_corpus_shell(&fixture), "zsh");
+        assert!(fixture_selected_for_large_corpus_zsh_parse(&fixture));
     }
 
     #[test]
