@@ -1777,15 +1777,18 @@ impl<'a> Parser<'a> {
     }
 
     fn subscript_source_text(&self, raw: &str, span: Span) -> SourceText {
-        let text = if raw.len() >= 2
+        if raw.len() >= 2
             && ((raw.starts_with('"') && raw.ends_with('"'))
                 || (raw.starts_with('\'') && raw.ends_with('\'')))
         {
-            raw[1..raw.len() - 1].to_string()
+            return self.source_text(raw[1..raw.len() - 1].to_string(), span.start, span.end);
+        }
+
+        if self.source_matches(span, raw) {
+            SourceText::source(span)
         } else {
-            raw.to_string()
-        };
-        self.source_text(text, span.start, span.end)
+            SourceText::cooked(span, raw.to_string())
+        }
     }
 
     fn subscript_from_source_text(
@@ -1799,7 +1802,8 @@ impl<'a> Parser<'a> {
             _ => SubscriptKind::Ordinary,
         };
         let arithmetic_ast = if matches!(kind, SubscriptKind::Ordinary) {
-            self.maybe_parse_source_text_as_arithmetic(&text)
+            self.simple_subscript_arithmetic_ast(&text)
+                .or_else(|| self.maybe_parse_source_text_as_arithmetic(&text))
         } else {
             None
         };
@@ -1809,6 +1813,34 @@ impl<'a> Parser<'a> {
             interpretation,
             arithmetic_ast,
         }
+    }
+
+    fn simple_subscript_arithmetic_ast(&self, text: &SourceText) -> Option<ArithmeticExprNode> {
+        if !text.is_source_backed() {
+            return None;
+        }
+
+        let raw = text.slice(self.input);
+        if raw.is_empty() || raw.trim() != raw {
+            return None;
+        }
+
+        let span = text.span();
+        if raw.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Some(ArithmeticExprNode::new(
+                ArithmeticExpr::Number(SourceText::source(span)),
+                span,
+            ));
+        }
+
+        if Self::is_valid_identifier(raw) {
+            return Some(ArithmeticExprNode::new(
+                ArithmeticExpr::Variable(Name::from(raw)),
+                span,
+            ));
+        }
+
+        None
     }
 
     fn subscript_from_text(
@@ -4999,6 +5031,10 @@ impl<'a> Parser<'a> {
     /// Check if a word is an assignment (NAME=value, NAME+=value, or NAME[index]=value)
     /// Returns (name, optional_index, value, is_append)
     fn is_assignment(word: &str) -> Option<(&str, Option<&str>, &str, bool)> {
+        if !word.contains('=') {
+            return None;
+        }
+
         let mut ident_end = 0;
         let mut chars = word.char_indices();
         let (_, first) = chars.next()?;
@@ -5388,14 +5424,23 @@ impl<'a> Parser<'a> {
         explicit_kind: Option<ArrayKind>,
     ) -> ArrayExpr {
         let interpretation = Self::subscript_interpretation_from_array_kind(explicit_kind);
+        let mut cursor = 0;
+        let mut cursor_pos = base;
         let elements = self
             .split_compound_array_elements(inner)
             .into_iter()
             .map(|(start, end)| {
-                let span = Span::from_positions(
-                    base.advanced_by(&inner[..start]),
-                    base.advanced_by(&inner[..end]),
-                );
+                if start > cursor {
+                    cursor_pos = cursor_pos.advanced_by(&inner[cursor..start]);
+                    cursor = start;
+                }
+
+                let start_pos = cursor_pos;
+                let end_pos = start_pos.advanced_by(&inner[start..end]);
+                let span = Span::from_positions(start_pos, end_pos);
+                cursor = end;
+                cursor_pos = end_pos;
+
                 self.parse_compound_array_element(&inner[start..end], span, interpretation)
             })
             .collect::<Vec<_>>();
@@ -5680,7 +5725,7 @@ impl<'a> Parser<'a> {
 
     fn parse_assignment_from_word(
         &mut self,
-        word: Word,
+        word: &Word,
         raw: &str,
         explicit_array_kind: Option<ArrayKind>,
         subscript_interpretation: SubscriptInterpretation,
@@ -5717,8 +5762,11 @@ impl<'a> Parser<'a> {
             let value_span = Span::from_positions(value_start, assignment_span.end);
             AssignmentValue::Scalar(Word::literal_with_span("", value_span))
         } else {
-            let scalar =
-                self.split_word_at(word, value_start, Self::raw_value_is_fully_quoted(value));
+            let scalar = self.split_word_at(
+                word.clone(),
+                value_start,
+                Self::raw_value_is_fully_quoted(value),
+            );
             if scalar.parts.is_empty() {
                 return self.parse_assignment_from_text(
                     raw,
@@ -5902,17 +5950,13 @@ impl<'a> Parser<'a> {
     fn classify_decl_operand(
         &mut self,
         word: Word,
+        raw: String,
         explicit_array_kind: Option<ArrayKind>,
     ) -> DeclOperand {
-        let raw = self.word_source_text(&word);
         let interpretation = Self::subscript_interpretation_from_array_kind(explicit_array_kind);
 
-        if Self::is_literal_flag_word(&word, &raw) {
-            return DeclOperand::Flag(word);
-        }
-
         if let Some(assignment) =
-            self.parse_assignment_from_word(word.clone(), &raw, explicit_array_kind, interpretation)
+            self.parse_assignment_from_word(&word, &raw, explicit_array_kind, interpretation)
         {
             return DeclOperand::Assignment(assignment);
         }
@@ -5953,7 +5997,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            operands.push(self.classify_decl_operand(word, explicit_array_kind));
+            operands.push(self.classify_decl_operand(word, raw, explicit_array_kind));
         }
 
         operands
@@ -6024,7 +6068,7 @@ impl<'a> Parser<'a> {
             .or_else(|| {
                 self.current_word().and_then(|word| {
                     self.parse_assignment_from_word(
-                        word,
+                        &word,
                         raw,
                         None,
                         SubscriptInterpretation::Contextual,
@@ -7034,7 +7078,7 @@ impl<'a> Parser<'a> {
                                         part_start,
                                         "${",
                                         &var_name,
-                                        Some(subscript.clone()),
+                                        Some(subscript),
                                         cursor,
                                     ),
                                     operator,
@@ -7071,7 +7115,7 @@ impl<'a> Parser<'a> {
                                         part_start,
                                         "${",
                                         &var_name,
-                                        Some(subscript.clone()),
+                                        Some(subscript),
                                         cursor,
                                     ),
                                     offset,
@@ -7096,7 +7140,7 @@ impl<'a> Parser<'a> {
                                     part_start,
                                     "${",
                                     &var_name,
-                                    Some(subscript.clone()),
+                                    Some(subscript),
                                     cursor,
                                 ),
                                 operator,
@@ -7113,7 +7157,7 @@ impl<'a> Parser<'a> {
                                         part_start,
                                         "${",
                                         &var_name,
-                                        Some(subscript.clone()),
+                                        Some(subscript),
                                         cursor,
                                     ),
                                     operator,
@@ -7124,7 +7168,7 @@ impl<'a> Parser<'a> {
                                     part_start,
                                     "${",
                                     &var_name,
-                                    Some(subscript.clone()),
+                                    Some(subscript),
                                     cursor,
                                 ))
                             }
@@ -7134,7 +7178,7 @@ impl<'a> Parser<'a> {
                                 part_start,
                                 "${",
                                 &var_name,
-                                Some(subscript.clone()),
+                                Some(subscript),
                                 cursor,
                             ))
                         }
