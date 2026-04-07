@@ -353,6 +353,10 @@ impl<'a> RegionCollector<'a> {
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
                 self.visit_stmt_seq(commands);
             }
+            CompoundCommand::Always(command) => {
+                self.visit_stmt_seq(&command.body);
+                self.visit_stmt_seq(&command.always_body);
+            }
             CompoundCommand::Arithmetic(command) => {
                 push_range(&mut self.arithmetic, command.span.to_range());
             }
@@ -477,6 +481,7 @@ impl<'a> RegionCollector<'a> {
                 WordPart::ProcessSubstitution { body, .. } => self.visit_stmt_seq(body),
                 WordPart::Literal(_)
                 | WordPart::Variable(_)
+                | WordPart::Parameter(_)
                 | WordPart::ParameterExpansion { .. }
                 | WordPart::Length(_)
                 | WordPart::ArrayAccess(_)

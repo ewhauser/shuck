@@ -382,6 +382,7 @@ const fn shell_dialect_key(dialect: ShellDialect) -> u8 {
         ShellDialect::Bash => 1,
         ShellDialect::Posix => 2,
         ShellDialect::Mksh => 3,
+        ShellDialect::Zsh => 4,
     }
 }
 

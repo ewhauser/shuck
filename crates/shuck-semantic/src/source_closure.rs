@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef,
-    Name, Pattern, PatternPart, PatternPartNode, Redirect, SourceText, Span, Stmt, StmtSeq, VarRef,
-    Word, WordPart, WordPartNode,
+    BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
+    DeclOperand, File, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, Pattern,
+    PatternPart, PatternPartNode, Redirect, SourceText, Span, Stmt, StmtSeq, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -306,6 +307,10 @@ fn walk_compound(
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             walk_stmt_seq(commands, model, source, facts);
         }
+        CompoundCommand::Always(command) => {
+            walk_stmt_seq(&command.body, model, source, facts);
+            walk_stmt_seq(&command.always_body, model, source, facts);
+        }
         CompoundCommand::Arithmetic(command) => {
             if let Some(expr) = &command.expr_ast {
                 walk_arithmetic_expr(expr, model, source, facts);
@@ -396,6 +401,9 @@ fn walk_word_parts(
                     walk_arithmetic_expr(expr, model, source, facts);
                 }
             }
+            WordPart::Parameter(parameter) => {
+                walk_parameter_expansion(parameter, model, source, facts);
+            }
             WordPart::ParameterExpansion {
                 reference,
                 operator,
@@ -460,6 +468,100 @@ fn walk_word_parts(
                 walk_var_ref_subscript(reference, model, source, facts);
             }
             WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
+        }
+    }
+}
+
+fn walk_parameter_expansion(
+    parameter: &ParameterExpansion,
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                walk_var_ref_subscript(reference, model, source, facts);
+            }
+            BourneParameterExpansion::Indirect { operand, .. } => {
+                if let Some(operand) = operand {
+                    walk_source_text(operand, model, source, facts);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                walk_var_ref_subscript(reference, model, source, facts);
+                if let Some(offset_ast) = offset_ast {
+                    walk_arithmetic_expr(offset_ast, model, source, facts);
+                }
+                if let Some(length_ast) = length_ast {
+                    walk_arithmetic_expr(length_ast, model, source, facts);
+                }
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand,
+                ..
+            } => {
+                walk_var_ref_subscript(reference, model, source, facts);
+                if let Some(operand) = operand {
+                    walk_source_text(operand, model, source, facts);
+                }
+                match operator {
+                    shuck_ast::ParameterOp::RemovePrefixShort { pattern }
+                    | shuck_ast::ParameterOp::RemovePrefixLong { pattern }
+                    | shuck_ast::ParameterOp::RemoveSuffixShort { pattern }
+                    | shuck_ast::ParameterOp::RemoveSuffixLong { pattern }
+                    | shuck_ast::ParameterOp::ReplaceFirst { pattern, .. }
+                    | shuck_ast::ParameterOp::ReplaceAll { pattern, .. } => {
+                        walk_pattern(pattern, model, source, facts);
+                    }
+                    shuck_ast::ParameterOp::UseDefault
+                    | shuck_ast::ParameterOp::AssignDefault
+                    | shuck_ast::ParameterOp::UseReplacement
+                    | shuck_ast::ParameterOp::Error
+                    | shuck_ast::ParameterOp::UpperFirst
+                    | shuck_ast::ParameterOp::UpperAll
+                    | shuck_ast::ParameterOp::LowerFirst
+                    | shuck_ast::ParameterOp::LowerAll => {}
+                }
+            }
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            match &syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    walk_var_ref_subscript(reference, model, source, facts);
+                }
+                ZshExpansionTarget::Nested(parameter) => {
+                    walk_parameter_expansion(parameter, model, source, facts);
+                }
+                ZshExpansionTarget::Empty => {}
+            }
+
+            for modifier in &syntax.modifiers {
+                if let Some(argument) = &modifier.argument {
+                    walk_source_text(argument, model, source, facts);
+                }
+            }
+
+            if let Some(operation) = &syntax.operation {
+                match operation {
+                    ZshExpansionOperation::PatternOperation { operand, .. }
+                    | ZshExpansionOperation::Raw(operand)
+                    | ZshExpansionOperation::Defaulting { operand, .. } => {
+                        walk_source_text(operand, model, source, facts);
+                    }
+                }
+            }
         }
     }
 }

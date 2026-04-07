@@ -537,6 +537,45 @@ mod tests {
     }
 
     #[test]
+    fn auto_dialect_honors_zsh_paths_and_shebangs() {
+        let path_formatted = format_source(
+            "print ${(m)foo}\n",
+            Some(Path::new("script.zsh")),
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(path_formatted, FormattedSource::Unchanged);
+
+        let shebang_formatted = format_source(
+            "#!/usr/bin/env zsh\nprint ${(m)foo}\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(shebang_formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn zsh_only_forms_round_trip_without_corruption() {
+        let source = "\
+print ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}
+if [[ -n $foo ]] { print foo; } else { print bar; }
+{ print body; } always { print cleanup; }
+print quiet &|
+print hidden &!
+";
+        let options = ShellFormatOptions::default()
+            .with_dialect(ShellDialect::Zsh)
+            .with_simplify(true);
+
+        assert_eq!(
+            format_source(source, Some(Path::new("script.zsh")), &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, Some(Path::new("script.zsh")), &options);
+    }
+
+    #[test]
     fn mksh_dialect_formats_select_commands() {
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Mksh);
         let formatted = format_source(

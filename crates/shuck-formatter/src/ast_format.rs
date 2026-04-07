@@ -92,6 +92,10 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
         CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
             collect_stmt_seq_comments(body, comments);
         }
+        CompoundCommand::Always(command) => {
+            collect_stmt_seq_comments(&command.body, comments);
+            collect_stmt_seq_comments(&command.always_body, comments);
+        }
         CompoundCommand::Time(command) => {
             if let Some(inner) = &command.command {
                 collect_stmt_comments(inner, comments);
@@ -324,7 +328,11 @@ impl<'a> Renderer<'a> {
         if include_terminator && let Some(terminator) = stmt.terminator {
             match terminator {
                 StmtTerminator::Semicolon => rendered.push(';'),
-                StmtTerminator::Background => rendered.push_str(" &"),
+                StmtTerminator::Background(operator) => match operator {
+                    shuck_ast::BackgroundOperator::Plain => rendered.push_str(" &"),
+                    shuck_ast::BackgroundOperator::Pipe => rendered.push_str(" &|"),
+                    shuck_ast::BackgroundOperator::Bang => rendered.push_str(" &!"),
+                },
             }
         }
         if !self.options.minify()
@@ -526,6 +534,9 @@ impl<'a> Renderer<'a> {
     fn render_compound(&self, command: &CompoundCommand, level: usize, stmt: &Stmt) -> String {
         match command {
             CompoundCommand::If(command) => {
+                if !matches!(command.syntax, shuck_ast::IfSyntax::ThenFi { .. }) {
+                    return stmt.span.slice(self.source).trim_end().to_string();
+                }
                 if self.options.never_split()
                     && self.can_render_stmt_seq_inline(&command.then_branch)
                 {
@@ -695,6 +706,7 @@ impl<'a> Renderer<'a> {
             }
             CompoundCommand::Subshell(body) => self.render_group("(", ")", body, level, stmt),
             CompoundCommand::BraceGroup(body) => self.render_group("{", "}", body, level, stmt),
+            CompoundCommand::Always(_) => stmt.span.slice(self.source).trim_end().to_string(),
             CompoundCommand::Arithmetic(command) => command.span.slice(self.source).to_string(),
             CompoundCommand::Time(command) => {
                 let mut rendered = String::from("time");

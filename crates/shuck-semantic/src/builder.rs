@@ -2,9 +2,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArithmeticUnaryOp,
     ArrayElem, ArrayExpr, ArrayKind, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
-    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef,
-    Name, ParameterOp, Pattern, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript,
-    VarRef, Word, WordPart, WordPartNode,
+    BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
+    DeclOperand, File, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax,
+    ParameterOp, Pattern, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript, VarRef,
+    Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -701,6 +702,29 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     ),
                 },
             },
+            CompoundCommand::Always(command) => RecordedCommand {
+                span: command.span,
+                nested_regions: Vec::new(),
+                kind: RecordedCommandKind::BraceGroup {
+                    body: {
+                        let mut body = self.visit_stmt_seq(
+                            &command.body,
+                            FlowState {
+                                in_block: true,
+                                ..flow
+                            },
+                        );
+                        body.extend(self.visit_stmt_seq(
+                            &command.always_body,
+                            FlowState {
+                                in_block: true,
+                                ..flow
+                            },
+                        ));
+                        body
+                    },
+                },
+            },
             CompoundCommand::Arithmetic(command) => {
                 let nested_regions =
                     self.visit_optional_arithmetic_expr(command.expr_ast.as_ref(), flow);
@@ -1070,6 +1094,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 nested_regions
                     .extend(self.visit_optional_arithmetic_expr(expression_ast.as_ref(), flow));
             }
+            WordPart::Parameter(parameter) => {
+                self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
+            }
             WordPart::ParameterExpansion {
                 reference,
                 operator,
@@ -1227,6 +1254,202 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
             }
         }
+    }
+
+    fn visit_parameter_expansion(
+        &mut self,
+        parameter: &ParameterExpansion,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+        span: Span,
+    ) {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+                BourneParameterExpansion::Access { reference } => {
+                    self.visit_var_ref_reference(
+                        reference,
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::ArrayAccess
+                        },
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+                BourneParameterExpansion::Length { reference } => {
+                    self.visit_var_ref_reference(
+                        reference,
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::Length
+                        },
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+                BourneParameterExpansion::Indices { reference } => {
+                    self.visit_var_ref_reference(
+                        reference,
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::IndirectExpansion
+                        },
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+                BourneParameterExpansion::Indirect { name, .. } => {
+                    let id = self.add_reference(
+                        name.clone(),
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::IndirectExpansion
+                        },
+                        span,
+                    );
+                    self.indirect_expansion_refs.insert(id);
+                }
+                BourneParameterExpansion::PrefixMatch { prefix, .. } => {
+                    self.add_reference(
+                        prefix.clone(),
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::IndirectExpansion
+                        },
+                        span,
+                    );
+                }
+                BourneParameterExpansion::Slice {
+                    reference,
+                    offset_ast,
+                    length_ast,
+                    ..
+                } => {
+                    self.visit_var_ref_reference(
+                        reference,
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::ParameterExpansion
+                        },
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                    nested_regions
+                        .extend(self.visit_optional_arithmetic_expr(offset_ast.as_ref(), flow));
+                    nested_regions
+                        .extend(self.visit_optional_arithmetic_expr(length_ast.as_ref(), flow));
+                }
+                BourneParameterExpansion::Operation {
+                    reference,
+                    operator,
+                    ..
+                } => {
+                    self.visit_var_ref_reference(
+                        reference,
+                        if matches!(operator, ParameterOp::Error) {
+                            ReferenceKind::RequiredRead
+                        } else if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::ParameterExpansion
+                        },
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                    match operator {
+                        ParameterOp::RemovePrefixShort { pattern }
+                        | ParameterOp::RemovePrefixLong { pattern }
+                        | ParameterOp::RemoveSuffixShort { pattern }
+                        | ParameterOp::RemoveSuffixLong { pattern }
+                        | ParameterOp::ReplaceFirst { pattern, .. }
+                        | ParameterOp::ReplaceAll { pattern, .. } => {
+                            self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                        }
+                        ParameterOp::UseDefault
+                        | ParameterOp::AssignDefault
+                        | ParameterOp::UseReplacement
+                        | ParameterOp::Error
+                        | ParameterOp::UpperFirst
+                        | ParameterOp::UpperAll
+                        | ParameterOp::LowerFirst
+                        | ParameterOp::LowerAll => {}
+                    }
+                }
+                BourneParameterExpansion::Transformation { reference, .. } => {
+                    self.visit_var_ref_reference(
+                        reference,
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::ParameterExpansion
+                        },
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+            },
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                match &syntax.target {
+                    ZshExpansionTarget::Reference(reference) => {
+                        self.visit_var_ref_reference(
+                            reference,
+                            if matches!(kind, WordVisitKind::Conditional) {
+                                ReferenceKind::ConditionalOperand
+                            } else {
+                                ReferenceKind::ParameterExpansion
+                            },
+                            flow,
+                            nested_regions,
+                            span,
+                        );
+                    }
+                    ZshExpansionTarget::Nested(parameter) => {
+                        self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
+                    }
+                    ZshExpansionTarget::Empty => {}
+                }
+
+                for modifier in &syntax.modifiers {
+                    if let Some(argument) = &modifier.argument {
+                        self.visit_source_text_as_word(argument, kind, flow, nested_regions);
+                    }
+                }
+
+                if let Some(operation) = &syntax.operation {
+                    match operation {
+                        ZshExpansionOperation::PatternOperation { operand, .. }
+                        | ZshExpansionOperation::Raw(operand)
+                        | ZshExpansionOperation::Defaulting { operand, .. } => {
+                            self.visit_source_text_as_word(operand, kind, flow, nested_regions);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn visit_source_text_as_word(
+        &mut self,
+        text: &shuck_ast::SourceText,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
+        self.visit_word_into(&word, kind, flow, nested_regions);
     }
 
     fn visit_pattern_part(
@@ -2318,6 +2541,7 @@ fn command_span_from_compound(command: &CompoundCommand) -> Span {
         CompoundCommand::Time(command) => command.span,
         CompoundCommand::Conditional(command) => command.span,
         CompoundCommand::Coproc(command) => command.span,
+        CompoundCommand::Always(command) => command.span,
     }
 }
 

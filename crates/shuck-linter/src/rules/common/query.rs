@@ -1,8 +1,8 @@
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BinaryCommand, BinaryOp, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
-    DeclOperand, FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, Span, Stmt, StmtSeq,
-    Subscript, VarRef, Word, WordPart, WordPartNode,
+    BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand,
+    ConditionalExpr, DeclOperand, FunctionDef, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternPart, Redirect, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_parser::parser::Parser;
 
@@ -374,6 +374,7 @@ fn collect_expansion_words<'a>(
             | CompoundCommand::Until(_)
             | CompoundCommand::Subshell(_)
             | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
             | CompoundCommand::Arithmetic(_)
             | CompoundCommand::Coproc(_)
             | CompoundCommand::Time(_) => {}
@@ -617,6 +618,15 @@ fn collect_word_part_parameter_patterns(
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_word_part_parameter_patterns(parts, words)
+            }
+            WordPart::Parameter(parameter) => {
+                if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                    operator,
+                    ..
+                }) = &parameter.syntax
+                {
+                    collect_parameter_operator_patterns(operator, words);
+                }
             }
             WordPart::ParameterExpansion { operator, .. } => {
                 collect_parameter_operator_patterns(operator, words)
@@ -884,6 +894,10 @@ fn collect_compound_visits<'a>(
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             collect_command_visits(commands, options, context, visits);
         }
+        CompoundCommand::Always(command) => {
+            collect_command_visits(&command.body, options, context, visits);
+            collect_command_visits(&command.always_body, options, context, visits);
+        }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
@@ -995,6 +1009,7 @@ fn collect_word_part_visits<'a>(
             WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
+            | WordPart::Parameter(_)
             | WordPart::ParameterExpansion { .. }
             | WordPart::Length(_)
             | WordPart::ArrayAccess(_)
@@ -1222,6 +1237,10 @@ impl<F: FnMut(CommandVisit<'_>)> CommandWalker<'_, F> {
             }
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
                 self.walk_commands(commands, context);
+            }
+            CompoundCommand::Always(command) => {
+                self.walk_commands(&command.body, context);
+                self.walk_commands(&command.always_body, context);
             }
             CompoundCommand::Arithmetic(_) => {}
             CompoundCommand::Time(command) => {
@@ -1456,6 +1475,10 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
                 self.walk_commands(commands);
             }
+            CompoundCommand::Always(command) => {
+                self.walk_commands(&command.body);
+                self.walk_commands(&command.always_body);
+            }
             CompoundCommand::Arithmetic(_) => {}
             CompoundCommand::Time(command) => {
                 if let Some(command) = &command.command {
@@ -1618,6 +1641,7 @@ fn collect_command_words(
             | CompoundCommand::Until(_)
             | CompoundCommand::Subshell(_)
             | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
             | CompoundCommand::Arithmetic(_)
             | CompoundCommand::Time(_)
             | CompoundCommand::Coproc(_) => {}

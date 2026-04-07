@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use shuck_ast::{
-    PrefixMatchKind, Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart, WordPartNode,
+    BourneParameterExpansion, ParameterExpansion, ParameterExpansionSyntax, PrefixMatchKind,
+    Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart, WordPartNode,
+    ZshExpansionOperation,
 };
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
@@ -657,6 +659,7 @@ fn analyze_parts(parts: &[WordPartNode], in_double_quotes: bool, summary: &mut A
 
 fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
     match part {
+        WordPart::Parameter(parameter) => analyze_parameter_part(parameter, in_double_quotes),
         WordPart::CommandSubstitution { .. } => scalar_part(
             !in_double_quotes,
             ExpansionHazards {
@@ -766,6 +769,125 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. } => {
             unreachable!("literal parts should be handled by analyze_parts")
         }
+    }
+}
+
+fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool) -> PartAnalysis {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference } => match reference
+                .subscript
+                .as_ref()
+                .and_then(|subscript| subscript.selector())
+            {
+                Some(SubscriptSelector::At) => array_part(true, false, false, false),
+                Some(SubscriptSelector::Star) => {
+                    array_part(!in_double_quotes, !in_double_quotes, false, false)
+                }
+                None => scalar_part(
+                    !in_double_quotes,
+                    ExpansionHazards {
+                        field_splitting: !in_double_quotes,
+                        pathname_matching: !in_double_quotes,
+                        ..ExpansionHazards::default()
+                    },
+                    false,
+                    false,
+                ),
+            },
+            BourneParameterExpansion::Length { .. } => scalar_part(
+                !in_double_quotes,
+                ExpansionHazards {
+                    field_splitting: !in_double_quotes,
+                    pathname_matching: !in_double_quotes,
+                    ..ExpansionHazards::default()
+                },
+                false,
+                false,
+            ),
+            BourneParameterExpansion::Indices { .. } => array_part(true, false, false, false),
+            BourneParameterExpansion::Indirect { operator, .. } => PartAnalysis {
+                value_shape: PartValueShape::Unknown,
+                array_valued: false,
+                can_expand_to_multiple_fields: !in_double_quotes,
+                hazards: ExpansionHazards {
+                    field_splitting: !in_double_quotes,
+                    pathname_matching: !in_double_quotes,
+                    runtime_pattern: operator
+                        .as_ref()
+                        .is_some_and(parameter_operator_uses_pattern),
+                    ..ExpansionHazards::default()
+                },
+                command_substitution: false,
+                process_substitution: false,
+            },
+            BourneParameterExpansion::PrefixMatch { kind, .. } => {
+                let multi_field =
+                    prefix_match_can_expand_to_multiple_fields(*kind, in_double_quotes);
+                PartAnalysis {
+                    value_shape: if multi_field {
+                        PartValueShape::Scalar
+                    } else {
+                        PartValueShape::Unknown
+                    },
+                    array_valued: false,
+                    can_expand_to_multiple_fields: multi_field,
+                    hazards: ExpansionHazards {
+                        field_splitting: !in_double_quotes,
+                        pathname_matching: !in_double_quotes,
+                        ..ExpansionHazards::default()
+                    },
+                    command_substitution: false,
+                    process_substitution: false,
+                }
+            }
+            BourneParameterExpansion::Slice { reference, .. } => {
+                if reference.has_array_selector() {
+                    array_part(true, false, false, false)
+                } else {
+                    scalar_part(
+                        !in_double_quotes,
+                        ExpansionHazards {
+                            field_splitting: !in_double_quotes,
+                            pathname_matching: !in_double_quotes,
+                            ..ExpansionHazards::default()
+                        },
+                        false,
+                        false,
+                    )
+                }
+            }
+            BourneParameterExpansion::Operation { operator, .. } => scalar_part(
+                !in_double_quotes,
+                ExpansionHazards {
+                    field_splitting: !in_double_quotes,
+                    pathname_matching: !in_double_quotes,
+                    runtime_pattern: parameter_operator_uses_pattern(operator),
+                    ..ExpansionHazards::default()
+                },
+                false,
+                false,
+            ),
+            BourneParameterExpansion::Transformation { .. } => {
+                scalar_part(false, ExpansionHazards::default(), false, false)
+            }
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => PartAnalysis {
+            value_shape: PartValueShape::Unknown,
+            array_valued: false,
+            can_expand_to_multiple_fields: !in_double_quotes,
+            hazards: ExpansionHazards {
+                field_splitting: !in_double_quotes,
+                pathname_matching: !in_double_quotes,
+                runtime_pattern: matches!(
+                    syntax.operation,
+                    Some(ZshExpansionOperation::PatternOperation { .. })
+                ),
+                ..ExpansionHazards::default()
+            },
+            command_substitution: false,
+            process_substitution: false,
+        },
     }
 }
 

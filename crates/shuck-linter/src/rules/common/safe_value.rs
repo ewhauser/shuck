@@ -1,6 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    Name, ParameterOp, RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
+    BourneParameterExpansion, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
+    RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::BindingId;
 use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
@@ -85,6 +86,7 @@ impl<'a> SafeValueIndex<'a> {
 
     pub fn part_is_safe(&mut self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
         match part {
+            WordPart::Parameter(parameter) => self.parameter_part_is_safe(parameter, span, query),
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
                 self.literal_part_is_safe(part, span, query)
             }
@@ -242,6 +244,66 @@ impl<'a> SafeValueIndex<'a> {
         match operator {
             'Q' | 'K' | 'k' => true,
             _ => self.reference_is_safe(reference, at, query),
+        }
+    }
+
+    fn parameter_part_is_safe(
+        &mut self,
+        parameter: &ParameterExpansion,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+                BourneParameterExpansion::Access { reference } => {
+                    (query == SafeValueQuery::Quoted || !reference.has_array_selector())
+                        && self.reference_is_safe(reference, at, query)
+                }
+                BourneParameterExpansion::Length { .. } => true,
+                BourneParameterExpansion::Indices { .. }
+                | BourneParameterExpansion::PrefixMatch { .. } => query == SafeValueQuery::Quoted,
+                BourneParameterExpansion::Indirect {
+                    name,
+                    operator,
+                    operand,
+                    ..
+                } => {
+                    self.indirect_name_is_safe(name, at, query)
+                        && operator.as_ref().is_none_or(|operator| {
+                            self.parameter_operator_is_safe(
+                                name,
+                                operator,
+                                operand.as_ref(),
+                                at,
+                                query,
+                            )
+                        })
+                }
+                BourneParameterExpansion::Slice { reference, .. } => {
+                    if reference.has_array_selector() {
+                        query == SafeValueQuery::Quoted
+                    } else {
+                        self.reference_is_safe(reference, at, query)
+                    }
+                }
+                BourneParameterExpansion::Operation {
+                    reference,
+                    operator,
+                    operand,
+                    ..
+                } => self.parameter_expansion_is_safe(
+                    reference,
+                    operator,
+                    operand.as_ref(),
+                    at,
+                    query,
+                ),
+                BourneParameterExpansion::Transformation {
+                    reference,
+                    operator,
+                } => self.transformation_is_safe(reference, *operator, at, query),
+            },
+            ParameterExpansionSyntax::Zsh(_) => false,
         }
     }
 
@@ -531,5 +593,25 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
         assert!(safe_values.word_is_safe(trimmed, SafeValueQuery::Argv));
         assert!(safe_values.word_is_safe(replaced, SafeValueQuery::Argv));
         assert!(!safe_values.word_is_safe(unsafe_replacement, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn treats_zsh_parameter_modifiers_as_dynamic_unknown_values() {
+        let source = "print ${(m)foo}\n";
+        let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Zsh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
+
+        let Command::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert!(!safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
+        assert!(!safe_values.word_is_safe(&command.args[0], SafeValueQuery::Quoted));
     }
 }

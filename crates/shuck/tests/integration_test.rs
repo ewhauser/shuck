@@ -224,6 +224,54 @@ fn format_stdin_filename_infers_remaining_common_shell_extensions() {
 }
 
 #[test]
+fn format_stdin_filename_infers_zsh_dialect() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["format", "--stdin-filename", "script.zsh"])
+        .write_stdin("print ${(m)foo}\n");
+    cmd.assert().success().stdout("print ${(m)foo}\n");
+}
+
+#[test]
+fn format_stdin_uses_configured_zsh_dialect() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[format]\ndialect = \"zsh\"\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path())
+        .args(["format", "-"])
+        .write_stdin("print ${(m)foo}\n");
+    cmd.assert().success().stdout("print ${(m)foo}\n");
+}
+
+#[test]
+fn check_zsh_extension_parses_with_inferred_zsh_dialect() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("ok.zsh"), "foo=bar\nprint ${(m)foo}\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.assert().success().stdout("");
+}
+
+#[test]
+fn check_zsh_shebang_parses_with_inferred_zsh_dialect() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("ok"),
+        "#!/usr/bin/env zsh\nfoo=bar\nprint ${(m)foo}\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.assert().success().stdout("");
+}
+
+#[test]
 fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclude() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();

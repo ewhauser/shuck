@@ -307,6 +307,10 @@ where
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             walk_commands(commands, visit);
         }
+        CompoundCommand::Always(command) => {
+            walk_commands(&command.body, visit);
+            walk_commands(&command.always_body, visit);
+        }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {

@@ -221,6 +221,7 @@ fn compound_span(command: &shuck_ast::CompoundCommand) -> Span {
         shuck_ast::CompoundCommand::Time(command) => command.span,
         shuck_ast::CompoundCommand::Conditional(command) => command.span,
         shuck_ast::CompoundCommand::Coproc(command) => command.span,
+        shuck_ast::CompoundCommand::Always(command) => command.span,
     }
 }
 

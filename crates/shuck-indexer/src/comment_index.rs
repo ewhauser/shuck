@@ -237,6 +237,10 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
         CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
             collect_stmt_seq_comments(body, comments);
         }
+        CompoundCommand::Always(command) => {
+            collect_stmt_seq_comments(&command.body, comments);
+            collect_stmt_seq_comments(&command.always_body, comments);
+        }
         CompoundCommand::Time(command) => {
             if let Some(inner) = &command.command {
                 collect_stmt_comments(inner, comments);
@@ -415,6 +419,7 @@ fn collect_word_part_comments(parts: &[WordPartNode], comments: &mut Vec<Comment
             WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
+            | WordPart::Parameter(_)
             | WordPart::ParameterExpansion { .. }
             | WordPart::Length(_)
             | WordPart::ArrayAccess(_)

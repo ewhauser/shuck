@@ -16,6 +16,8 @@ pub enum TokenKind {
     And,
     Or,
     Background,
+    BackgroundPipe,
+    BackgroundBang,
     RedirectOut,
     RedirectAppend,
     RedirectIn,

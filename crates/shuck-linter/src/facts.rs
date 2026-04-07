@@ -625,6 +625,7 @@ fn compound_span(command: &CompoundCommand) -> Span {
         CompoundCommand::Time(command) => command.span,
         CompoundCommand::Conditional(command) => command.span,
         CompoundCommand::Coproc(command) => command.span,
+        CompoundCommand::Always(command) => command.span,
     }
 }
 

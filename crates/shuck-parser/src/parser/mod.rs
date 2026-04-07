@@ -21,21 +21,24 @@ pub use lexer::{
 };
 
 use shuck_ast::{
-    ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
-    ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
-    AssignmentValue, BinaryCommand, BinaryOp, BraceExpansionKind, BraceQuoteContext, BraceSyntax,
-    BraceSyntaxKind, BreakCommand as AstBreakCommand, BuiltinCommand as AstBuiltinCommand,
-    CaseCommand, CaseItem, CaseTerminator, Command as AstCommand, CommandSubstitutionSyntax,
-    Comment, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
-    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
+    AlwaysCommand, ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr,
+    ArithmeticExprNode, ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind,
+    Assignment, AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp,
+    BourneParameterExpansion, BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
+    BreakCommand as AstBreakCommand, BuiltinCommand as AstBuiltinCommand, CaseCommand, CaseItem,
+    CaseTerminator, Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
+    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
+    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,
     ExitCommand as AstExitCommand, File, ForCommand, FunctionDef, FunctionSurface, Heredoc,
-    HeredocDelimiter, IfCommand, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect, RedirectKind,
-    RedirectTarget, ReturnCommand as AstReturnCommand, SelectCommand,
-    SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
-    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
-    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    HeredocDelimiter, IfCommand, IfSyntax, LiteralText, Name, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
+    Position, PrefixMatchKind, Redirect, RedirectKind, RedirectTarget,
+    ReturnCommand as AstReturnCommand, SelectCommand, SimpleCommand as AstSimpleCommand,
+    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptInterpretation,
+    SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind, UntilCommand, VarRef,
+    WhileCommand, Word, WordPart, WordPartNode, ZshDefaultingOp, ZshExpansionOperation,
+    ZshExpansionTarget, ZshModifier, ZshParameterExpansion, ZshPatternOp,
 };
 
 use crate::error::{Error, Result};
@@ -152,7 +155,7 @@ enum ListOperator {
     And,
     Or,
     Semicolon,
-    Background,
+    Background(BackgroundOperator),
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +175,21 @@ pub enum ShellDialect {
     Mksh,
     #[default]
     Bash,
+    Zsh,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DialectFeatures {
+    double_bracket: bool,
+    arithmetic_command: bool,
+    arithmetic_for: bool,
+    function_keyword: bool,
+    select_loop: bool,
+    coproc_keyword: bool,
+    zsh_parameter_modifiers: bool,
+    zsh_brace_if: bool,
+    zsh_always: bool,
+    zsh_background_operators: bool,
 }
 
 impl ShellDialect {
@@ -179,7 +197,61 @@ impl ShellDialect {
         match name.trim().to_ascii_lowercase().as_str() {
             "sh" | "dash" | "ksh" | "posix" => Self::Posix,
             "mksh" => Self::Mksh,
+            "zsh" => Self::Zsh,
             _ => Self::Bash,
+        }
+    }
+
+    const fn features(self) -> DialectFeatures {
+        match self {
+            Self::Posix => DialectFeatures {
+                double_bracket: false,
+                arithmetic_command: false,
+                arithmetic_for: false,
+                function_keyword: false,
+                select_loop: false,
+                coproc_keyword: false,
+                zsh_parameter_modifiers: false,
+                zsh_brace_if: false,
+                zsh_always: false,
+                zsh_background_operators: false,
+            },
+            Self::Mksh => DialectFeatures {
+                double_bracket: true,
+                arithmetic_command: true,
+                arithmetic_for: false,
+                function_keyword: true,
+                select_loop: true,
+                coproc_keyword: false,
+                zsh_parameter_modifiers: false,
+                zsh_brace_if: false,
+                zsh_always: false,
+                zsh_background_operators: false,
+            },
+            Self::Bash => DialectFeatures {
+                double_bracket: true,
+                arithmetic_command: true,
+                arithmetic_for: true,
+                function_keyword: true,
+                select_loop: true,
+                coproc_keyword: true,
+                zsh_parameter_modifiers: false,
+                zsh_brace_if: false,
+                zsh_always: false,
+                zsh_background_operators: false,
+            },
+            Self::Zsh => DialectFeatures {
+                double_bracket: true,
+                arithmetic_command: true,
+                arithmetic_for: true,
+                function_keyword: true,
+                select_loop: true,
+                coproc_keyword: true,
+                zsh_parameter_modifiers: true,
+                zsh_brace_if: true,
+                zsh_always: true,
+                zsh_background_operators: true,
+            },
         }
     }
 }
@@ -728,6 +800,7 @@ enum Keyword {
     Time,
     Coproc,
     Function,
+    Always,
     Then,
     Else,
     Elif,
@@ -750,6 +823,7 @@ impl Keyword {
             Self::Time => "time",
             Self::Coproc => "coproc",
             Self::Function => "function",
+            Self::Always => "always",
             Self::Then => "then",
             Self::Else => "else",
             Self::Elif => "elif",
@@ -809,7 +883,8 @@ const REDIRECT_TOKENS: TokenSet = token_set![
     TokenKind::RedirectFdIn,
     TokenKind::RedirectFdReadWrite,
 ];
-const NON_COMMAND_KEYWORDS: KeywordSet = keyword_set![Then, Else, Elif, Fi, Do, Done, Esac, In];
+const NON_COMMAND_KEYWORDS: KeywordSet =
+    keyword_set![Then, Else, Elif, Fi, Do, Done, Esac, In, Always];
 const IF_BODY_TERMINATORS: KeywordSet = keyword_set![Elif, Else, Fi];
 
 impl<'a> Parser<'a> {
@@ -1005,6 +1080,7 @@ impl<'a> Parser<'a> {
                 WordPart::Variable(_)
                 | WordPart::CommandSubstitution { .. }
                 | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Parameter(_)
                 | WordPart::ParameterExpansion { .. }
                 | WordPart::Length(_)
                 | WordPart::ArrayAccess(_)
@@ -1776,6 +1852,19 @@ impl<'a> Parser<'a> {
         match compound {
             CompoundCommand::If(command) => {
                 command.span = command.span.rebased(base);
+                command.syntax = match command.syntax {
+                    IfSyntax::ThenFi { then_span, fi_span } => IfSyntax::ThenFi {
+                        then_span: then_span.rebased(base),
+                        fi_span: fi_span.rebased(base),
+                    },
+                    IfSyntax::Brace {
+                        left_brace_span,
+                        right_brace_span,
+                    } => IfSyntax::Brace {
+                        left_brace_span: left_brace_span.rebased(base),
+                        right_brace_span: right_brace_span.rebased(base),
+                    },
+                };
                 Self::rebase_stmt_seq(&mut command.condition, base);
                 Self::rebase_stmt_seq(&mut command.then_branch, base);
                 for (condition, body) in &mut command.elif_branches {
@@ -1867,6 +1956,11 @@ impl<'a> Parser<'a> {
                 command.name_span = command.name_span.map(|span| span.rebased(base));
                 Self::rebase_stmt(command.body.as_mut(), base);
             }
+            CompoundCommand::Always(command) => {
+                command.span = command.span.rebased(base);
+                Self::rebase_stmt_seq(&mut command.body, base);
+                Self::rebase_stmt_seq(&mut command.always_body, base);
+            }
         }
     }
 
@@ -1918,6 +2012,11 @@ impl<'a> Parser<'a> {
         match &mut part.kind {
             WordPart::SingleQuoted { value, .. } => value.rebased(base),
             WordPart::DoubleQuoted { parts, .. } => Self::rebase_word_parts(parts, base),
+            WordPart::Parameter(parameter) => {
+                parameter.span = parameter.span.rebased(base);
+                parameter.raw_body.rebased(base);
+                Self::rebase_parameter_expansion_syntax(&mut parameter.syntax, base);
+            }
             WordPart::ParameterExpansion {
                 reference,
                 operator,
@@ -2007,6 +2106,112 @@ impl<'a> Parser<'a> {
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => Self::rebase_stmt_seq(body, base),
             WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
+        }
+    }
+
+    fn rebase_parameter_expansion_syntax(syntax: &mut ParameterExpansionSyntax, base: Position) {
+        match syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+                BourneParameterExpansion::Access { reference }
+                | BourneParameterExpansion::Length { reference }
+                | BourneParameterExpansion::Indices { reference }
+                | BourneParameterExpansion::Transformation { reference, .. } => {
+                    Self::rebase_var_ref(reference, base);
+                }
+                BourneParameterExpansion::Indirect { operand, .. } => {
+                    if let Some(operand) = operand {
+                        operand.rebased(base);
+                    }
+                }
+                BourneParameterExpansion::PrefixMatch { .. } => {}
+                BourneParameterExpansion::Slice {
+                    reference,
+                    offset,
+                    offset_ast,
+                    length,
+                    length_ast,
+                } => {
+                    Self::rebase_var_ref(reference, base);
+                    offset.rebased(base);
+                    if let Some(expr) = offset_ast {
+                        Self::rebase_arithmetic_expr(expr, base);
+                    }
+                    if let Some(length) = length {
+                        length.rebased(base);
+                    }
+                    if let Some(expr) = length_ast {
+                        Self::rebase_arithmetic_expr(expr, base);
+                    }
+                }
+                BourneParameterExpansion::Operation {
+                    reference,
+                    operator,
+                    operand,
+                    ..
+                } => {
+                    Self::rebase_var_ref(reference, base);
+                    Self::rebase_parameter_operator(operator, base);
+                    if let Some(operand) = operand {
+                        operand.rebased(base);
+                    }
+                }
+            },
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                match &mut syntax.target {
+                    ZshExpansionTarget::Reference(reference) => {
+                        Self::rebase_var_ref(reference, base)
+                    }
+                    ZshExpansionTarget::Nested(parameter) => {
+                        parameter.span = parameter.span.rebased(base);
+                        parameter.raw_body.rebased(base);
+                        Self::rebase_parameter_expansion_syntax(&mut parameter.syntax, base);
+                    }
+                    ZshExpansionTarget::Empty => {}
+                }
+                for modifier in &mut syntax.modifiers {
+                    modifier.span = modifier.span.rebased(base);
+                    if let Some(argument) = &mut modifier.argument {
+                        argument.rebased(base);
+                    }
+                }
+                if let Some(operation) = &mut syntax.operation {
+                    match operation {
+                        ZshExpansionOperation::PatternOperation { operand, .. }
+                        | ZshExpansionOperation::Raw(operand) => operand.rebased(base),
+                        ZshExpansionOperation::Defaulting { operand, .. } => operand.rebased(base),
+                    }
+                }
+            }
+        }
+    }
+
+    fn rebase_parameter_operator(operator: &mut ParameterOp, base: Position) {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => {
+                Self::rebase_pattern(pattern, base);
+            }
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement,
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement,
+            } => {
+                Self::rebase_pattern(pattern, base);
+                replacement.rebased(base);
+            }
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => {}
         }
     }
 
@@ -2240,6 +2445,361 @@ impl<'a> Parser<'a> {
             subscript,
             Span::from_positions(part_start, part_end),
         )
+    }
+
+    fn parameter_word_part_from_legacy(
+        &self,
+        part: WordPart,
+        part_start: Position,
+        part_end: Position,
+        source_backed: bool,
+    ) -> WordPart {
+        let span = Span::from_positions(part_start, part_end);
+        let raw_body = self.parameter_raw_body_from_legacy(&part, span, source_backed);
+        let raw_body_text = raw_body.slice(self.input).to_string();
+
+        let syntax = match part {
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand,
+                colon_variant,
+            } => Some(BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand,
+                colon_variant,
+            }),
+            WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
+                Some(BourneParameterExpansion::Length { reference })
+            }
+            WordPart::ArrayAccess(reference) => {
+                Some(BourneParameterExpansion::Access { reference })
+            }
+            WordPart::ArrayIndices(reference) => {
+                Some(BourneParameterExpansion::Indices { reference })
+            }
+            WordPart::Substring {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+            } => Some(BourneParameterExpansion::Slice {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+            }),
+            WordPart::IndirectExpansion {
+                name,
+                operator,
+                operand,
+                colon_variant,
+            } => Some(BourneParameterExpansion::Indirect {
+                name,
+                operator,
+                operand,
+                colon_variant,
+            }),
+            WordPart::PrefixMatch { prefix, kind } => {
+                Some(BourneParameterExpansion::PrefixMatch { prefix, kind })
+            }
+            WordPart::Transformation {
+                reference,
+                operator,
+            } => Some(BourneParameterExpansion::Transformation {
+                reference,
+                operator,
+            }),
+            WordPart::Variable(name) if raw_body_text == name.as_str() => {
+                Some(BourneParameterExpansion::Access {
+                    reference: self.parameter_var_ref(
+                        part_start,
+                        "${",
+                        name.as_str(),
+                        None,
+                        part_end,
+                    ),
+                })
+            }
+            other => return other,
+        };
+
+        WordPart::Parameter(ParameterExpansion {
+            syntax: ParameterExpansionSyntax::Bourne(syntax.expect("matched Some above")),
+            span,
+            raw_body,
+        })
+    }
+
+    fn parameter_raw_body_from_legacy(
+        &self,
+        part: &WordPart,
+        span: Span,
+        source_backed: bool,
+    ) -> SourceText {
+        if source_backed && span.end.offset <= self.input.len() {
+            let syntax = span.slice(self.input);
+            if let Some(body) = syntax
+                .strip_prefix("${")
+                .and_then(|syntax| syntax.strip_suffix('}'))
+            {
+                let start = span.start.advanced_by("${");
+                let end = start.advanced_by(body);
+                return SourceText::source(Span::from_positions(start, end));
+            }
+        }
+
+        let mut syntax = String::new();
+        self.push_word_part_syntax(&mut syntax, part, span);
+        let body = syntax
+            .strip_prefix("${")
+            .and_then(|syntax| syntax.strip_suffix('}'))
+            .unwrap_or(syntax.as_str())
+            .to_string();
+        SourceText::from(body)
+    }
+
+    fn zsh_parameter_word_part(
+        &self,
+        raw_body: SourceText,
+        part_start: Position,
+        part_end: Position,
+    ) -> WordPart {
+        let syntax = self.parse_zsh_parameter_syntax(&raw_body, part_start);
+        WordPart::Parameter(ParameterExpansion {
+            syntax: ParameterExpansionSyntax::Zsh(syntax),
+            span: Span::from_positions(part_start, part_end),
+            raw_body,
+        })
+    }
+
+    fn parse_zsh_parameter_syntax(
+        &self,
+        raw_body: &SourceText,
+        base: Position,
+    ) -> ZshParameterExpansion {
+        let text = raw_body.slice(self.input);
+        let mut index = 0;
+        let mut modifiers = Vec::new();
+
+        while text[index..].starts_with('(') {
+            let Some(close_rel) = text[index + 1..].find(')') else {
+                break;
+            };
+            let close = index + 1 + close_rel;
+            let modifier_text = &text[index + 1..close];
+            let modifier_start = base.advanced_by(&text[..index]);
+            let modifier_span = Span::from_positions(
+                modifier_start,
+                modifier_start.advanced_by(&text[index..=close]),
+            );
+            let mut chars = modifier_text.chars();
+            let name = chars.next().unwrap_or('?');
+            let rest: String = chars.collect();
+            let (argument_delimiter, argument) = if rest.is_empty() {
+                (None, None)
+            } else {
+                let mut rest_chars = rest.chars();
+                let delimiter = rest_chars.next();
+                let arg = rest_chars.as_str();
+                (
+                    delimiter,
+                    (!arg.is_empty()).then(|| SourceText::from(arg.to_string())),
+                )
+            };
+            modifiers.push(ZshModifier {
+                name,
+                argument,
+                argument_delimiter,
+                span: modifier_span,
+            });
+            index = close + 1;
+        }
+
+        let (target, operation_index) = if text[index..].starts_with("${") {
+            let end = self
+                .find_matching_parameter_end(&text[index..])
+                .unwrap_or(text.len() - index);
+            let nested_text = &text[index..index + end];
+            let target = self.parse_nested_parameter_target(nested_text);
+            (target, index + end)
+        } else if text[index..].starts_with(':') || text[index..].is_empty() {
+            (ZshExpansionTarget::Empty, index)
+        } else {
+            let end = self
+                .find_zsh_operation_start(&text[index..])
+                .map(|offset| index + offset)
+                .unwrap_or(text.len());
+            let target_text = text[index..end].trim();
+            let target = if target_text.is_empty() {
+                ZshExpansionTarget::Empty
+            } else {
+                ZshExpansionTarget::Reference(self.parse_loose_var_ref(target_text))
+            };
+            (target, end)
+        };
+
+        let operation = (operation_index < text.len()).then(|| {
+            self.parse_zsh_parameter_operation(
+                &text[operation_index..],
+                base.advanced_by(&text[..operation_index]),
+            )
+        });
+
+        ZshParameterExpansion {
+            target,
+            modifiers,
+            operation,
+        }
+    }
+
+    fn parse_nested_parameter_target(&self, text: &str) -> ZshExpansionTarget {
+        if !(text.starts_with("${") && text.ends_with('}')) {
+            return ZshExpansionTarget::Reference(self.parse_loose_var_ref(text));
+        }
+
+        let raw_body = SourceText::from(text[2..text.len() - 1].to_string());
+        let syntax = if raw_body.slice(self.input).starts_with('(')
+            || raw_body.slice(self.input).starts_with(':')
+        {
+            ParameterExpansionSyntax::Zsh(
+                self.parse_zsh_parameter_syntax(&raw_body, Position::new()),
+            )
+        } else {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                reference: self.parse_loose_var_ref(raw_body.slice(self.input)),
+            })
+        };
+
+        ZshExpansionTarget::Nested(Box::new(ParameterExpansion {
+            syntax,
+            span: Span::new(),
+            raw_body,
+        }))
+    }
+
+    fn parse_loose_var_ref(&self, text: &str) -> VarRef {
+        let trimmed = text.trim();
+        if let Some(open) = trimmed.find('[')
+            && trimmed.ends_with(']')
+        {
+            let name = &trimmed[..open];
+            let subscript_text = &trimmed[open + 1..trimmed.len() - 1];
+            let subscript = Subscript {
+                text: SourceText::from(subscript_text.to_string()),
+                raw: None,
+                kind: match subscript_text {
+                    "@" => SubscriptKind::Selector(SubscriptSelector::At),
+                    "*" => SubscriptKind::Selector(SubscriptSelector::Star),
+                    _ => SubscriptKind::Ordinary,
+                },
+                interpretation: SubscriptInterpretation::Contextual,
+                arithmetic_ast: None,
+            };
+            return VarRef {
+                name: Name::from(name),
+                name_span: Span::new(),
+                subscript: Some(subscript),
+                span: Span::new(),
+            };
+        }
+
+        VarRef {
+            name: Name::from(trimmed),
+            name_span: Span::new(),
+            subscript: None,
+            span: Span::new(),
+        }
+    }
+
+    fn find_matching_parameter_end(&self, text: &str) -> Option<usize> {
+        let mut depth = 0_i32;
+        let mut chars = text.char_indices().peekable();
+
+        while let Some((index, ch)) = chars.next() {
+            match ch {
+                '$' if chars.peek().is_some_and(|(_, next)| *next == '{') => {
+                    depth += 1;
+                }
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(index + ch.len_utf8());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    fn find_zsh_operation_start(&self, text: &str) -> Option<usize> {
+        text.char_indices().find_map(|(index, ch)| {
+            (ch == ':')
+                .then(|| {
+                    let rest = &text[index..];
+                    (rest.starts_with(":#")
+                        || rest.starts_with(":-")
+                        || rest.starts_with(":=")
+                        || rest.starts_with(":+")
+                        || rest.starts_with(":?"))
+                    .then_some(index)
+                })
+                .flatten()
+        })
+    }
+
+    fn parse_zsh_parameter_operation(&self, text: &str, base: Position) -> ZshExpansionOperation {
+        if let Some(operand) = text.strip_prefix(":#") {
+            return ZshExpansionOperation::PatternOperation {
+                kind: ZshPatternOp::Filter,
+                operand: self.source_text(
+                    operand.to_string(),
+                    base.advanced_by(":#"),
+                    base.advanced_by(text),
+                ),
+            };
+        }
+
+        if let Some((kind, operand)) = text
+            .strip_prefix(":-")
+            .map(|operand| (ZshDefaultingOp::UseDefault, operand))
+            .or_else(|| {
+                text.strip_prefix(":=")
+                    .map(|operand| (ZshDefaultingOp::AssignDefault, operand))
+            })
+            .or_else(|| {
+                text.strip_prefix(":+")
+                    .map(|operand| (ZshDefaultingOp::UseReplacement, operand))
+            })
+            .or_else(|| {
+                text.strip_prefix(":?")
+                    .map(|operand| (ZshDefaultingOp::Error, operand))
+            })
+        {
+            return ZshExpansionOperation::Defaulting {
+                kind,
+                operand: self.source_text(
+                    operand.to_string(),
+                    base.advanced_by(&text[..2]),
+                    base.advanced_by(text),
+                ),
+                colon_variant: true,
+            };
+        }
+
+        ZshExpansionOperation::Raw(self.source_text(text.to_string(), base, base.advanced_by(text)))
     }
 
     fn parse_explicit_arithmetic_span(
@@ -2688,20 +3248,65 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn ensure_bash_or_mksh(&self, feature: &str) -> Result<()> {
-        if matches!(self.dialect, ShellDialect::Posix) {
-            Err(self.error(format!("{feature} is not available in POSIX shell mode")))
-        } else {
+    fn ensure_feature(
+        &self,
+        enabled: bool,
+        feature: &str,
+        unsupported_message: &str,
+    ) -> Result<()> {
+        if enabled {
             Ok(())
+        } else {
+            Err(self.error(format!("{feature} {unsupported_message}")))
         }
     }
 
-    fn ensure_bash_only(&self, feature: &str) -> Result<()> {
-        if matches!(self.dialect, ShellDialect::Bash) {
-            Ok(())
-        } else {
-            Err(self.error(format!("{feature} is only available in Bash mode")))
-        }
+    fn ensure_double_bracket(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().double_bracket,
+            "[[ ]] conditionals",
+            "are not available in this shell mode",
+        )
+    }
+
+    fn ensure_arithmetic_for(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().arithmetic_for,
+            "c-style for loops",
+            "are not available in this shell mode",
+        )
+    }
+
+    fn ensure_coproc(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().coproc_keyword,
+            "coprocess commands",
+            "are not available in this shell mode",
+        )
+    }
+
+    fn ensure_arithmetic_command(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().arithmetic_command,
+            "arithmetic commands",
+            "are not available in this shell mode",
+        )
+    }
+
+    fn ensure_select_loop(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().select_loop,
+            "select loops",
+            "are not available in this shell mode",
+        )
+    }
+
+    fn ensure_function_keyword(&self) -> Result<()> {
+        self.ensure_feature(
+            self.dialect.features().function_keyword,
+            "function keyword definitions",
+            "are not available in this shell mode",
+        )
     }
 
     /// Consume one unit of fuel, returning an error if exhausted
@@ -2788,6 +3393,7 @@ impl<'a> Parser<'a> {
             CompoundCommand::Time(command) => command.span,
             CompoundCommand::Conditional(command) => command.span,
             CompoundCommand::Coproc(command) => command.span,
+            CompoundCommand::Always(command) => command.span,
         }
     }
 
@@ -2823,10 +3429,10 @@ impl<'a> Parser<'a> {
         for item in rest {
             match item.operator {
                 ListOperator::And | ListOperator::Or => pending.push(item),
-                ListOperator::Semicolon | ListOperator::Background => {
+                ListOperator::Semicolon | ListOperator::Background(_) => {
                     let terminator = match item.operator {
                         ListOperator::Semicolon => StmtTerminator::Semicolon,
-                        ListOperator::Background => StmtTerminator::Background,
+                        ListOperator::Background(operator) => StmtTerminator::Background(operator),
                         ListOperator::And | ListOperator::Or => unreachable!(),
                     };
                     let mut stmt =
@@ -2853,7 +3459,7 @@ impl<'a> Parser<'a> {
             let op = match item.operator {
                 ListOperator::And => BinaryOp::And,
                 ListOperator::Or => BinaryOp::Or,
-                ListOperator::Semicolon | ListOperator::Background => unreachable!(),
+                ListOperator::Semicolon | ListOperator::Background(_) => unreachable!(),
             };
             let right = Self::lower_non_sequence_command_to_stmt(item.command);
             let span = stmt.span.merge(right.span);
@@ -3317,6 +3923,27 @@ impl<'a> Parser<'a> {
                 Self::attach_comments_to_stmt_seq_with_source(source, body, &mut body_comments);
                 body.trailing_comments.extend(body_comments);
             }
+            CompoundCommand::Always(command) => {
+                let mut body_comments =
+                    Self::take_comments_before(comments, command.body.span.end.offset);
+                Self::attach_comments_to_stmt_seq_with_source(
+                    source,
+                    &mut command.body,
+                    &mut body_comments,
+                );
+                command.body.trailing_comments.extend(body_comments);
+
+                let mut always_comments = std::mem::take(comments);
+                Self::attach_comments_to_stmt_seq_with_source(
+                    source,
+                    &mut command.always_body,
+                    &mut always_comments,
+                );
+                command
+                    .always_body
+                    .trailing_comments
+                    .extend(always_comments);
+            }
             CompoundCommand::Time(command) => {
                 if let Some(inner) = &mut command.command {
                     let mut inner_comments = std::mem::take(comments);
@@ -3356,6 +3983,8 @@ impl<'a> Parser<'a> {
             TokenKind::Newline
                 | TokenKind::Semicolon
                 | TokenKind::Background
+                | TokenKind::BackgroundPipe
+                | TokenKind::BackgroundBang
                 | TokenKind::And
                 | TokenKind::Or
                 | TokenKind::Pipe
@@ -3571,6 +4200,7 @@ impl<'a> Parser<'a> {
             b"time" => Some(Keyword::Time),
             b"coproc" => Some(Keyword::Coproc),
             b"function" => Some(Keyword::Function),
+            b"always" => Some(Keyword::Always),
             b"then" => Some(Keyword::Then),
             b"else" => Some(Keyword::Else),
             b"elif" => Some(Keyword::Elif),
@@ -3616,7 +4246,15 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::And) => (ListOperator::And, false),
                 Some(TokenKind::Or) => (ListOperator::Or, false),
                 Some(TokenKind::Semicolon) => (ListOperator::Semicolon, true),
-                Some(TokenKind::Background) => (ListOperator::Background, true),
+                Some(TokenKind::Background) => {
+                    (ListOperator::Background(BackgroundOperator::Plain), true)
+                }
+                Some(TokenKind::BackgroundPipe) => {
+                    (ListOperator::Background(BackgroundOperator::Pipe), true)
+                }
+                Some(TokenKind::BackgroundBang) => {
+                    (ListOperator::Background(BackgroundOperator::Bang), true)
+                }
                 _ => break,
             };
             let operator_span = self.current_span;
@@ -4475,25 +5113,46 @@ impl<'a> Parser<'a> {
 
         // Parse condition
         let condition_start = self.current_span.start;
-        let condition = self.parse_compound_list(Keyword::Then)?;
+        let allow_brace_syntax = self.dialect.features().zsh_brace_if;
+        let condition = self.parse_if_condition_until_body_start(allow_brace_syntax)?;
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
 
-        // Expect 'then'
-        self.expect_keyword(Keyword::Then)?;
-        self.skip_newlines()?;
+        let (mut syntax, then_branch, brace_style) =
+            if allow_brace_syntax && self.at(TokenKind::LeftBrace) {
+                let (then_branch, left_brace_span, right_brace_span) =
+                    self.parse_brace_enclosed_stmt_seq("syntax error: empty then clause")?;
+                (
+                    IfSyntax::Brace {
+                        left_brace_span,
+                        right_brace_span,
+                    },
+                    then_branch,
+                    true,
+                )
+            } else {
+                let then_span = self.current_span;
+                self.expect_keyword(Keyword::Then)?;
+                self.skip_newlines()?;
 
-        // Parse then branch
-        let then_start = self.current_span.start;
-        let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
-        let then_span = Span::from_positions(then_start, self.current_span.start);
+                let then_start = self.current_span.start;
+                let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
+                let then_branch_span = Span::from_positions(then_start, self.current_span.start);
 
-        // Bash requires at least one command in then branch
-        if then_branch.is_empty() {
-            self.pop_depth();
-            return Err(self.error("syntax error: empty then clause"));
-        }
-        let then_branch = Self::lower_commands_to_stmt_seq(then_branch, then_span);
+                if then_branch.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty then clause"));
+                }
+
+                (
+                    IfSyntax::ThenFi {
+                        then_span,
+                        fi_span: Span::new(),
+                    },
+                    Self::lower_commands_to_stmt_seq(then_branch, then_branch_span),
+                    false,
+                )
+            };
 
         // Parse elif branches
         let mut elif_branches = Vec::new();
@@ -4502,49 +5161,76 @@ impl<'a> Parser<'a> {
             self.skip_newlines()?;
 
             let elif_condition_start = self.current_span.start;
-            let elif_condition = self.parse_compound_list(Keyword::Then)?;
+            let elif_condition = self.parse_if_condition_until_body_start(brace_style)?;
             let elif_condition_span =
                 Span::from_positions(elif_condition_start, self.current_span.start);
-            self.expect_keyword(Keyword::Then)?;
-            self.skip_newlines()?;
+            let elif_condition =
+                Self::lower_commands_to_stmt_seq(elif_condition, elif_condition_span);
 
-            let elif_body_start = self.current_span.start;
-            let elif_body = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
-            let elif_body_span = Span::from_positions(elif_body_start, self.current_span.start);
+            let elif_body = if brace_style {
+                if !self.at(TokenKind::LeftBrace) {
+                    self.pop_depth();
+                    return Err(self.error("expected '{' to start elif clause"));
+                }
+                self.parse_brace_enclosed_stmt_seq("syntax error: empty elif clause")?
+                    .0
+            } else {
+                self.expect_keyword(Keyword::Then)?;
+                self.skip_newlines()?;
 
-            // Bash requires at least one command in elif branch
-            if elif_body.is_empty() {
-                self.pop_depth();
-                return Err(self.error("syntax error: empty elif clause"));
-            }
+                let elif_body_start = self.current_span.start;
+                let elif_body = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
+                let elif_body_span = Span::from_positions(elif_body_start, self.current_span.start);
 
-            elif_branches.push((
-                Self::lower_commands_to_stmt_seq(elif_condition, elif_condition_span),
-                Self::lower_commands_to_stmt_seq(elif_body, elif_body_span),
-            ));
+                if elif_body.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty elif clause"));
+                }
+
+                Self::lower_commands_to_stmt_seq(elif_body, elif_body_span)
+            };
+
+            elif_branches.push((elif_condition, elif_body));
         }
 
         // Parse else branch
         let else_branch = if self.is_keyword(Keyword::Else) {
             self.advance(); // consume 'else'
             self.skip_newlines()?;
-            let else_start = self.current_span.start;
-            let branch = self.parse_compound_list(Keyword::Fi)?;
-            let else_span = Span::from_positions(else_start, self.current_span.start);
+            if brace_style {
+                if !self.at(TokenKind::LeftBrace) {
+                    self.pop_depth();
+                    return Err(self.error("expected '{' to start else clause"));
+                }
+                Some(
+                    self.parse_brace_enclosed_stmt_seq("syntax error: empty else clause")?
+                        .0,
+                )
+            } else {
+                let else_start = self.current_span.start;
+                let branch = self.parse_compound_list(Keyword::Fi)?;
+                let else_span = Span::from_positions(else_start, self.current_span.start);
 
-            // Bash requires at least one command in else branch
-            if branch.is_empty() {
-                self.pop_depth();
-                return Err(self.error("syntax error: empty else clause"));
+                if branch.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty else clause"));
+                }
+
+                Some(Self::lower_commands_to_stmt_seq(branch, else_span))
             }
-
-            Some(Self::lower_commands_to_stmt_seq(branch, else_span))
         } else {
             None
         };
 
-        // Expect 'fi'
-        self.expect_keyword(Keyword::Fi)?;
+        if !brace_style {
+            self.expect_keyword(Keyword::Fi)?;
+            if let IfSyntax::ThenFi { then_span, .. } = syntax {
+                syntax = IfSyntax::ThenFi {
+                    then_span,
+                    fi_span: self.current_span,
+                };
+            }
+        }
 
         self.pop_depth();
         Ok(CompoundCommand::If(IfCommand {
@@ -4552,6 +5238,7 @@ impl<'a> Parser<'a> {
             then_branch,
             elif_branches,
             else_branch,
+            syntax,
             span: start_span.merge(self.current_span),
         }))
     }
@@ -4647,7 +5334,7 @@ impl<'a> Parser<'a> {
 
     /// Parse select loop: select var in list; do body; done
     fn parse_select(&mut self) -> Result<CompoundCommand> {
-        self.ensure_bash_or_mksh("select loops")?;
+        self.ensure_select_loop()?;
         let start_span = self.current_span;
         self.push_depth()?;
         self.advance(); // consume 'select'
@@ -4723,7 +5410,7 @@ impl<'a> Parser<'a> {
     /// Parse C-style arithmetic for loop inner: for ((init; cond; step)); do body; done
     /// Note: depth tracking is done by parse_for which calls this
     fn parse_arithmetic_for_inner(&mut self, start_span: Span) -> Result<CompoundCommand> {
-        self.ensure_bash_only("c-style for loops")?;
+        self.ensure_arithmetic_for()?;
         let left_paren_span = self.current_span;
         self.advance(); // consume '(('
 
@@ -5083,7 +5770,7 @@ impl<'a> Parser<'a> {
     /// name. Otherwise the command starts immediately and the default name
     /// "COPROC" is used.
     fn parse_coproc(&mut self) -> Result<CompoundCommand> {
-        self.ensure_bash_only("coprocess commands")?;
+        self.ensure_coproc()?;
         let start_span = self.current_span;
         self.advance(); // consume 'coproc'
         self.skip_newlines()?;
@@ -5194,7 +5881,38 @@ impl<'a> Parser<'a> {
     /// Parse a brace group
     fn parse_brace_group(&mut self) -> Result<CompoundCommand> {
         self.push_depth()?;
-        self.advance(); // consume '{'
+        let (body, left_brace_span, right_brace_span) =
+            self.parse_brace_enclosed_stmt_seq("syntax error: empty brace group")?;
+
+        let compound = if self.dialect.features().zsh_always && self.is_keyword(Keyword::Always) {
+            self.advance();
+            self.skip_newlines()?;
+            if !self.at(TokenKind::LeftBrace) {
+                self.pop_depth();
+                return Err(self.error("expected '{' after always"));
+            }
+            let (always_body, _, always_right_brace_span) =
+                self.parse_brace_enclosed_stmt_seq("syntax error: empty always clause")?;
+            CompoundCommand::Always(AlwaysCommand {
+                body,
+                always_body,
+                span: left_brace_span.merge(always_right_brace_span),
+            })
+        } else {
+            let _ = right_brace_span;
+            CompoundCommand::BraceGroup(body)
+        };
+
+        self.pop_depth();
+        Ok(compound)
+    }
+
+    fn parse_brace_enclosed_stmt_seq(
+        &mut self,
+        empty_error: &str,
+    ) -> Result<(StmtSeq, Span, Span)> {
+        let left_brace_span = self.current_span;
+        self.advance();
         self.skip_newlines()?;
 
         let body_start = self.current_span.start;
@@ -5208,33 +5926,57 @@ impl<'a> Parser<'a> {
         }
 
         if !self.at(TokenKind::RightBrace) {
-            self.pop_depth();
             return Err(Error::parse(
                 "expected '}' to close brace group".to_string(),
             ));
         }
 
-        // Bash requires at least one command in a brace group
         if commands.is_empty() {
-            self.pop_depth();
-            return Err(self.error("syntax error: empty brace group"));
+            return Err(self.error(empty_error));
         }
 
-        self.advance(); // consume '}'
-
-        self.pop_depth();
-        Ok(CompoundCommand::BraceGroup(
+        let right_brace_span = self.current_span;
+        self.advance();
+        Ok((
             Self::lower_commands_to_stmt_seq(
                 commands,
-                Span::from_positions(body_start, self.current_span.start),
+                Span::from_positions(body_start, right_brace_span.start),
             ),
+            left_brace_span,
+            right_brace_span,
         ))
+    }
+
+    fn parse_if_condition_until_body_start(
+        &mut self,
+        allow_brace_body: bool,
+    ) -> Result<Vec<Command>> {
+        let mut commands = Vec::with_capacity(2);
+
+        loop {
+            self.skip_newlines()?;
+
+            if self.is_keyword(Keyword::Then) || (allow_brace_body && self.at(TokenKind::LeftBrace))
+            {
+                break;
+            }
+
+            if self.current_token.is_none() {
+                break;
+            }
+
+            let command = self.parse_command_list_required()?;
+            self.apply_command_effects(&command);
+            commands.push(command);
+        }
+
+        Ok(commands)
     }
 
     /// Parse arithmetic command ((expression))
     /// Parse [[ conditional expression ]]
     fn parse_conditional(&mut self) -> Result<CompoundCommand> {
-        self.ensure_bash_or_mksh("[[ ]] conditionals")?;
+        self.ensure_double_bracket()?;
         let left_bracket_span = self.current_span;
         self.advance(); // consume '[['
         self.skip_conditional_newlines();
@@ -5713,7 +6455,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_arithmetic_command(&mut self) -> Result<CompoundCommand> {
-        self.ensure_bash_or_mksh("arithmetic commands")?;
+        self.ensure_arithmetic_command()?;
         let left_paren_span = self.current_span;
         self.advance(); // consume '(('
 
@@ -5815,7 +6557,7 @@ impl<'a> Parser<'a> {
 
     /// Parse function definition with 'function' keyword: function name { body }
     fn parse_function_keyword(&mut self) -> Result<Command> {
-        self.ensure_bash_or_mksh("function keyword definitions")?;
+        self.ensure_function_keyword()?;
         let start_span = self.current_span;
         self.advance(); // consume 'function'
         self.skip_newlines()?;
@@ -6528,6 +7270,7 @@ impl<'a> Parser<'a> {
                 | WordPart::ProcessSubstitution { .. }
                 | WordPart::PrefixMatch { .. } => true,
                 WordPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
+                WordPart::Parameter(parameter) => parameter.raw_body.is_source_backed(),
                 WordPart::ParameterExpansion {
                     reference,
                     operator,
@@ -6675,6 +7418,11 @@ impl<'a> Parser<'a> {
                     out.push(']');
                 }
             },
+            WordPart::Parameter(parameter) => {
+                out.push_str("${");
+                out.push_str(parameter.raw_body.slice(self.input));
+                out.push('}');
+            }
             WordPart::ParameterExpansion {
                 reference,
                 operator,
@@ -8120,6 +8868,17 @@ impl<'a> Parser<'a> {
 
             if chars.peek() == Some(&'{') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                let brace_body_start = cursor;
+
+                if self.dialect.features().zsh_parameter_modifiers
+                    && matches!(chars.peek(), Some(&'(') | Some(&':'))
+                {
+                    let raw_body = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                    let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);
+                    Self::push_word_part(parts, parameter, part_start, cursor);
+                    current_start = cursor;
+                    continue;
+                }
 
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '#') {
                     let var_name =
@@ -8150,17 +8909,24 @@ impl<'a> Parser<'a> {
                         } else {
                             WordPart::Length(reference)
                         };
+                        let part = self.parameter_word_part_from_legacy(
+                            part,
+                            part_start,
+                            cursor,
+                            source_backed,
+                        );
                         Self::push_word_part(parts, part, part_start, cursor);
                     } else {
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        Self::push_word_part(
-                            parts,
+                        let part = self.parameter_word_part_from_legacy(
                             WordPart::Length(
                                 self.parameter_var_ref(part_start, "${#", &var_name, None, cursor),
                             ),
                             part_start,
                             cursor,
+                            source_backed,
                         );
+                        Self::push_word_part(parts, part, part_start, cursor);
                     }
                     current_start = cursor;
                     continue;
@@ -8210,8 +8976,7 @@ impl<'a> Parser<'a> {
                         };
                         Self::push_word_part(parts, part, part_start, cursor);
                     } else if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
-                        Self::push_word_part(
-                            parts,
+                        let part = self.parameter_word_part_from_legacy(
                             WordPart::IndirectExpansion {
                                 name: var_name.into(),
                                 operator: None,
@@ -8220,7 +8985,9 @@ impl<'a> Parser<'a> {
                             },
                             part_start,
                             cursor,
+                            source_backed,
                         );
+                        Self::push_word_part(parts, part, part_start, cursor);
                     } else if Self::consume_word_char_if(&mut chars, &mut cursor, ':') {
                         let operator = match chars.peek().copied() {
                             Some('-') => Some(ParameterOp::UseDefault),
@@ -8233,8 +9000,7 @@ impl<'a> Parser<'a> {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let operand =
                                 self.read_brace_operand(&mut chars, &mut cursor, source_backed);
-                            Self::push_word_part(
-                                parts,
+                            let part = self.parameter_word_part_from_legacy(
                                 WordPart::IndirectExpansion {
                                     name: var_name.into(),
                                     operator: Some(operator),
@@ -8243,7 +9009,9 @@ impl<'a> Parser<'a> {
                                 },
                                 part_start,
                                 cursor,
+                                source_backed,
                             );
+                            Self::push_word_part(parts, part, part_start, cursor);
                         } else {
                             let mut suffix = String::new();
                             while let Some(&c) = chars.peek() {
@@ -8274,8 +9042,7 @@ impl<'a> Parser<'a> {
                             '?' => ParameterOp::Error,
                             _ => unreachable!(),
                         };
-                        Self::push_word_part(
-                            parts,
+                        let part = self.parameter_word_part_from_legacy(
                             WordPart::IndirectExpansion {
                                 name: var_name.into(),
                                 operator: Some(operator),
@@ -8284,7 +9051,9 @@ impl<'a> Parser<'a> {
                             },
                             part_start,
                             cursor,
+                            source_backed,
                         );
+                        Self::push_word_part(parts, part, part_start, cursor);
                     } else {
                         let mut suffix = String::new();
                         while let Some(&c) = chars.peek() {
@@ -8308,6 +9077,12 @@ impl<'a> Parser<'a> {
                         } else {
                             WordPart::Variable(format!("!{}{}", var_name, suffix).into())
                         };
+                        let part = self.parameter_word_part_from_legacy(
+                            part,
+                            part_start,
+                            cursor,
+                            source_backed,
+                        );
                         Self::push_word_part(parts, part, part_start, cursor);
                     }
 
@@ -8474,6 +9249,12 @@ impl<'a> Parser<'a> {
                         ))
                     };
 
+                    let part = self.parameter_word_part_from_legacy(
+                        part,
+                        part_start,
+                        cursor,
+                        source_backed,
+                    );
                     Self::push_word_part(parts, part, part_start, cursor);
                     current_start = cursor;
                     continue;
@@ -8711,6 +9492,11 @@ impl<'a> Parser<'a> {
                     WordPart::Variable(var_name.into())
                 };
 
+                let part = if cursor.offset > brace_body_start.offset {
+                    self.parameter_word_part_from_legacy(part, part_start, cursor, source_backed)
+                } else {
+                    part
+                };
                 Self::push_word_part(parts, part, part_start, cursor);
                 current_start = cursor;
                 continue;
@@ -9022,9 +9808,12 @@ mod tests {
     use super::*;
     use shuck_ast::{
         ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp,
-        BinaryCommand, BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
-        CompoundCommand as AstCompoundCommand, FunctionDef as AstFunctionDef,
-        SimpleCommand as AstSimpleCommand,
+        BackgroundOperator, BinaryCommand, BourneParameterExpansion,
+        BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
+        CompoundCommand as AstCompoundCommand, FunctionDef as AstFunctionDef, IfSyntax, Name,
+        ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind,
+        SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator, ZshDefaultingOp,
+        ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp,
     };
 
     fn is_fully_quoted(word: &Word) -> bool {
@@ -9135,6 +9924,10 @@ mod tests {
             AstCompoundCommand::Subshell(body) | AstCompoundCommand::BraceGroup(body) => {
                 collect_stmt_seq_comments(body, comments);
             }
+            AstCompoundCommand::Always(command) => {
+                collect_stmt_seq_comments(&command.body, comments);
+                collect_stmt_seq_comments(&command.always_body, comments);
+            }
             AstCompoundCommand::Conditional(_)
             | AstCompoundCommand::Arithmetic(_)
             | AstCompoundCommand::Time(_)
@@ -9197,14 +9990,152 @@ mod tests {
         subscript
     }
 
+    fn array_access_reference(part: &WordPart) -> Option<&VarRef> {
+        match part {
+            WordPart::ArrayAccess(reference) => Some(reference),
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                    reference,
+                }) => Some(reference),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     fn expect_array_access(word: &Word) -> &VarRef {
         let [part] = word.parts.as_slice() else {
             panic!("expected single expansion part");
         };
-        let WordPart::ArrayAccess(reference) = &part.kind else {
-            panic!("expected array access part, got {:?}", part.kind);
+        array_access_reference(&part.kind)
+            .unwrap_or_else(|| panic!("expected array access part, got {:?}", part.kind))
+    }
+
+    fn expect_parameter(word: &Word) -> &ParameterExpansion {
+        let [part] = word.parts.as_slice() else {
+            panic!("expected single parameter part");
         };
-        reference
+        let WordPart::Parameter(parameter) = &part.kind else {
+            panic!("expected parameter part, got {:?}", part.kind);
+        };
+        parameter
+    }
+
+    fn expect_array_length_part(part: &WordPart) -> &VarRef {
+        match part {
+            WordPart::ArrayLength(reference) => reference,
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length {
+                    reference,
+                }) => reference,
+                _ => panic!("expected array length part, got {:?}", part),
+            },
+            _ => panic!("expected array length part, got {:?}", part),
+        }
+    }
+
+    fn expect_array_indices_part(part: &WordPart) -> &VarRef {
+        match part {
+            WordPart::ArrayIndices(reference) => reference,
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indices {
+                    reference,
+                }) => reference,
+                _ => panic!("expected array indices part, got {:?}", part),
+            },
+            _ => panic!("expected array indices part, got {:?}", part),
+        }
+    }
+
+    fn expect_substring_part(
+        part: &WordPart,
+    ) -> (
+        &VarRef,
+        &Option<ArithmeticExprNode>,
+        &Option<ArithmeticExprNode>,
+    ) {
+        match part {
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => (reference, offset_ast, length_ast),
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
+                    reference,
+                    offset_ast,
+                    length_ast,
+                    ..
+                }) if !reference.has_array_selector() => (reference, offset_ast, length_ast),
+                _ => panic!("expected substring part, got {:?}", part),
+            },
+            _ => panic!("expected substring part, got {:?}", part),
+        }
+    }
+
+    fn expect_array_slice_part(
+        part: &WordPart,
+    ) -> (
+        &VarRef,
+        &Option<ArithmeticExprNode>,
+        &Option<ArithmeticExprNode>,
+    ) {
+        match part {
+            WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => (reference, offset_ast, length_ast),
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
+                    reference,
+                    offset_ast,
+                    length_ast,
+                    ..
+                }) if reference.has_array_selector() => (reference, offset_ast, length_ast),
+                _ => panic!("expected array slice part, got {:?}", part),
+            },
+            _ => panic!("expected array slice part, got {:?}", part),
+        }
+    }
+
+    fn expect_parameter_operation_part(
+        part: &WordPart,
+    ) -> (&VarRef, &ParameterOp, Option<&SourceText>) {
+        match part {
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand,
+                ..
+            } => (reference, operator, operand.as_ref()),
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                    reference,
+                    operator,
+                    operand,
+                    ..
+                }) => (reference, operator, operand.as_ref()),
+                _ => panic!("expected parameter operation part, got {:?}", part),
+            },
+            _ => panic!("expected parameter operation part, got {:?}", part),
+        }
+    }
+
+    fn expect_prefix_match_part(part: &WordPart) -> (&Name, PrefixMatchKind) {
+        match part {
+            WordPart::PrefixMatch { prefix, kind } => (prefix, *kind),
+            WordPart::Parameter(parameter) => match &parameter.syntax {
+                ParameterExpansionSyntax::Bourne(BourneParameterExpansion::PrefixMatch {
+                    prefix,
+                    kind,
+                }) => (prefix, *kind),
+                _ => panic!("expected prefix match part, got {:?}", part),
+            },
+            _ => panic!("expected prefix match part, got {:?}", part),
+        }
     }
 
     fn expect_simple(stmt: &Stmt) -> &AstSimpleCommand {
@@ -10232,18 +11163,12 @@ mod tests {
             // The arg should contain an ArrayAccess with the full nested index
             let arg = &cmd.args[0];
             let has_array_access = arg.parts.iter().any(|p| {
-                matches!(
-                    &p.kind,
-                    WordPart::ArrayAccess(reference)
-                    if reference.name == "arr"
-                        && reference
-                            .subscript
-                            .as_ref()
-                            .is_some_and(|subscript| subscript
-                                .text
-                                .slice(input)
-                                .contains("${#arr[@]}"))
-                )
+                array_access_reference(&p.kind).is_some_and(|reference| {
+                    reference.name == "arr"
+                        && reference.subscript.as_ref().is_some_and(|subscript| {
+                            subscript.text.slice(input).contains("${#arr[@]}")
+                        })
+                })
             });
             assert!(
                 has_array_access,
@@ -10342,9 +11267,7 @@ mod tests {
         let AstCommand::Simple(command) = &script.body[1].command else {
             panic!("expected simple command");
         };
-        let WordPart::ArrayAccess(reference) = &command.args[0].parts[0].kind else {
-            panic!("expected array access word part");
-        };
+        let reference = expect_array_access(&command.args[0]);
         expect_subscript(reference, input, "i+1");
         let expr = reference
             .subscript
@@ -10368,14 +11291,7 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let WordPart::Substring {
-            offset_ast,
-            length_ast,
-            ..
-        } = &command.args[0].parts[0].kind
-        else {
-            panic!("expected substring expansion");
-        };
+        let (_, offset_ast, length_ast) = expect_substring_part(&command.args[0].parts[0].kind);
         let offset_ast = offset_ast.as_ref().expect("expected substring offset AST");
         let ArithmeticExpr::Binary { left, op, right } = &offset_ast.kind else {
             panic!("expected additive substring offset");
@@ -10396,14 +11312,7 @@ mod tests {
         expect_variable(len_left, "len");
         expect_number(len_right, input, "2");
 
-        let WordPart::ArraySlice {
-            offset_ast,
-            length_ast,
-            ..
-        } = &command.args[1].parts[0].kind
-        else {
-            panic!("expected array slice expansion");
-        };
+        let (_, offset_ast, length_ast) = expect_array_slice_part(&command.args[1].parts[0].kind);
         expect_variable(
             offset_ast
                 .as_ref()
@@ -10427,9 +11336,7 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let WordPart::ArrayAccess(reference) = &command.args[0].parts[0].kind else {
-            panic!("expected first array access");
-        };
+        let reference = expect_array_access(&command.args[0]);
         let subscript = reference
             .subscript
             .as_ref()
@@ -10437,9 +11344,7 @@ mod tests {
         assert_eq!(subscript.selector(), Some(SubscriptSelector::At));
         assert!(subscript.arithmetic_ast.is_none());
 
-        let WordPart::ArrayAccess(reference) = &command.args[1].parts[0].kind else {
-            panic!("expected second array access");
-        };
+        let reference = expect_array_access(&command.args[1]);
         let subscript = reference
             .subscript
             .as_ref()
@@ -10447,9 +11352,7 @@ mod tests {
         assert_eq!(subscript.selector(), Some(SubscriptSelector::Star));
         assert!(subscript.arithmetic_ast.is_none());
 
-        let WordPart::ArrayAccess(reference) = &command.args[2].parts[0].kind else {
-            panic!("expected quoted-key array access");
-        };
+        let reference = expect_array_access(&command.args[2]);
         let subscript = reference
             .subscript
             .as_ref()
@@ -10467,41 +11370,31 @@ mod tests {
             panic!("expected simple command");
         };
 
-        let WordPart::ArrayAccess(reference) = &command.args[0].parts[0].kind else {
-            panic!("expected array access");
-        };
+        let reference = expect_array_access(&command.args[0]);
         assert_eq!(
             reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::At)
         );
 
-        let WordPart::ArrayAccess(reference) = &command.args[1].parts[0].kind else {
-            panic!("expected array access");
-        };
+        let reference = expect_array_access(&command.args[1]);
         assert_eq!(
             reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::Star)
         );
 
-        let WordPart::ArrayLength(reference) = &command.args[2].parts[0].kind else {
-            panic!("expected array length");
-        };
+        let reference = expect_array_length_part(&command.args[2].parts[0].kind);
         assert_eq!(
             reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::At)
         );
 
-        let WordPart::ArrayIndices(reference) = &command.args[3].parts[0].kind else {
-            panic!("expected array indices");
-        };
+        let reference = expect_array_indices_part(&command.args[3].parts[0].kind);
         assert_eq!(
             reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::Star)
         );
 
-        let WordPart::ArraySlice { reference, .. } = &command.args[4].parts[0].kind else {
-            panic!("expected array slice");
-        };
+        let (reference, _, _) = expect_array_slice_part(&command.args[4].parts[0].kind);
         assert_eq!(
             reference.subscript.as_ref().and_then(Subscript::selector),
             Some(SubscriptSelector::At)
@@ -10915,9 +11808,7 @@ mod tests {
             "${arr[$RANDOM % ${#arr[@]}]}"
         );
 
-        let WordPart::ArrayAccess(reference) = &word.parts[0].kind else {
-            panic!("expected array access");
-        };
+        let reference = array_access_reference(&word.parts[0].kind).expect("expected array access");
         let subscript = reference.subscript.as_ref().expect("expected subscript");
         assert!(subscript.is_source_backed());
         assert_eq!(subscript.text.slice(input), "$RANDOM % ${#arr[@]}");
@@ -11090,10 +11981,8 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let WordPart::ParameterExpansion { operand, .. } = &word.parts[0].kind else {
-            panic!("expected parameter expansion");
-        };
-        let operand = operand.as_ref().expect("expected operand");
+        let (_, _, operand) = expect_parameter_operation_part(&word.parts[0].kind);
+        let operand = operand.expect("expected operand");
         assert!(operand.is_source_backed());
         assert_eq!(operand.slice(input), "$(pwd)");
     }
@@ -11120,9 +12009,7 @@ mod tests {
         let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
             panic!("expected scalar assignment");
         };
-        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
-            panic!("expected parameter expansion");
-        };
+        let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
         let ParameterOp::RemovePrefixShort { pattern } = operator else {
             panic!("expected short-prefix trim operator");
         };
@@ -11148,9 +12035,7 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
-            panic!("expected parameter expansion");
-        };
+        let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
         let ParameterOp::RemovePrefixShort { pattern } = operator else {
             panic!("expected short-prefix trim operator");
         };
@@ -11163,7 +12048,7 @@ mod tests {
             }] if matches!(
                 &word.parts[..],
                 [WordPartNode {
-                    kind: WordPart::ParameterExpansion { .. },
+                    kind: WordPart::Parameter(_) | WordPart::ParameterExpansion { .. },
                     ..
                 }]
             )
@@ -11180,9 +12065,7 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
-            panic!("expected parameter expansion");
-        };
+        let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
         let ParameterOp::ReplaceFirst {
             pattern,
             replacement,
@@ -11211,9 +12094,7 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
-            panic!("expected parameter expansion");
-        };
+        let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
         let ParameterOp::RemovePrefixShort { pattern } = operator else {
             panic!("expected short-prefix trim operator");
         };
@@ -11259,9 +12140,7 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
-            panic!("expected parameter expansion");
-        };
+        let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
         let ParameterOp::ReplaceAll {
             pattern,
             replacement,
@@ -11312,9 +12191,7 @@ mod tests {
         };
         let word = &command.args[0];
 
-        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0].kind else {
-            panic!("expected parameter expansion");
-        };
+        let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
         let ParameterOp::ReplaceFirst {
             pattern,
             replacement,
@@ -12689,13 +13566,9 @@ echo "${var-"}"}"
         else {
             panic!("expected double-quoted prefix match");
         };
-        assert!(matches!(
-            &first_inner[0].kind,
-            WordPart::PrefixMatch {
-                prefix,
-                kind: PrefixMatchKind::At
-            } if prefix.as_str() == "prefix"
-        ));
+        let (prefix, kind) = expect_prefix_match_part(&first_inner[0].kind);
+        assert_eq!(prefix.as_str(), "prefix");
+        assert_eq!(kind, PrefixMatchKind::At);
 
         let [second_part] = second.parts.as_slice() else {
             panic!("expected quoted prefix match");
@@ -12707,13 +13580,9 @@ echo "${var-"}"}"
         else {
             panic!("expected double-quoted prefix match");
         };
-        assert!(matches!(
-            &second_inner[0].kind,
-            WordPart::PrefixMatch {
-                prefix,
-                kind: PrefixMatchKind::Star
-            } if prefix.as_str() == "prefix"
-        ));
+        let (prefix, kind) = expect_prefix_match_part(&second_inner[0].kind);
+        assert_eq!(prefix.as_str(), "prefix");
+        assert_eq!(kind, PrefixMatchKind::Star);
         assert_eq!(first.render_syntax(input), "\"${!prefix@}\"");
         assert_eq!(second.render_syntax(input), "\"${!prefix*}\"");
     }
@@ -13062,6 +13931,9 @@ EOF
         Parser::with_dialect("[[ foo == bar ]]\n", ShellDialect::Mksh)
             .parse()
             .unwrap();
+        Parser::with_dialect("[[ foo == bar ]]\n", ShellDialect::Zsh)
+            .parse()
+            .unwrap();
     }
 
     #[test]
@@ -13077,5 +13949,164 @@ EOF
             error,
             Error::Parse { message, .. } if message.contains("c-style for loops")
         ));
+    }
+
+    #[test]
+    fn test_zsh_dialect_accepts_c_style_for_loops() {
+        Parser::with_dialect(
+            "for ((i=0; i<2; i++)); do echo hi; done\n",
+            ShellDialect::Zsh,
+        )
+        .parse()
+        .unwrap();
+    }
+
+    #[test]
+    fn test_zsh_parameter_modifier_records_modifier_and_target() {
+        let source = "print ${(m)foo} ${(%):-%x}\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = expect_simple(&output.file.body[0]);
+
+        let first = expect_parameter(&command.args[0]);
+        assert_eq!(first.raw_body.slice(source), "(m)foo");
+        let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert_eq!(
+            first
+                .modifiers
+                .iter()
+                .map(|modifier| modifier.name)
+                .collect::<Vec<_>>(),
+            vec!['m']
+        );
+        let ZshExpansionTarget::Reference(reference) = &first.target else {
+            panic!("expected direct zsh reference target");
+        };
+        assert_eq!(reference.name.as_str(), "foo");
+        assert!(first.operation.is_none());
+
+        let second = expect_parameter(&command.args[1]);
+        assert_eq!(second.raw_body.slice(source), "(%):-%x");
+        let ParameterExpansionSyntax::Zsh(second) = &second.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert_eq!(
+            second
+                .modifiers
+                .iter()
+                .map(|modifier| modifier.name)
+                .collect::<Vec<_>>(),
+            vec!['%']
+        );
+        assert!(matches!(second.target, ZshExpansionTarget::Empty));
+        assert!(matches!(
+            second.operation,
+            Some(ZshExpansionOperation::Defaulting {
+                kind: ZshDefaultingOp::UseDefault,
+                ref operand,
+                colon_variant: true,
+            }) if operand.slice(source) == "%x"
+        ));
+    }
+
+    #[test]
+    fn test_zsh_nested_parameter_modifier_records_nested_target_and_pattern_operation() {
+        let source = "print ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = expect_simple(&output.file.body[0]);
+        let parameter = expect_parameter(&command.args[0]);
+
+        let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+            panic!("expected zsh parameter syntax");
+        };
+        assert_eq!(
+            parameter
+                .modifiers
+                .iter()
+                .map(|modifier| modifier.name)
+                .collect::<Vec<_>>(),
+            vec!['M']
+        );
+        let ZshExpansionTarget::Nested(inner) = &parameter.target else {
+            panic!("expected nested zsh parameter target");
+        };
+        let ParameterExpansionSyntax::Zsh(inner) = &inner.syntax else {
+            panic!("expected nested zsh syntax");
+        };
+        assert_eq!(
+            inner
+                .modifiers
+                .iter()
+                .map(|modifier| modifier.name)
+                .collect::<Vec<_>>(),
+            vec!['k']
+        );
+        let ZshExpansionTarget::Reference(reference) = &inner.target else {
+            panic!("expected nested reference target");
+        };
+        assert_eq!(reference.name.as_str(), "parameters");
+        assert!(reference.has_array_selector());
+        assert!(matches!(
+            parameter.operation,
+            Some(ZshExpansionOperation::PatternOperation {
+                kind: ZshPatternOp::Filter,
+                ref operand,
+            }) if operand.slice(source) == "__gitcomp_builtin_*"
+        ));
+    }
+
+    #[test]
+    fn test_zsh_brace_if_records_brace_syntax() {
+        let source = "if [[ -n $foo ]] { print foo; } elif [[ -n $bar ]] { print bar; } else { print baz; }\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let (compound, _) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::If(command) = compound else {
+            panic!("expected if command");
+        };
+
+        assert!(matches!(
+            command.syntax,
+            IfSyntax::Brace {
+                left_brace_span,
+                right_brace_span,
+            } if left_brace_span.slice(source) == "{" && right_brace_span.slice(source) == "}"
+        ));
+        assert_eq!(command.elif_branches.len(), 1);
+        assert!(command.else_branch.is_some());
+    }
+
+    #[test]
+    fn test_zsh_always_and_background_operators_preserve_surface_forms() {
+        let source = "\
+{ print body; } always { print cleanup; }
+print quiet &|
+print hidden &!
+";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+
+        let (compound, _) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::Always(command) = compound else {
+            panic!("expected always compound command");
+        };
+        assert_eq!(command.body.len(), 1);
+        assert_eq!(command.always_body.len(), 1);
+
+        assert_eq!(
+            output.file.body[1].terminator,
+            Some(StmtTerminator::Background(BackgroundOperator::Pipe))
+        );
+        assert_eq!(
+            output.file.body[2].terminator,
+            Some(StmtTerminator::Background(BackgroundOperator::Bang))
+        );
     }
 }

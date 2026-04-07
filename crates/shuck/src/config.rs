@@ -151,8 +151,9 @@ fn parse_dialect(value: &str) -> Result<ShellDialect> {
         "bash" => Ok(ShellDialect::Bash),
         "posix" => Ok(ShellDialect::Posix),
         "mksh" => Ok(ShellDialect::Mksh),
+        "zsh" => Ok(ShellDialect::Zsh),
         _ => Err(anyhow!(
-            "unsupported `[format].dialect` value `{value}`; expected one of: auto, bash, posix, mksh"
+            "unsupported `[format].dialect` value `{value}`; expected one of: auto, bash, posix, mksh, zsh"
         )),
     }
 }

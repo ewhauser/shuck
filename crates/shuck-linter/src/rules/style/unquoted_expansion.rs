@@ -1,4 +1,6 @@
-use shuck_ast::{Word, WordPart};
+use shuck_ast::{
+    BourneParameterExpansion, ParameterExpansion, ParameterExpansionSyntax, Word, WordPart,
+};
 
 use crate::rules::common::{
     expansion::ExpansionContext,
@@ -49,6 +51,7 @@ fn matches_scalar_expansion_part(part: &WordPart) -> bool {
         | WordPart::DoubleQuoted { .. }
         | WordPart::CommandSubstitution { .. }
         | WordPart::ProcessSubstitution { .. } => false,
+        WordPart::Parameter(parameter) => parameter_is_scalar_like(parameter),
         WordPart::Variable(_)
         | WordPart::ArithmeticExpansion { .. }
         | WordPart::ParameterExpansion { .. }
@@ -60,6 +63,22 @@ fn matches_scalar_expansion_part(part: &WordPart) -> bool {
         | WordPart::Transformation { .. } => true,
         WordPart::ArrayAccess(reference) => !reference.has_array_selector(),
         WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => false,
+    }
+}
+
+fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference } => !reference.has_array_selector(),
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::PrefixMatch { .. }
+            | BourneParameterExpansion::Operation { .. }
+            | BourneParameterExpansion::Transformation { .. } => true,
+            BourneParameterExpansion::Indices { .. } => false,
+            BourneParameterExpansion::Slice { reference, .. } => !reference.has_array_selector(),
+        },
+        ParameterExpansionSyntax::Zsh(_) => true,
     }
 }
 
@@ -208,6 +227,23 @@ printf '%s\\n' ok >&$fd
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_unquoted_zsh_parameter_modifiers() {
+        let source = "\
+#!/usr/bin/env zsh
+print ${(m)foo}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${(m)foo}"]
+        );
     }
 
     #[test]

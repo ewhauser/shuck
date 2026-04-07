@@ -209,7 +209,15 @@ impl std::ops::IndexMut<usize> for StmtSeq {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StmtTerminator {
     Semicolon,
-    Background,
+    Background(BackgroundOperator),
+}
+
+/// Surface spellings for background-like list operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackgroundOperator {
+    Plain,
+    Pipe,
+    Bang,
 }
 
 /// A single shell statement together with statement-local syntax.
@@ -505,6 +513,8 @@ pub enum CompoundCommand {
     Conditional(ConditionalCommand),
     /// Coprocess: `coproc [NAME] command`
     Coproc(CoprocCommand),
+    /// Zsh always/finally-style cleanup block.
+    Always(AlwaysCommand),
 }
 
 /// Coprocess command - runs a command with bidirectional communication.
@@ -521,6 +531,14 @@ pub struct CoprocCommand {
     /// The command to run as a coprocess
     pub body: Box<Stmt>,
     /// Source span of this command
+    pub span: Span,
+}
+
+/// Zsh `always` command - run `always_body` after `body`.
+#[derive(Debug, Clone)]
+pub struct AlwaysCommand {
+    pub body: StmtSeq,
+    pub always_body: StmtSeq,
     pub span: Span,
 }
 
@@ -736,8 +754,22 @@ pub struct IfCommand {
     pub then_branch: StmtSeq,
     pub elif_branches: Vec<(StmtSeq, StmtSeq)>,
     pub else_branch: Option<StmtSeq>,
+    pub syntax: IfSyntax,
     /// Source span of this command
     pub span: Span,
+}
+
+/// Surface syntax preserved for an `if` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IfSyntax {
+    ThenFi {
+        then_span: Span,
+        fi_span: Span,
+    },
+    Brace {
+        left_brace_span: Span,
+        right_brace_span: Span,
+    },
 }
 
 /// For loop.
@@ -1040,6 +1072,132 @@ impl PrefixMatchKind {
             Self::Star => '*',
         }
     }
+}
+
+/// Unified parameter-expansion family for `${...}` forms.
+#[derive(Debug, Clone)]
+pub struct ParameterExpansion {
+    pub syntax: ParameterExpansionSyntax,
+    pub span: Span,
+    pub raw_body: SourceText,
+}
+
+impl ParameterExpansion {
+    pub fn is_zsh(&self) -> bool {
+        matches!(self.syntax, ParameterExpansionSyntax::Zsh(_))
+    }
+
+    pub fn bourne(&self) -> Option<&BourneParameterExpansion> {
+        match &self.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => Some(syntax),
+            ParameterExpansionSyntax::Zsh(_) => None,
+        }
+    }
+
+    pub fn zsh(&self) -> Option<&ZshParameterExpansion> {
+        match &self.syntax {
+            ParameterExpansionSyntax::Bourne(_) => None,
+            ParameterExpansionSyntax::Zsh(syntax) => Some(syntax),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum ParameterExpansionSyntax {
+    Bourne(BourneParameterExpansion),
+    Zsh(ZshParameterExpansion),
+}
+
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum BourneParameterExpansion {
+    Access {
+        reference: VarRef,
+    },
+    Length {
+        reference: VarRef,
+    },
+    Indices {
+        reference: VarRef,
+    },
+    Indirect {
+        name: Name,
+        operator: Option<ParameterOp>,
+        operand: Option<SourceText>,
+        colon_variant: bool,
+    },
+    PrefixMatch {
+        prefix: Name,
+        kind: PrefixMatchKind,
+    },
+    Slice {
+        reference: VarRef,
+        offset: SourceText,
+        offset_ast: Option<ArithmeticExprNode>,
+        length: Option<SourceText>,
+        length_ast: Option<ArithmeticExprNode>,
+    },
+    Operation {
+        reference: VarRef,
+        operator: ParameterOp,
+        operand: Option<SourceText>,
+        colon_variant: bool,
+    },
+    Transformation {
+        reference: VarRef,
+        operator: char,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct ZshParameterExpansion {
+    pub target: ZshExpansionTarget,
+    pub modifiers: Vec<ZshModifier>,
+    pub operation: Option<ZshExpansionOperation>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum ZshExpansionTarget {
+    Reference(VarRef),
+    Nested(Box<ParameterExpansion>),
+    Empty,
+}
+
+#[derive(Debug, Clone)]
+pub struct ZshModifier {
+    pub name: char,
+    pub argument: Option<SourceText>,
+    pub argument_delimiter: Option<char>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum ZshExpansionOperation {
+    PatternOperation {
+        kind: ZshPatternOp,
+        operand: SourceText,
+    },
+    Defaulting {
+        kind: ZshDefaultingOp,
+        operand: SourceText,
+        colon_variant: bool,
+    },
+    Raw(SourceText),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZshPatternOp {
+    Filter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZshDefaultingOp {
+    UseDefault,
+    AssignDefault,
+    UseReplacement,
+    Error,
 }
 
 /// Brace expansion surface form recognized inside a word.
@@ -1525,6 +1683,8 @@ pub enum WordPart {
         expression_ast: Option<ArithmeticExprNode>,
         syntax: ArithmeticExpansionSyntax,
     },
+    /// Unified parameter-expansion family for `${...}` forms.
+    Parameter(ParameterExpansion),
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.
     /// `colon_variant` distinguishes `:-` (unset-or-empty) from `-` (unset-only).
     ParameterExpansion {
@@ -1762,6 +1922,13 @@ fn fmt_word_part_with_source_mode(
                 }
             },
         },
+        WordPart::Parameter(parameter) => {
+            write!(
+                f,
+                "${{{}}}",
+                display_source_text(Some(&parameter.raw_body), source)
+            )?;
+        }
         WordPart::ParameterExpansion {
             reference,
             operator,
@@ -1997,6 +2164,7 @@ fn part_prefers_source_slice_in_syntax(part: &WordPart) -> bool {
         WordPart::Variable(_)
             | WordPart::CommandSubstitution { .. }
             | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
             | WordPart::ParameterExpansion { .. }
             | WordPart::Length(_)
             | WordPart::ArrayAccess(_)
@@ -2043,6 +2211,7 @@ fn part_is_source_backed(part: &WordPart) -> bool {
         WordPart::DoubleQuoted { parts, .. } => {
             parts.iter().all(|part| part_is_source_backed(&part.kind))
         }
+        WordPart::Parameter(parameter) => parameter.raw_body.is_source_backed(),
         WordPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
         WordPart::ParameterExpansion {
             reference,
@@ -3009,7 +3178,10 @@ mod tests {
         assert_eq!(BinaryOp::PipeAll, BinaryOp::PipeAll);
         assert_ne!(BinaryOp::And, BinaryOp::Or);
         assert_eq!(StmtTerminator::Semicolon, StmtTerminator::Semicolon);
-        assert_eq!(StmtTerminator::Background, StmtTerminator::Background);
+        assert_eq!(
+            StmtTerminator::Background(BackgroundOperator::Plain),
+            StmtTerminator::Background(BackgroundOperator::Plain)
+        );
     }
 
     // --- RedirectKind ---
@@ -3163,6 +3335,10 @@ mod tests {
             then_branch: stmt_seq(vec![]),
             elif_branches: vec![],
             else_branch: None,
+            syntax: IfSyntax::ThenFi {
+                then_span: Span::new(),
+                fi_span: Span::new(),
+            },
             span: Span::new(),
         };
         assert!(if_cmd.else_branch.is_none());

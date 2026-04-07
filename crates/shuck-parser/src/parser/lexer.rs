@@ -910,6 +910,12 @@ impl<'a> Lexer<'a> {
                         self.consume_ascii_chars(2);
                         Some(LexedToken::punctuation(TokenKind::RedirectBoth))
                     }
+                } else if self.second_char() == Some('|') {
+                    self.consume_ascii_chars(2);
+                    Some(LexedToken::punctuation(TokenKind::BackgroundPipe))
+                } else if self.second_char() == Some('!') {
+                    self.consume_ascii_chars(2);
+                    Some(LexedToken::punctuation(TokenKind::BackgroundBang))
                 } else {
                     self.consume_ascii_chars(1);
                     Some(LexedToken::punctuation(TokenKind::Background))

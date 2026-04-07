@@ -218,7 +218,16 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
             }
 
             let source = fs::read_to_string(&file.absolute_path)?;
-            let cached = match Parser::new(&source).parse() {
+            let inferred_shell = ShellDialect::infer(&source, Some(&file.absolute_path));
+            let parse_dialect = match inferred_shell {
+                ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
+                    shuck_parser::ShellDialect::Posix
+                }
+                ShellDialect::Mksh => shuck_parser::ShellDialect::Mksh,
+                ShellDialect::Zsh => shuck_parser::ShellDialect::Zsh,
+                ShellDialect::Unknown | ShellDialect::Bash => shuck_parser::ShellDialect::Bash,
+            };
+            let cached = match Parser::with_dialect(&source, parse_dialect).parse() {
                 Ok(output) => {
                     let indexer = Indexer::new(&source, &output);
                     let directives =
@@ -230,9 +239,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                             first_statement_line(&output.file).unwrap_or(u32::MAX),
                         )
                     });
-                    let linter_settings = base_linter_settings
-                        .clone()
-                        .with_shell(ShellDialect::infer(&source, Some(&file.absolute_path)));
+                    let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
                     let diagnostics = shuck_linter::lint_file_at_path(
                         &output.file,
                         &source,

@@ -233,6 +233,10 @@ fn collect_compound(
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             collect_commands(commands, facts, source, spans);
         }
+        CompoundCommand::Always(command) => {
+            collect_commands(&command.body, facts, source, spans);
+            collect_commands(&command.always_body, facts, source, spans);
+        }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {

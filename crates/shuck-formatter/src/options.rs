@@ -10,6 +10,7 @@ pub enum ShellDialect {
     Bash,
     Posix,
     Mksh,
+    Zsh,
 }
 
 impl ShellDialect {
@@ -20,6 +21,7 @@ impl ShellDialect {
             Self::Bash => ParseDialect::Bash,
             Self::Posix => ParseDialect::Posix,
             Self::Mksh => ParseDialect::Mksh,
+            Self::Zsh => ParseDialect::Zsh,
         }
     }
 }

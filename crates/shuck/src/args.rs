@@ -9,6 +9,7 @@ pub enum FormatDialectArg {
     Bash,
     Posix,
     Mksh,
+    Zsh,
 }
 
 impl From<FormatDialectArg> for ShellDialect {
@@ -18,6 +19,7 @@ impl From<FormatDialectArg> for ShellDialect {
             FormatDialectArg::Bash => Self::Bash,
             FormatDialectArg::Posix => Self::Posix,
             FormatDialectArg::Mksh => Self::Mksh,
+            FormatDialectArg::Zsh => Self::Zsh,
         }
     }
 }

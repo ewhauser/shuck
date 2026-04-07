@@ -667,13 +667,17 @@ mod tests {
     use crate::cfg::build_control_flow_graph;
     use shuck_ast::{Command, CompoundCommand};
     use shuck_indexer::Indexer;
-    use shuck_parser::parser::Parser;
+    use shuck_parser::parser::{Parser, ShellDialect};
     use std::fs;
     use std::path::Path;
     use tempfile::tempdir;
 
     fn model(source: &str) -> SemanticModel {
-        let output = Parser::new(source).parse().unwrap();
+        model_with_dialect(source, ShellDialect::Bash)
+    }
+
+    fn model_with_dialect(source: &str, dialect: ShellDialect) -> SemanticModel {
+        let output = Parser::with_dialect(source, dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         SemanticModel::build(&output.file, source, &indexer)
     }
@@ -871,6 +875,14 @@ mod tests {
             .unwrap();
         let resolved = model.resolved_binding(reference.id).unwrap();
         assert_eq!(resolved.id, local_binding.id);
+    }
+
+    #[test]
+    fn zsh_parameter_modifiers_still_register_references() {
+        let model = model_with_dialect("print ${(m)foo}\n", ShellDialect::Zsh);
+        let unresolved = unresolved_names(&model);
+
+        assert_names_present(&["foo"], &unresolved);
     }
 
     #[test]

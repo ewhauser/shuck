@@ -6,7 +6,7 @@ use std::{
 };
 
 use serde::Deserialize;
-use shuck_parser::parser::Parser;
+use shuck_parser::parser::{Parser, ShellDialect};
 
 const OILS_DIR: &str = "tests/testdata/oils";
 const EXPECTATIONS_PATH: &str = "tests/testdata/oils_expectations.json";
@@ -84,6 +84,31 @@ fn oils_corpus_matches_parser_expectations() {
         total_cases,
         skipped_cases,
         failures.join("\n\n")
+    );
+}
+
+#[test]
+fn zsh_idioms_fixture_cases_parse_in_zsh_mode() {
+    let path = manifest_dir().join(OILS_DIR).join("zsh-idioms.test.sh");
+    let source = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+    let spec_file = parse_spec_file(&path, &source);
+
+    let failures = spec_file
+        .cases
+        .iter()
+        .filter_map(|spec_case| {
+            match Parser::with_dialect(&spec_case.script, ShellDialect::Zsh).parse() {
+                Ok(_) => None,
+                Err(err) => Some(format!("{}: {err}", spec_case.name)),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        failures.is_empty(),
+        "zsh fixture cases failed to parse in zsh mode:\n\n{}",
+        failures.join("\n")
     );
 }
 

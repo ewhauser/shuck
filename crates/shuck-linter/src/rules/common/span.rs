@@ -1,6 +1,7 @@
 use shuck_ast::{
-    ArithmeticExpansionSyntax, Assignment, BinaryCommand, CommandSubstitutionSyntax, Redirect,
-    Span, Word, WordPart, WordPartNode,
+    ArithmeticExpansionSyntax, Assignment, BinaryCommand, BourneParameterExpansion,
+    CommandSubstitutionSyntax, ParameterExpansion, ParameterExpansionSyntax, Redirect, Span, Word,
+    WordPart, WordPartNode,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -128,6 +129,11 @@ fn collect_array_expansion_spans(
             {
                 spans.push(part.span);
             }
+            WordPart::Parameter(parameter)
+                if parameter_is_array_like(parameter) && (!quoted || !only_unquoted) =>
+            {
+                spans.push(part.span);
+            }
             WordPart::ArraySlice { .. } | WordPart::ArrayIndices(_)
                 if !quoted || !only_unquoted =>
             {
@@ -146,6 +152,7 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
             WordPart::Variable(_)
             | WordPart::CommandSubstitution { .. }
             | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
             | WordPart::ParameterExpansion { .. }
             | WordPart::Length(_)
             | WordPart::ArrayAccess(_)
@@ -167,6 +174,11 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>)
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => collect_scalar_expansion_spans(parts, spans),
             WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+            WordPart::Parameter(parameter) => {
+                if parameter_is_scalar_like(parameter) {
+                    spans.push(part.span);
+                }
+            }
             WordPart::Variable(_)
             | WordPart::ArithmeticExpansion { .. }
             | WordPart::ParameterExpansion { .. }
@@ -183,6 +195,34 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>)
             }
             WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
         }
+    }
+}
+
+fn parameter_is_array_like(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference } => reference.has_array_selector(),
+            BourneParameterExpansion::Indices { .. } => true,
+            BourneParameterExpansion::Slice { reference, .. } => reference.has_array_selector(),
+            _ => false,
+        },
+        ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference } => !reference.has_array_selector(),
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::PrefixMatch { .. }
+            | BourneParameterExpansion::Operation { .. }
+            | BourneParameterExpansion::Transformation { .. } => true,
+            BourneParameterExpansion::Indices { .. } => false,
+            BourneParameterExpansion::Slice { reference, .. } => !reference.has_array_selector(),
+        },
+        ParameterExpansionSyntax::Zsh(_) => true,
     }
 }
 
