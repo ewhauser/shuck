@@ -259,8 +259,12 @@ where
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                         walk_word(word, source, visit)
                     }
-                    DeclOperand::Name(reference) => walk_var_ref_subscript(reference, source, visit),
-                    DeclOperand::Assignment(assignment) => walk_assignment(assignment, source, visit),
+                    DeclOperand::Name(reference) => {
+                        walk_var_ref_subscript(reference, source, visit)
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        walk_assignment(assignment, source, visit)
+                    }
                 }
             }
             walk_redirects(&command.redirects, source, visit);
@@ -456,7 +460,9 @@ where
         }
         ConditionalExpr::Unary(expr) => walk_conditional_expr(&expr.expr, source, visit),
         ConditionalExpr::Parenthesized(expr) => walk_conditional_expr(&expr.expr, source, visit),
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => walk_word(word, source, visit),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            walk_word(word, source, visit)
+        }
         ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, source, visit),
         ConditionalExpr::VarRef(reference) => {
             query::visit_var_ref_subscript_words(reference, source, &mut |word| {

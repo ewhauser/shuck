@@ -338,8 +338,8 @@ mod tests {
     fn preserves_blank_lines_after_functions() {
         let source = "foo() {\n  echo hi\n}\n\nbar\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        let formatted = format_source(source, Some(Path::new("function_gap.bash")), &options)
-            .unwrap();
+        let formatted =
+            format_source(source, Some(Path::new("function_gap.bash")), &options).unwrap();
 
         assert_eq!(
             formatted,
@@ -420,8 +420,8 @@ mod tests {
     fn preserves_explicit_line_break_after_list_operator() {
         let source = "command -v curl >/dev/null &&\n  if [[ $1 =~ tar.gz$ ]]; then\n    curl -fL $1 | tar $tar_opts\n  else\n    echo nope\n  fi\n";
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
-        let formatted = format_source(source, Some(Path::new("list_operator_if.bash")), &options)
-            .unwrap();
+        let formatted =
+            format_source(source, Some(Path::new("list_operator_if.bash")), &options).unwrap();
 
         assert_eq!(
             formatted,

@@ -351,11 +351,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions
     }
 
-    fn visit_decl(
-        &mut self,
-        command: &shuck_ast::DeclClause,
-        flow: FlowState,
-    ) -> RecordedCommand {
+    fn visit_decl(&mut self, command: &shuck_ast::DeclClause, flow: FlowState) -> RecordedCommand {
         let mut nested_regions = Vec::new();
         for assignment in &command.assignments {
             nested_regions.extend(self.visit_assignment(

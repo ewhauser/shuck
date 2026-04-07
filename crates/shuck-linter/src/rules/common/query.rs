@@ -241,7 +241,10 @@ fn collect_subscript_words(subscript: Option<&Subscript>, source: &str, words: &
     ));
 }
 
-fn collect_arithmetic_lvalue_word_refs<'a>(target: &'a ArithmeticLvalue, words: &mut Vec<&'a Word>) {
+fn collect_arithmetic_lvalue_word_refs<'a>(
+    target: &'a ArithmeticLvalue,
+    words: &mut Vec<&'a Word>,
+) {
     match target {
         ArithmeticLvalue::Variable(_) => {}
         ArithmeticLvalue::Indexed { index, .. } => collect_arithmetic_word_refs(index, words),
@@ -945,7 +948,9 @@ fn collect_assignment_visit<'a>(
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => collect_word_visits(word, source, options, context, visits),
+        AssignmentValue::Scalar(word) => {
+            collect_word_visits(word, source, options, context, visits)
+        }
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
@@ -1030,7 +1035,13 @@ fn collect_redirect_visits<'a>(
     visits: &mut Vec<CommandVisit<'a>>,
 ) {
     for redirect in redirects {
-        collect_word_visits(redirect_walk_word(redirect), source, options, context, visits);
+        collect_word_visits(
+            redirect_walk_word(redirect),
+            source,
+            options,
+            context,
+            visits,
+        );
     }
 }
 
@@ -1092,19 +1103,23 @@ impl<F: FnMut(&Command, WalkContext)> CommandWalker<'_, F> {
                 self.walk_assignments(&command.assignments, context);
                 for operand in &command.operands {
                     match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        self.walk_word(word, context);
-                    }
-                    DeclOperand::Name(reference) => {
-                        let mut subscript_words = Vec::new();
-                        collect_var_ref_subscript_words(reference, self.source, &mut subscript_words);
-                        for word in &subscript_words {
+                        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
                             self.walk_word(word, context);
                         }
-                    }
-                    DeclOperand::Assignment(assignment) => {
-                        self.walk_assignment(assignment, context);
-                    }
+                        DeclOperand::Name(reference) => {
+                            let mut subscript_words = Vec::new();
+                            collect_var_ref_subscript_words(
+                                reference,
+                                self.source,
+                                &mut subscript_words,
+                            );
+                            for word in &subscript_words {
+                                self.walk_word(word, context);
+                            }
+                        }
+                        DeclOperand::Assignment(assignment) => {
+                            self.walk_assignment(assignment, context);
+                        }
                     }
                 }
                 self.walk_redirects(&command.redirects, context);
@@ -1487,7 +1502,10 @@ fn collect_word_command_substitutions<'a>(
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 let mut arithmetic_words = Vec::new();
-                collect_optional_arithmetic_word_refs(expression_ast.as_ref(), &mut arithmetic_words);
+                collect_optional_arithmetic_word_refs(
+                    expression_ast.as_ref(),
+                    &mut arithmetic_words,
+                );
                 for word in arithmetic_words {
                     collect_word_command_substitutions(&word.parts, substitutions);
                 }
@@ -1553,7 +1571,9 @@ fn collect_conditional_words(expression: &ConditionalExpr, source: &str, words: 
             collect_conditional_words(&expr.right, source, words);
         }
         ConditionalExpr::Unary(expr) => collect_conditional_words(&expr.expr, source, words),
-        ConditionalExpr::Parenthesized(expr) => collect_conditional_words(&expr.expr, source, words),
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_conditional_words(&expr.expr, source, words)
+        }
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => words.push(word.clone()),
         ConditionalExpr::Pattern(pattern) => collect_pattern_words_from_pattern(pattern, words),
         ConditionalExpr::VarRef(reference) => {

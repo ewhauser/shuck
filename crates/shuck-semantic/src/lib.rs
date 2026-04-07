@@ -2434,7 +2434,10 @@ declare -A map=([\"$other\"]=1)
             .iter()
             .find(|reference| reference.name == "key")
             .expect("expected conditional subscript reference");
-        assert_eq!(conditional_reference.kind, ReferenceKind::ConditionalOperand);
+        assert_eq!(
+            conditional_reference.kind,
+            ReferenceKind::ConditionalOperand
+        );
 
         let declaration_reference = model
             .references()

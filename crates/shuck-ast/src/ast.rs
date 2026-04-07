@@ -1362,7 +1362,8 @@ enum RenderMode {
 }
 
 fn syntax_source_slice<'a>(span: Span, source: &'a str) -> Option<&'a str> {
-    (span.start.offset < span.end.offset && span.end.offset <= source.len()).then(|| span.slice(source))
+    (span.start.offset < span.end.offset && span.end.offset <= source.len())
+        .then(|| span.slice(source))
 }
 
 fn word_prefers_whole_source_slice_in_syntax(word: &Word) -> bool {
@@ -1396,9 +1397,9 @@ fn top_level_pattern_part_prefers_source_slice_in_syntax(part: &PatternPart) -> 
     match part {
         PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => true,
         PatternPart::CharClass(text) => text.is_source_backed(),
-        PatternPart::Group { patterns, .. } => {
-            patterns.iter().all(pattern_prefers_whole_source_slice_in_syntax)
-        }
+        PatternPart::Group { patterns, .. } => patterns
+            .iter()
+            .all(pattern_prefers_whole_source_slice_in_syntax),
         PatternPart::Word(word) => word_prefers_whole_source_slice_in_syntax(word),
     }
 }
@@ -1946,7 +1947,7 @@ fn part_prefers_source_slice_in_syntax(part: &WordPart) -> bool {
             | WordPart::Substring { .. }
             | WordPart::ArraySlice { .. }
             | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch(_)
+            | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
             | WordPart::Transformation { .. }
     )
@@ -2376,6 +2377,7 @@ mod tests {
         let w = Word {
             parts: vec![WordPartNode::new(WordPart::Variable("1".into()), span)],
             span,
+            brace_syntax: Vec::new(),
         };
 
         assert_eq!(w.render_syntax("${1}"), "${1}");
@@ -2401,6 +2403,7 @@ mod tests {
                 span,
             )],
             span,
+            brace_syntax: Vec::new(),
         };
 
         assert_eq!(w.render_syntax("foo "), "foo");
@@ -2424,6 +2427,7 @@ mod tests {
                 span,
             )],
             span,
+            brace_syntax: Vec::new(),
         };
 
         assert_eq!(w.render_syntax(source), source);

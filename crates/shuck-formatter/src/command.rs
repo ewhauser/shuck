@@ -163,11 +163,7 @@ fn format_command_sequence_with_upper_bound(
                 .and_then(|spans| spans.get(index))
                 .map(|span| span.start.line)
                 .unwrap_or(command_span(command).start.line);
-            emit_leading_comments(
-                attachment.leading_for(index),
-                next_line,
-                formatter,
-            )?;
+            emit_leading_comments(attachment.leading_for(index), next_line, formatter)?;
         }
         command.format().fmt(formatter)?;
         if let Some(attachment) = &attachments {
@@ -431,7 +427,10 @@ fn format_list_item(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     if list_item_has_explicit_line_break(item, formatter) {
-        write!(formatter, [text(list_item_multiline_separator(item.operator))])?;
+        write!(
+            formatter,
+            [text(list_item_multiline_separator(item.operator))]
+        )?;
         let command_document =
             format_into_document(formatter, |nested| item.command.format().fmt(nested))?;
         return write!(formatter, [hard_line_break(), indent(command_document)]);
@@ -466,8 +465,9 @@ fn list_item_has_explicit_line_break(
     let source = formatter.context().source();
     let options = formatter.context().options();
     let source_map = formatter.context().comments().source_map();
-    let command_start =
-        command_attachment_span(&item.command, source, source_map, options).start.offset;
+    let command_start = command_attachment_span(&item.command, source, source_map, options)
+        .start
+        .offset;
     source
         .get(item.operator_span.end.offset..command_start)
         .is_some_and(|between| between.contains('\n'))
@@ -1260,7 +1260,11 @@ fn group_verbatim_span(commands: &[Command], source: &str, open: char, close: ch
         return inner;
     };
 
-    span_for_offsets(source, open_offset, inner.end.offset + close_offset + close.len_utf8())
+    span_for_offsets(
+        source,
+        open_offset,
+        inner.end.offset + close_offset + close.len_utf8(),
+    )
 }
 
 fn format_group_with_upper_bound(
@@ -1276,7 +1280,8 @@ fn format_group_with_upper_bound(
         write!(formatter, [space()])?;
     }
     write!(formatter, [text(open)])?;
-    if let Some((span, suffix)) = group_open_suffix(commands, formatter.context().source(), open_char)
+    if let Some((span, suffix)) =
+        group_open_suffix(commands, formatter.context().source(), open_char)
     {
         formatter.context_mut().comments_mut().claim_in_span(span);
         write!(formatter, [text(suffix.to_string())])?;
@@ -1299,7 +1304,9 @@ fn group_open_suffix<'a>(
         .unwrap_or(source.len());
     let suffix_start = open_offset + open.len_utf8();
     let suffix = source.get(suffix_start..line_end)?;
-    suffix.contains('#').then(|| (span_for_offsets(source, suffix_start, line_end), suffix))
+    suffix
+        .contains('#')
+        .then(|| (span_for_offsets(source, suffix_start, line_end), suffix))
 }
 
 fn group_attachment_span(commands: &[Command], source: &str, open: char) -> Option<Span> {
@@ -1642,21 +1649,17 @@ fn command_attachment_span(
     if should_render_verbatim(command, source_map, options) {
         command_verbatim_span(command, source)
     } else if let Command::Compound(CompoundCommand::BraceGroup(commands), redirects) = command {
-        redirects
-            .iter()
-            .fold(
-                group_attachment_span(commands, source, '{')
-                    .unwrap_or_else(|| command_format_span(command)),
-                |span, redirect| span.merge(redirect.span),
-            )
+        redirects.iter().fold(
+            group_attachment_span(commands, source, '{')
+                .unwrap_or_else(|| command_format_span(command)),
+            |span, redirect| span.merge(redirect.span),
+        )
     } else if let Command::Compound(CompoundCommand::Subshell(commands), redirects) = command {
-        redirects
-            .iter()
-            .fold(
-                group_attachment_span(commands, source, '(')
-                    .unwrap_or_else(|| command_format_span(command)),
-                |span, redirect| span.merge(redirect.span),
-            )
+        redirects.iter().fold(
+            group_attachment_span(commands, source, '(')
+                .unwrap_or_else(|| command_format_span(command)),
+            |span, redirect| span.merge(redirect.span),
+        )
     } else {
         command_format_span(command)
     }

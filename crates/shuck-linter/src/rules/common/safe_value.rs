@@ -30,9 +30,7 @@ impl SafeValueQuery {
             ExpansionContext::RedirectTarget(_) => Some(Self::RedirectTarget),
             ExpansionContext::CasePattern
             | ExpansionContext::ConditionalPattern
-            | ExpansionContext::ParameterPattern => {
-                Some(Self::Pattern)
-            }
+            | ExpansionContext::ParameterPattern => Some(Self::Pattern),
             ExpansionContext::RegexOperand => Some(Self::Regex),
             _ => None,
         }
