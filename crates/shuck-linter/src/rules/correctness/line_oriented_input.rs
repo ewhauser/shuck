@@ -1,7 +1,3 @@
-use shuck_ast::{Command, CompoundCommand};
-
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
 pub struct LineOrientedInput;
@@ -17,31 +13,14 @@ impl Violation for LineOrientedInput {
 }
 
 pub fn line_oriented_input(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let Command::Compound(CompoundCommand::For(command)) = command else {
-                return;
-            };
-
-            let Some(words) = &command.words else {
-                return;
-            };
-
-            for word in words {
-                if classify_word(word, source).has_command_substitution() {
-                    spans.push(word.span);
-                }
-            }
-        },
-    );
+    let spans = checker
+        .facts()
+        .for_headers()
+        .iter()
+        .flat_map(|header| header.words().iter())
+        .filter(|word| word.has_command_substitution())
+        .map(|word| word.span())
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(LineOrientedInput, span);

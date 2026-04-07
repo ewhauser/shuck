@@ -1,7 +1,4 @@
-use shuck_ast::{Command, CompoundCommand, StmtSeq, Word, WordPart};
-
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::{Checker, LinterFacts, Rule, Violation};
+use crate::{Checker, Rule, Violation};
 
 pub struct FindOutputLoop;
 
@@ -16,66 +13,18 @@ impl Violation for FindOutputLoop {
 }
 
 pub fn find_output_loop(checker: &mut Checker) {
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let Command::Compound(CompoundCommand::For(command)) = command else {
-                return;
-            };
-
-            let Some(words) = &command.words else {
-                return;
-            };
-
-            for word in words {
-                if word_contains_find_substitution(word, checker.facts()) {
-                    spans.push(word.span);
-                }
-            }
-        },
-    );
+    let spans = checker
+        .facts()
+        .for_headers()
+        .iter()
+        .flat_map(|header| header.words().iter())
+        .filter(|word| word.contains_find_substitution())
+        .map(|word| word.span())
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(FindOutputLoop, span);
     }
-}
-
-fn word_contains_find_substitution(word: &Word, facts: &LinterFacts<'_>) -> bool {
-    word.parts
-        .iter()
-        .any(|part| part_contains_find_substitution(&part.kind, facts))
-}
-
-fn part_contains_find_substitution(part: &WordPart, facts: &LinterFacts<'_>) -> bool {
-    match part {
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| part_contains_find_substitution(&part.kind, facts)),
-        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            commands_start_with_find(body, facts)
-        }
-        _ => false,
-    }
-}
-
-fn commands_start_with_find(commands: &StmtSeq, facts: &LinterFacts<'_>) -> bool {
-    matches!(commands.as_slice(), [command] if command_starts_with_find(command, facts))
-}
-
-fn command_starts_with_find(command: &shuck_ast::Stmt, facts: &LinterFacts<'_>) -> bool {
-    if let Some(segments) = query::pipeline_segments(&command.command) {
-        return matches!(segments.as_slice(), [segment] if command_starts_with_find(segment, facts));
-    }
-
-    facts
-        .command_for_stmt(command)
-        .is_some_and(|fact| fact.effective_name_is("find"))
 }
 
 #[cfg(test)]

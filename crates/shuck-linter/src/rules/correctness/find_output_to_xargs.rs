@@ -1,7 +1,6 @@
-use shuck_ast::{Command, Span, Stmt};
+use shuck_ast::{Command, Span};
 
-use crate::rules::common::query;
-use crate::{Checker, CommandFact, Rule, Violation};
+use crate::{Checker, CommandFact, PipelineFact, PipelineSegmentFact, Rule, Violation};
 
 pub struct FindOutputToXargs;
 
@@ -18,10 +17,9 @@ impl Violation for FindOutputToXargs {
 pub fn find_output_to_xargs(checker: &mut Checker) {
     let spans = checker
         .facts()
-        .commands()
+        .pipelines()
         .iter()
-        .filter_map(|fact| query::pipeline_segments(fact.command()))
-        .flat_map(|pipeline| unsafe_find_to_xargs_spans(checker, &pipeline))
+        .flat_map(|pipeline| unsafe_find_to_xargs_spans(checker, pipeline))
         .collect::<Vec<_>>();
 
     for span in spans {
@@ -29,14 +27,18 @@ pub fn find_output_to_xargs(checker: &mut Checker) {
     }
 }
 
-fn unsafe_find_to_xargs_spans(checker: &Checker<'_>, pipeline: &[&Stmt]) -> Vec<Span> {
+fn unsafe_find_to_xargs_spans(checker: &Checker<'_>, pipeline: &PipelineFact<'_>) -> Vec<Span> {
     pipeline
+        .segments()
         .windows(2)
         .filter_map(|pair| {
-            let left = checker.facts().command_for_stmt(pair[0])?;
-            let right = checker.facts().command_for_stmt(pair[1])?;
+            let left_segment = &pair[0];
+            let right_segment = &pair[1];
+            let left = checker.facts().command_for_stmt(left_segment.stmt())?;
+            let right = checker.facts().command_for_stmt(right_segment.stmt())?;
 
-            if !left.effective_name_is("find") || !right.effective_name_is("xargs") {
+            if !left_segment.effective_name_is("find") || !right_segment.effective_name_is("xargs")
+            {
                 return None;
             }
 
@@ -49,15 +51,16 @@ fn unsafe_find_to_xargs_spans(checker: &Checker<'_>, pipeline: &[&Stmt]) -> Vec<
                 return None;
             }
 
-            Some(find_command_span(pair[0], left))
+            Some(find_command_span(left_segment, left))
         })
         .collect()
 }
 
-fn find_command_span(command: &Stmt, fact: &CommandFact<'_>) -> Span {
-    match &command.command {
+fn find_command_span(segment: &PipelineSegmentFact<'_>, fact: &CommandFact<'_>) -> Span {
+    match &segment.command() {
         Command::Simple(simple) => {
-            let end = command
+            let end = segment
+                .stmt()
                 .redirects
                 .last()
                 .map(|redirect| redirect.span.end)

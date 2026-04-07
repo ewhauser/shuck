@@ -319,23 +319,25 @@ The loop and pipeline fact family should precompute:
 
 Action items:
 
-- [ ] Add `ForHeaderFact` and `SelectHeaderFact`.
-- [ ] Add `PipelineFact` with normalized segment identity.
-- [ ] Add `ListFact` for `&&` / `||` operator sequences.
-- [ ] Decide whether loop-depth queries should move to linter facts or reuse
+- [x] Add `ForHeaderFact` and `SelectHeaderFact`.
+- [x] Add `PipelineFact` with normalized segment identity.
+- [x] Add `ListFact` for `&&` / `||` operator sequences.
+- [x] Decide whether loop-depth queries should move to linter facts or reuse
       `SemanticModel::flow_context_at`.
-- [ ] Convert loop, list, and pipeline rules away from generic `walk_commands`
+      Reused semantic flow context for loop-control checks instead of
+      duplicating loop depth in `LinterFacts`.
+- [x] Convert loop, list, and pipeline rules away from generic `walk_commands`
       scans.
 
 Rules to migrate onto loop, list, and pipeline facts:
 
-- [ ] `S003` `LoopFromCommandOutput`
-- [ ] `C010` `ChainedTestBranches`
-- [ ] `C011` `LineOrientedInput`
-- [ ] `C013` `FindOutputLoop`
-- [ ] `C018` `LoopControlOutsideLoop`
-- [ ] `C046` `PipeToKill`
-- [ ] `C007` `FindOutputToXargs`
+- [x] `S003` `LoopFromCommandOutput`
+- [x] `C010` `ChainedTestBranches`
+- [x] `C011` `LineOrientedInput`
+- [x] `C013` `FindOutputLoop`
+- [x] `C018` `LoopControlOutsideLoop`
+- [x] `C046` `PipeToKill`
+- [x] `C007` `FindOutputToXargs`
 
 ### Initiative 6: Redirect And Substitution Facts
 
@@ -445,7 +447,7 @@ Needs migration to `LinterFacts`:
 
 - [ ] `S001` `UnquotedExpansion`
 - [ ] `S002` `ReadWithoutRaw`
-- [ ] `S003` `LoopFromCommandOutput`
+- [x] `S003` `LoopFromCommandOutput`
 - [ ] `S004` `UnquotedCommandSubstitution`
 - [ ] `S005` `LegacyBackticks`
 - [ ] `S006` `LegacyArithmeticExpansion`
@@ -456,25 +458,25 @@ Needs migration to `LinterFacts`:
 - [ ] `C005` `SingleQuotedLiteral`
 - [ ] `C008` `TrapStringExpansion`
 - [x] `C009` `QuotedBashRegex`
-- [ ] `C010` `ChainedTestBranches`
-- [ ] `C011` `LineOrientedInput`
-- [ ] `C013` `FindOutputLoop`
+- [x] `C010` `ChainedTestBranches`
+- [x] `C011` `LineOrientedInput`
+- [x] `C013` `FindOutputLoop`
 - [ ] `C015` `SudoRedirectionOrder`
 - [x] `C017` `ConstantComparisonTest`
-- [ ] `C018` `LoopControlOutsideLoop`
+- [x] `C018` `LoopControlOutsideLoop`
 - [x] `C019` `LiteralUnaryStringTest`
 - [x] `C020` `TruthyLiteralTest`
 - [ ] `C021` `ConstantCaseSubject`
 - [x] `C022` `EmptyTest`
 - [ ] `C025` `PositionalTenBraces`
-- [ ] `C046` `PipeToKill`
+- [x] `C046` `PipeToKill`
 - [ ] `C047` `InvalidExitStatus`
 - [ ] `C048` `CasePatternVar`
 - [ ] `C050` `ArithmeticRedirectionTarget`
 - [ ] `C055` `PatternWithVariable`
 - [ ] `C057` `SubstWithRedirect`
 - [ ] `C058` `SubstWithRedirectErr`
-- [ ] `C007` `FindOutputToXargs`
+- [x] `C007` `FindOutputToXargs`
 
 ## Suggested Rollout
 

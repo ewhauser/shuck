@@ -9,8 +9,9 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalBinaryOp,
-    ConditionalExpr, ConditionalUnaryOp, DeclOperand, File, Redirect, Span, Stmt, Word,
+    AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, Command, CompoundCommand,
+    ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File, ForCommand,
+    Redirect, SelectCommand, Span, Stmt, StmtSeq, Word, WordPart,
 };
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
@@ -21,6 +22,7 @@ use crate::rules::common::expansion::ExpansionContext;
 use crate::rules::common::{
     command::{self, NormalizedCommand, WrapperKind},
     query::{self, CommandVisit, CommandWalkOptions},
+    span,
     word::{
         TestOperandClass, WordClassification, WordQuote, classify_conditional_operand,
         classify_contextual_operand, classify_word, static_word_text,
@@ -294,6 +296,241 @@ impl<'a> ConditionalFact<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct LoopHeaderWordFact<'a> {
+    word: &'a Word,
+    classification: WordClassification,
+    has_unquoted_command_substitution: bool,
+    contains_find_substitution: bool,
+}
+
+impl<'a> LoopHeaderWordFact<'a> {
+    pub fn word(&self) -> &'a Word {
+        self.word
+    }
+
+    pub fn span(&self) -> Span {
+        self.word.span
+    }
+
+    pub fn classification(&self) -> WordClassification {
+        self.classification
+    }
+
+    pub fn has_command_substitution(&self) -> bool {
+        self.classification.has_command_substitution()
+    }
+
+    pub fn has_unquoted_command_substitution(&self) -> bool {
+        self.has_unquoted_command_substitution
+    }
+
+    pub fn contains_find_substitution(&self) -> bool {
+        self.contains_find_substitution
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ForHeaderFact<'a> {
+    command: &'a ForCommand,
+    command_key: FactSpan,
+    nested_word_command: bool,
+    words: Box<[LoopHeaderWordFact<'a>]>,
+}
+
+impl<'a> ForHeaderFact<'a> {
+    pub fn command(&self) -> &'a ForCommand {
+        self.command
+    }
+
+    pub fn command_key(&self) -> FactSpan {
+        self.command_key
+    }
+
+    pub fn span(&self) -> Span {
+        self.command.span
+    }
+
+    pub fn is_nested_word_command(&self) -> bool {
+        self.nested_word_command
+    }
+
+    pub fn words(&self) -> &[LoopHeaderWordFact<'a>] {
+        &self.words
+    }
+
+    pub fn has_command_substitution(&self) -> bool {
+        self.words
+            .iter()
+            .any(LoopHeaderWordFact::has_command_substitution)
+    }
+
+    pub fn has_find_substitution(&self) -> bool {
+        self.words
+            .iter()
+            .any(LoopHeaderWordFact::contains_find_substitution)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectHeaderFact<'a> {
+    command: &'a SelectCommand,
+    command_key: FactSpan,
+    nested_word_command: bool,
+    words: Box<[LoopHeaderWordFact<'a>]>,
+}
+
+impl<'a> SelectHeaderFact<'a> {
+    pub fn command(&self) -> &'a SelectCommand {
+        self.command
+    }
+
+    pub fn command_key(&self) -> FactSpan {
+        self.command_key
+    }
+
+    pub fn span(&self) -> Span {
+        self.command.span
+    }
+
+    pub fn is_nested_word_command(&self) -> bool {
+        self.nested_word_command
+    }
+
+    pub fn words(&self) -> &[LoopHeaderWordFact<'a>] {
+        &self.words
+    }
+
+    pub fn has_command_substitution(&self) -> bool {
+        self.words
+            .iter()
+            .any(LoopHeaderWordFact::has_command_substitution)
+    }
+
+    pub fn has_find_substitution(&self) -> bool {
+        self.words
+            .iter()
+            .any(LoopHeaderWordFact::contains_find_substitution)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PipelineSegmentFact<'a> {
+    stmt: &'a Stmt,
+    command_key: FactSpan,
+    literal_name: Option<Box<str>>,
+    effective_name: Option<Box<str>>,
+}
+
+impl<'a> PipelineSegmentFact<'a> {
+    pub fn stmt(&self) -> &'a Stmt {
+        self.stmt
+    }
+
+    pub fn command(&self) -> &'a Command {
+        &self.stmt.command
+    }
+
+    pub fn command_key(&self) -> FactSpan {
+        self.command_key
+    }
+
+    pub fn literal_name(&self) -> Option<&str> {
+        self.literal_name.as_deref()
+    }
+
+    pub fn effective_name(&self) -> Option<&str> {
+        self.effective_name.as_deref()
+    }
+
+    pub fn effective_or_literal_name(&self) -> Option<&str> {
+        self.effective_name().or_else(|| self.literal_name())
+    }
+
+    pub fn effective_name_is(&self, name: &str) -> bool {
+        self.effective_name() == Some(name)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PipelineFact<'a> {
+    key: FactSpan,
+    command: &'a BinaryCommand,
+    segments: Box<[PipelineSegmentFact<'a>]>,
+}
+
+impl<'a> PipelineFact<'a> {
+    pub fn key(&self) -> FactSpan {
+        self.key
+    }
+
+    pub fn command(&self) -> &'a BinaryCommand {
+        self.command
+    }
+
+    pub fn span(&self) -> Span {
+        self.command.span
+    }
+
+    pub fn segments(&self) -> &[PipelineSegmentFact<'a>] {
+        &self.segments
+    }
+
+    pub fn first_segment(&self) -> Option<&PipelineSegmentFact<'a>> {
+        self.segments.first()
+    }
+
+    pub fn last_segment(&self) -> Option<&PipelineSegmentFact<'a>> {
+        self.segments.last()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ListOperatorFact {
+    op: BinaryOp,
+    span: Span,
+}
+
+impl ListOperatorFact {
+    pub fn op(&self) -> BinaryOp {
+        self.op
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ListFact<'a> {
+    key: FactSpan,
+    command: &'a BinaryCommand,
+    operators: Box<[ListOperatorFact]>,
+    mixed_short_circuit_span: Option<Span>,
+}
+
+impl<'a> ListFact<'a> {
+    pub fn key(&self) -> FactSpan {
+        self.key
+    }
+
+    pub fn command(&self) -> &'a BinaryCommand {
+        self.command
+    }
+
+    pub fn span(&self) -> Span {
+        self.command.span
+    }
+
+    pub fn operators(&self) -> &[ListOperatorFact] {
+        &self.operators
+    }
+
+    pub fn mixed_short_circuit_span(&self) -> Option<Span> {
+        self.mixed_short_circuit_span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ReadCommandFacts {
     pub uses_raw_input: bool,
 }
@@ -554,6 +791,10 @@ pub struct LinterFacts<'a> {
     structural_command_indices: Vec<usize>,
     command_index: FxHashMap<*const Command, usize>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
+    for_headers: Vec<ForHeaderFact<'a>>,
+    select_headers: Vec<SelectHeaderFact<'a>>,
+    pipelines: Vec<PipelineFact<'a>>,
+    lists: Vec<ListFact<'a>>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -597,6 +838,22 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn scalar_binding_values(&self) -> &FxHashMap<FactSpan, &'a Word> {
         &self.scalar_bindings
+    }
+
+    pub fn for_headers(&self) -> &[ForHeaderFact<'a>] {
+        &self.for_headers
+    }
+
+    pub fn select_headers(&self) -> &[SelectHeaderFact<'a>] {
+        &self.select_headers
+    }
+
+    pub fn pipelines(&self) -> &[PipelineFact<'a>] {
+        &self.pipelines
+    }
+
+    pub fn lists(&self) -> &[ListFact<'a>] {
+        &self.lists
     }
 }
 
@@ -671,13 +928,308 @@ impl<'a> LinterFactsBuilder<'a> {
             });
         }
 
+        let for_headers = build_for_header_facts(&commands, &command_index, self.source);
+        let select_headers = build_select_header_facts(&commands, &command_index, self.source);
+        let pipelines = build_pipeline_facts(&commands, &command_index);
+        let lists = build_list_facts(&commands);
+
         LinterFacts {
             commands,
             structural_command_indices,
             command_index,
             scalar_bindings,
+            for_headers,
+            select_headers,
+            pipelines,
+            lists,
         }
     }
+}
+
+fn build_for_header_facts<'a>(
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+    source: &str,
+) -> Vec<ForHeaderFact<'a>> {
+    commands
+        .iter()
+        .filter_map(|fact| {
+            let Command::Compound(CompoundCommand::For(command)) = fact.command() else {
+                return None;
+            };
+
+            Some(ForHeaderFact {
+                command,
+                command_key: fact.key(),
+                nested_word_command: fact.is_nested_word_command(),
+                words: build_loop_header_word_facts(
+                    command.words.iter().flat_map(|words| words.iter()),
+                    commands,
+                    command_index,
+                    source,
+                ),
+            })
+        })
+        .collect()
+}
+
+fn build_select_header_facts<'a>(
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+    source: &str,
+) -> Vec<SelectHeaderFact<'a>> {
+    commands
+        .iter()
+        .filter_map(|fact| {
+            let Command::Compound(CompoundCommand::Select(command)) = fact.command() else {
+                return None;
+            };
+
+            Some(SelectHeaderFact {
+                command,
+                command_key: fact.key(),
+                nested_word_command: fact.is_nested_word_command(),
+                words: build_loop_header_word_facts(
+                    command.words.iter(),
+                    commands,
+                    command_index,
+                    source,
+                ),
+            })
+        })
+        .collect()
+}
+
+fn build_loop_header_word_facts<'a>(
+    words: impl IntoIterator<Item = &'a Word>,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+    source: &str,
+) -> Box<[LoopHeaderWordFact<'a>]> {
+    words
+        .into_iter()
+        .map(|word| {
+            let classification = classify_word(word, source);
+            LoopHeaderWordFact {
+                word,
+                classification,
+                has_unquoted_command_substitution: classification.has_command_substitution()
+                    && !span::unquoted_command_substitution_part_spans(word).is_empty(),
+                contains_find_substitution: word_contains_find_substitution(
+                    word,
+                    commands,
+                    command_index,
+                ),
+            }
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn build_pipeline_facts<'a>(
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> Vec<PipelineFact<'a>> {
+    let mut nested_pipeline_commands = FxHashSet::default();
+
+    for fact in commands {
+        let Command::Binary(command) = fact.command() else {
+            continue;
+        };
+        if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+            continue;
+        }
+
+        if matches!(
+            &command.left.command,
+            Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+        ) {
+            nested_pipeline_commands.insert(command_ptr(&command.left.command));
+        }
+        if matches!(
+            &command.right.command,
+            Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+        ) {
+            nested_pipeline_commands.insert(command_ptr(&command.right.command));
+        }
+    }
+
+    commands
+        .iter()
+        .filter_map(|fact| {
+            let Command::Binary(command) = fact.command() else {
+                return None;
+            };
+            if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+                || nested_pipeline_commands.contains(&command_ptr(fact.command()))
+            {
+                return None;
+            }
+
+            let segments = query::pipeline_segments(fact.command())?;
+            Some(PipelineFact {
+                key: fact.key(),
+                command,
+                segments: segments
+                    .into_iter()
+                    .map(|stmt| build_pipeline_segment_fact(stmt, commands, command_index))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            })
+        })
+        .collect()
+}
+
+fn build_pipeline_segment_fact<'a>(
+    stmt: &'a Stmt,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> PipelineSegmentFact<'a> {
+    let fact = command_index
+        .get(&command_ptr(&stmt.command))
+        .map(|&index| &commands[index])
+        .expect("pipeline segment should have a corresponding command fact");
+
+    PipelineSegmentFact {
+        stmt,
+        command_key: fact.key(),
+        literal_name: fact
+            .literal_name()
+            .map(str::to_owned)
+            .map(String::into_boxed_str),
+        effective_name: fact
+            .effective_name()
+            .map(str::to_owned)
+            .map(String::into_boxed_str),
+    }
+}
+
+fn build_list_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<ListFact<'a>> {
+    let mut nested_list_commands = FxHashSet::default();
+
+    for fact in commands {
+        let Command::Binary(command) = fact.command() else {
+            continue;
+        };
+        if !matches!(command.op, BinaryOp::And | BinaryOp::Or) {
+            continue;
+        }
+
+        if matches!(&command.left.command, Command::Binary(left) if matches!(left.op, BinaryOp::And | BinaryOp::Or))
+        {
+            nested_list_commands.insert(command_ptr(&command.left.command));
+        }
+        if matches!(&command.right.command, Command::Binary(right) if matches!(right.op, BinaryOp::And | BinaryOp::Or))
+        {
+            nested_list_commands.insert(command_ptr(&command.right.command));
+        }
+    }
+
+    commands
+        .iter()
+        .filter_map(|fact| {
+            let Command::Binary(command) = fact.command() else {
+                return None;
+            };
+            if !matches!(command.op, BinaryOp::And | BinaryOp::Or)
+                || nested_list_commands.contains(&command_ptr(fact.command()))
+            {
+                return None;
+            }
+
+            let mut operators = Vec::new();
+            collect_short_circuit_operators(command, &mut operators);
+            let mixed_short_circuit_span = mixed_short_circuit_operator_span(&operators);
+
+            Some(ListFact {
+                key: fact.key(),
+                command,
+                operators: operators.into_boxed_slice(),
+                mixed_short_circuit_span,
+            })
+        })
+        .collect()
+}
+
+fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
+    if let Command::Binary(left) = &command.left.command {
+        if matches!(left.op, BinaryOp::And | BinaryOp::Or) {
+            collect_short_circuit_operators(left, operators);
+        }
+    }
+
+    if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
+        operators.push(ListOperatorFact {
+            op: command.op,
+            span: command.op_span,
+        });
+    }
+
+    if let Command::Binary(right) = &command.right.command {
+        if matches!(right.op, BinaryOp::And | BinaryOp::Or) {
+            collect_short_circuit_operators(right, operators);
+        }
+    }
+}
+
+fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<Span> {
+    let mut current = None;
+
+    for operator in operators {
+        match current {
+            None => current = Some(operator.op()),
+            Some(previous) if previous == operator.op() => {}
+            Some(_) => return Some(operator.span()),
+        }
+    }
+
+    None
+}
+
+fn word_contains_find_substitution<'a>(
+    word: &'a Word,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    word.parts
+        .iter()
+        .any(|part| part_contains_find_substitution(&part.kind, commands, command_index))
+}
+
+fn part_contains_find_substitution<'a>(
+    part: &WordPart,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| part_contains_find_substitution(&part.kind, commands, command_index)),
+        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
+            substitution_body_is_find(body, commands, command_index)
+        }
+        _ => false,
+    }
+}
+
+fn substitution_body_is_find<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    matches!(body.as_slice(), [stmt] if stmt_effective_name_is(stmt, "find", commands, command_index))
+}
+
+fn stmt_effective_name_is<'a>(
+    stmt: &'a Stmt,
+    name: &str,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    command_index
+        .get(&command_ptr(&stmt.command))
+        .map(|&index| commands[index].effective_name_is(name))
+        .unwrap_or(false)
 }
 
 fn build_simple_test_fact<'a>(
@@ -1484,6 +2036,78 @@ test
                 assert!(!tests[1].1.empty_test_suppressed());
             },
         );
+    }
+
+    #[test]
+    fn builds_loop_header_pipeline_and_list_facts() {
+        let source = "\
+#!/bin/bash
+for file in $(printf '%s\\n' one two) \"$(command find . -type f)\" literal; do :; done
+select choice in $(printf '%s\\n' a b) \"$(find . -type f)\" literal; do :; done
+printf '%s\\n' 123 | command kill -9 | tee out.txt
+summary=$(printf '%s\\n' 456 | kill -TERM)
+echo \"$(for nested in $(printf nested); do :; done)\"
+true && false || printf '%s\\n' fallback
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(facts.for_headers().len(), 2);
+
+            let top_level_for = &facts.for_headers()[0];
+            assert!(!top_level_for.is_nested_word_command());
+            assert_eq!(top_level_for.words().len(), 3);
+            assert!(top_level_for.words()[0].has_unquoted_command_substitution());
+            assert!(top_level_for.words()[1].contains_find_substitution());
+            assert!(top_level_for.has_command_substitution());
+            assert!(top_level_for.has_find_substitution());
+
+            let nested_for = &facts.for_headers()[1];
+            assert!(nested_for.is_nested_word_command());
+            assert!(nested_for.words()[0].has_unquoted_command_substitution());
+
+            let select = &facts.select_headers()[0];
+            assert_eq!(select.words().len(), 3);
+            assert!(select.words()[0].has_command_substitution());
+            assert!(select.words()[1].contains_find_substitution());
+
+            let pipeline_segments = facts
+                .pipelines()
+                .iter()
+                .map(|pipeline| {
+                    pipeline
+                        .segments()
+                        .iter()
+                        .map(|segment| {
+                            segment
+                                .effective_or_literal_name()
+                                .expect("expected normalized pipeline segment name")
+                                .to_owned()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                pipeline_segments,
+                vec![
+                    vec!["printf".to_owned(), "kill".to_owned(), "tee".to_owned()],
+                    vec!["printf".to_owned(), "kill".to_owned()],
+                ]
+            );
+
+            let list = facts.lists().first().expect("expected list fact");
+            assert_eq!(
+                list.operators()
+                    .iter()
+                    .map(|operator| operator.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["&&", "||"]
+            );
+            assert_eq!(
+                list.mixed_short_circuit_span()
+                    .map(|span| span.slice(source)),
+                Some("||")
+            );
+        });
     }
 
     #[test]

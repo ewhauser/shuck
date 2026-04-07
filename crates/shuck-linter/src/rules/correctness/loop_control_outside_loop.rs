@@ -1,6 +1,5 @@
 use shuck_ast::{BuiltinCommand, Command};
 
-use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::{Checker, Rule, Violation};
 
 pub struct LoopControlOutsideLoop {
@@ -18,31 +17,23 @@ impl Violation for LoopControlOutsideLoop {
 }
 
 pub fn loop_control_outside_loop(checker: &mut Checker) {
-    let mut violations = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let context = visit.context;
-            if context.loop_depth > 0 {
-                return;
-            }
-
-            match command {
-                Command::Builtin(BuiltinCommand::Break(command)) => {
-                    violations.push((command.span, "break"));
-                }
-                Command::Builtin(BuiltinCommand::Continue(command)) => {
-                    violations.push((command.span, "continue"));
-                }
-                _ => {}
-            }
-        },
-    );
+    let violations = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Builtin(BuiltinCommand::Break(command)) => Some((command.span, "break")),
+            Command::Builtin(BuiltinCommand::Continue(command)) => Some((command.span, "continue")),
+            _ => None,
+        })
+        .filter(|(span, _)| {
+            checker
+                .semantic()
+                .flow_context_at(span)
+                .map(|context| context.loop_depth == 0)
+                .unwrap_or(true)
+        })
+        .collect::<Vec<_>>();
 
     for (span, keyword) in violations {
         checker.report(LoopControlOutsideLoop { keyword }, span);

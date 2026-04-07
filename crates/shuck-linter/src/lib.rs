@@ -22,10 +22,11 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use facts::{
     CommandFact, CommandOptionFacts, ConditionalBareWordFact, ConditionalBinaryFact,
     ConditionalFact, ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
-    ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts, LinterFacts,
-    PrintfCommandFacts, ReadCommandFacts, SimpleTestFact, SimpleTestOperatorFamily,
-    SimpleTestShape, SimpleTestSyntax, SudoFamilyCommandFacts, SudoFamilyInvoker,
-    UnsetCommandFacts, XargsCommandFacts,
+    ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts, ForHeaderFact, LinterFacts,
+    ListFact, ListOperatorFact, LoopHeaderWordFact, PipelineFact, PipelineSegmentFact,
+    PrintfCommandFacts, ReadCommandFacts, SelectHeaderFact, SimpleTestFact,
+    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SudoFamilyCommandFacts,
+    SudoFamilyInvoker, UnsetCommandFacts, XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};

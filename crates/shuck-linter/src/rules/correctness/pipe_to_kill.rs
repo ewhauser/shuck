@@ -1,6 +1,3 @@
-use shuck_ast::{BinaryOp, Command};
-
-use crate::rules::common::query;
 use crate::{Checker, Rule, Violation};
 
 pub struct PipeToKill;
@@ -18,24 +15,14 @@ impl Violation for PipeToKill {
 pub fn pipe_to_kill(checker: &mut Checker) {
     let spans = checker
         .facts()
-        .commands()
+        .pipelines()
         .iter()
-        .filter_map(|fact| {
-            let Command::Binary(command) = fact.command() else {
-                return None;
-            };
-            if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
-                return None;
-            }
-
-            let segments = query::pipeline_segments(fact.command())?;
-            (segments.len() > 1)
-                .then_some(segments.last().copied())
-                .flatten()
-                .and_then(|segment| checker.facts().command_for_stmt(segment))
-                .filter(|fact| fact.effective_name_is("kill"))
-                .map(|_| command.span)
+        .filter(|pipeline| {
+            pipeline
+                .last_segment()
+                .is_some_and(|segment| segment.effective_name_is("kill"))
         })
+        .map(|pipeline| pipeline.span())
         .collect::<Vec<_>>();
 
     for span in spans {
