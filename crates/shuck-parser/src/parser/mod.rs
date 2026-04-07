@@ -1716,7 +1716,7 @@ impl<'a> Parser<'a> {
                 function.span = function.span.rebased(base);
                 function.name_span = function.name_span.rebased(base);
                 function.surface.rebased(base);
-                Self::rebase_command(&mut function.body, base);
+                Self::rebase_stmt(function.body.as_mut(), base);
             }
         }
     }
@@ -1888,14 +1888,14 @@ impl<'a> Parser<'a> {
         match compound {
             CompoundCommand::If(command) => {
                 command.span = command.span.rebased(base);
-                Self::rebase_commands(&mut command.condition, base);
-                Self::rebase_commands(&mut command.then_branch, base);
+                Self::rebase_stmt_seq(&mut command.condition, base);
+                Self::rebase_stmt_seq(&mut command.then_branch, base);
                 for (condition, body) in &mut command.elif_branches {
-                    Self::rebase_commands(condition, base);
-                    Self::rebase_commands(body, base);
+                    Self::rebase_stmt_seq(condition, base);
+                    Self::rebase_stmt_seq(body, base);
                 }
                 if let Some(else_branch) = &mut command.else_branch {
-                    Self::rebase_commands(else_branch, base);
+                    Self::rebase_stmt_seq(else_branch, base);
                 }
             }
             CompoundCommand::For(command) => {
@@ -1904,7 +1904,7 @@ impl<'a> Parser<'a> {
                 if let Some(words) = &mut command.words {
                     Self::rebase_words(words, base);
                 }
-                Self::rebase_commands(&mut command.body, base);
+                Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::ArithmeticFor(command) => {
                 command.span = command.span.rebased(base);
@@ -1924,34 +1924,34 @@ impl<'a> Parser<'a> {
                     Self::rebase_arithmetic_expr(expr, base);
                 }
                 command.right_paren_span = command.right_paren_span.rebased(base);
-                Self::rebase_commands(&mut command.body, base);
+                Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::While(command) => {
                 command.span = command.span.rebased(base);
-                Self::rebase_commands(&mut command.condition, base);
-                Self::rebase_commands(&mut command.body, base);
+                Self::rebase_stmt_seq(&mut command.condition, base);
+                Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::Until(command) => {
                 command.span = command.span.rebased(base);
-                Self::rebase_commands(&mut command.condition, base);
-                Self::rebase_commands(&mut command.body, base);
+                Self::rebase_stmt_seq(&mut command.condition, base);
+                Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::Case(command) => {
                 command.span = command.span.rebased(base);
                 Self::rebase_word(&mut command.word, base);
                 for case in &mut command.cases {
                     Self::rebase_patterns(&mut case.patterns, base);
-                    Self::rebase_commands(&mut case.commands, base);
+                    Self::rebase_stmt_seq(&mut case.body, base);
                 }
             }
             CompoundCommand::Select(command) => {
                 command.span = command.span.rebased(base);
                 command.variable_span = command.variable_span.rebased(base);
                 Self::rebase_words(&mut command.words, base);
-                Self::rebase_commands(&mut command.body, base);
+                Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-                Self::rebase_commands(commands, base);
+                Self::rebase_stmt_seq(commands, base);
             }
             CompoundCommand::Arithmetic(command) => {
                 command.span = command.span.rebased(base);
@@ -1965,7 +1965,7 @@ impl<'a> Parser<'a> {
             CompoundCommand::Time(command) => {
                 command.span = command.span.rebased(base);
                 if let Some(inner) = &mut command.command {
-                    Self::rebase_command(inner, base);
+                    Self::rebase_stmt(inner.as_mut(), base);
                 }
             }
             CompoundCommand::Conditional(command) => {
@@ -1977,7 +1977,7 @@ impl<'a> Parser<'a> {
             CompoundCommand::Coproc(command) => {
                 command.span = command.span.rebased(base);
                 command.name_span = command.name_span.map(|span| span.rebased(base));
-                Self::rebase_command(&mut command.body, base);
+                Self::rebase_stmt(command.body.as_mut(), base);
             }
         }
     }
@@ -2116,9 +2116,9 @@ impl<'a> Parser<'a> {
                     Self::rebase_arithmetic_expr(expr, base);
                 }
             }
-            WordPart::CommandSubstitution { commands, .. }
-            | WordPart::ProcessSubstitution { commands, .. } => {
-                Self::rebase_commands(commands, base)
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => {
+                Self::rebase_stmt_seq(body, base)
             }
             WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
         }
@@ -3231,7 +3231,7 @@ impl<'a> Parser<'a> {
         // Check if the very first token is an error
         self.check_error_token()?;
 
-        let start_span = self.current_span;
+        let file_span = Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
         let mut commands = Vec::new();
 
         while self.current_token.is_some() {
@@ -3246,19 +3246,16 @@ impl<'a> Parser<'a> {
             commands.push(command);
         }
 
-        let end_span = self.current_span;
-        Ok(ParseOutput {
-            script: Script {
-                commands,
-                span: start_span.merge(end_span),
-            },
-            comments: self.comments,
-        })
+        let file = File {
+            body: Self::lower_commands_to_stmt_seq(commands, file_span),
+            span: file_span,
+        };
+        Ok(ParseOutput { file })
     }
 
     /// Parse the input while recovering at top-level command boundaries.
     pub fn parse_recovered(mut self) -> RecoveredParse {
-        let start_span = self.current_span;
+        let file_span = Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
         let mut commands = Vec::new();
         let mut diagnostics = Vec::new();
 
@@ -3299,13 +3296,11 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let end_span = self.current_span;
         RecoveredParse {
-            script: Script {
-                commands,
-                span: start_span.merge(end_span),
+            file: File {
+                body: Self::lower_commands_to_stmt_seq(commands, file_span),
+                span: file_span,
             },
-            comments: self.comments,
             diagnostics,
         }
     }
@@ -3453,19 +3448,17 @@ impl<'a> Parser<'a> {
 
             self.skip_newlines()?;
             if allow_empty_tail && self.current_token.is_none() {
-                if matches!(op, ListOperator::Background) {
-                    rest.push(CommandListItem {
-                        operator: ListOperator::Background,
-                        operator_span,
-                        command: Command::Simple(SimpleCommand {
-                            name: Word::literal(""),
-                            args: vec![],
-                            redirects: vec![],
-                            assignments: vec![],
-                            span: self.current_span,
-                        }),
-                    });
-                }
+                rest.push(CommandListItem {
+                    operator: op,
+                    operator_span,
+                    command: Command::Simple(SimpleCommand {
+                        name: Word::literal(""),
+                        args: vec![],
+                        redirects: vec![],
+                        assignments: vec![],
+                        span: self.current_span,
+                    }),
+                });
                 break;
             }
 
@@ -3475,6 +3468,19 @@ impl<'a> Parser<'a> {
                     operator_span,
                     command: cmd,
                 });
+            } else if allow_empty_tail {
+                rest.push(CommandListItem {
+                    operator: op,
+                    operator_span,
+                    command: Command::Simple(SimpleCommand {
+                        name: Word::literal(""),
+                        args: vec![],
+                        redirects: vec![],
+                        assignments: vec![],
+                        span: self.current_span,
+                    }),
+                });
+                break;
             } else {
                 break;
             }
@@ -4293,20 +4299,26 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse condition
+        let condition_start = self.current_span.start;
         let condition = self.parse_compound_list(Keyword::Then)?;
+        let condition_span = Span::from_positions(condition_start, self.current_span.start);
+        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
 
         // Expect 'then'
         self.expect_keyword(Keyword::Then)?;
         self.skip_newlines()?;
 
         // Parse then branch
+        let then_start = self.current_span.start;
         let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
+        let then_span = Span::from_positions(then_start, self.current_span.start);
 
         // Bash requires at least one command in then branch
         if then_branch.is_empty() {
             self.pop_depth();
             return Err(self.error("syntax error: empty then clause"));
         }
+        let then_branch = Self::lower_commands_to_stmt_seq(then_branch, then_span);
 
         // Parse elif branches
         let mut elif_branches = Vec::new();
@@ -4314,11 +4326,15 @@ impl<'a> Parser<'a> {
             self.advance(); // consume 'elif'
             self.skip_newlines()?;
 
+            let elif_condition_start = self.current_span.start;
             let elif_condition = self.parse_compound_list(Keyword::Then)?;
+            let elif_condition_span = Span::from_positions(elif_condition_start, self.current_span.start);
             self.expect_keyword(Keyword::Then)?;
             self.skip_newlines()?;
 
+            let elif_body_start = self.current_span.start;
             let elif_body = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
+            let elif_body_span = Span::from_positions(elif_body_start, self.current_span.start);
 
             // Bash requires at least one command in elif branch
             if elif_body.is_empty() {
@@ -4326,14 +4342,19 @@ impl<'a> Parser<'a> {
                 return Err(self.error("syntax error: empty elif clause"));
             }
 
-            elif_branches.push((elif_condition, elif_body));
+            elif_branches.push((
+                Self::lower_commands_to_stmt_seq(elif_condition, elif_condition_span),
+                Self::lower_commands_to_stmt_seq(elif_body, elif_body_span),
+            ));
         }
 
         // Parse else branch
         let else_branch = if self.is_keyword(Keyword::Else) {
             self.advance(); // consume 'else'
             self.skip_newlines()?;
+            let else_start = self.current_span.start;
             let branch = self.parse_compound_list(Keyword::Fi)?;
+            let else_span = Span::from_positions(else_start, self.current_span.start);
 
             // Bash requires at least one command in else branch
             if branch.is_empty() {
@@ -4341,7 +4362,7 @@ impl<'a> Parser<'a> {
                 return Err(self.error("syntax error: empty else clause"));
             }
 
-            Some(branch)
+            Some(Self::lower_commands_to_stmt_seq(branch, else_span))
         } else {
             None
         };
@@ -4424,13 +4445,16 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse body
+        let body_start = self.current_span.start;
         let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
             self.pop_depth();
             return Err(self.error("syntax error: empty for loop body"));
         }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
 
         // Expect 'done'
         self.expect_keyword(Keyword::Done)?;
@@ -4496,13 +4520,16 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse body
+        let body_start = self.current_span.start;
         let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
             self.pop_depth();
             return Err(self.error("syntax error: empty select loop body"));
         }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
 
         // Expect 'done'
         self.expect_keyword(Keyword::Done)?;
@@ -4628,14 +4655,20 @@ impl<'a> Parser<'a> {
 
         let (body, end_span) = if self.at(TokenKind::LeftBrace) {
             let body = self.parse_brace_group()?;
-            (vec![Command::Compound(body, Vec::new())], self.current_span)
+            let span = Self::compound_span(&body);
+            (
+                Self::lower_commands_to_stmt_seq(vec![Command::Compound(body, Vec::new())], span),
+                self.current_span,
+            )
         } else {
             // Expect 'do'
             self.expect_keyword(Keyword::Do)?;
             self.skip_newlines()?;
 
             // Parse body
+            let body_start = self.current_span.start;
             let body = self.parse_compound_list(Keyword::Done)?;
+            let body_span = Span::from_positions(body_start, self.current_span.start);
 
             // Bash requires at least one command in loop body
             if body.is_empty() {
@@ -4648,7 +4681,7 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (body, done_span)
+            (Self::lower_commands_to_stmt_seq(body, body_span), done_span)
         };
 
         Ok(CompoundCommand::ArithmeticFor(Box::new(
@@ -4677,20 +4710,26 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse condition
+        let condition_start = self.current_span.start;
         let condition = self.parse_compound_list(Keyword::Do)?;
+        let condition_span = Span::from_positions(condition_start, self.current_span.start);
+        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
 
         // Expect 'do'
         self.expect_keyword(Keyword::Do)?;
         self.skip_newlines()?;
 
         // Parse body
+        let body_start = self.current_span.start;
         let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
             self.pop_depth();
             return Err(self.error("syntax error: empty while loop body"));
         }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
 
         // Expect 'done'
         self.expect_keyword(Keyword::Done)?;
@@ -4711,20 +4750,26 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         // Parse condition
+        let condition_start = self.current_span.start;
         let condition = self.parse_compound_list(Keyword::Do)?;
+        let condition_span = Span::from_positions(condition_start, self.current_span.start);
+        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
 
         // Expect 'do'
         self.expect_keyword(Keyword::Do)?;
         self.skip_newlines()?;
 
         // Parse body
+        let body_start = self.current_span.start;
         let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
 
         // Bash requires at least one command in loop body
         if body.is_empty() {
             self.pop_depth();
             return Err(self.error("syntax error: empty until loop body"));
         }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
 
         // Expect 'done'
         self.expect_keyword(Keyword::Done)?;
@@ -4790,6 +4835,7 @@ impl<'a> Parser<'a> {
             self.skip_newlines()?;
 
             // Parse commands until ;; or esac
+            let body_start = self.current_span.start;
             let mut commands = Vec::new();
             while !self.is_case_terminator()
                 && !self.is_keyword(Keyword::Esac)
@@ -4800,9 +4846,10 @@ impl<'a> Parser<'a> {
             }
 
             let terminator = self.parse_case_terminator();
+            let body_span = Span::from_positions(body_start, self.current_span.start);
             cases.push(CaseItem {
                 patterns,
-                commands,
+                body: Self::lower_commands_to_stmt_seq(commands, body_span),
                 terminator,
             });
             self.skip_newlines()?;
@@ -4839,11 +4886,13 @@ impl<'a> Parser<'a> {
 
         // Parse the command to time (if any)
         // time with no command is valid in bash (just outputs timing header)
-        let command = self.parse_pipeline()?;
+        let command = self
+            .parse_pipeline()?
+            .map(|command| Box::new(Self::lower_non_sequence_command_to_stmt(command)));
 
         Ok(CompoundCommand::Time(TimeCommand {
             posix_format,
-            command: command.map(Box::new),
+            command,
             span: start_span.merge(self.current_span),
         }))
     }
@@ -4887,6 +4936,7 @@ impl<'a> Parser<'a> {
         // Parse the command body (could be simple, compound, or pipeline)
         let body = self.parse_pipeline()?;
         let body = body.ok_or_else(|| self.error("coproc: missing command"))?;
+        let body = Self::lower_non_sequence_command_to_stmt(body);
 
         Ok(CompoundCommand::Coproc(CoprocCommand {
             name,
@@ -4929,6 +4979,7 @@ impl<'a> Parser<'a> {
         self.advance(); // consume '('
         self.skip_newlines()?;
 
+        let body_start = self.current_span.start;
         let mut commands = Vec::new();
         while !matches!(
             self.current_token_kind,
@@ -4955,7 +5006,10 @@ impl<'a> Parser<'a> {
         }
 
         self.pop_depth();
-        Ok(CompoundCommand::Subshell(commands))
+        Ok(CompoundCommand::Subshell(Self::lower_commands_to_stmt_seq(
+            commands,
+            Span::from_positions(body_start, self.current_span.start),
+        )))
     }
 
     /// Parse a brace group
@@ -4964,6 +5018,7 @@ impl<'a> Parser<'a> {
         self.advance(); // consume '{'
         self.skip_newlines()?;
 
+        let body_start = self.current_span.start;
         let mut commands = Vec::new();
         while !matches!(self.current_token_kind, Some(TokenKind::RightBrace) | None) {
             self.skip_newlines()?;
@@ -4989,7 +5044,10 @@ impl<'a> Parser<'a> {
         self.advance(); // consume '}'
 
         self.pop_depth();
-        Ok(CompoundCommand::BraceGroup(commands))
+        Ok(CompoundCommand::BraceGroup(Self::lower_commands_to_stmt_seq(
+            commands,
+            Span::from_positions(body_start, self.current_span.start),
+        )))
     }
 
     /// Parse arithmetic command ((expression))
@@ -5612,6 +5670,7 @@ impl<'a> Parser<'a> {
         };
 
         let body = self.parse_function_body_command(allow_bare_compound)?;
+        let body = Self::lower_non_sequence_command_to_stmt(body);
 
         Ok(Command::Function(FunctionDef {
             name,
@@ -5654,6 +5713,7 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         let body = self.parse_function_body_command(true)?;
+        let body = Self::lower_non_sequence_command_to_stmt(body);
 
         Ok(Command::Function(FunctionDef {
             name,
@@ -7338,12 +7398,12 @@ impl<'a> Parser<'a> {
                 };
 
                 let inner_start = process_span.end;
-                let commands =
-                    self.nested_commands_from_current_input(inner_start, close_span.start);
+                let body =
+                    self.nested_stmt_seq_from_current_input(inner_start, close_span.start);
 
                 Ok(self.word_with_parts(
                     vec![WordPartNode::new(
-                        WordPart::ProcessSubstitution { commands, is_input },
+                        WordPart::ProcessSubstitution { body, is_input },
                         process_span.merge(close_span),
                     )],
                     process_span.merge(close_span),
@@ -7534,7 +7594,7 @@ impl<'a> Parser<'a> {
                 self.flush_literal_part(parts, &mut current, current_start, part_start);
 
                 let inner_start = cursor;
-                let commands = if source_backed {
+                let body = if source_backed {
                     let mut inner_end = inner_start;
                     let mut escaped = false;
                     while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
@@ -7553,7 +7613,7 @@ impl<'a> Parser<'a> {
                             _ => inner_end = cursor,
                         }
                     }
-                    self.nested_commands_from_current_input(inner_start, inner_end)
+                    self.nested_stmt_seq_from_current_input(inner_start, inner_end)
                 } else {
                     let mut cmd_str = String::new();
                     let mut escaped = false;
@@ -7573,13 +7633,13 @@ impl<'a> Parser<'a> {
                             _ => cmd_str.push(c),
                         }
                     }
-                    self.nested_commands_from_source(&cmd_str, inner_start)
+                    self.nested_stmt_seq_from_source(&cmd_str, inner_start)
                 };
 
                 Self::push_word_part(
                     parts,
                     WordPart::CommandSubstitution {
-                        commands,
+                        body,
                         syntax: CommandSubstitutionSyntax::Backtick,
                     },
                     part_start,
@@ -7765,7 +7825,7 @@ impl<'a> Parser<'a> {
                     );
                 } else {
                     let inner_start = cursor;
-                    let commands = if source_backed {
+                    let body = if source_backed {
                         let mut depth = 1;
                         let mut inner_end = inner_start;
                         while chars.peek().is_some() {
@@ -7785,7 +7845,7 @@ impl<'a> Parser<'a> {
                                 _ => inner_end = cursor,
                             }
                         }
-                        self.nested_commands_from_current_input(inner_start, inner_end)
+                        self.nested_stmt_seq_from_current_input(inner_start, inner_end)
                     } else {
                         let mut cmd_str = String::new();
                         let mut depth = 1;
@@ -7803,12 +7863,12 @@ impl<'a> Parser<'a> {
                                 cmd_str.push(c);
                             }
                         }
-                        self.nested_commands_from_source(&cmd_str, inner_start)
+                        self.nested_stmt_seq_from_source(&cmd_str, inner_start)
                     };
                     Self::push_word_part(
                         parts,
                         WordPart::CommandSubstitution {
-                            commands,
+                            body,
                             syntax: CommandSubstitutionSyntax::DollarParen,
                         },
                         part_start,
