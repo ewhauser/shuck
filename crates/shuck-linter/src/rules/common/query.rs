@@ -322,8 +322,8 @@ pub fn visit_argument_words(command: &Command, visitor: &mut impl FnMut(&Word)) 
     }
 }
 
-pub fn iter_expansion_words<'a>(
-    command: &'a Command,
+pub fn iter_expansion_words(
+    command: &Command,
     source: &str,
 ) -> impl Iterator<Item = (Word, ExpansionContext)> {
     let mut words = Vec::new();
@@ -347,8 +347,8 @@ pub fn visit_command_redirects(command: &Command, visitor: &mut impl FnMut(&Redi
     }
 }
 
-fn collect_expansion_words<'a>(
-    command: &'a Command,
+fn collect_expansion_words(
+    command: &Command,
     source: &str,
     words: &mut Vec<(Word, ExpansionContext)>,
 ) {
@@ -423,8 +423,8 @@ fn collect_expansion_words<'a>(
     }
 }
 
-fn collect_command_name_context_words<'a>(
-    command: &'a Command,
+fn collect_command_name_context_words(
+    command: &Command,
     source: &str,
     words: &mut Vec<(Word, ExpansionContext)>,
 ) {
@@ -435,8 +435,8 @@ fn collect_command_name_context_words<'a>(
     }
 }
 
-fn collect_argument_context_words<'a>(
-    command: &'a Command,
+fn collect_argument_context_words(
+    command: &Command,
     source: &str,
     words: &mut Vec<(Word, ExpansionContext)>,
 ) {
@@ -497,8 +497,8 @@ fn collect_argument_context_words<'a>(
     }
 }
 
-fn collect_expansion_assignment_value_words<'a>(
-    command: &'a Command,
+fn collect_expansion_assignment_value_words(
+    command: &Command,
     source: &str,
     words: &mut Vec<(Word, ExpansionContext)>,
 ) {
@@ -534,8 +534,8 @@ fn collect_expansion_assignment_value_words<'a>(
     }
 }
 
-fn collect_expansion_assignment_words<'a>(
-    assignment: &'a Assignment,
+fn collect_expansion_assignment_words(
+    assignment: &Assignment,
     source: &str,
     context: ExpansionContext,
     words: &mut Vec<(Word, ExpansionContext)>,
@@ -557,8 +557,8 @@ fn collect_expansion_assignment_words<'a>(
     }
 }
 
-fn collect_pattern_context_words<'a>(
-    pattern: &'a Pattern,
+fn collect_pattern_context_words(
+    pattern: &Pattern,
     context: ExpansionContext,
     words: &mut Vec<(Word, ExpansionContext)>,
 ) {
@@ -578,8 +578,8 @@ fn collect_pattern_context_words<'a>(
     }
 }
 
-fn collect_conditional_expansion_words<'a>(
-    expression: &'a ConditionalExpr,
+fn collect_conditional_expansion_words(
+    expression: &ConditionalExpr,
     source: &str,
     words: &mut Vec<(Word, ExpansionContext)>,
 ) {
@@ -673,8 +673,8 @@ fn collect_word_part_parameter_patterns(
     }
 }
 
-fn collect_parameter_operator_patterns<'a>(
-    operator: &'a ParameterOp,
+fn collect_parameter_operator_patterns(
+    operator: &ParameterOp,
     words: &mut Vec<(Word, ExpansionContext)>,
 ) {
     match operator {
@@ -1854,7 +1854,7 @@ for item in \"$(printf loop)\"; do :; done\n";
             },
         )
         .map(|visit| {
-            iter_command_substitutions(&visit.command, source)
+            iter_command_substitutions(visit.command, source)
                 .map(|substitution| {
                     substitution
                         .commands

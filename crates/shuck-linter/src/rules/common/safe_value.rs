@@ -91,14 +91,14 @@ impl<'a> SafeValueIndex<'a> {
                 descend_nested_word_commands: true,
             },
         ) {
-            for assignment in query::command_assignments(&visit.command) {
+            for assignment in query::command_assignments(visit.command) {
                 let AssignmentValue::Scalar(word) = &assignment.value else {
                     continue;
                 };
                 scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
             }
 
-            for operand in query::declaration_operands(&visit.command) {
+            for operand in query::declaration_operands(visit.command) {
                 let DeclOperand::Assignment(assignment) = operand else {
                     continue;
                 };
@@ -505,10 +505,10 @@ esac
             })
             .expect("expected runtime regex word");
 
-        assert!(safe_values.word_is_safe(&pattern_plain, SafeValueQuery::Pattern));
-        assert!(!safe_values.word_is_safe(&pattern_glob, SafeValueQuery::Pattern));
-        assert!(safe_values.word_is_safe(&regex_plain, SafeValueQuery::Regex));
-        assert!(!safe_values.word_is_safe(&regex_runtime, SafeValueQuery::Regex));
+        assert!(safe_values.word_is_safe(pattern_plain, SafeValueQuery::Pattern));
+        assert!(!safe_values.word_is_safe(pattern_glob, SafeValueQuery::Pattern));
+        assert!(safe_values.word_is_safe(regex_plain, SafeValueQuery::Regex));
+        assert!(!safe_values.word_is_safe(regex_runtime, SafeValueQuery::Regex));
     }
 
     #[test]
@@ -567,9 +567,9 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
             })
             .expect("expected unsafe argument");
 
-        assert!(safe_values.word_is_safe(&fallback, SafeValueQuery::Argv));
-        assert!(safe_values.word_is_safe(&trimmed, SafeValueQuery::Argv));
-        assert!(safe_values.word_is_safe(&replaced, SafeValueQuery::Argv));
-        assert!(!safe_values.word_is_safe(&unsafe_replacement, SafeValueQuery::Argv));
+        assert!(safe_values.word_is_safe(fallback, SafeValueQuery::Argv));
+        assert!(safe_values.word_is_safe(trimmed, SafeValueQuery::Argv));
+        assert!(safe_values.word_is_safe(replaced, SafeValueQuery::Argv));
+        assert!(!safe_values.word_is_safe(unsafe_replacement, SafeValueQuery::Argv));
     }
 }

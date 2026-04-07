@@ -1361,7 +1361,7 @@ enum RenderMode {
     Syntax,
 }
 
-fn syntax_source_slice<'a>(span: Span, source: &'a str) -> Option<&'a str> {
+fn syntax_source_slice(span: Span, source: &str) -> Option<&str> {
     (span.start.offset < span.end.offset && span.end.offset <= source.len())
         .then(|| span.slice(source))
 }
@@ -1963,8 +1963,7 @@ fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
             break;
         }
 
-        let backslash_count = text[..whitespace_start]
-            .as_bytes()
+        let backslash_count = text.as_bytes()[..whitespace_start]
             .iter()
             .rev()
             .take_while(|byte| **byte == b'\\')

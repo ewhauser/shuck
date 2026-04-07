@@ -681,16 +681,6 @@ fn format_case_item(
     }
 }
 
-fn format_block(
-    open: &str,
-    close: &str,
-    commands: &[Command],
-    formatter: &mut ShellFormatter<'_, '_>,
-    leading_space: bool,
-) -> FormatResult<()> {
-    format_block_with_upper_bound(open, close, commands, formatter, leading_space, None)
-}
-
 fn format_brace_group(
     commands: &[Command],
     formatter: &mut ShellFormatter<'_, '_>,
@@ -721,22 +711,6 @@ fn format_subshell(
     }
 
     format_group_with_upper_bound("(", ")", '(', commands, formatter, false, upper_bound)
-}
-
-fn format_block_with_upper_bound(
-    open: &str,
-    close: &str,
-    commands: &[Command],
-    formatter: &mut ShellFormatter<'_, '_>,
-    leading_space: bool,
-    upper_bound: Option<usize>,
-) -> FormatResult<()> {
-    if leading_space {
-        write!(formatter, [space()])?;
-    }
-    write!(formatter, [text(open)])?;
-    format_body_with_upper_bound(commands, formatter, upper_bound)?;
-    finish_block(close, formatter)
 }
 
 fn format_arithmetic(
@@ -1008,8 +982,7 @@ fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
             break;
         }
 
-        let backslash_count = text[..whitespace_start]
-            .as_bytes()
+        let backslash_count = text.as_bytes()[..whitespace_start]
             .iter()
             .rev()
             .take_while(|byte| **byte == b'\\')
