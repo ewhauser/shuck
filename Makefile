@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -63,6 +63,9 @@ bench-compare:
 
 bench-parser:
 	cargo bench -p shuck-benchmark --bench parser
+
+bench-arithmetic:
+	cargo bench -p shuck-benchmark --bench arithmetic
 
 bench-lexer:
 	cargo bench -p shuck-benchmark --bench lexer
