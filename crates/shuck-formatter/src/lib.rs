@@ -163,6 +163,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    use shuck_ast::{AssignmentValue, Command};
     use shuck_benchmark::TEST_FILES;
 
     use super::*;
@@ -260,6 +261,38 @@ mod tests {
     }
 
     #[test]
+    fn preserves_comments_after_if_blocks() {
+        let formatted = format_source(
+            "if true; then\necho hi\nfi\n# after\necho bye\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "if true; then\n\techo hi\nfi\n# after\necho bye\n".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn preserves_comments_after_function_blocks() {
+        let formatted = format_source(
+            "foo() {\necho hi\n}\n# after\nbar\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("foo() {\n\techo hi\n}\n# after\nbar\n".to_string())
+        );
+    }
+
+    #[test]
     fn preserves_heredoc_trailing_comments_without_duplication() {
         let formatted = format_source(
             "cat <<EOF # note\nhi\nEOF\n",
@@ -283,6 +316,118 @@ mod tests {
         assert_eq!(
             formatted,
             FormattedSource::Formatted("declare -x foo=1 <<EOF\nhi\nEOF\n".to_string())
+        );
+    }
+
+    #[test]
+    fn standalone_assignments_do_not_gain_trailing_spaces() {
+        let formatted = format_source("x=1\n", None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_blank_lines_between_commands() {
+        let formatted =
+            format_source("set -u\n\nfoo\n", None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_blank_lines_after_functions() {
+        let source = "foo() {\n  echo hi\n}\n\nbar\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+        let formatted = format_source(source, Some(Path::new("function_gap.bash")), &options)
+            .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("foo() {\n\techo hi\n}\n\nbar\n".to_string())
+        );
+    }
+
+    #[test]
+    fn preserves_blank_lines_after_leading_comments() {
+        let formatted = format_source(
+            "#!/usr/bin/env bash\n\nset -u\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn parsed_assignment_value_render_syntax_is_trimmed() {
+        let parsed = parse_for_ast_format("x=1\n", None, &ShellFormatOptions::default());
+        let Command::Simple(command) = &parsed.script.commands[0] else {
+            panic!("expected a simple command");
+        };
+
+        let AssignmentValue::Scalar(value) = &command.assignments[0].value else {
+            panic!("expected a scalar assignment");
+        };
+
+        assert_eq!(value.render_syntax("x=1\n"), "1");
+    }
+
+    #[test]
+    fn preserves_escaped_quotes_in_double_quoted_assignments() {
+        let source = "fzf_completion=\"source \\\"$fzf_base/shell/completion.${shell}\\\"\"\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_case_pattern_escapes() {
+        let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_brace_group_wrapper_comments() {
+        let source = "# c\n{ # note\na=1\n}\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("# c\n{ # note\n\ta=1\n}\n".to_string())
+        );
+    }
+
+    #[test]
+    fn preserves_single_line_function_bodies() {
+        let source = "tty_escape() { printf \"\\\\033[%sm\" \"$1\"; }\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_single_line_subshells() {
+        let source = "(cd \"$fzf_base\"/bin && rm -f fzf && ln -sf \"$which_fzf\" fzf)\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_explicit_line_break_after_list_operator() {
+        let source = "command -v curl >/dev/null &&\n  if [[ $1 =~ tar.gz$ ]]; then\n    curl -fL $1 | tar $tar_opts\n  else\n    echo nope\n  fi\n";
+        let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+        let formatted = format_source(source, Some(Path::new("list_operator_if.bash")), &options)
+            .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "command -v curl >/dev/null &&\n\tif [[ $1 =~ tar.gz$ ]]; then\n\t\tcurl -fL $1 | tar $tar_opts\n\telse\n\t\techo nope\n\tfi\n".to_string()
+            )
         );
     }
 

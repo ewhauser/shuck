@@ -1173,6 +1173,15 @@ impl Word {
         source: Option<&str>,
         mode: RenderMode,
     ) -> fmt::Result {
+        if matches!(mode, RenderMode::Syntax)
+            && let Some(source) = source
+            && word_prefers_whole_source_slice_in_syntax(self)
+            && let Some(slice) = syntax_source_slice(self.span, source)
+        {
+            f.write_str(trim_unescaped_trailing_whitespace(slice))?;
+            return Ok(());
+        }
+
         for (part, span) in self.parts_with_spans() {
             fmt_word_part_with_source_mode(f, part, span, source, mode)?;
         }
@@ -1237,6 +1246,15 @@ impl Pattern {
         source: Option<&str>,
         mode: RenderMode,
     ) -> fmt::Result {
+        if matches!(mode, RenderMode::Syntax)
+            && let Some(source) = source
+            && pattern_prefers_whole_source_slice_in_syntax(self)
+            && let Some(slice) = syntax_source_slice(self.span, source)
+        {
+            f.write_str(trim_unescaped_trailing_whitespace(slice))?;
+            return Ok(());
+        }
+
         for (part, span) in self.parts_with_spans() {
             fmt_pattern_part_with_source_mode(f, part, span, source, mode)?;
         }
@@ -1304,6 +1322,48 @@ pub enum PatternPart {
 enum RenderMode {
     Decoded,
     Syntax,
+}
+
+fn syntax_source_slice<'a>(span: Span, source: &'a str) -> Option<&'a str> {
+    (span.start.offset < span.end.offset && span.end.offset <= source.len()).then(|| span.slice(source))
+}
+
+fn word_prefers_whole_source_slice_in_syntax(word: &Word) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [part] if part.span == word.span && top_level_word_part_prefers_source_slice_in_syntax(&part.kind)
+    )
+}
+
+fn top_level_word_part_prefers_source_slice_in_syntax(part: &WordPart) -> bool {
+    match part {
+        WordPart::Literal(text) => text.is_source_backed(),
+        WordPart::SingleQuoted { value, .. } => value.is_source_backed(),
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().all(|part| match &part.kind {
+            WordPart::Literal(_) => true,
+            other => part_prefers_source_slice_in_syntax(other) && part_is_source_backed(other),
+        }),
+        _ => part_prefers_source_slice_in_syntax(part) && part_is_source_backed(part),
+    }
+}
+
+fn pattern_prefers_whole_source_slice_in_syntax(pattern: &Pattern) -> bool {
+    !pattern.parts.is_empty()
+        && pattern
+            .parts
+            .iter()
+            .all(|part| top_level_pattern_part_prefers_source_slice_in_syntax(&part.kind))
+}
+
+fn top_level_pattern_part_prefers_source_slice_in_syntax(part: &PatternPart) -> bool {
+    match part {
+        PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => true,
+        PatternPart::CharClass(text) => text.is_source_backed(),
+        PatternPart::Group { patterns, .. } => {
+            patterns.iter().all(pattern_prefers_whole_source_slice_in_syntax)
+        }
+        PatternPart::Word(word) => word_prefers_whole_source_slice_in_syntax(word),
+    }
 }
 
 fn display_source_text<'a>(text: Option<&'a SourceText>, source: Option<&'a str>) -> &'a str {
@@ -1522,8 +1582,25 @@ fn fmt_word_part_with_source_mode(
     source: Option<&str>,
     mode: RenderMode,
 ) -> fmt::Result {
+    if matches!(mode, RenderMode::Syntax)
+        && let Some(source) = source
+        && part_prefers_source_slice_in_syntax(part)
+        && part_is_source_backed(part)
+        && span.end.offset <= source.len()
+    {
+        f.write_str(span.slice(source))?;
+        return Ok(());
+    }
+
     match part {
-        WordPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
+        WordPart::Literal(text) => match (mode, source) {
+            (RenderMode::Syntax, Some(source))
+                if text.is_source_backed() && span.end.offset <= source.len() =>
+            {
+                f.write_str(trim_unescaped_trailing_whitespace(span.slice(source)))?;
+            }
+            _ => fmt_literal_text(f, text, span, source)?,
+        },
         WordPart::SingleQuoted { value, dollar } => match mode {
             RenderMode::Decoded => f.write_str(display_source_text(Some(value), source))?,
             RenderMode::Syntax => match source {
@@ -1816,6 +1893,52 @@ fn fmt_word_part_with_source_mode(
     }
 
     Ok(())
+}
+
+fn part_prefers_source_slice_in_syntax(part: &WordPart) -> bool {
+    matches!(
+        part,
+        WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch(_)
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+    )
+}
+
+fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
+    let mut end = text.len();
+    while end > 0 {
+        let Some((whitespace_start, ch)) = text[..end].char_indices().next_back() else {
+            break;
+        };
+        if !ch.is_whitespace() {
+            break;
+        }
+
+        let backslash_count = text[..whitespace_start]
+            .as_bytes()
+            .iter()
+            .rev()
+            .take_while(|byte| **byte == b'\\')
+            .count();
+        if backslash_count % 2 == 1 {
+            break;
+        }
+
+        end = whitespace_start;
+    }
+
+    &text[..end]
 }
 
 fn part_is_source_backed(part: &WordPart) -> bool {
@@ -2140,6 +2263,21 @@ mod tests {
         }
     }
 
+    fn span_for_source(source: &str) -> Span {
+        Span::from_positions(
+            Position {
+                line: 1,
+                column: 1,
+                offset: 0,
+            },
+            Position {
+                line: 1,
+                column: source.chars().count() + 1,
+                offset: source.len(),
+            },
+        )
+    }
+
     // --- Word ---
 
     #[test]
@@ -2182,6 +2320,76 @@ mod tests {
             dollar: false,
         }]);
         assert_eq!(w.render_syntax(""), "\"hello\"");
+    }
+
+    #[test]
+    fn word_render_syntax_preserves_source_backed_braced_variable() {
+        let span = Span::from_positions(
+            Position {
+                line: 1,
+                column: 1,
+                offset: 0,
+            },
+            Position {
+                line: 1,
+                column: 5,
+                offset: 4,
+            },
+        );
+        let w = Word {
+            parts: vec![WordPartNode::new(WordPart::Variable("1".into()), span)],
+            span,
+        };
+
+        assert_eq!(w.render_syntax("${1}"), "${1}");
+    }
+
+    #[test]
+    fn word_render_syntax_trims_source_backed_literal_delimiters() {
+        let span = Span::from_positions(
+            Position {
+                line: 1,
+                column: 1,
+                offset: 0,
+            },
+            Position {
+                line: 1,
+                column: 5,
+                offset: 4,
+            },
+        );
+        let w = Word {
+            parts: vec![WordPartNode::new(
+                WordPart::Literal(LiteralText::source()),
+                span,
+            )],
+            span,
+        };
+
+        assert_eq!(w.render_syntax("foo "), "foo");
+    }
+
+    #[test]
+    fn word_render_syntax_prefers_whole_word_source_slice() {
+        let source = "\"source \\\"$fzf_base/shell/completion.${shell}\\\"\"";
+        let span = span_for_source(source);
+        let w = Word {
+            parts: vec![WordPartNode::new(
+                WordPart::DoubleQuoted {
+                    parts: vec![WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned(
+                            "source \"$fzf_base/shell/completion.${shell}\"".to_string(),
+                        )),
+                        span,
+                    )],
+                    dollar: false,
+                },
+                span,
+            )],
+            span,
+        };
+
+        assert_eq!(w.render_syntax(source), source);
     }
 
     #[test]
@@ -2351,6 +2559,21 @@ mod tests {
             PatternPart::CharClass("[[:digit:]]".into()),
         ]);
         assert_eq!(format!("{p}"), "file*[[:digit:]]");
+    }
+
+    #[test]
+    fn pattern_render_syntax_prefers_whole_pattern_source_slice() {
+        let source = "Darwin\\ arm64*";
+        let span = span_for_source(source);
+        let p = Pattern {
+            parts: vec![PatternPartNode::new(
+                PatternPart::Literal(LiteralText::owned("Darwin arm64*".to_string())),
+                span,
+            )],
+            span,
+        };
+
+        assert_eq!(p.render_syntax(source), source);
     }
 
     #[test]
