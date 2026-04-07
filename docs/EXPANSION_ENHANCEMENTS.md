@@ -436,14 +436,14 @@ Rejected because the same expansion questions already recur across style, correc
 
 For each project and migrated rule:
 
-- [ ] For AST-backed changes, land parser-level shape tests first and then simplify the corresponding expansion helpers.
-- [ ] Add focused unit tests for the shared helper being introduced.
-- [ ] Add snapshot or fixture coverage for each consumer rule.
-- [ ] Run `cargo test -p shuck-linter`.
-- [ ] Run targeted corpus checks for the affected rule set:
+- [x] For AST-backed changes, land parser-level shape tests first and then simplify the corresponding expansion helpers.
+- [x] Add focused unit tests for the shared helper being introduced.
+- [x] Add snapshot or fixture coverage for each consumer rule.
+- [x] Run `cargo test -p shuck-linter`.
+- [x] Run targeted corpus checks for the affected rule set:
   - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C048,C055`
   - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C057,C058`
   - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=S004,S008`
   - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=S001`
-- [ ] Confirm that helper-driven changes reduce false positives and false negatives rather than only shifting spans.
-- [ ] Update the corresponding `docs/bugs/*.md` files when a project materially changes the remaining backlog for a rule.
+- [x] Confirm that helper-driven changes reduce false positives and false negatives rather than only shifting spans.
+- [x] Update the corresponding `docs/bugs/*.md` files when a project materially changes the remaining backlog for a rule.

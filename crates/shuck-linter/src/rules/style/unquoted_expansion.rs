@@ -1,18 +1,13 @@
-use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{
-    AssignmentValue, DeclOperand, Name, ParameterOp, Span, SubscriptSelector, VarRef, Word,
-    WordPart, WordPartNode,
-};
-use shuck_semantic::BindingId;
-use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
+use shuck_ast::{SubscriptSelector, VarRef, Word, WordPart};
 
 use crate::rules::common::{
-    expansion::{ExpansionContext, analyze_word},
+    expansion::ExpansionContext,
     query::{self, CommandWalkOptions},
+    safe_value::{SafeValueIndex, SafeValueQuery},
     span,
-    word::{classify_contextual_operand, classify_word, static_word_text},
+    word::classify_word,
 };
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct UnquotedExpansion;
 
@@ -42,10 +37,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         },
         &mut |command, _| {
             query::visit_expansion_words(command, source, &mut |word, context| {
-                if !matches!(
-                    context,
-                    ExpansionContext::CommandArgument | ExpansionContext::RedirectTarget(_)
-                ) {
+                if !should_check_context(context, checker.shell()) {
                     return;
                 }
 
@@ -53,275 +45,6 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             });
         },
     );
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SpanKey {
-    start: usize,
-    end: usize,
-}
-
-impl SpanKey {
-    fn new(span: Span) -> Self {
-        Self {
-            start: span.start.offset,
-            end: span.end.offset,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum SafeValueQuery {
-    CommandArgument,
-    RedirectTarget,
-}
-
-impl SafeValueQuery {
-    fn from_context(context: ExpansionContext) -> Self {
-        match context {
-            ExpansionContext::CommandArgument => Self::CommandArgument,
-            ExpansionContext::RedirectTarget(_) => Self::RedirectTarget,
-            _ => unreachable!("unsupported safe-value query context"),
-        }
-    }
-}
-
-struct SafeValueIndex<'a> {
-    semantic: &'a SemanticModel,
-    source: &'a str,
-    scalar_bindings: FxHashMap<SpanKey, &'a Word>,
-    maybe_uninitialized_refs: FxHashSet<SpanKey>,
-    memo: FxHashMap<(SpanKey, SafeValueQuery), bool>,
-    visiting: FxHashSet<(SpanKey, SafeValueQuery)>,
-}
-
-impl<'a> SafeValueIndex<'a> {
-    fn build(
-        semantic: &'a SemanticModel,
-        commands: &'a [shuck_ast::Command],
-        source: &'a str,
-    ) -> Self {
-        let mut scalar_bindings = FxHashMap::default();
-
-        for visit in query::iter_commands(
-            commands,
-            CommandWalkOptions {
-                descend_nested_word_commands: true,
-            },
-        ) {
-            for assignment in query::command_assignments(visit.command) {
-                let AssignmentValue::Scalar(word) = &assignment.value else {
-                    continue;
-                };
-                scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
-            }
-
-            for operand in query::declaration_operands(visit.command) {
-                let DeclOperand::Assignment(assignment) = operand else {
-                    continue;
-                };
-                let AssignmentValue::Scalar(word) = &assignment.value else {
-                    continue;
-                };
-                scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
-            }
-        }
-
-        let maybe_uninitialized_refs = semantic
-            .uninitialized_references()
-            .iter()
-            .map(|uninitialized| SpanKey::new(semantic.reference(uninitialized.reference).span))
-            .collect();
-
-        Self {
-            semantic,
-            source,
-            scalar_bindings,
-            maybe_uninitialized_refs,
-            memo: FxHashMap::default(),
-            visiting: FxHashSet::default(),
-        }
-    }
-
-    fn part_is_field_safe(
-        &mut self,
-        part: &WordPart,
-        span: Span,
-        context: ExpansionContext,
-    ) -> bool {
-        match part {
-            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
-                self.literal_part_is_field_safe(part, span, context)
-            }
-            WordPart::DoubleQuoted { parts, .. } => parts
-                .iter()
-                .all(|part| self.part_is_field_safe(&part.kind, part.span, context)),
-            WordPart::Variable(name) => self.name_is_field_safe(name, span, context),
-            WordPart::ArithmeticExpansion { .. } => true,
-            WordPart::Length(_) | WordPart::ArrayLength(_) => true,
-            WordPart::ArrayAccess(reference) => {
-                !reference_has_array_selector(reference, self.source)
-                    && self.reference_is_field_safe(reference, span, context)
-            }
-            WordPart::Substring { reference, .. } => {
-                self.reference_is_field_safe(reference, span, context)
-            }
-            WordPart::Transformation {
-                reference,
-                operator,
-            } => self.transformation_is_field_safe(reference, *operator, span, context),
-            WordPart::IndirectExpansion { name, .. } => {
-                self.indirect_name_is_field_safe(name, span, context)
-            }
-            WordPart::CommandSubstitution { .. }
-            | WordPart::ArrayIndices(_)
-            | WordPart::ArraySlice { .. }
-            | WordPart::PrefixMatch(_)
-            | WordPart::ProcessSubstitution { .. } => false,
-            WordPart::ParameterExpansion {
-                reference,
-                operator,
-                ..
-            } => self.parameter_expansion_is_field_safe(reference, operator, span, context),
-        }
-    }
-
-    fn literal_part_is_field_safe(
-        &self,
-        part: &WordPart,
-        span: Span,
-        context: ExpansionContext,
-    ) -> bool {
-        let word = Word {
-            parts: vec![WordPartNode::new(part.clone(), span)],
-            span,
-        };
-        classify_contextual_operand(&word, self.source, context).is_fixed_literal()
-            && static_word_text(&word, self.source).is_some_and(|text| literal_is_field_safe(&text))
-    }
-
-    fn name_is_field_safe(&mut self, name: &Name, at: Span, context: ExpansionContext) -> bool {
-        if self.maybe_uninitialized_refs.contains(&SpanKey::new(at)) {
-            return false;
-        }
-        if safe_special_parameter(name) {
-            return true;
-        }
-
-        let Some(binding) = self.semantic.visible_binding(name, at) else {
-            return false;
-        };
-        self.binding_is_field_safe(binding.id, context)
-    }
-
-    fn binding_is_field_safe(&mut self, binding_id: BindingId, context: ExpansionContext) -> bool {
-        let binding = self.semantic.binding(binding_id);
-        if binding.attributes.contains(BindingAttributes::INTEGER)
-            || matches!(binding.kind, BindingKind::ArithmeticAssignment)
-        {
-            return true;
-        }
-
-        let binding_key = SpanKey::new(binding.span);
-        let query = SafeValueQuery::from_context(context);
-        let key = (binding_key, query);
-        if let Some(result) = self.memo.get(&key) {
-            return *result;
-        }
-        if !self.visiting.insert(key) {
-            return false;
-        }
-
-        let result = if let Some(word) = self.scalar_bindings.get(&binding_key).copied() {
-            self.word_is_field_safe(word, context)
-        } else {
-            false
-        };
-
-        self.visiting.remove(&key);
-        self.memo.insert(key, result);
-        result
-    }
-
-    fn reference_is_field_safe(
-        &mut self,
-        reference: &VarRef,
-        at: Span,
-        context: ExpansionContext,
-    ) -> bool {
-        if reference_has_array_selector(reference, self.source) {
-            return false;
-        }
-        self.name_is_field_safe(&reference.name, at, context)
-    }
-
-    fn indirect_name_is_field_safe(
-        &mut self,
-        name: &Name,
-        at: Span,
-        context: ExpansionContext,
-    ) -> bool {
-        if self.maybe_uninitialized_refs.contains(&SpanKey::new(at)) {
-            return false;
-        }
-
-        let Some(binding) = self.semantic.visible_binding(name, at) else {
-            return false;
-        };
-        let targets = self.semantic.indirect_targets_for_binding(binding.id);
-        !targets.is_empty()
-            && targets
-                .iter()
-                .copied()
-                .all(|target| self.binding_is_field_safe(target, context))
-    }
-
-    fn transformation_is_field_safe(
-        &mut self,
-        reference: &VarRef,
-        operator: char,
-        at: Span,
-        context: ExpansionContext,
-    ) -> bool {
-        if reference_has_array_selector(reference, self.source) {
-            return false;
-        }
-
-        match operator {
-            'Q' | 'K' | 'k' => true,
-            _ => self.reference_is_field_safe(reference, at, context),
-        }
-    }
-
-    fn parameter_expansion_is_field_safe(
-        &mut self,
-        reference: &VarRef,
-        operator: &ParameterOp,
-        at: Span,
-        context: ExpansionContext,
-    ) -> bool {
-        if reference_has_array_selector(reference, self.source) {
-            return false;
-        }
-
-        match operator {
-            ParameterOp::UpperFirst
-            | ParameterOp::UpperAll
-            | ParameterOp::LowerFirst
-            | ParameterOp::LowerAll => self.reference_is_field_safe(reference, at, context),
-            _ => false,
-        }
-    }
-
-    fn word_is_field_safe(&mut self, word: &Word, context: ExpansionContext) -> bool {
-        let analysis = analyze_word(word, self.source);
-        if analysis.array_valued || analysis.hazards.command_or_process_substitution {
-            return false;
-        }
-
-        word.parts_with_spans()
-            .all(|(part, span)| self.part_is_field_safe(part, span, context))
-    }
 }
 
 fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
@@ -345,16 +68,6 @@ fn matches_scalar_expansion_part(part: &WordPart, source: &str) -> bool {
     }
 }
 
-fn literal_is_field_safe(text: &str) -> bool {
-    !text
-        .chars()
-        .any(|character| character.is_whitespace() || matches!(character, '*' | '?' | '['))
-}
-
-fn safe_special_parameter(name: &Name) -> bool {
-    matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
-}
-
 fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
     matches!(
         reference.subscript.as_ref().map(|subscript| subscript.kind),
@@ -362,6 +75,25 @@ fn reference_has_array_selector(reference: &VarRef, _source: &str) -> bool {
             SubscriptSelector::At | SubscriptSelector::Star
         ))
     )
+}
+
+fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool {
+    match context {
+        ExpansionContext::CommandName
+        | ExpansionContext::CommandArgument
+        | ExpansionContext::RedirectTarget(_) => true,
+        ExpansionContext::DeclarationAssignmentValue => shell != ShellDialect::Bash,
+        _ => false,
+    }
+}
+
+fn command_name_has_literal_affixes(word: &Word) -> bool {
+    word.parts.iter().any(|part| {
+        matches!(
+            part.kind,
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
+        )
+    })
 }
 
 fn report_word_expansions(
@@ -376,6 +108,11 @@ fn report_word_expansions(
     if !classification.has_scalar_expansion() {
         return;
     }
+    if context == ExpansionContext::CommandName && !command_name_has_literal_affixes(word) {
+        return;
+    }
+    let query = SafeValueQuery::from_context(context)
+        .expect("checked expansion context should map to a safe-value query");
 
     for (part, part_span) in word.parts_with_spans() {
         if !matches_scalar_expansion_part(part, source) {
@@ -384,7 +121,7 @@ fn report_word_expansions(
         if span::is_quoted_span(indexer, part_span) {
             continue;
         }
-        if safe_values.part_is_field_safe(part, part_span, context) {
+        if safe_values.part_is_safe(part, part_span, query) {
             continue;
         }
 
@@ -394,7 +131,9 @@ fn report_word_expansions(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule};
 
     #[test]
@@ -468,6 +207,96 @@ value=$name
 printf '%s\\n' ok >&$fd
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_dynamic_command_names() {
+        let source = "\
+#!/bin/bash
+$HOME/bin/tool $arg
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$HOME", "$arg"]
+        );
+    }
+
+    #[test]
+    fn skips_plain_expansion_command_names() {
+        let source = "\
+#!/bin/bash
+$CC -c file.c
+if $TERMUX_ON_DEVICE_BUILD; then
+  :
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_escaped_backticks_inside_double_quoted_assignments() {
+        let source = "\
+#!/bin/bash
+NVM_TEST_VERSION=v0.42
+EXPECTED=\"Found '$(pwd)/.nvmrc' with version <${NVM_TEST_VERSION}>
+N/A: version \\\"${NVM_TEST_VERSION}\\\" is not yet installed.
+
+You need to run \\`nvm install ${NVM_TEST_VERSION}\\` to install and use it.
+No NODE_VERSION provided; no .nvmrc file found\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            Vec::<&str>::new()
+        );
+    }
+
+    #[test]
+    fn reports_decl_assignment_values_in_sh_mode() {
+        let source = "\
+local _patch=$TERMUX_PKG_BUILDER_DIR/file.diff
+export PATH=$HOME/bin:$PATH
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/pkg.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$TERMUX_PKG_BUILDER_DIR", "$HOME", "$PATH"]
+        );
+    }
+
+    #[test]
+    fn skips_decl_assignment_values_in_bash_mode() {
+        let source = "\
+#!/bin/bash
+local _patch=$TERMUX_PKG_BUILDER_DIR/file.diff
+export PATH=$HOME/bin:$PATH
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/pkg.bash"),
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
 
         assert!(diagnostics.is_empty());
     }

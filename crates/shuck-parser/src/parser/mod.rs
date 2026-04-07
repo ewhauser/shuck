@@ -9369,6 +9369,28 @@ mod tests {
     }
 
     #[test]
+    fn test_escaped_backticks_inside_double_quotes_stay_literal() {
+        let input = "echo \"pre \\`pwd\\` post\"\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command");
+        };
+        let word = &command.args[0];
+
+        assert_eq!(word.render(input), "pre `pwd` post");
+
+        let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+            panic!("expected double-quoted word");
+        };
+        assert!(
+            !parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::CommandSubstitution { .. }))
+        );
+    }
+
+    #[test]
     fn test_dollar_quoted_words_preserve_quote_variants() {
         let input = "printf $'line\\n' $\"prefix $HOME\"\n";
         let script = Parser::new(input).parse().unwrap().script;

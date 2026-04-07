@@ -2022,13 +2022,18 @@ impl<'a> Lexer<'a> {
                                     content_start,
                                     escape_start,
                                 );
+                                if next == '`' {
+                                    Self::push_capture_char(&mut content, '\x00');
+                                }
                                 Self::push_capture_char(&mut content, next);
                                 self.advance();
+                                content_end = self.current_position();
                             }
                             _ => {
                                 Self::push_capture_char(&mut content, '\\');
                                 Self::push_capture_char(&mut content, next);
                                 self.advance();
+                                content_end = self.current_position();
                             }
                         }
                     }
@@ -2045,6 +2050,7 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         borrowable &= self.read_param_expansion_into(&mut content, content_start);
                     }
+                    content_end = self.current_position();
                 }
                 '`' => {
                     borrowable = false;
@@ -2065,10 +2071,12 @@ impl<'a> Lexer<'a> {
                             self.advance();
                         }
                     }
+                    content_end = self.current_position();
                 }
                 _ => {
                     Self::push_capture_char(&mut content, ch);
                     self.advance();
+                    content_end = self.current_position();
                 }
             }
         }

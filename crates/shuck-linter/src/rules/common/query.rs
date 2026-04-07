@@ -284,6 +284,8 @@ fn collect_expansion_words<'a>(
     source: &str,
     words: &mut Vec<(&'a Word, ExpansionContext)>,
 ) {
+    collect_command_name_context_words(command, source, words);
+
     collect_argument_context_words(command, source, words);
 
     collect_expansion_assignment_value_words(command, words);
@@ -353,6 +355,18 @@ fn collect_expansion_words<'a>(
     }
 }
 
+fn collect_command_name_context_words<'a>(
+    command: &'a Command,
+    source: &str,
+    words: &mut Vec<(&'a Word, ExpansionContext)>,
+) {
+    if let Command::Simple(command) = command
+        && static_word_text(&command.name, source).is_none()
+    {
+        words.push((&command.name, ExpansionContext::CommandName));
+    }
+}
+
 fn collect_argument_context_words<'a>(
     command: &'a Command,
     source: &str,
@@ -401,8 +415,14 @@ fn collect_argument_context_words<'a>(
                 }
             }
         },
-        Command::Decl(_)
-        | Command::Pipeline(_)
+        Command::Decl(command) => {
+            for operand in &command.operands {
+                if let DeclOperand::Dynamic(word) = operand {
+                    words.push((word, ExpansionContext::CommandArgument));
+                }
+            }
+        }
+        Command::Pipeline(_)
         | Command::List(_)
         | Command::Compound(_, _)
         | Command::Function(_) => {}
@@ -414,30 +434,33 @@ fn collect_expansion_assignment_value_words<'a>(
     words: &mut Vec<(&'a Word, ExpansionContext)>,
 ) {
     for assignment in command_assignments(command) {
-        collect_expansion_assignment_words(assignment, words);
+        collect_expansion_assignment_words(assignment, ExpansionContext::AssignmentValue, words);
     }
 
     for operand in declaration_operands(command) {
         if let DeclOperand::Assignment(assignment) = operand {
-            collect_expansion_assignment_words(assignment, words);
+            collect_expansion_assignment_words(
+                assignment,
+                ExpansionContext::DeclarationAssignmentValue,
+                words,
+            );
         }
     }
 }
 
 fn collect_expansion_assignment_words<'a>(
     assignment: &'a Assignment,
+    context: ExpansionContext,
     words: &mut Vec<(&'a Word, ExpansionContext)>,
 ) {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => words.push((word, ExpansionContext::AssignmentValue)),
+        AssignmentValue::Scalar(word) => words.push((word, context)),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
-                    ArrayElem::Sequential(word) => {
-                        words.push((word, ExpansionContext::AssignmentValue))
-                    }
+                    ArrayElem::Sequential(word) => words.push((word, context)),
                     ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                        words.push((value, ExpansionContext::AssignmentValue))
+                        words.push((value, context))
                     }
                 }
             }
@@ -1946,7 +1969,7 @@ for item in \"$(printf loop)\"; do :; done\n";
         let source = "\
 value=$assign
 export declared=$decl
-printf '%s\\n' $arg >$out >&$dup <<< $here
+$cmd '%s\\n' $arg >$out >&$dup <<< $here
 for item in $first; do :; done
 select item in $choice; do :; done
 case $subject in
@@ -1971,7 +1994,11 @@ trap -- \"echo $trap_body\" EXIT
             seen,
             vec![
                 (ExpansionContext::AssignmentValue, "$assign".to_owned()),
-                (ExpansionContext::AssignmentValue, "$decl".to_owned()),
+                (
+                    ExpansionContext::DeclarationAssignmentValue,
+                    "$decl".to_owned()
+                ),
+                (ExpansionContext::CommandName, "$cmd".to_owned()),
                 (ExpansionContext::CommandArgument, "'%s\\n'".to_owned()),
                 (ExpansionContext::CommandArgument, "$arg".to_owned()),
                 (
@@ -2010,7 +2037,7 @@ trap -- \"echo $trap_body\" EXIT
     #[test]
     fn iter_expansion_words_distinguishes_same_word_by_shell_context() {
         let source = "\
-printf '%s\\n' $same >$same
+$same '%s\\n' $same >$same
 case $value in
   $same) : ;;
 esac
@@ -2030,6 +2057,7 @@ esac
         assert_eq!(
             seen,
             vec![
+                ExpansionContext::CommandName,
                 ExpansionContext::CommandArgument,
                 ExpansionContext::RedirectTarget(RedirectKind::Output),
                 ExpansionContext::CasePattern,

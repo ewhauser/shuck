@@ -7,8 +7,10 @@ use super::word::static_word_text;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExpansionContext {
+    CommandName,
     CommandArgument,
     AssignmentValue,
+    DeclarationAssignmentValue,
     RedirectTarget(RedirectKind),
     DescriptorDupTarget(RedirectKind),
     HereString,
@@ -164,6 +166,7 @@ pub struct RedirectTargetAnalysis {
     pub dev_null_status: Option<RedirectDevNullStatus>,
     pub numeric_descriptor_target: Option<i32>,
     pub expansion: ExpansionAnalysis,
+    pub runtime_literal: RuntimeLiteralAnalysis,
 }
 
 impl RedirectTargetAnalysis {
@@ -191,6 +194,7 @@ impl RedirectTargetAnalysis {
 
     pub fn is_runtime_sensitive(self) -> bool {
         self.expansion.literalness == WordLiteralness::Expanded
+            || self.runtime_literal.is_runtime_sensitive()
             || matches!(
                 self.dev_null_status,
                 Some(RedirectDevNullStatus::MaybeDevNull)
@@ -331,6 +335,11 @@ pub fn analyze_redirect_target(
 ) -> Option<RedirectTargetAnalysis> {
     let target = redirect.word_target()?;
     let expansion = analyze_word(target, source);
+    let runtime_literal = analyze_literal_runtime(
+        target,
+        source,
+        ExpansionContext::RedirectTarget(redirect.kind),
+    );
 
     let (kind, dev_null_status, numeric_descriptor_target) = match redirect.kind {
         RedirectKind::DupOutput | RedirectKind::DupInput => (
@@ -350,7 +359,7 @@ pub fn analyze_redirect_target(
             Some(
                 if static_word_text(target, source).as_deref() == Some("/dev/null") {
                     RedirectDevNullStatus::DefinitelyDevNull
-                } else if expansion.is_fixed_literal() {
+                } else if expansion.is_fixed_literal() && !runtime_literal.is_runtime_sensitive() {
                     RedirectDevNullStatus::DefinitelyNotDevNull
                 } else {
                     RedirectDevNullStatus::MaybeDevNull
@@ -365,6 +374,7 @@ pub fn analyze_redirect_target(
         dev_null_status,
         numeric_descriptor_target,
         expansion,
+        runtime_literal,
     })
 }
 
@@ -494,8 +504,10 @@ fn brace_fanout_is_runtime_sensitive(content: &str) -> bool {
 fn context_allows_tilde(context: ExpansionContext) -> bool {
     matches!(
         context,
-        ExpansionContext::CommandArgument
+        ExpansionContext::CommandName
+            | ExpansionContext::CommandArgument
             | ExpansionContext::AssignmentValue
+            | ExpansionContext::DeclarationAssignmentValue
             | ExpansionContext::StringTestOperand
             | ExpansionContext::RegexOperand
             | ExpansionContext::RedirectTarget(_)
@@ -505,15 +517,20 @@ fn context_allows_tilde(context: ExpansionContext) -> bool {
 fn context_allows_pathname_matching(context: ExpansionContext) -> bool {
     matches!(
         context,
-        ExpansionContext::CommandArgument | ExpansionContext::RedirectTarget(_)
+        ExpansionContext::CommandName
+            | ExpansionContext::CommandArgument
+            | ExpansionContext::DeclarationAssignmentValue
+            | ExpansionContext::RedirectTarget(_)
     )
 }
 
 fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
     matches!(
         context,
-        ExpansionContext::CommandArgument
+        ExpansionContext::CommandName
+            | ExpansionContext::CommandArgument
             | ExpansionContext::AssignmentValue
+            | ExpansionContext::DeclarationAssignmentValue
             | ExpansionContext::RedirectTarget(_)
     )
 }
@@ -952,6 +969,21 @@ mod tests {
             .expect("expected redirect analysis");
         assert!(fanout.can_expand_to_multiple_fields());
         assert!(fanout.is_runtime_sensitive());
+
+        let tilde_source = "echo hi > ~/*.log\n";
+        let tilde_command = Parser::new(tilde_source).parse().unwrap().script.commands;
+        let Command::Simple(tilde_simple) = &tilde_command[0] else {
+            panic!("expected simple command");
+        };
+        let tilde = analyze_redirect_target(&tilde_simple.redirects[0], tilde_source)
+            .expect("expected redirect analysis");
+        assert!(tilde.is_file_target());
+        assert_eq!(
+            tilde.dev_null_status,
+            Some(RedirectDevNullStatus::MaybeDevNull)
+        );
+        assert!(tilde.runtime_literal.is_runtime_sensitive());
+        assert!(tilde.is_runtime_sensitive());
     }
 
     #[test]
