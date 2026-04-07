@@ -1,9 +1,15 @@
 mod ast_format;
+mod command;
 mod comments;
 mod context;
+mod generated;
 mod options;
 mod prelude;
+mod redirect;
 mod shared_traits;
+mod simplify;
+mod script;
+mod word;
 
 use std::path::Path;
 
@@ -102,7 +108,12 @@ fn format_file(
         return Ok(FormattedSource::Unchanged);
     }
 
-    let comments = flatten_comments(file);
+    let mut file = file.clone();
+    if resolved.simplify() || resolved.minify() {
+        simplify::simplify_file(&mut file, source);
+    }
+
+    let comments = flatten_comments(&file);
     let comments = comments::Comments::from_ast(source, &comments);
     let context = context::ShellFormatContext::new(resolved, source, comments);
     let formatted = format!(context, [file.format()])

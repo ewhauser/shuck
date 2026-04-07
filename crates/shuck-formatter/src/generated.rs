@@ -1,24 +1,40 @@
-use shuck_ast::{Command, CompoundCommand, Redirect, Script, Word};
+use shuck_ast::{Command, CompoundCommand, File, Redirect, Stmt, Word};
 
-use crate::command::{FormatCommand, FormatCompoundCommand};
+use crate::command::{FormatCommand, FormatCompoundCommand, FormatStatement};
 use crate::redirect::FormatRedirect;
-use crate::script::FormatScript;
+use crate::script::FormatFile;
 use crate::shared_traits::{AsFormat, FormatOwnedWithRule, FormatRefWithRule, IntoFormat};
 use crate::word::FormatWord;
 
-impl<'a> AsFormat<'a> for Script {
-    type Format = FormatRefWithRule<'a, Script, FormatScript>;
+impl<'a> AsFormat<'a> for File {
+    type Format = FormatRefWithRule<'a, File, FormatFile>;
 
     fn format(&'a self) -> Self::Format {
-        FormatRefWithRule::new(self, FormatScript)
+        FormatRefWithRule::new(self, FormatFile)
     }
 }
 
-impl<'a> IntoFormat<'a> for Script {
-    type Format = FormatOwnedWithRule<Script, FormatScript>;
+impl<'a> IntoFormat<'a> for File {
+    type Format = FormatOwnedWithRule<File, FormatFile>;
 
     fn into_format(self) -> Self::Format {
-        FormatOwnedWithRule::new(self, FormatScript)
+        FormatOwnedWithRule::new(self, FormatFile)
+    }
+}
+
+impl<'a> AsFormat<'a> for Stmt {
+    type Format = FormatRefWithRule<'a, Stmt, FormatStatement>;
+
+    fn format(&'a self) -> Self::Format {
+        FormatRefWithRule::new(self, FormatStatement)
+    }
+}
+
+impl<'a> IntoFormat<'a> for Stmt {
+    type Format = FormatOwnedWithRule<Stmt, FormatStatement>;
+
+    fn into_format(self) -> Self::Format {
+        FormatOwnedWithRule::new(self, FormatStatement)
     }
 }
 

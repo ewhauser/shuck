@@ -2,8 +2,8 @@ use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause, DeclOperand,
-    FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, RedirectTarget, Script, SourceText,
-    VarRef, Word, WordPart, WordPartNode,
+    File, FunctionDef, ParameterOp, Pattern, PatternPart, Redirect, RedirectTarget, SourceText,
+    Stmt, StmtSeq, VarRef, Word, WordPart, WordPartNode,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub struct RewriteApplication {
 #[derive(Debug, Clone, Copy)]
 pub struct SimplifyRewrite {
     pub name: &'static str,
-    pub apply: fn(&mut Script, &str) -> usize,
+    pub apply: fn(&mut File, &str) -> usize,
 }
 
 pub const REWRITES: &[SimplifyRewrite] = &[
@@ -58,10 +58,10 @@ pub const REWRITES: &[SimplifyRewrite] = &[
     },
 ];
 
-pub fn simplify_script(script: &mut Script, source: &str) -> SimplifyReport {
+pub fn simplify_file(file: &mut File, source: &str) -> SimplifyReport {
     let mut applied = Vec::new();
     for rewrite in REWRITES {
-        let changes = (rewrite.apply)(script, source);
+        let changes = (rewrite.apply)(file, source);
         if changes > 0 {
             applied.push(RewriteApplication {
                 name: rewrite.name,
@@ -72,73 +72,51 @@ pub fn simplify_script(script: &mut Script, source: &str) -> SimplifyReport {
     SimplifyReport { applied }
 }
 
-fn rewrite_paren_cleanup(script: &mut Script, source: &str) -> usize {
-    walk_commands(script, source, &mut |command, source| {
+fn rewrite_paren_cleanup(file: &mut File, source: &str) -> usize {
+    walk_stmts(file, source, &mut |stmt, source| {
         let mut changes = 0;
-        changes += rewrite_command_source_texts(command, source, &mut |text, source| {
+        changes += rewrite_stmt_source_texts(stmt, source, &mut |text, source| {
             transform_source_text(text, source, strip_single_outer_parens)
         });
         changes
     })
 }
 
-fn rewrite_arithmetic_variables(script: &mut Script, source: &str) -> usize {
-    walk_commands(script, source, &mut |command, source| {
-        rewrite_command_source_texts(command, source, &mut |text, source| {
+fn rewrite_arithmetic_variables(file: &mut File, source: &str) -> usize {
+    walk_stmts(file, source, &mut |stmt, source| {
+        rewrite_stmt_source_texts(stmt, source, &mut |text, source| {
             transform_source_text(text, source, simplify_arithmetic_variables_text)
         })
     })
 }
 
-fn rewrite_conditionals(script: &mut Script, source: &str) -> usize {
-    walk_commands(script, source, &mut |command, source| match command {
-        Command::Compound(CompoundCommand::Conditional(conditional), _) => {
+fn rewrite_conditionals(file: &mut File, source: &str) -> usize {
+    walk_stmts(file, source, &mut |stmt, source| match &mut stmt.command {
+        Command::Compound(CompoundCommand::Conditional(conditional)) => {
             simplify_conditional_command(conditional, source)
         }
         _ => 0,
     })
 }
 
-fn rewrite_nested_subshells(script: &mut Script, source: &str) -> usize {
-    walk_commands(script, source, &mut |command, source| {
+fn rewrite_nested_subshells(file: &mut File, source: &str) -> usize {
+    walk_stmts(file, source, &mut |stmt, source| {
         let mut changes = 0;
-        if let Command::Compound(CompoundCommand::Subshell(commands), redirects) = command
-            && redirects.is_empty()
+        if let Command::Compound(CompoundCommand::Subshell(commands)) = &mut stmt.command
+            && !stmt.negated
+            && stmt.redirects.is_empty()
+            && stmt.terminator.is_none()
         {
-            while commands.len() == 1 {
-                let Some(Command::Compound(CompoundCommand::Subshell(inner), inner_redirects)) =
-                    commands.first()
-                else {
-                    break;
-                };
-                if !inner_redirects.is_empty() {
-                    break;
-                }
-                *commands = inner.clone();
-                changes += 1;
-            }
+            changes += collapse_nested_subshell_sequence(commands);
         }
 
-        changes += rewrite_command_words(command, source, &mut |word, _source| {
+        changes += rewrite_stmt_words(stmt, source, &mut |word, _source| {
             let mut word_changes = 0;
             for part in &mut word.parts {
                 match &mut part.kind {
-                    WordPart::CommandSubstitution { commands, .. }
-                    | WordPart::ProcessSubstitution { commands, .. } => {
-                        while commands.len() == 1 {
-                            let Some(Command::Compound(
-                                CompoundCommand::Subshell(inner),
-                                redirects,
-                            )) = commands.first()
-                            else {
-                                break;
-                            };
-                            if !redirects.is_empty() {
-                                break;
-                            }
-                            *commands = inner.clone();
-                            word_changes += 1;
-                        }
+                    WordPart::CommandSubstitution { body, .. }
+                    | WordPart::ProcessSubstitution { body, .. } => {
+                        word_changes += collapse_nested_subshell_sequence(body);
                     }
                     _ => {}
                 }
@@ -149,33 +127,67 @@ fn rewrite_nested_subshells(script: &mut Script, source: &str) -> usize {
     })
 }
 
-fn rewrite_quote_tightening(script: &mut Script, source: &str) -> usize {
-    walk_commands(script, source, &mut |command, source| {
-        rewrite_command_words(command, source, &mut |word, source| {
+fn rewrite_quote_tightening(file: &mut File, source: &str) -> usize {
+    walk_stmts(file, source, &mut |stmt, source| {
+        rewrite_stmt_words(stmt, source, &mut |word, source| {
             tighten_literal_quotes(word, source)
         })
     })
 }
 
-fn walk_commands(
-    script: &mut Script,
+fn collapse_nested_subshell_sequence(commands: &mut StmtSeq) -> usize {
+    let mut changes = 0;
+    while commands.leading_comments.is_empty()
+        && commands.trailing_comments.is_empty()
+        && commands.len() == 1
+    {
+        let Some(Stmt {
+            leading_comments,
+            command: Command::Compound(CompoundCommand::Subshell(inner)),
+            negated: false,
+            redirects,
+            terminator: None,
+            inline_comment: None,
+            ..
+        }) = commands.first()
+        else {
+            break;
+        };
+        if !leading_comments.is_empty() || !redirects.is_empty() {
+            break;
+        }
+        *commands = inner.clone();
+        changes += 1;
+    }
+    changes
+}
+
+fn walk_stmts(
+    file: &mut File,
     source: &str,
-    visitor: &mut impl FnMut(&mut Command, &str) -> usize,
+    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
 ) -> usize {
-    script
-        .commands
+    walk_stmt_seq(&mut file.body, source, visitor)
+}
+
+fn walk_stmt_seq(
+    commands: &mut StmtSeq,
+    source: &str,
+    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
+) -> usize {
+    commands
         .iter_mut()
-        .map(|command| walk_command(command, source, visitor))
+        .map(|command| walk_stmt(command, source, visitor))
         .sum()
 }
 
-fn walk_command(
-    command: &mut Command,
+fn walk_stmt(
+    stmt: &mut Stmt,
     source: &str,
-    visitor: &mut impl FnMut(&mut Command, &str) -> usize,
+    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
 ) -> usize {
-    let mut changes = visitor(command, source);
-    changes += match command {
+    let mut changes = visitor(stmt, source);
+    changes += match &mut stmt.command {
         Command::Simple(command) => {
             let mut count = 0;
             for assignment in &mut command.assignments {
@@ -185,34 +197,19 @@ fn walk_command(
             for argument in &mut command.args {
                 count += walk_word(argument, source, &mut |_| 0);
             }
-            for redirect in &mut command.redirects {
-                count += walk_redirect(redirect, source, &mut |_| 0);
-            }
             count
         }
         Command::Builtin(command) => walk_builtin(command, source),
         Command::Decl(command) => walk_decl_clause(command, source),
-        Command::Pipeline(pipeline) => pipeline
-            .commands
-            .iter_mut()
-            .map(|command| walk_command(command, source, visitor))
-            .sum(),
-        Command::List(list) => {
-            let mut count = walk_command(&mut list.first, source, visitor);
-            for item in &mut list.rest {
-                count += walk_command(&mut item.command, source, visitor);
-            }
-            count
+        Command::Binary(command) => {
+            walk_stmt(&mut command.left, source, visitor) + walk_stmt(&mut command.right, source, visitor)
         }
-        Command::Compound(compound, redirects) => {
-            let mut count = walk_compound(compound, source, visitor);
-            for redirect in redirects {
-                count += walk_redirect(redirect, source, &mut |_| 0);
-            }
-            count
-        }
+        Command::Compound(compound) => walk_compound(compound, source, visitor),
         Command::Function(function) => walk_function(function, source, visitor),
     };
+    for redirect in &mut stmt.redirects {
+        changes += walk_redirect(redirect, source, &mut |_| 0);
+    }
     changes
 }
 
@@ -229,9 +226,6 @@ fn walk_builtin(command: &mut BuiltinCommand, source: &str) -> usize {
             for argument in &mut command.extra_args {
                 count += walk_word(argument, source, &mut |_| 0);
             }
-            for redirect in &mut command.redirects {
-                count += walk_redirect(redirect, source, &mut |_| 0);
-            }
             count
         }
         BuiltinCommand::Continue(command) => {
@@ -244,9 +238,6 @@ fn walk_builtin(command: &mut BuiltinCommand, source: &str) -> usize {
             }
             for argument in &mut command.extra_args {
                 count += walk_word(argument, source, &mut |_| 0);
-            }
-            for redirect in &mut command.redirects {
-                count += walk_redirect(redirect, source, &mut |_| 0);
             }
             count
         }
@@ -261,9 +252,6 @@ fn walk_builtin(command: &mut BuiltinCommand, source: &str) -> usize {
             for argument in &mut command.extra_args {
                 count += walk_word(argument, source, &mut |_| 0);
             }
-            for redirect in &mut command.redirects {
-                count += walk_redirect(redirect, source, &mut |_| 0);
-            }
             count
         }
         BuiltinCommand::Exit(command) => {
@@ -276,9 +264,6 @@ fn walk_builtin(command: &mut BuiltinCommand, source: &str) -> usize {
             }
             for argument in &mut command.extra_args {
                 count += walk_word(argument, source, &mut |_| 0);
-            }
-            for redirect in &mut command.redirects {
-                count += walk_redirect(redirect, source, &mut |_| 0);
             }
             count
         }
@@ -301,46 +286,33 @@ fn walk_decl_clause(command: &mut DeclClause, source: &str) -> usize {
             }
         };
     }
-    for redirect in &mut command.redirects {
-        count += walk_redirect(redirect, source, &mut |_| 0);
-    }
     count
 }
 
 fn walk_function(
     function: &mut FunctionDef,
     source: &str,
-    visitor: &mut impl FnMut(&mut Command, &str) -> usize,
+    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
 ) -> usize {
-    walk_command(function.body.as_mut(), source, visitor)
+    walk_stmt(function.body.as_mut(), source, visitor)
 }
 
 fn walk_compound(
     command: &mut CompoundCommand,
     source: &str,
-    visitor: &mut impl FnMut(&mut Command, &str) -> usize,
+    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
 ) -> usize {
     match command {
         CompoundCommand::If(command) => {
             let mut count = 0;
-            for condition in &mut command.condition {
-                count += walk_command(condition, source, visitor);
-            }
-            for then_command in &mut command.then_branch {
-                count += walk_command(then_command, source, visitor);
-            }
+            count += walk_stmt_seq(&mut command.condition, source, visitor);
+            count += walk_stmt_seq(&mut command.then_branch, source, visitor);
             for (condition, body) in &mut command.elif_branches {
-                for command in condition {
-                    count += walk_command(command, source, visitor);
-                }
-                for command in body {
-                    count += walk_command(command, source, visitor);
-                }
+                count += walk_stmt_seq(condition, source, visitor);
+                count += walk_stmt_seq(body, source, visitor);
             }
             if let Some(body) = &mut command.else_branch {
-                for command in body {
-                    count += walk_command(command, source, visitor);
-                }
+                count += walk_stmt_seq(body, source, visitor);
             }
             count
         }
@@ -351,35 +323,16 @@ fn walk_compound(
                     count += walk_word(word, source, &mut |_| 0);
                 }
             }
-            for body in &mut command.body {
-                count += walk_command(body, source, visitor);
-            }
-            count
+            count + walk_stmt_seq(&mut command.body, source, visitor)
         }
-        CompoundCommand::ArithmeticFor(command) => command
-            .body
-            .iter_mut()
-            .map(|body| walk_command(body, source, visitor))
-            .sum(),
+        CompoundCommand::ArithmeticFor(command) => walk_stmt_seq(&mut command.body, source, visitor),
         CompoundCommand::While(command) => {
-            let mut count = 0;
-            for condition in &mut command.condition {
-                count += walk_command(condition, source, visitor);
-            }
-            for body in &mut command.body {
-                count += walk_command(body, source, visitor);
-            }
-            count
+            walk_stmt_seq(&mut command.condition, source, visitor)
+                + walk_stmt_seq(&mut command.body, source, visitor)
         }
         CompoundCommand::Until(command) => {
-            let mut count = 0;
-            for condition in &mut command.condition {
-                count += walk_command(condition, source, visitor);
-            }
-            for body in &mut command.body {
-                count += walk_command(body, source, visitor);
-            }
-            count
+            walk_stmt_seq(&mut command.condition, source, visitor)
+                + walk_stmt_seq(&mut command.body, source, visitor)
         }
         CompoundCommand::Case(command) => {
             let mut count = walk_word(&mut command.word, source, &mut |_| 0);
@@ -387,9 +340,7 @@ fn walk_compound(
                 for pattern in &mut item.patterns {
                     count += walk_pattern(pattern, source, &mut |_| 0);
                 }
-                for body in &mut item.commands {
-                    count += walk_command(body, source, visitor);
-                }
+                count += walk_stmt_seq(&mut item.body, source, visitor);
             }
             count
         }
@@ -398,26 +349,22 @@ fn walk_compound(
             for word in &mut command.words {
                 count += walk_word(word, source, &mut |_| 0);
             }
-            for body in &mut command.body {
-                count += walk_command(body, source, visitor);
-            }
-            count
+            count + walk_stmt_seq(&mut command.body, source, visitor)
         }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
-            .iter_mut()
-            .map(|command| walk_command(command, source, visitor))
-            .sum(),
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            walk_stmt_seq(commands, source, visitor)
+        }
         CompoundCommand::Arithmetic(_) => 0,
         CompoundCommand::Time(command) => command
             .command
             .as_mut()
-            .map_or(0, |command| walk_command(command, source, visitor)),
+            .map_or(0, |command| walk_stmt(command, source, visitor)),
         CompoundCommand::Conditional(command) => {
             let mut count = 0;
             count += walk_conditional_words(&mut command.expression, source, &mut |_| 0);
             count
         }
-        CompoundCommand::Coproc(command) => walk_command(command.body.as_mut(), source, visitor),
+        CompoundCommand::Coproc(command) => walk_stmt(command.body.as_mut(), source, visitor),
     }
 }
 
@@ -435,12 +382,12 @@ fn walk_redirect(
     }
 }
 
-fn rewrite_command_words(
-    command: &mut Command,
+fn rewrite_stmt_words(
+    stmt: &mut Stmt,
     source: &str,
     visitor: &mut impl FnMut(&mut Word, &str) -> usize,
 ) -> usize {
-    match command {
+    let mut count = match &mut stmt.command {
         Command::Simple(command) => {
             let mut count = 0;
             for assignment in &mut command.assignments {
@@ -450,9 +397,6 @@ fn rewrite_command_words(
             for argument in &mut command.args {
                 count += walk_word(argument, source, &mut |word| visitor(word, source));
             }
-            for redirect in &mut command.redirects {
-                count += rewrite_redirect_words(redirect, source, visitor);
-            }
             count
         }
         Command::Builtin(command) => match command {
@@ -460,7 +404,6 @@ fn rewrite_command_words(
                 &mut command.assignments,
                 command.depth.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -468,7 +411,6 @@ fn rewrite_command_words(
                 &mut command.assignments,
                 command.depth.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -476,7 +418,6 @@ fn rewrite_command_words(
                 &mut command.assignments,
                 command.code.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -484,7 +425,6 @@ fn rewrite_command_words(
                 &mut command.assignments,
                 command.code.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -505,42 +445,25 @@ fn rewrite_command_words(
                     }
                 };
             }
-            for redirect in &mut command.redirects {
-                count += rewrite_redirect_words(redirect, source, visitor);
-            }
             count
         }
-        Command::Pipeline(pipeline) => pipeline
-            .commands
-            .iter_mut()
-            .map(|command| rewrite_command_words(command, source, visitor))
-            .sum(),
-        Command::List(list) => {
-            rewrite_command_words(&mut list.first, source, visitor)
-                + list
-                    .rest
-                    .iter_mut()
-                    .map(|item| rewrite_command_words(&mut item.command, source, visitor))
-                    .sum::<usize>()
+        Command::Binary(command) => {
+            rewrite_stmt_words(&mut command.left, source, visitor)
+                + rewrite_stmt_words(&mut command.right, source, visitor)
         }
-        Command::Compound(compound, redirects) => {
-            let mut count = rewrite_compound_words(compound, source, visitor);
-            for redirect in redirects {
-                count += rewrite_redirect_words(redirect, source, visitor);
-            }
-            count
-        }
-        Command::Function(function) => {
-            rewrite_command_words(function.body.as_mut(), source, visitor)
-        }
+        Command::Compound(compound) => rewrite_compound_words(compound, source, visitor),
+        Command::Function(function) => rewrite_stmt_words(function.body.as_mut(), source, visitor),
+    };
+    for redirect in &mut stmt.redirects {
+        count += rewrite_redirect_words(redirect, source, visitor);
     }
+    count
 }
 
 fn rewrite_builtin_like_words(
     assignments: &mut [Assignment],
     primary: Option<&mut Word>,
     extra_args: &mut [Word],
-    redirects: &mut [Redirect],
     source: &str,
     visitor: &mut impl FnMut(&mut Word, &str) -> usize,
 ) -> usize {
@@ -554,9 +477,6 @@ fn rewrite_builtin_like_words(
     for argument in extra_args {
         count += walk_word(argument, source, &mut |word| visitor(word, source));
     }
-    for redirect in redirects {
-        count += rewrite_redirect_words(redirect, source, visitor);
-    }
     count
 }
 
@@ -567,36 +487,20 @@ fn rewrite_compound_words(
 ) -> usize {
     match command {
         CompoundCommand::If(command) => {
-            command
-                .condition
-                .iter_mut()
-                .map(|command| rewrite_command_words(command, source, visitor))
-                .sum::<usize>()
-                + command
-                    .then_branch
-                    .iter_mut()
-                    .map(|command| rewrite_command_words(command, source, visitor))
-                    .sum::<usize>()
+            rewrite_stmt_seq_words(&mut command.condition, source, visitor)
+                + rewrite_stmt_seq_words(&mut command.then_branch, source, visitor)
                 + command
                     .elif_branches
                     .iter_mut()
                     .map(|(condition, body)| {
-                        condition
-                            .iter_mut()
-                            .map(|command| rewrite_command_words(command, source, visitor))
-                            .sum::<usize>()
-                            + body
-                                .iter_mut()
-                                .map(|command| rewrite_command_words(command, source, visitor))
-                                .sum::<usize>()
+                        rewrite_stmt_seq_words(condition, source, visitor)
+                            + rewrite_stmt_seq_words(body, source, visitor)
                     })
                     .sum::<usize>()
                 + command
                     .else_branch
-                    .iter_mut()
-                    .flat_map(|body| body.iter_mut())
-                    .map(|command| rewrite_command_words(command, source, visitor))
-                    .sum::<usize>()
+                    .as_mut()
+                    .map_or(0, |body| rewrite_stmt_seq_words(body, source, visitor))
         }
         CompoundCommand::For(command) => {
             command
@@ -605,40 +509,18 @@ fn rewrite_compound_words(
                 .flat_map(|words| words.iter_mut())
                 .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
                 .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_words(command, source, visitor))
-                    .sum::<usize>()
+                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
-        CompoundCommand::ArithmeticFor(command) => command
-            .body
-            .iter_mut()
-            .map(|command| rewrite_command_words(command, source, visitor))
-            .sum(),
+        CompoundCommand::ArithmeticFor(command) => {
+            rewrite_stmt_seq_words(&mut command.body, source, visitor)
+        }
         CompoundCommand::While(command) => {
-            command
-                .condition
-                .iter_mut()
-                .map(|command| rewrite_command_words(command, source, visitor))
-                .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_words(command, source, visitor))
-                    .sum::<usize>()
+            rewrite_stmt_seq_words(&mut command.condition, source, visitor)
+                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
         CompoundCommand::Until(command) => {
-            command
-                .condition
-                .iter_mut()
-                .map(|command| rewrite_command_words(command, source, visitor))
-                .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_words(command, source, visitor))
-                    .sum::<usize>()
+            rewrite_stmt_seq_words(&mut command.condition, source, visitor)
+                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
         CompoundCommand::Case(command) => {
             walk_word(&mut command.word, source, &mut |word| visitor(word, source))
@@ -652,11 +534,7 @@ fn rewrite_compound_words(
                                 walk_pattern(pattern, source, &mut |word| visitor(word, source))
                             })
                             .sum::<usize>()
-                            + item
-                                .commands
-                                .iter_mut()
-                                .map(|command| rewrite_command_words(command, source, visitor))
-                                .sum::<usize>()
+                            + rewrite_stmt_seq_words(&mut item.body, source, visitor)
                     })
                     .sum::<usize>()
         }
@@ -666,30 +544,34 @@ fn rewrite_compound_words(
                 .iter_mut()
                 .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
                 .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_words(command, source, visitor))
-                    .sum::<usize>()
+                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
-            .iter_mut()
-            .map(|command| rewrite_command_words(command, source, visitor))
-            .sum(),
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            rewrite_stmt_seq_words(commands, source, visitor)
+        }
         CompoundCommand::Arithmetic(_) => 0,
         CompoundCommand::Time(command) => command
             .command
             .as_mut()
-            .map_or(0, |command| rewrite_command_words(command, source, visitor)),
+            .map_or(0, |command| rewrite_stmt_words(command, source, visitor)),
         CompoundCommand::Conditional(command) => {
             walk_conditional_words(&mut command.expression, source, &mut |word| {
                 visitor(word, source)
             })
         }
-        CompoundCommand::Coproc(command) => {
-            rewrite_command_words(command.body.as_mut(), source, visitor)
-        }
+        CompoundCommand::Coproc(command) => rewrite_stmt_words(command.body.as_mut(), source, visitor),
     }
+}
+
+fn rewrite_stmt_seq_words(
+    commands: &mut StmtSeq,
+    source: &str,
+    visitor: &mut impl FnMut(&mut Word, &str) -> usize,
+) -> usize {
+    commands
+        .iter_mut()
+        .map(|command| rewrite_stmt_words(command, source, visitor))
+        .sum()
 }
 
 fn rewrite_assignment_words(
@@ -840,12 +722,12 @@ fn walk_conditional_words(
     }
 }
 
-fn rewrite_command_source_texts(
-    command: &mut Command,
+fn rewrite_stmt_source_texts(
+    stmt: &mut Stmt,
     source: &str,
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
-    match command {
+    let mut count = match &mut stmt.command {
         Command::Simple(command) => {
             let mut count = 0;
             for assignment in &mut command.assignments {
@@ -855,9 +737,6 @@ fn rewrite_command_source_texts(
             for argument in &mut command.args {
                 count += rewrite_word_source_texts(argument, source, visitor);
             }
-            for redirect in &mut command.redirects {
-                count += rewrite_redirect_source_texts(redirect, source, visitor);
-            }
             count
         }
         Command::Builtin(command) => match command {
@@ -865,7 +744,6 @@ fn rewrite_command_source_texts(
                 &mut command.assignments,
                 command.depth.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -873,7 +751,6 @@ fn rewrite_command_source_texts(
                 &mut command.assignments,
                 command.depth.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -881,7 +758,6 @@ fn rewrite_command_source_texts(
                 &mut command.assignments,
                 command.code.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -889,7 +765,6 @@ fn rewrite_command_source_texts(
                 &mut command.assignments,
                 command.code.as_mut(),
                 &mut command.extra_args,
-                &mut command.redirects,
                 source,
                 visitor,
             ),
@@ -910,42 +785,25 @@ fn rewrite_command_source_texts(
                     }
                 };
             }
-            for redirect in &mut command.redirects {
-                count += rewrite_redirect_source_texts(redirect, source, visitor);
-            }
             count
         }
-        Command::Pipeline(pipeline) => pipeline
-            .commands
-            .iter_mut()
-            .map(|command| rewrite_command_source_texts(command, source, visitor))
-            .sum(),
-        Command::List(list) => {
-            rewrite_command_source_texts(&mut list.first, source, visitor)
-                + list
-                    .rest
-                    .iter_mut()
-                    .map(|item| rewrite_command_source_texts(&mut item.command, source, visitor))
-                    .sum::<usize>()
+        Command::Binary(command) => {
+            rewrite_stmt_source_texts(&mut command.left, source, visitor)
+                + rewrite_stmt_source_texts(&mut command.right, source, visitor)
         }
-        Command::Compound(compound, redirects) => {
-            let mut count = rewrite_compound_source_texts(compound, source, visitor);
-            for redirect in redirects {
-                count += rewrite_redirect_source_texts(redirect, source, visitor);
-            }
-            count
-        }
-        Command::Function(function) => {
-            rewrite_command_source_texts(function.body.as_mut(), source, visitor)
-        }
+        Command::Compound(compound) => rewrite_compound_source_texts(compound, source, visitor),
+        Command::Function(function) => rewrite_stmt_source_texts(function.body.as_mut(), source, visitor),
+    };
+    for redirect in &mut stmt.redirects {
+        count += rewrite_redirect_source_texts(redirect, source, visitor);
     }
+    count
 }
 
 fn rewrite_builtin_like_source_texts(
     assignments: &mut [Assignment],
     primary: Option<&mut Word>,
     extra_args: &mut [Word],
-    redirects: &mut [Redirect],
     source: &str,
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
@@ -959,9 +817,6 @@ fn rewrite_builtin_like_source_texts(
     for argument in extra_args {
         count += rewrite_word_source_texts(argument, source, visitor);
     }
-    for redirect in redirects {
-        count += rewrite_redirect_source_texts(redirect, source, visitor);
-    }
     count
 }
 
@@ -972,38 +827,20 @@ fn rewrite_compound_source_texts(
 ) -> usize {
     match command {
         CompoundCommand::If(command) => {
-            command
-                .condition
-                .iter_mut()
-                .map(|command| rewrite_command_source_texts(command, source, visitor))
-                .sum::<usize>()
-                + command
-                    .then_branch
-                    .iter_mut()
-                    .map(|command| rewrite_command_source_texts(command, source, visitor))
-                    .sum::<usize>()
+            rewrite_stmt_seq_source_texts(&mut command.condition, source, visitor)
+                + rewrite_stmt_seq_source_texts(&mut command.then_branch, source, visitor)
                 + command
                     .elif_branches
                     .iter_mut()
                     .map(|(condition, body)| {
-                        condition
-                            .iter_mut()
-                            .map(|command| rewrite_command_source_texts(command, source, visitor))
-                            .sum::<usize>()
-                            + body
-                                .iter_mut()
-                                .map(|command| {
-                                    rewrite_command_source_texts(command, source, visitor)
-                                })
-                                .sum::<usize>()
+                        rewrite_stmt_seq_source_texts(condition, source, visitor)
+                            + rewrite_stmt_seq_source_texts(body, source, visitor)
                     })
                     .sum::<usize>()
                 + command
                     .else_branch
-                    .iter_mut()
-                    .flat_map(|body| body.iter_mut())
-                    .map(|command| rewrite_command_source_texts(command, source, visitor))
-                    .sum::<usize>()
+                    .as_mut()
+                    .map_or(0, |body| rewrite_stmt_seq_source_texts(body, source, visitor))
         }
         CompoundCommand::For(command) => {
             command
@@ -1012,40 +849,18 @@ fn rewrite_compound_source_texts(
                 .flat_map(|words| words.iter_mut())
                 .map(|word| rewrite_word_source_texts(word, source, visitor))
                 .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_source_texts(command, source, visitor))
-                    .sum::<usize>()
+                + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
-        CompoundCommand::ArithmeticFor(command) => command
-            .body
-            .iter_mut()
-            .map(|command| rewrite_command_source_texts(command, source, visitor))
-            .sum(),
+        CompoundCommand::ArithmeticFor(command) => {
+            rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
+        }
         CompoundCommand::While(command) => {
-            command
-                .condition
-                .iter_mut()
-                .map(|command| rewrite_command_source_texts(command, source, visitor))
-                .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_source_texts(command, source, visitor))
-                    .sum::<usize>()
+            rewrite_stmt_seq_source_texts(&mut command.condition, source, visitor)
+                + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
         CompoundCommand::Until(command) => {
-            command
-                .condition
-                .iter_mut()
-                .map(|command| rewrite_command_source_texts(command, source, visitor))
-                .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_source_texts(command, source, visitor))
-                    .sum::<usize>()
+            rewrite_stmt_seq_source_texts(&mut command.condition, source, visitor)
+                + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
         CompoundCommand::Case(command) => {
             rewrite_word_source_texts(&mut command.word, source, visitor)
@@ -1057,13 +872,7 @@ fn rewrite_compound_source_texts(
                             .iter_mut()
                             .map(|pattern| rewrite_pattern_source_texts(pattern, source, visitor))
                             .sum::<usize>()
-                            + item
-                                .commands
-                                .iter_mut()
-                                .map(|command| {
-                                    rewrite_command_source_texts(command, source, visitor)
-                                })
-                                .sum::<usize>()
+                            + rewrite_stmt_seq_source_texts(&mut item.body, source, visitor)
                     })
                     .sum::<usize>()
         }
@@ -1073,27 +882,35 @@ fn rewrite_compound_source_texts(
                 .iter_mut()
                 .map(|word| rewrite_word_source_texts(word, source, visitor))
                 .sum::<usize>()
-                + command
-                    .body
-                    .iter_mut()
-                    .map(|command| rewrite_command_source_texts(command, source, visitor))
-                    .sum::<usize>()
+                + rewrite_stmt_seq_source_texts(&mut command.body, source, visitor)
         }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
-            .iter_mut()
-            .map(|command| rewrite_command_source_texts(command, source, visitor))
-            .sum(),
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            rewrite_stmt_seq_source_texts(commands, source, visitor)
+        }
         CompoundCommand::Arithmetic(_) => 0,
-        CompoundCommand::Time(command) => command.command.as_mut().map_or(0, |command| {
-            rewrite_command_source_texts(command, source, visitor)
-        }),
+        CompoundCommand::Time(command) => {
+            command.command.as_mut().map_or(0, |command| {
+                rewrite_stmt_source_texts(command, source, visitor)
+            })
+        }
         CompoundCommand::Conditional(command) => {
             rewrite_conditional_source_texts(command, source, visitor)
         }
         CompoundCommand::Coproc(command) => {
-            rewrite_command_source_texts(command.body.as_mut(), source, visitor)
+            rewrite_stmt_source_texts(command.body.as_mut(), source, visitor)
         }
     }
+}
+
+fn rewrite_stmt_seq_source_texts(
+    commands: &mut StmtSeq,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    commands
+        .iter_mut()
+        .map(|command| rewrite_stmt_source_texts(command, source, visitor))
+        .sum()
 }
 
 fn rewrite_conditional_source_texts(
@@ -1239,11 +1056,7 @@ fn rewrite_word_part_source_texts(
             .iter_mut()
             .map(|part| rewrite_word_part_source_texts(part, source, visitor))
             .sum(),
-        WordPart::CommandSubstitution { commands, .. }
-        | WordPart::ProcessSubstitution { commands, .. } => commands
-            .iter_mut()
-            .map(|command| rewrite_command_source_texts(command, source, visitor))
-            .sum(),
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => 0,
         WordPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
         WordPart::ParameterExpansion {
             reference,
@@ -1629,6 +1442,7 @@ mod tests {
     use shuck_format::format;
     use shuck_parser::parser::Parser;
 
+    use crate::ast_format::flatten_comments;
     use crate::comments::Comments;
     use crate::context::ShellFormatContext;
     use crate::options::ShellFormatOptions;
@@ -1644,18 +1458,19 @@ mod tests {
     }
 
     fn format_after_rewrite(source: &str, rewrite: &str) -> String {
-        let mut parsed = Parser::new(source).parse().unwrap();
+        let parsed = Parser::new(source).parse().unwrap();
+        let mut file = parsed.file.clone();
         let rewrite = rewrite_by_name(rewrite);
-        let changes = (rewrite.apply)(&mut parsed.script, source);
+        let changes = (rewrite.apply)(&mut file, source);
         assert!(changes > 0, "expected rewrite `{rewrite:?}` to apply");
 
         let options = ShellFormatOptions::default();
         let context = ShellFormatContext::new(
             options.resolve(source, Some(Path::new("test.sh"))),
             source,
-            Comments::from_ast(source, &parsed.comments),
+            Comments::from_ast(source, &flatten_comments(&parsed.file)),
         );
-        let formatted = format!(context, [parsed.script.format()]).unwrap();
+        let formatted = format!(context, [file.format()]).unwrap();
         let mut output = formatted.print().unwrap().into_code();
         if !output.ends_with('\n') {
             output.push('\n');
@@ -1738,8 +1553,9 @@ mod tests {
 
     #[test]
     fn simplify_report_tracks_applied_rewrites() {
-        let mut parsed = Parser::new("echo $(( $a + ${b} ))\n").parse().unwrap();
-        let report = simplify_script(&mut parsed.script, "echo $(( $a + ${b} ))\n");
+        let parsed = Parser::new("echo $(( $a + ${b} ))\n").parse().unwrap();
+        let mut file = parsed.file.clone();
+        let report = simplify_file(&mut file, "echo $(( $a + ${b} ))\n");
 
         assert_eq!(report.total_changes(), 1);
         assert_eq!(report.applied().len(), 1);
