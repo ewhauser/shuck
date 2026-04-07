@@ -23,16 +23,17 @@ pub use lexer::{
 use shuck_ast::{
     ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
-    AssignmentValue, BreakCommand, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
-    CommandList, CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand,
-    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
-    DeclClause, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter,
-    IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Pipeline, Position, PrefixMatchKind, Redirect, RedirectKind,
-    RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
-    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand,
-    TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    AssignmentValue, BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
+    BreakCommand, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList,
+    CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalBinaryExpr,
+    ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
+    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, DeclClause,
+    DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter, IfCommand,
+    ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind, PatternPart,
+    PatternPartNode, Pipeline, Position, PrefixMatchKind, Redirect, RedirectKind, RedirectTarget,
+    ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span, Subscript,
+    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
+    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -263,6 +264,7 @@ impl<'a> PatternParser<'a> {
                         PatternPart::Word(Word {
                             parts: vec![(*part).clone()],
                             span: part.span,
+                            brace_syntax: Vec::new(),
                         }),
                         part.span,
                     ));
@@ -857,6 +859,221 @@ impl<'a> Parser<'a> {
         text.contains(['$', '`', '\x00'])
     }
 
+    fn word_with_parts(&self, parts: Vec<WordPartNode>, span: Span) -> Word {
+        let brace_syntax = self.brace_syntax_from_parts(&parts);
+        Word {
+            parts,
+            span,
+            brace_syntax,
+        }
+    }
+
+    fn brace_syntax_from_parts(&self, parts: &[WordPartNode]) -> Vec<BraceSyntax> {
+        let mut brace_syntax = Vec::new();
+        self.collect_brace_syntax_from_parts(parts, BraceQuoteContext::Unquoted, &mut brace_syntax);
+        brace_syntax
+    }
+
+    fn collect_brace_syntax_from_parts(
+        &self,
+        parts: &[WordPartNode],
+        quote_context: BraceQuoteContext,
+        out: &mut Vec<BraceSyntax>,
+    ) {
+        for part in parts {
+            match &part.kind {
+                WordPart::Literal(text) => Self::scan_brace_syntax_text(
+                    text.as_str(self.input, part.span),
+                    part.span.start,
+                    quote_context,
+                    out,
+                ),
+                WordPart::SingleQuoted { value, .. } => Self::scan_brace_syntax_text(
+                    value.slice(self.input),
+                    value.span().start,
+                    BraceQuoteContext::SingleQuoted,
+                    out,
+                ),
+                WordPart::DoubleQuoted { parts, .. } => self.collect_brace_syntax_from_parts(
+                    parts,
+                    BraceQuoteContext::DoubleQuoted,
+                    out,
+                ),
+                WordPart::Variable(_)
+                | WordPart::CommandSubstitution { .. }
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::ParameterExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::ProcessSubstitution { .. }
+                | WordPart::Transformation { .. } => {}
+            }
+        }
+    }
+
+    fn scan_brace_syntax_text(
+        text: &str,
+        base: Position,
+        quote_context: BraceQuoteContext,
+        out: &mut Vec<BraceSyntax>,
+    ) {
+        let mut index = 0;
+
+        while index < text.len() {
+            let rest = &text[index..];
+            let Some(ch) = rest.chars().next() else {
+                break;
+            };
+
+            if matches!(quote_context, BraceQuoteContext::Unquoted) && ch == '\\' {
+                index += ch.len_utf8();
+                if let Some(next) = text[index..].chars().next() {
+                    index += next.len_utf8();
+                }
+                continue;
+            }
+
+            if ch != '{' {
+                index += ch.len_utf8();
+                continue;
+            }
+
+            if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
+                out.push(BraceSyntax {
+                    kind: BraceSyntaxKind::TemplatePlaceholder,
+                    span: Span::from_positions(
+                        Self::text_position(base, text, index),
+                        Self::text_position(base, text, index + len),
+                    ),
+                    quote_context,
+                });
+                index += len;
+                continue;
+            }
+
+            if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
+                out.push(BraceSyntax {
+                    kind,
+                    span: Span::from_positions(
+                        Self::text_position(base, text, index),
+                        Self::text_position(base, text, index + len),
+                    ),
+                    quote_context,
+                });
+                index += len;
+                continue;
+            }
+
+            index += ch.len_utf8();
+        }
+    }
+
+    fn text_position(base: Position, text: &str, offset: usize) -> Position {
+        base.advanced_by(&text[..offset])
+    }
+
+    fn template_placeholder_len(
+        text: &str,
+        start: usize,
+        quote_context: BraceQuoteContext,
+    ) -> Option<usize> {
+        text.get(start..).filter(|rest| rest.starts_with("{{"))?;
+
+        let mut index = start + "{{".len();
+        let mut depth = 1usize;
+
+        while index < text.len() {
+            if matches!(quote_context, BraceQuoteContext::Unquoted)
+                && text[index..].starts_with('\\')
+            {
+                index += 1;
+                if let Some(next) = text[index..].chars().next() {
+                    index += next.len_utf8();
+                }
+                continue;
+            }
+
+            if text[index..].starts_with("{{") {
+                depth += 1;
+                index += "{{".len();
+                continue;
+            }
+
+            if text[index..].starts_with("}}") {
+                depth -= 1;
+                index += "}}".len();
+                if depth == 0 {
+                    return Some(index - start);
+                }
+                continue;
+            }
+
+            index += text[index..].chars().next()?.len_utf8();
+        }
+
+        None
+    }
+
+    fn brace_construct_len(
+        text: &str,
+        start: usize,
+        quote_context: BraceQuoteContext,
+    ) -> Option<(usize, BraceSyntaxKind)> {
+        text.get(start..).filter(|rest| rest.starts_with('{'))?;
+
+        let mut index = start + '{'.len_utf8();
+        let mut depth = 1usize;
+        let mut has_comma = false;
+        let mut has_dot_dot = false;
+        let mut prev_char = None;
+
+        while index < text.len() {
+            if matches!(quote_context, BraceQuoteContext::Unquoted)
+                && text[index..].starts_with('\\')
+            {
+                index += 1;
+                if let Some(next) = text[index..].chars().next() {
+                    index += next.len_utf8();
+                }
+                prev_char = None;
+                continue;
+            }
+
+            let ch = text[index..].chars().next()?;
+            index += ch.len_utf8();
+
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let kind = if has_comma {
+                            BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+                        } else if has_dot_dot {
+                            BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+                        } else {
+                            BraceSyntaxKind::Literal
+                        };
+                        return Some((index - start, kind));
+                    }
+                }
+                ',' if depth == 1 => has_comma = true,
+                '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
+                _ => {}
+            }
+
+            prev_char = Some(ch);
+        }
+
+        None
+    }
+
     fn simple_word_from_token(&self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
         let word = token.word()?;
         let mut parts = Vec::new();
@@ -912,7 +1129,7 @@ impl<'a> Parser<'a> {
             parts.push(part);
         }
 
-        Some(Word { parts, span })
+        Some(self.word_with_parts(parts, span))
     }
 
     fn segment_content_span(segment: &LexedWordSegment<'_>, fallback: Span) -> Span {
@@ -983,24 +1200,19 @@ impl<'a> Parser<'a> {
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
 
             return match segment.kind() {
-                LexedWordSegmentKind::SingleQuoted => Some(Word {
-                    parts: vec![self.single_quoted_part_from_text(
+                LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
+                    vec![self.single_quoted_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
                         false,
                     )],
                     span,
-                }),
-                LexedWordSegmentKind::DollarSingleQuoted => Some(Word {
-                    parts: vec![self.single_quoted_part_from_text(
-                        text,
-                        content_span,
-                        wrapper_span,
-                        true,
-                    )],
+                )),
+                LexedWordSegmentKind::DollarSingleQuoted => Some(self.word_with_parts(
+                    vec![self.single_quoted_part_from_text(text, content_span, wrapper_span, true)],
                     span,
-                }),
+                )),
                 LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => {
                     Some(self.decode_word_text_preserving_quotes_if_needed(
                         text,
@@ -1018,8 +1230,8 @@ impl<'a> Parser<'a> {
                         content_span.start,
                         source_backed,
                     );
-                    Some(Word {
-                        parts: vec![WordPartNode::new(
+                    Some(self.word_with_parts(
+                        vec![WordPartNode::new(
                             WordPart::DoubleQuoted {
                                 parts: inner.parts,
                                 dollar: matches!(
@@ -1030,14 +1242,14 @@ impl<'a> Parser<'a> {
                             wrapper_span,
                         )],
                         span,
-                    })
+                    ))
                 }
-                LexedWordSegmentKind::Plain => Some(Word {
-                    parts: vec![self.literal_part_from_text(text, content_span, source_backed)],
+                LexedWordSegmentKind::Plain => Some(self.word_with_parts(
+                    vec![self.literal_part_from_text(text, content_span, source_backed)],
                     span,
-                }),
-                LexedWordSegmentKind::DoubleQuoted => Some(Word {
-                    parts: vec![self.double_quoted_literal_part_from_text(
+                )),
+                LexedWordSegmentKind::DoubleQuoted => Some(self.word_with_parts(
+                    vec![self.double_quoted_literal_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
@@ -1045,9 +1257,9 @@ impl<'a> Parser<'a> {
                         false,
                     )],
                     span,
-                }),
-                LexedWordSegmentKind::DollarDoubleQuoted => Some(Word {
-                    parts: vec![self.double_quoted_literal_part_from_text(
+                )),
+                LexedWordSegmentKind::DollarDoubleQuoted => Some(self.word_with_parts(
+                    vec![self.double_quoted_literal_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
@@ -1055,7 +1267,7 @@ impl<'a> Parser<'a> {
                         true,
                     )],
                     span,
-                }),
+                )),
                 LexedWordSegmentKind::Composite => None,
             };
         }
@@ -1131,7 +1343,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Some(Word { parts, span })
+        Some(self.word_with_parts(parts, span))
     }
 
     fn current_word(&mut self) -> Option<Word> {
@@ -1566,6 +1778,9 @@ impl<'a> Parser<'a> {
 
     fn rebase_word(word: &mut Word, base: Position) {
         word.span = word.span.rebased(base);
+        for brace in &mut word.brace_syntax {
+            brace.span = brace.span.rebased(base);
+        }
         Self::rebase_word_parts(&mut word.parts, base);
     }
 
@@ -4755,10 +4970,7 @@ impl<'a> Parser<'a> {
             _ => return Err(self.error("expected conditional operand")),
         };
 
-        Ok(Word {
-            parts,
-            span: Span::from_positions(start, end),
-        })
+        Ok(self.word_with_parts(parts, Span::from_positions(start, end)))
     }
 
     fn parse_arithmetic_command(&mut self) -> Result<CompoundCommand> {
@@ -5501,10 +5713,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Word {
-            parts,
-            span: value_span,
-        }
+        self.word_with_parts(parts, value_span)
     }
 
     fn word_syntax_is_source_backed(&self, word: &Word) -> bool {
@@ -6590,13 +6799,13 @@ impl<'a> Parser<'a> {
                 let commands =
                     self.nested_commands_from_current_input(inner_start, close_span.start);
 
-                Ok(Word {
-                    parts: vec![WordPartNode::new(
+                Ok(self.word_with_parts(
+                    vec![WordPartNode::new(
                         WordPart::ProcessSubstitution { commands, is_input },
                         process_span.merge(close_span),
                     )],
-                    span: process_span.merge(close_span),
-                })
+                    process_span.merge(close_span),
+                ))
             }
             _ => Err(self.error("expected word")),
         }
@@ -7910,7 +8119,7 @@ impl<'a> Parser<'a> {
     ) -> Word {
         let mut parts = Vec::new();
         self.decode_word_parts_into(s, base, source_backed, &mut parts);
-        Word { parts, span }
+        self.word_with_parts(parts, span)
     }
 
     fn decode_fragment_word_text(
@@ -7922,7 +8131,7 @@ impl<'a> Parser<'a> {
     ) -> Word {
         let mut parts = Vec::new();
         self.decode_word_parts_into_with_quote_fragments(s, base, source_backed, true, &mut parts);
-        Word { parts, span }
+        self.word_with_parts(parts, span)
     }
 
     fn parse_word_with_context(
@@ -8049,6 +8258,13 @@ mod tests {
         word.parts
             .iter()
             .map(|part| part.span.slice(input))
+            .collect()
+    }
+
+    fn brace_slices<'a>(word: &'a Word, input: &'a str) -> Vec<&'a str> {
+        word.brace_syntax
+            .iter()
+            .map(|brace| brace.span.slice(input))
             .collect()
     }
 
@@ -9531,6 +9747,81 @@ mod tests {
                 .iter()
                 .any(|part| matches!(part.kind, WordPart::CommandSubstitution { .. }))
         );
+    }
+
+    #[test]
+    fn test_brace_syntax_marks_unquoted_expansion_candidates() {
+        let list_input = "{a,b}";
+        let list = Parser::parse_word_string(list_input);
+        assert_eq!(brace_slices(&list, list_input), vec!["{a,b}"]);
+        assert_eq!(
+            list.brace_syntax(),
+            &[BraceSyntax {
+                kind: BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList),
+                span: list.span,
+                quote_context: BraceQuoteContext::Unquoted,
+            }]
+        );
+        assert!(list.has_active_brace_expansion());
+
+        let sequence_input = "{1..3}";
+        let sequence = Parser::parse_word_string(sequence_input);
+        assert_eq!(brace_slices(&sequence, sequence_input), vec!["{1..3}"]);
+        assert_eq!(
+            sequence.brace_syntax()[0].kind,
+            BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+        );
+        assert!(sequence.brace_syntax()[0].expands());
+    }
+
+    #[test]
+    fn test_brace_syntax_marks_literal_and_quoted_brace_forms() {
+        let literal_input = "HEAD@{1}";
+        let literal = Parser::parse_word_string(literal_input);
+        assert_eq!(brace_slices(&literal, literal_input), vec!["{1}"]);
+        assert_eq!(literal.brace_syntax()[0].kind, BraceSyntaxKind::Literal);
+        assert!(literal.brace_syntax()[0].treated_literally());
+        assert!(!literal.has_active_brace_expansion());
+
+        let quoted_input = "\"{a,b}\"";
+        let quoted = Parser::parse_word_string(quoted_input);
+        assert_eq!(brace_slices(&quoted, quoted_input), vec!["{a,b}"]);
+        assert_eq!(
+            quoted.brace_syntax()[0].kind,
+            BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+        );
+        assert_eq!(
+            quoted.brace_syntax()[0].quote_context,
+            BraceQuoteContext::DoubleQuoted
+        );
+        assert!(quoted.brace_syntax()[0].treated_literally());
+        assert!(!quoted.has_active_brace_expansion());
+    }
+
+    #[test]
+    fn test_brace_syntax_marks_template_placeholders_inside_quotes() {
+        let input = "\"$root/pkg/{{name}}/bin/{{cmd}}\"";
+        let word = Parser::parse_word_string(input);
+
+        assert_eq!(brace_slices(&word, input), vec!["{{name}}", "{{cmd}}"]);
+        assert_eq!(word.brace_syntax().len(), 2);
+        assert!(
+            word.brace_syntax()
+                .iter()
+                .all(|brace| brace.kind == BraceSyntaxKind::TemplatePlaceholder)
+        );
+        assert!(
+            word.brace_syntax()
+                .iter()
+                .all(|brace| brace.quote_context == BraceQuoteContext::DoubleQuoted)
+        );
+    }
+
+    #[test]
+    fn test_brace_syntax_ignores_escaped_unquoted_braces() {
+        let word = Parser::parse_word_string("\\{a,b\\}");
+        assert!(word.brace_syntax().is_empty());
+        assert!(!word.has_active_brace_expansion());
     }
 
     #[test]

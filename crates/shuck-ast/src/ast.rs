@@ -955,6 +955,58 @@ impl PrefixMatchKind {
     }
 }
 
+/// Brace expansion surface form recognized inside a word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BraceExpansionKind {
+    CommaList,
+    Sequence,
+}
+
+/// Quoting context for brace-like syntax inside a word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BraceQuoteContext {
+    Unquoted,
+    DoubleQuoted,
+    SingleQuoted,
+}
+
+/// Parser-owned classification for brace-like syntax inside a word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BraceSyntaxKind {
+    Expansion(BraceExpansionKind),
+    Literal,
+    TemplatePlaceholder,
+}
+
+/// A brace-like surface-syntax occurrence inside a word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BraceSyntax {
+    pub kind: BraceSyntaxKind,
+    pub span: Span,
+    pub quote_context: BraceQuoteContext,
+}
+
+impl BraceSyntax {
+    pub const fn expansion_kind(self) -> Option<BraceExpansionKind> {
+        match self.kind {
+            BraceSyntaxKind::Expansion(kind) => Some(kind),
+            BraceSyntaxKind::Literal | BraceSyntaxKind::TemplatePlaceholder => None,
+        }
+    }
+
+    pub const fn is_recognized_expansion(self) -> bool {
+        matches!(self.kind, BraceSyntaxKind::Expansion(_))
+    }
+
+    pub const fn expands(self) -> bool {
+        self.is_recognized_expansion() && matches!(self.quote_context, BraceQuoteContext::Unquoted)
+    }
+
+    pub const fn treated_literally(self) -> bool {
+        !self.expands()
+    }
+}
+
 /// A word part paired with its source span.
 #[derive(Debug, Clone)]
 pub struct WordPartNode {
@@ -974,6 +1026,8 @@ pub struct Word {
     pub parts: Vec<WordPartNode>,
     /// Source span of this word
     pub span: Span,
+    /// Parser-owned brace surface classification for this word.
+    pub brace_syntax: Vec<BraceSyntax>,
 }
 
 impl Word {
@@ -990,6 +1044,7 @@ impl Word {
                 span,
             )],
             span,
+            brace_syntax: Vec::new(),
         }
     }
 
@@ -1009,6 +1064,7 @@ impl Word {
                 span,
             )],
             span,
+            brace_syntax: Vec::new(),
         }
     }
 
@@ -1020,6 +1076,7 @@ impl Word {
                 part_span,
             )],
             span,
+            brace_syntax: Vec::new(),
         }
     }
 
@@ -1034,6 +1091,7 @@ impl Word {
                 span,
             )],
             span,
+            brace_syntax: Vec::new(),
         }
     }
 
@@ -1062,6 +1120,14 @@ impl Word {
     /// Iterate over word parts and their spans together.
     pub fn parts_with_spans(&self) -> impl Iterator<Item = (&WordPart, Span)> + '_ {
         self.parts.iter().map(|part| (&part.kind, part.span))
+    }
+
+    pub fn brace_syntax(&self) -> &[BraceSyntax] {
+        &self.brace_syntax
+    }
+
+    pub fn has_active_brace_expansion(&self) -> bool {
+        self.brace_syntax.iter().copied().any(BraceSyntax::expands)
     }
 
     pub fn is_fully_quoted(&self) -> bool {
@@ -2008,6 +2074,7 @@ mod tests {
                 .map(|part| WordPartNode::new(part, span))
                 .collect(),
             span,
+            brace_syntax: Vec::new(),
         }
     }
 

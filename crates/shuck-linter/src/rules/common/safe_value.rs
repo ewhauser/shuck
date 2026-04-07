@@ -193,6 +193,7 @@ impl<'a> SafeValueIndex<'a> {
         let word = Word {
             parts: vec![WordPartNode::new(part.clone(), span)],
             span,
+            brace_syntax: Vec::new(),
         };
         if let Some(context) = query.operand_context()
             && !classify_contextual_operand(&word, self.source, context).is_fixed_literal()

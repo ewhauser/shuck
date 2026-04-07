@@ -1556,6 +1556,7 @@ fn strip_redundant_conditional_quotes(expression: &mut ConditionalExpr, source: 
     *word = Word {
         parts,
         span: word.span,
+        brace_syntax: Vec::new(),
     };
     let _ = source;
     1
@@ -1599,6 +1600,7 @@ fn tighten_literal_quotes(word: &mut Word, source: &str) -> usize {
             word.span,
         )],
         span: word.span,
+        brace_syntax: Vec::new(),
     };
     1
 }
