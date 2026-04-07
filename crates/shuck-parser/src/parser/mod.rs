@@ -2787,7 +2787,12 @@ impl<'a> Parser<'a> {
 
         loop {
             match probe.current_token_kind {
-                Some(TokenKind::DoubleLeftParen) | Some(TokenKind::LeftParen) => {
+                Some(TokenKind::DoubleLeftParen) => {
+                    paren_depth += 2;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(TokenKind::LeftParen) => {
                     paren_depth += 1;
                     previous_top_level_operand = false;
                     probe.advance();
@@ -3185,7 +3190,11 @@ impl<'a> Parser<'a> {
 
         let right_paren_span = loop {
             match self.current_token_kind {
-                Some(TokenKind::DoubleLeftParen) | Some(TokenKind::LeftParen) => {
+                Some(TokenKind::DoubleLeftParen) => {
+                    paren_depth += 2;
+                    self.advance();
+                }
+                Some(TokenKind::LeftParen) => {
                     paren_depth += 1;
                     self.advance();
                 }
@@ -4107,7 +4116,11 @@ impl<'a> Parser<'a> {
         let mut depth = 0_i32;
         let right_paren_span = loop {
             match self.current_token_kind {
-                Some(TokenKind::DoubleLeftParen) | Some(TokenKind::LeftParen) => {
+                Some(TokenKind::DoubleLeftParen) => {
+                    depth += 2;
+                    self.advance();
+                }
+                Some(TokenKind::LeftParen) => {
                     depth += 1;
                     self.advance();
                 }
@@ -8157,6 +8170,40 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_arithmetic_command_with_nested_double_parens_and_grouping() {
+        let input = "(( x = ((1 + 2) * (3 - 4)) ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::Arithmetic(command) = compound else {
+            panic!("expected arithmetic compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(command.right_paren_span.slice(input), "))");
+        assert_eq!(
+            command.expr_span.unwrap().slice(input),
+            " x = ((1 + 2) * (3 - 4)) "
+        );
+
+        let ArithmeticExpr::Assignment { target, op, value } = &command
+            .expr_ast
+            .as_ref()
+            .expect("expected typed arithmetic AST")
+            .kind
+        else {
+            panic!("expected arithmetic assignment");
+        };
+        assert_eq!(*op, ArithmeticAssignOp::Assign);
+        let ArithmeticLvalue::Variable(name) = target else {
+            panic!("expected variable assignment target");
+        };
+        assert_eq!(name, "x");
+        assert!(matches!(value.kind, ArithmeticExpr::Parenthesized { .. }));
+    }
+
+    #[test]
     fn test_parse_arithmetic_command_respects_precedence_and_associativity() {
         let input = "(( a + b * c ** d ))\n";
         let script = Parser::new(input).parse().unwrap().script;
@@ -8434,6 +8481,88 @@ mod tests {
         };
         assert_eq!(name, "i");
         expect_number(step_value, input, "2");
+    }
+
+    #[test]
+    fn test_parse_arithmetic_for_with_nested_double_parens_in_segments() {
+        let input = "for (( x = ((1 + 2) * (3 - 4)); y < ((5 + 6) * (7 - 8)); z = ((9 + 10) * (11 - 12)) )); do :; done\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let (compound, redirects) = expect_compound(&script.commands[0]);
+        let CompoundCommand::ArithmeticFor(command) = compound else {
+            panic!("expected arithmetic for compound command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.left_paren_span.slice(input), "((");
+        assert_eq!(
+            command.init_span.unwrap().slice(input),
+            " x = ((1 + 2) * (3 - 4))"
+        );
+        assert_eq!(
+            command.condition_span.unwrap().slice(input),
+            " y < ((5 + 6) * (7 - 8))"
+        );
+        assert_eq!(
+            command.step_span.unwrap().slice(input),
+            " z = ((9 + 10) * (11 - 12)) "
+        );
+
+        let ArithmeticExpr::Assignment { target, op, value } = &command
+            .init_ast
+            .as_ref()
+            .expect("expected init arithmetic AST")
+            .kind
+        else {
+            panic!("expected assignment init expression");
+        };
+        assert_eq!(*op, ArithmeticAssignOp::Assign);
+        let ArithmeticLvalue::Variable(name) = target else {
+            panic!("expected variable init target");
+        };
+        assert_eq!(name, "x");
+        assert!(matches!(value.kind, ArithmeticExpr::Parenthesized { .. }));
+
+        let ArithmeticExpr::Binary {
+            left: condition_left,
+            op: condition_op,
+            right: condition_right,
+        } = &command
+            .condition_ast
+            .as_ref()
+            .expect("expected condition arithmetic AST")
+            .kind
+        else {
+            panic!("expected binary condition expression");
+        };
+        assert_eq!(*condition_op, ArithmeticBinaryOp::LessThan);
+        expect_variable(condition_left, "y");
+        assert!(matches!(
+            condition_right.kind,
+            ArithmeticExpr::Parenthesized { .. }
+        ));
+
+        let ArithmeticExpr::Assignment {
+            target,
+            op: step_op,
+            value: step_value,
+        } = &command
+            .step_ast
+            .as_ref()
+            .expect("expected step arithmetic AST")
+            .kind
+        else {
+            panic!("expected assignment step expression");
+        };
+        assert_eq!(*step_op, ArithmeticAssignOp::Assign);
+        let ArithmeticLvalue::Variable(name) = target else {
+            panic!("expected variable step target");
+        };
+        assert_eq!(name, "z");
+        assert!(matches!(
+            step_value.kind,
+            ArithmeticExpr::Parenthesized { .. }
+        ));
     }
 
     #[test]
