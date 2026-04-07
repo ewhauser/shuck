@@ -1,6 +1,7 @@
 mod checker;
 pub mod context;
 mod diagnostic;
+mod facts;
 mod registry;
 mod rule_selector;
 mod rule_set;
@@ -18,6 +19,7 @@ pub use context::{
     ContextRegion, ContextRegionKind, FileContext, FileContextTag, classify_file_context,
 };
 pub use diagnostic::{Diagnostic, Severity};
+pub use facts::{CommandFact, FactSpan, LinterFacts};
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;

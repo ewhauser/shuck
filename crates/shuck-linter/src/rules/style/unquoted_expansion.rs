@@ -22,7 +22,7 @@ impl Violation for UnquotedExpansion {
 
 pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
-    let mut safe_values = SafeValueIndex::build(checker.semantic(), &checker.ast().body, source);
+    let mut safe_values = SafeValueIndex::build(checker.semantic(), checker.facts(), source);
 
     query::walk_commands(
         &checker.ast().body,

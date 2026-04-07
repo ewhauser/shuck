@@ -3,13 +3,14 @@ use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
 
-use crate::{Diagnostic, FileContext, Rule, RuleSet, ShellDialect, Violation, rules};
+use crate::{Diagnostic, FileContext, LinterFacts, Rule, RuleSet, ShellDialect, Violation, rules};
 
 pub struct Checker<'a> {
     semantic: &'a SemanticModel,
     indexer: &'a Indexer,
     file: &'a File,
     source: &'a str,
+    facts: LinterFacts<'a>,
     rules: &'a RuleSet,
     shell: ShellDialect,
     file_context: &'a FileContext,
@@ -49,6 +50,7 @@ impl<'a> Checker<'a> {
             indexer,
             file,
             source,
+            facts: LinterFacts::build(file, source),
             rules,
             shell,
             file_context,
@@ -71,6 +73,10 @@ impl<'a> Checker<'a> {
 
     pub fn source(&self) -> &'a str {
         self.source
+    }
+
+    pub fn facts(&self) -> &LinterFacts<'a> {
+        &self.facts
     }
 
     pub fn is_rule_enabled(&self, rule: Rule) -> bool {

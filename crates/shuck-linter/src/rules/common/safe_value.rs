@@ -1,14 +1,14 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    AssignmentValue, DeclOperand, Name, ParameterOp, RedirectKind, SourceText, Span, StmtSeq,
-    VarRef, Word, WordPart, WordPartNode,
+    Name, ParameterOp, RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::BindingId;
 use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
 
+use crate::{FactSpan, LinterFacts};
+
 use super::{
     expansion::{ExpansionContext, analyze_word},
-    query::{self, CommandWalkOptions},
     word::{classify_contextual_operand, static_word_text},
 };
 
@@ -56,68 +56,27 @@ impl SafeValueQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SpanKey {
-    start: usize,
-    end: usize,
-}
-
-impl SpanKey {
-    fn new(span: Span) -> Self {
-        Self {
-            start: span.start.offset,
-            end: span.end.offset,
-        }
-    }
-}
-
 pub struct SafeValueIndex<'a> {
     semantic: &'a SemanticModel,
     source: &'a str,
-    scalar_bindings: FxHashMap<SpanKey, &'a Word>,
-    maybe_uninitialized_refs: FxHashSet<SpanKey>,
-    memo: FxHashMap<(SpanKey, SafeValueQuery), bool>,
-    visiting: FxHashSet<(SpanKey, SafeValueQuery)>,
+    scalar_bindings: FxHashMap<FactSpan, &'a Word>,
+    maybe_uninitialized_refs: FxHashSet<FactSpan>,
+    memo: FxHashMap<(FactSpan, SafeValueQuery), bool>,
+    visiting: FxHashSet<(FactSpan, SafeValueQuery)>,
 }
 
 impl<'a> SafeValueIndex<'a> {
-    pub fn build(semantic: &'a SemanticModel, commands: &'a StmtSeq, source: &'a str) -> Self {
-        let mut scalar_bindings = FxHashMap::default();
-
-        for visit in query::iter_commands(
-            commands,
-            CommandWalkOptions {
-                descend_nested_word_commands: true,
-            },
-        ) {
-            for assignment in query::command_assignments(visit.command) {
-                let AssignmentValue::Scalar(word) = &assignment.value else {
-                    continue;
-                };
-                scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
-            }
-
-            for operand in query::declaration_operands(visit.command) {
-                let DeclOperand::Assignment(assignment) = operand else {
-                    continue;
-                };
-                let AssignmentValue::Scalar(word) = &assignment.value else {
-                    continue;
-                };
-                scalar_bindings.insert(SpanKey::new(assignment.target.name_span), word);
-            }
-        }
-
+    pub fn build(semantic: &'a SemanticModel, facts: &LinterFacts<'a>, source: &'a str) -> Self {
         let maybe_uninitialized_refs = semantic
             .uninitialized_references()
             .iter()
-            .map(|uninitialized| SpanKey::new(semantic.reference(uninitialized.reference).span))
+            .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
             .collect();
 
         Self {
             semantic,
             source,
-            scalar_bindings,
+            scalar_bindings: facts.scalar_binding_values().clone(),
             maybe_uninitialized_refs,
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
@@ -205,7 +164,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn name_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
-        if self.maybe_uninitialized_refs.contains(&SpanKey::new(at)) {
+        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
             return false;
         }
         if safe_special_parameter(name) {
@@ -226,7 +185,7 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let binding_key = SpanKey::new(binding.span);
+        let binding_key = FactSpan::new(binding.span);
         let key = (binding_key, query);
         if let Some(result) = self.memo.get(&key) {
             return *result;
@@ -254,7 +213,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn indirect_name_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
-        if self.maybe_uninitialized_refs.contains(&SpanKey::new(at)) {
+        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
             return false;
         }
 
@@ -393,6 +352,7 @@ mod tests {
     use shuck_semantic::SemanticModel;
 
     use super::{SafeValueIndex, SafeValueQuery};
+    use crate::LinterFacts;
     use crate::rules::common::{expansion::ExpansionContext, query};
 
     #[test]
@@ -439,7 +399,8 @@ mod tests {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
+        let facts = LinterFacts::build(&output.file, source);
+        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
             panic!("expected simple command");
@@ -466,7 +427,8 @@ esac
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
+        let facts = LinterFacts::build(&output.file, source);
+        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
 
         let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())
             .flat_map(|visit| query::iter_expansion_words(visit, source))
@@ -521,7 +483,8 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
+        let facts = LinterFacts::build(&output.file, source);
+        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
 
         let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())
             .flat_map(|visit| query::iter_expansion_words(visit, source))
