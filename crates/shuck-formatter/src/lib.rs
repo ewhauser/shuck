@@ -173,8 +173,7 @@ mod tests {
     ) {
         let parsed = parse_for_ast_format(source, path, options);
         let from_source = format_source(source, path, options).unwrap();
-        let from_ast =
-            format_script_ast(source, &parsed.script, &parsed.comments, path, options).unwrap();
+        let from_ast = format_file_ast(source, &parsed.file, path, options).unwrap();
         assert_eq!(from_source, from_ast);
     }
 
@@ -351,7 +350,7 @@ mod tests {
     #[test]
     fn parsed_assignment_value_render_syntax_is_trimmed() {
         let parsed = parse_for_ast_format("x=1\n", None, &ShellFormatOptions::default());
-        let Command::Simple(command) = &parsed.script.commands[0] else {
+        let Command::Simple(command) = &parsed.file.body[0].command else {
             panic!("expected a simple command");
         };
 

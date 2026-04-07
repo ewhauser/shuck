@@ -10,7 +10,7 @@ configure_benchmark_allocator!();
 fn build_semantic(source: &str) -> SemanticModel {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
-    SemanticModel::build(&output.script, source, &indexer)
+    SemanticModel::build(&output.file, source, &indexer)
 }
 
 fn bench_unused_assignment(c: &mut Criterion) {

@@ -1,7 +1,7 @@
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, Span, Word,
-    WordPart, WordPartNode,
+    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, Command,
+    CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect,
+    Span, Stmt, StmtSeq, Word, WordPart, WordPartNode,
 };
 
 use crate::rules::common::{query, word::static_word_text};
@@ -21,26 +21,25 @@ impl Violation for PipeToKill {
 
 pub fn pipe_to_kill(checker: &mut Checker) {
     let mut spans = Vec::new();
-    collect_commands(&checker.ast().commands, checker.source(), &mut spans);
+    collect_commands(&checker.ast().body, checker.source(), &mut spans);
 
     for span in spans {
         checker.report(PipeToKill, span);
     }
 }
 
-fn collect_commands(commands: &[Command], source: &str, spans: &mut Vec<Span>) {
-    for command in commands {
+fn collect_commands(commands: &StmtSeq, source: &str, spans: &mut Vec<Span>) {
+    for command in commands.iter() {
         collect_command(command, source, spans);
     }
 }
 
-fn collect_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
-    match command {
+fn collect_command(command: &Stmt, source: &str, spans: &mut Vec<Span>) {
+    match &command.command {
         Command::Simple(command) => {
             collect_assignments(&command.assignments, source, spans);
             collect_word(&command.name, source, spans);
             collect_words(&command.args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
         }
         Command::Builtin(command) => collect_builtin(command, source, spans),
         Command::Decl(command) => {
@@ -60,32 +59,29 @@ fn collect_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
                     }
                 }
             }
-            collect_redirects(&command.redirects, source, spans);
         }
-        Command::Pipeline(command) => {
-            if command.commands.len() > 1
-                && command
-                    .commands
-                    .last()
-                    .is_some_and(|command| is_static_kill_command(command, source))
-            {
-                spans.push(command.span);
+        Command::Binary(command) => {
+            if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+                let mut segments = Vec::new();
+                collect_pipeline_segments(command, &mut segments);
+                if segments.len() > 1
+                    && segments
+                        .last()
+                        .is_some_and(|command| is_static_kill_command(&command.command, source))
+                {
+                    spans.push(command.span);
+                }
             }
-
-            collect_commands(&command.commands, source, spans);
+            collect_command(&command.left, source, spans);
+            collect_command(&command.right, source, spans);
         }
-        Command::List(CommandList { first, rest, .. }) => {
-            collect_command(first, source, spans);
-            for item in rest {
-                collect_command(&item.command, source, spans);
-            }
-        }
-        Command::Compound(command, redirects) => {
+        Command::Compound(command) => {
             collect_compound(command, source, spans);
-            collect_redirects(redirects, source, spans);
         }
         Command::Function(FunctionDef { body, .. }) => collect_command(body, source, spans),
     }
+
+    collect_redirects(&command.redirects, source, spans);
 }
 
 fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>) {
@@ -96,7 +92,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans);
             }
             collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
         }
         BuiltinCommand::Continue(command) => {
             collect_assignments(&command.assignments, source, spans);
@@ -104,7 +99,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans);
             }
             collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
         }
         BuiltinCommand::Return(command) => {
             collect_assignments(&command.assignments, source, spans);
@@ -112,7 +106,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans);
             }
             collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
         }
         BuiltinCommand::Exit(command) => {
             collect_assignments(&command.assignments, source, spans);
@@ -120,7 +113,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans);
             }
             collect_words(&command.extra_args, source, spans);
-            collect_redirects(&command.redirects, source, spans);
         }
     }
 }
@@ -157,7 +149,7 @@ fn collect_compound(command: &CompoundCommand, source: &str, spans: &mut Vec<Spa
             collect_word(&command.word, source, spans);
             for case in &command.cases {
                 collect_patterns(&case.patterns, source, spans);
-                collect_commands(&case.commands, source, spans);
+                collect_commands(&case.body, source, spans);
             }
         }
         CompoundCommand::Select(command) => {
@@ -249,9 +241,9 @@ fn collect_word_parts(parts: &[WordPartNode], source: &str, spans: &mut Vec<Span
                     });
                 }
             }
-            WordPart::CommandSubstitution { commands, .. }
-            | WordPart::ProcessSubstitution { commands, .. } => {
-                collect_commands(commands, source, spans);
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => {
+                collect_commands(body, source, spans);
             }
             _ => {}
         }
@@ -296,5 +288,21 @@ fn is_static_kill_command(command: &Command, source: &str) -> bool {
             static_word_text(&command.name, source).as_deref() == Some("kill")
         }
         _ => false,
+    }
+}
+
+fn collect_pipeline_segments<'a>(command: &'a BinaryCommand, segments: &mut Vec<&'a Stmt>) {
+    match &command.left.command {
+        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_segments(left, segments);
+        }
+        _ => segments.push(&command.left),
+    }
+
+    match &command.right.command {
+        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_segments(right, segments);
+        }
+        _ => segments.push(&command.right),
     }
 }

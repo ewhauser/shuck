@@ -1,7 +1,6 @@
-use shuck_ast::{Command, ListOperator};
+use shuck_ast::{BinaryOp, Command};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::span;
 use crate::{Checker, Rule, Violation};
 
 pub struct ChainedTestBranches;
@@ -18,35 +17,44 @@ impl Violation for ChainedTestBranches {
 
 pub fn chained_test_branches(checker: &mut Checker) {
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
-            let Command::List(list) = command else {
-                return;
-            };
-
-            let mut current = None;
-            for item in &list.rest {
-                if !matches!(item.operator, ListOperator::And | ListOperator::Or) {
-                    current = None;
-                    continue;
-                }
-
-                match current {
-                    None => current = Some(item.operator),
-                    Some(previous) if previous == item.operator => {}
-                    Some(_) => {
-                        checker
-                            .report_dedup(ChainedTestBranches, span::list_item_operator_span(item));
-                        break;
-                    }
-                }
+        &mut |visit| {
+            let command = visit.command;
+            if let Some(span) = mixed_short_circuit_operator_span(command) {
+                checker.report_dedup(ChainedTestBranches, span);
             }
         },
     );
+}
+
+fn mixed_short_circuit_operator_span(command: &Command) -> Option<shuck_ast::Span> {
+    let mut operators = Vec::new();
+    collect_short_circuit_operators(command, &mut operators);
+    let mut current = None;
+    for (operator, span) in operators {
+        match current {
+            None => current = Some(operator),
+            Some(previous) if previous == operator => {}
+            Some(_) => return Some(span),
+        }
+    }
+    None
+}
+
+fn collect_short_circuit_operators(command: &Command, operators: &mut Vec<(BinaryOp, shuck_ast::Span)>) {
+    let Command::Binary(command) = command else {
+        return;
+    };
+    if !matches!(command.op, BinaryOp::And | BinaryOp::Or) {
+        return;
+    }
+
+    collect_short_circuit_operators(&command.left.command, operators);
+    operators.push((command.op, command.op_span));
+    collect_short_circuit_operators(&command.right.command, operators);
 }
 
 #[cfg(test)]

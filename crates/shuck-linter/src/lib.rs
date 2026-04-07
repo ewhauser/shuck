@@ -29,7 +29,7 @@ pub use suppression::{
 };
 pub use violation::Violation;
 
-use shuck_ast::{Script, TextSize};
+use shuck_ast::{File, TextSize};
 use shuck_indexer::Indexer;
 use shuck_semantic::{
     SemanticModel, SourcePathResolver, TraversalObserver, build_with_observer,
@@ -56,17 +56,17 @@ impl LintTraversalObserver {
 impl TraversalObserver for LintTraversalObserver {}
 
 pub fn analyze_file(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
     suppression_index: Option<&SuppressionIndex>,
 ) -> AnalysisResult {
-    analyze_file_at_path(script, source, indexer, settings, suppression_index, None)
+    analyze_file_at_path(file, source, indexer, settings, suppression_index, None)
 }
 
 pub fn analyze_file_at_path(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
@@ -74,7 +74,7 @@ pub fn analyze_file_at_path(
     source_path: Option<&Path>,
 ) -> AnalysisResult {
     analyze_file_at_path_with_resolver(
-        script,
+        file,
         source,
         indexer,
         settings,
@@ -85,7 +85,7 @@ pub fn analyze_file_at_path(
 }
 
 pub fn analyze_file_at_path_with_resolver(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
@@ -96,7 +96,7 @@ pub fn analyze_file_at_path_with_resolver(
     let mut observer = LintTraversalObserver::default();
     let mut semantic = if source_path.is_some() {
         build_with_observer_at_path_with_resolver(
-            script,
+            file,
             source,
             indexer,
             &mut observer,
@@ -104,7 +104,7 @@ pub fn analyze_file_at_path_with_resolver(
             source_path_resolver,
         )
     } else {
-        build_with_observer(script, source, indexer, &mut observer)
+        build_with_observer(file, source, indexer, &mut observer)
     };
     if settings.rules.contains(Rule::UnusedAssignment) {
         let _ = semantic.precompute_unused_assignments();
@@ -122,7 +122,7 @@ pub fn analyze_file_at_path_with_resolver(
     };
     let file_context = classify_file_context(source, source_path, shell);
     let checker = Checker::new(
-        script,
+        file,
         source,
         &semantic,
         indexer,
@@ -151,17 +151,17 @@ pub fn analyze_file_at_path_with_resolver(
 }
 
 pub fn lint_file(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
     suppression_index: Option<&SuppressionIndex>,
 ) -> Vec<Diagnostic> {
-    lint_file_at_path(script, source, indexer, settings, suppression_index, None)
+    lint_file_at_path(file, source, indexer, settings, suppression_index, None)
 }
 
 pub fn lint_file_at_path(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
@@ -169,7 +169,7 @@ pub fn lint_file_at_path(
     source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
     lint_file_at_path_with_resolver(
-        script,
+        file,
         source,
         indexer,
         settings,
@@ -180,7 +180,7 @@ pub fn lint_file_at_path(
 }
 
 pub fn lint_file_at_path_with_resolver(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
@@ -189,7 +189,7 @@ pub fn lint_file_at_path_with_resolver(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
     analyze_file_at_path_with_resolver(
-        script,
+        file,
         source,
         indexer,
         settings,
@@ -229,7 +229,7 @@ mod tests {
     fn lint(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file(&output.script, source, &indexer, settings, None)
+        lint_file(&output.file, source, &indexer, settings, None)
     }
 
     fn lint_path(path: &Path, settings: &LinterSettings) -> Vec<Diagnostic> {
@@ -237,7 +237,7 @@ mod tests {
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
         lint_file_at_path(
-            &output.script,
+            &output.file,
             &source,
             &indexer,
             settings,
@@ -257,7 +257,7 @@ mod tests {
     fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file_at_path(&output.script, source, &indexer, settings, None, Some(path))
+        lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
     }
 
     fn runtime_prelude_source(shebang: &str) -> String {
@@ -278,7 +278,7 @@ mod tests {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let result = analyze_file(
-            &output.script,
+            &output.file,
             source,
             &indexer,
             &LinterSettings::default(),
@@ -362,16 +362,15 @@ echo $bar
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.script,
-            source,
-            first_statement_line(&output.script).unwrap_or(u32::MAX),
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
 
-        let echo_foo = match &output.script.commands[1] {
+        let echo_foo = match &output.file.body[1].command {
             Command::Simple(command) => command.span,
             other => panic!("expected simple command, got {other:?}"),
         };
-        let echo_bar = match &output.script.commands[2] {
+        let echo_bar = match &output.file.body[2].command {
             Command::Simple(command) => command.span,
             other => panic!("expected simple command, got {other:?}"),
         };
@@ -1420,12 +1419,11 @@ foo=1
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.script,
-            source,
-            first_statement_line(&output.script).unwrap_or(u32::MAX),
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.script,
+            &output.file,
             source,
             &indexer,
             &LinterSettings::default(),
@@ -1451,12 +1449,11 @@ printf '%s\\n' \"$foo\"
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.script,
-            source,
-            first_statement_line(&output.script).unwrap_or(u32::MAX),
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.script,
+            &output.file,
             source,
             &indexer,
             &LinterSettings::default(),

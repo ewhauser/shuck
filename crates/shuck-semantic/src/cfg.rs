@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use shuck_ast::{CaseTerminator, ListOperator, Span};
+use shuck_ast::{CaseTerminator, Span};
 
 use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
 
@@ -127,7 +127,7 @@ pub(crate) enum RecordedCommandKind {
     Exit,
     List {
         first: Box<RecordedCommand>,
-        rest: Vec<(ListOperator, RecordedCommand)>,
+        rest: Vec<(RecordedListOperator, RecordedCommand)>,
     },
     If {
         condition: Vec<RecordedCommand>,
@@ -176,6 +176,12 @@ pub(crate) struct RecordedCaseArm {
 pub(crate) struct RecordedPipelineSegment {
     pub(crate) scope: ScopeId,
     pub(crate) command: RecordedCommand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecordedListOperator {
+    And,
+    Or,
 }
 
 struct SequenceResult {
@@ -397,7 +403,7 @@ impl<'a> GraphBuilder<'a> {
         &mut self,
         command: &RecordedCommand,
         first: &RecordedCommand,
-        rest: &[(ListOperator, RecordedCommand)],
+        rest: &[(RecordedListOperator, RecordedCommand)],
         loops: &[LoopTarget],
     ) -> SequenceResult {
         let mut current = self.build_command(first, loops);
@@ -409,25 +415,17 @@ impl<'a> GraphBuilder<'a> {
             if let Some(next_entry) = next.entry {
                 for exit in &current.exits {
                     let edge = match op {
-                        ListOperator::And => EdgeKind::ConditionalTrue,
-                        ListOperator::Or => EdgeKind::ConditionalFalse,
-                        ListOperator::Semicolon | ListOperator::Background => EdgeKind::Sequential,
+                        RecordedListOperator::And => EdgeKind::ConditionalTrue,
+                        RecordedListOperator::Or => EdgeKind::ConditionalFalse,
                     };
                     self.add_edge(*exit, next_entry, edge);
                 }
             }
 
-            if matches!(op, ListOperator::And | ListOperator::Or) {
-                shortcut_exits.extend(current.exits.clone());
-            }
-
-            current = if matches!(op, ListOperator::Semicolon | ListOperator::Background) {
-                next
-            } else {
-                SequenceResult {
-                    entry,
-                    exits: next.exits,
-                }
+            shortcut_exits.extend(current.exits.clone());
+            current = SequenceResult {
+                entry,
+                exits: next.exits,
             };
         }
 

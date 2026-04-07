@@ -78,12 +78,12 @@ fn unset_function_between(
     let mut found = false;
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
-        &mut |command_node, _| {
+        &mut |visit| {
+            let command_node = visit.command;
             if found {
                 return;
             }

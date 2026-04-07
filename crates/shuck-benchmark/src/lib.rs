@@ -96,16 +96,9 @@ pub fn resources_dir() -> PathBuf {
 pub fn parse_fixture(source: &str) -> ParseOutput {
     match Parser::new(source).parse() {
         Ok(output) => output,
-        Err(_) => {
-            let recovered = Parser::new(source).parse_recovered();
-            ParseOutput {
-                script: recovered.script,
-                // Recovered parses are sufficient for throughput benchmarking, but the
-                // current recovered comment spans are not always safe to feed into the
-                // indexer on partially parsed real-world scripts.
-                comments: Vec::new(),
-            }
-        }
+        Err(_) => ParseOutput {
+            file: Parser::new(source).parse_recovered().file,
+        },
     }
 }
 
@@ -121,7 +114,7 @@ macro_rules! configure_benchmark_allocator {
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
-    use shuck_formatter::{FormattedSource, ShellFormatOptions, format_script_ast, format_source};
+    use shuck_formatter::{FormattedSource, ShellFormatOptions, format_file_ast, format_source};
     use shuck_indexer::Indexer;
     use shuck_linter::{
         LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
@@ -188,7 +181,7 @@ mod tests {
         for file in TEST_FILES {
             let output = parse_fixture(file.source);
             assert!(
-                !output.script.commands.is_empty(),
+                !output.file.body.is_empty(),
                 "{} should produce some parsed commands",
                 file.name
             );
@@ -208,13 +201,12 @@ mod tests {
             let suppression_index = (!directives.is_empty()).then(|| {
                 SuppressionIndex::new(
                     &directives,
-                    &output.script,
-                    file.source,
-                    first_statement_line(&output.script).unwrap_or(u32::MAX),
+                    &output.file,
+                    first_statement_line(&output.file).unwrap_or(u32::MAX),
                 )
             });
             let diagnostics = lint_file(
-                &output.script,
+                &output.file,
                 file.source,
                 &indexer,
                 &settings,
@@ -247,10 +239,9 @@ mod tests {
 
         for file in TEST_FILES {
             let output = parse_fixture(file.source);
-            match format_script_ast(
+            match format_file_ast(
                 file.source,
-                &output.script,
-                &output.comments,
+                &output.file,
                 None,
                 &options,
             ) {

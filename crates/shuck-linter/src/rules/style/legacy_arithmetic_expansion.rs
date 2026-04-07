@@ -20,8 +20,7 @@ pub fn legacy_arithmetic_expansion(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_words(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },

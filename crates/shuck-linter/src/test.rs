@@ -11,7 +11,7 @@ use crate::{Diagnostic, LinterSettings, lint_file, lint_file_at_path};
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    lint_file(&output.script, source, &indexer, settings, None)
+    lint_file(&output.file, source, &indexer, settings, None)
 }
 
 /// Lint a source string while preserving an explicit path for path-sensitive rules.
@@ -22,7 +22,7 @@ pub fn test_snippet_at_path(
 ) -> Vec<Diagnostic> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    lint_file_at_path(&output.script, source, &indexer, settings, None, Some(path))
+    lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
 }
 
 /// Lint a fixture file relative to `resources/test/fixtures/`.

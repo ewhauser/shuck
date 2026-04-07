@@ -24,13 +24,13 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
-            query::visit_expansion_words(command, source, &mut |word, context| {
+        &mut |visit| {
+            let command = visit.command;
+            query::visit_expansion_words(visit, source, &mut |word, context| {
                 if context != ExpansionContext::RegexOperand {
                     return;
                 }

@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_formatter::{
-    FormattedSource, ShellFormatOptions, build_comment_index, format_script_ast, format_source,
+    FormattedSource, ShellFormatOptions, build_comment_index, format_file_ast, format_source,
 };
 
 configure_benchmark_allocator!();
@@ -13,15 +13,14 @@ fn format_source_bytes(source: &str, options: &ShellFormatOptions) -> usize {
     output_bytes(source, formatted)
 }
 
-fn format_script_ast_bytes(
+fn format_file_ast_bytes(
     source: &str,
     parsed: &shuck_parser::parser::ParseOutput,
     options: &ShellFormatOptions,
 ) -> usize {
-    let formatted = format_script_ast(
+    let formatted = format_file_ast(
         black_box(source),
-        black_box(&parsed.script),
-        black_box(&parsed.comments),
+        black_box(&parsed.file),
         None,
         options,
     )
@@ -33,7 +32,7 @@ fn format_script_ast_bytes(
 fn comment_index_items(source: &str, parsed: &shuck_parser::parser::ParseOutput) -> usize {
     black_box(build_comment_index(
         black_box(source),
-        black_box(&parsed.comments),
+        black_box(&parsed.file),
     ))
 }
 
@@ -80,7 +79,7 @@ fn bench_formatter(c: &mut Criterion) {
                     .files
                     .iter()
                     .zip(parsed_files.iter())
-                    .map(|(file, parsed)| format_script_ast_bytes(file.source, parsed, &options))
+                    .map(|(file, parsed)| format_file_ast_bytes(file.source, parsed, &options))
                     .sum();
                 black_box(output_bytes);
             });

@@ -1,5 +1,5 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{Script, Span};
+use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
 
@@ -8,7 +8,7 @@ use crate::{Diagnostic, FileContext, Rule, RuleSet, ShellDialect, Violation, rul
 pub struct Checker<'a> {
     semantic: &'a SemanticModel,
     indexer: &'a Indexer,
-    script: &'a Script,
+    file: &'a File,
     source: &'a str,
     rules: &'a RuleSet,
     shell: ShellDialect,
@@ -36,7 +36,7 @@ impl DiagnosticKey {
 
 impl<'a> Checker<'a> {
     pub fn new(
-        script: &'a Script,
+        file: &'a File,
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
@@ -47,7 +47,7 @@ impl<'a> Checker<'a> {
         Self {
             semantic,
             indexer,
-            script,
+            file,
             source,
             rules,
             shell,
@@ -65,8 +65,8 @@ impl<'a> Checker<'a> {
         self.indexer
     }
 
-    pub fn ast(&self) -> &'a Script {
-        self.script
+    pub fn ast(&self) -> &'a File {
+        self.file
     }
 
     pub fn source(&self) -> &'a str {

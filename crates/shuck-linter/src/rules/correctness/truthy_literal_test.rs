@@ -25,12 +25,11 @@ pub fn truthy_literal_test(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| match command {
+        &mut |visit| match visit.command {
             Command::Simple(command) => {
                 if simple_test_operands(command, source).is_some_and(|operands| {
                     operands.len() == 1
@@ -44,7 +43,7 @@ pub fn truthy_literal_test(checker: &mut Checker) {
                     spans.push(command.span);
                 }
             }
-            Command::Compound(CompoundCommand::Conditional(command), _)
+            Command::Compound(CompoundCommand::Conditional(command))
                 if is_truthy_literal_conditional(&command.expression, source) =>
             {
                 spans.push(command.span);

@@ -18,13 +18,13 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
-            visit_command_redirects(command, &mut |redirect| {
+        &mut |visit| {
+            let command = visit.command;
+            visit_command_redirects(visit, &mut |redirect| {
                 let Some(target) = redirect.word_target() else {
                     return;
                 };

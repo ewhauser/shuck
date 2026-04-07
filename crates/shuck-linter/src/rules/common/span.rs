@@ -1,5 +1,5 @@
 use shuck_ast::{
-    ArithmeticExpansionSyntax, Assignment, CommandListItem, CommandSubstitutionSyntax, Redirect,
+    ArithmeticExpansionSyntax, Assignment, BinaryCommand, CommandSubstitutionSyntax, Redirect,
     Span, Word, WordPart, WordPartNode,
 };
 
@@ -7,8 +7,8 @@ pub fn assignment_name_span(assignment: &Assignment) -> Span {
     assignment.target.name_span
 }
 
-pub fn list_item_operator_span(item: &CommandListItem) -> Span {
-    item.operator_span
+pub fn binary_operator_span(command: &BinaryCommand) -> Span {
+    command.op_span
 }
 
 pub fn redirect_target_span(redirect: &Redirect) -> Span {
@@ -229,7 +229,7 @@ mod tests {
     fn command_substitution_spans_use_inner_part_ranges() {
         let source = "printf '%s\\n' prefix$(date)suffix\n";
         let output = Parser::new(source).parse().unwrap();
-        let command = &output.script.commands[0];
+        let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };
@@ -243,7 +243,7 @@ mod tests {
     fn array_expansion_spans_only_return_array_like_parts() {
         let source = "printf '%s\\n' ${arr[@]} ${arr[0]}\n";
         let output = Parser::new(source).parse().unwrap();
-        let command = &output.script.commands[0];
+        let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };
@@ -257,7 +257,7 @@ mod tests {
     fn scalar_expansion_spans_ignore_array_splats_and_command_substitutions() {
         let source = "printf '%s\\n' prefix${name}suffix ${arr[@]} ${arr[0]} $(date)\n";
         let output = Parser::new(source).parse().unwrap();
-        let command = &output.script.commands[0];
+        let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };
@@ -290,7 +290,7 @@ mod tests {
     fn selector_helpers_distinguish_splats_from_indexed_and_quoted_keys() {
         let source = "printf '%s\\n' ${arr[@]} ${arr[*]} ${arr[0]} ${assoc[\"key\"]}\n";
         let output = Parser::new(source).parse().unwrap();
-        let command = &output.script.commands[0];
+        let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };
@@ -334,7 +334,7 @@ mod tests {
     fn backtick_fragment_spans_find_exact_pairs() {
         let source = "echo \"today is `date` and `uname`\"\n";
         let output = Parser::new(source).parse().unwrap();
-        let command = &output.script.commands[0];
+        let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };

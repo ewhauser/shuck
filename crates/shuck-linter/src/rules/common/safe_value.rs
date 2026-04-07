@@ -1,6 +1,6 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    AssignmentValue, Command, DeclOperand, Name, ParameterOp, RedirectKind, SourceText, Span,
+    AssignmentValue, DeclOperand, Name, ParameterOp, RedirectKind, SourceText, Span, StmtSeq,
     VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::BindingId;
@@ -81,7 +81,7 @@ pub struct SafeValueIndex<'a> {
 }
 
 impl<'a> SafeValueIndex<'a> {
-    pub fn build(semantic: &'a SemanticModel, commands: &'a [Command], source: &'a str) -> Self {
+    pub fn build(semantic: &'a SemanticModel, commands: &'a StmtSeq, source: &'a str) -> Self {
         let mut scalar_bindings = FxHashMap::default();
 
         for visit in query::iter_commands(
@@ -439,10 +439,10 @@ mod tests {
         let source = "#!/bin/bash\nprintf '%s\\n' \"${!HOME@}\" ${!HOME@}\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.script, source, &indexer);
-        let mut safe_values = SafeValueIndex::build(&semantic, &output.script.commands, source);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
 
-        let Command::Simple(command) = &output.script.commands[0] else {
+        let Command::Simple(command) = &output.file.body[0].command else {
             panic!("expected simple command");
         };
 
@@ -466,14 +466,14 @@ esac
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.script, source, &indexer);
-        let mut safe_values = SafeValueIndex::build(&semantic, &output.script.commands, source);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
 
-        let words = output
-            .script
-            .commands
-            .iter()
-            .flat_map(|command| query::iter_expansion_words(command, source))
+        let words = query::iter_commands(
+            &output.file.body,
+            query::CommandWalkOptions::default(),
+        )
+            .flat_map(|visit| query::iter_expansion_words(visit, source))
             .collect::<Vec<_>>();
 
         let pattern_plain = words
@@ -524,14 +524,14 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.script, source, &indexer);
-        let mut safe_values = SafeValueIndex::build(&semantic, &output.script.commands, source);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
 
-        let words = output
-            .script
-            .commands
-            .iter()
-            .flat_map(|command| query::iter_expansion_words(command, source))
+        let words = query::iter_commands(
+            &output.file.body,
+            query::CommandWalkOptions::default(),
+        )
+            .flat_map(|visit| query::iter_expansion_words(visit, source))
             .collect::<Vec<_>>();
 
         let fallback = words

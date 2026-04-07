@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Name,
-    Pattern, PatternPart, PatternPartNode, Redirect, Script, SourceText, Span, VarRef, Word,
-    WordPart, WordPartNode,
+    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef,
+    Name, Pattern, PatternPart, PatternPartNode, Redirect, SourceText, Span, Stmt, StmtSeq,
+    VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -18,7 +18,7 @@ use crate::{
 
 pub(crate) fn collect_source_closure_reads(
     model: &SemanticModel,
-    script: &Script,
+    file: &File,
     source: &str,
     source_path: &Path,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
@@ -27,7 +27,7 @@ pub(crate) fn collect_source_closure_reads(
     let mut active = FxHashSet::default();
     collect_source_closure_reads_with_cache(
         model,
-        script,
+        file,
         source,
         source_path,
         &mut summaries,
@@ -38,14 +38,14 @@ pub(crate) fn collect_source_closure_reads(
 
 fn collect_source_closure_reads_with_cache(
     model: &SemanticModel,
-    script: &Script,
+    file: &File,
     source: &str,
     source_path: &Path,
     summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
     active: &mut FxHashSet<PathBuf>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<SyntheticRead> {
-    let facts = collect_ast_facts(script, model, source);
+    let facts = collect_ast_facts(file, model, source);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
     let mut seen = FxHashSet::default();
     let mut synthetic_reads = Vec::new();
@@ -143,19 +143,24 @@ enum TemplatePart {
     SourceFile,
 }
 
-fn collect_ast_facts(script: &Script, model: &SemanticModel, source: &str) -> AstFacts {
+fn collect_ast_facts(file: &File, model: &SemanticModel, source: &str) -> AstFacts {
     let mut facts = AstFacts {
         source_templates: FxHashMap::default(),
         calls: Vec::new(),
     };
-    walk_commands(&script.commands, model, source, &mut facts);
+    walk_stmt_seq(&file.body, model, source, &mut facts);
     facts
 }
 
-fn walk_commands(commands: &[Command], model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    for command in commands {
-        walk_command(command, model, source, facts);
+fn walk_stmt_seq(commands: &StmtSeq, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
+    for stmt in commands.iter() {
+        walk_stmt(stmt, model, source, facts);
     }
+}
+
+fn walk_stmt(stmt: &Stmt, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
+    walk_redirects(&stmt.redirects, model, source, facts);
+    walk_command(&stmt.command, model, source, facts);
 }
 
 fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
@@ -189,7 +194,6 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
             walk_assignments(&command.assignments, model, source, facts);
             walk_word(&command.name, model, source, facts);
             walk_words(&command.args, model, source, facts);
-            walk_redirects(&command.redirects, model, source, facts);
         }
         Command::Builtin(BuiltinCommand::Break(command)) => {
             walk_assignments(&command.assignments, model, source, facts);
@@ -197,7 +201,6 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                 walk_word(word, model, source, facts);
             }
             walk_words(&command.extra_args, model, source, facts);
-            walk_redirects(&command.redirects, model, source, facts);
         }
         Command::Builtin(BuiltinCommand::Continue(command)) => {
             walk_assignments(&command.assignments, model, source, facts);
@@ -205,7 +208,6 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                 walk_word(word, model, source, facts);
             }
             walk_words(&command.extra_args, model, source, facts);
-            walk_redirects(&command.redirects, model, source, facts);
         }
         Command::Builtin(BuiltinCommand::Return(command)) => {
             walk_assignments(&command.assignments, model, source, facts);
@@ -213,7 +215,6 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                 walk_word(word, model, source, facts);
             }
             walk_words(&command.extra_args, model, source, facts);
-            walk_redirects(&command.redirects, model, source, facts);
         }
         Command::Builtin(BuiltinCommand::Exit(command)) => {
             walk_assignments(&command.assignments, model, source, facts);
@@ -221,7 +222,6 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                 walk_word(word, model, source, facts);
             }
             walk_words(&command.extra_args, model, source, facts);
-            walk_redirects(&command.redirects, model, source, facts);
         }
         Command::Decl(command) => {
             walk_assignments(&command.assignments, model, source, facts);
@@ -236,20 +236,15 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
                     }
                 }
             }
-            walk_redirects(&command.redirects, model, source, facts);
         }
-        Command::Pipeline(command) => walk_commands(&command.commands, model, source, facts),
-        Command::List(command) => {
-            walk_command(command.first.as_ref(), model, source, facts);
-            for item in &command.rest {
-                walk_command(&item.command, model, source, facts);
-            }
+        Command::Binary(command) => {
+            walk_stmt(&command.left, model, source, facts);
+            walk_stmt(&command.right, model, source, facts);
         }
-        Command::Compound(command, redirects) => {
+        Command::Compound(command) => {
             walk_compound(command, model, source, facts);
-            walk_redirects(redirects, model, source, facts);
         }
-        Command::Function(FunctionDef { body, .. }) => walk_command(body, model, source, facts),
+        Command::Function(FunctionDef { body, .. }) => walk_stmt(body, model, source, facts),
     }
 }
 
@@ -261,21 +256,21 @@ fn walk_compound(
 ) {
     match command {
         CompoundCommand::If(command) => {
-            walk_commands(&command.condition, model, source, facts);
-            walk_commands(&command.then_branch, model, source, facts);
+            walk_stmt_seq(&command.condition, model, source, facts);
+            walk_stmt_seq(&command.then_branch, model, source, facts);
             for (condition, body) in &command.elif_branches {
-                walk_commands(condition, model, source, facts);
-                walk_commands(body, model, source, facts);
+                walk_stmt_seq(condition, model, source, facts);
+                walk_stmt_seq(body, model, source, facts);
             }
             if let Some(body) = &command.else_branch {
-                walk_commands(body, model, source, facts);
+                walk_stmt_seq(body, model, source, facts);
             }
         }
         CompoundCommand::For(command) => {
             if let Some(words) = &command.words {
                 walk_words(words, model, source, facts);
             }
-            walk_commands(&command.body, model, source, facts);
+            walk_stmt_seq(&command.body, model, source, facts);
         }
         CompoundCommand::ArithmeticFor(command) => {
             if let Some(expr) = &command.init_ast {
@@ -287,29 +282,29 @@ fn walk_compound(
             if let Some(expr) = &command.step_ast {
                 walk_arithmetic_expr(expr, model, source, facts);
             }
-            walk_commands(&command.body, model, source, facts)
+            walk_stmt_seq(&command.body, model, source, facts)
         }
         CompoundCommand::While(command) => {
-            walk_commands(&command.condition, model, source, facts);
-            walk_commands(&command.body, model, source, facts);
+            walk_stmt_seq(&command.condition, model, source, facts);
+            walk_stmt_seq(&command.body, model, source, facts);
         }
         CompoundCommand::Until(command) => {
-            walk_commands(&command.condition, model, source, facts);
-            walk_commands(&command.body, model, source, facts);
+            walk_stmt_seq(&command.condition, model, source, facts);
+            walk_stmt_seq(&command.body, model, source, facts);
         }
         CompoundCommand::Case(command) => {
             walk_word(&command.word, model, source, facts);
             for case in &command.cases {
                 walk_patterns(&case.patterns, model, source, facts);
-                walk_commands(&case.commands, model, source, facts);
+                walk_stmt_seq(&case.body, model, source, facts);
             }
         }
         CompoundCommand::Select(command) => {
             walk_words(&command.words, model, source, facts);
-            walk_commands(&command.body, model, source, facts);
+            walk_stmt_seq(&command.body, model, source, facts);
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_commands(commands, model, source, facts);
+            walk_stmt_seq(commands, model, source, facts);
         }
         CompoundCommand::Arithmetic(command) => {
             if let Some(expr) = &command.expr_ast {
@@ -318,13 +313,13 @@ fn walk_compound(
         }
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
-                walk_command(command, model, source, facts);
+                walk_stmt(command, model, source, facts);
             }
         }
         CompoundCommand::Conditional(command) => {
             walk_conditional_expr(&command.expression, model, source, facts)
         }
-        CompoundCommand::Coproc(command) => walk_command(&command.body, model, source, facts),
+        CompoundCommand::Coproc(command) => walk_stmt(&command.body, model, source, facts),
     }
 }
 
@@ -392,9 +387,9 @@ fn walk_word_parts(
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, model, source, facts),
-            WordPart::CommandSubstitution { commands, .. }
-            | WordPart::ProcessSubstitution { commands, .. } => {
-                walk_commands(commands, model, source, facts)
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => {
+                walk_stmt_seq(body, model, source, facts)
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 if let Some(expr) = expression_ast {
@@ -690,9 +685,9 @@ fn collect_source_template_parts(
                 *saw_dynamic = true;
                 parts.push(TemplatePart::SourceFile);
             }
-            WordPart::CommandSubstitution { commands, .. } => {
+            WordPart::CommandSubstitution { body, .. } => {
                 if bash_runtime_vars_enabled
-                    && let Some(template_part) = dirname_source_template_part(commands, source)
+                    && let Some(template_part) = dirname_source_template_part(body, source)
                 {
                     *saw_dynamic = true;
                     parts.push(template_part);
@@ -812,11 +807,18 @@ fn shell_zero_literal(text: &str) -> bool {
     !digits.is_empty() && digits.chars().all(|ch| ch == '0')
 }
 
-fn dirname_source_template_part(commands: &[Command], source: &str) -> Option<TemplatePart> {
-    let [Command::Simple(command)] = commands else {
+fn dirname_source_template_part(commands: &StmtSeq, source: &str) -> Option<TemplatePart> {
+    let [stmt] = commands.as_slice() else {
         return None;
     };
-    if !command.assignments.is_empty() || !command.redirects.is_empty() || command.args.len() != 1 {
+    let Command::Simple(command) = &stmt.command else {
+        return None;
+    };
+    if stmt.negated
+        || !stmt.redirects.is_empty()
+        || !command.assignments.is_empty()
+        || command.args.len() != 1
+    {
         return None;
     }
     if static_word_text(&command.name, source).as_deref() != Some("dirname") {
@@ -1104,7 +1106,7 @@ fn summarize_helper_uncached(
     let indexer = Indexer::new(&source, &output);
     let mut observer = crate::NoopTraversalObserver;
     let semantic = crate::build_semantic_model(
-        &output.script,
+        &output.file,
         &source,
         &indexer,
         &mut observer,
@@ -1121,7 +1123,7 @@ fn summarize_helper_uncached(
     reads.extend(
         collect_source_closure_reads_with_cache(
             &semantic,
-            &output.script,
+            &output.file,
             &source,
             path,
             summaries,

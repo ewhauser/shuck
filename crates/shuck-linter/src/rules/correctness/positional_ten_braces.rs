@@ -20,13 +20,13 @@ pub fn positional_ten_braces(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        source,
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
-            visit_command_words(command, source, &mut |word| {
+        &mut |visit| {
+            let command = visit.command;
+            visit_command_words(visit, &mut |word| {
                 collect_positional_parameter_spans(word, source, &mut spans);
             });
         },

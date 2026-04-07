@@ -1,10 +1,9 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, Script, Span,
-    Subscript, TextSize, Word, WordPart, WordPartNode,
+    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
+    ConditionalExpr, DeclOperand, File, FunctionDef, Pattern, PatternPart, Redirect, Span, Stmt,
+    StmtSeq, TextSize, Word, WordPart, WordPartNode,
 };
-use shuck_parser::parser::Parser;
 
 use crate::Rule;
 use crate::rules::common::query;
@@ -19,12 +18,7 @@ pub struct SuppressionIndex {
 
 impl SuppressionIndex {
     /// Build from parsed directives.
-    pub fn new(
-        directives: &[SuppressionDirective],
-        script: &Script,
-        source: &str,
-        first_stmt_line: u32,
-    ) -> Self {
+    pub fn new(directives: &[SuppressionDirective], file: &File, first_stmt_line: u32) -> Self {
         let mut ordered = directives.iter().collect::<Vec<_>>();
         ordered.sort_by_key(|directive| {
             (
@@ -48,7 +42,7 @@ impl SuppressionIndex {
                         if directive.line < first_stmt_line {
                             index.whole_file = true;
                         } else if let Some(range) =
-                            next_command_range(script, source, directive.range.end())
+                            next_command_range(file, directive.range.end())
                         {
                             index.ranges.push(range);
                         }
@@ -84,11 +78,11 @@ impl SuppressionIndex {
 }
 
 /// First command line in the file, if any.
-pub fn first_statement_line(script: &Script) -> Option<u32> {
-    script
-        .commands
+pub fn first_statement_line(file: &File) -> Option<u32> {
+    file
+        .body
         .iter()
-        .filter_map(|command| u32::try_from(command_span(command).start.line).ok())
+        .filter_map(|command| u32::try_from(command.span.start.line).ok())
         .min()
 }
 
@@ -156,10 +150,10 @@ fn merge_overlapping_ranges(ranges: &mut Vec<LineRange>) {
     *ranges = merged;
 }
 
-fn next_command_range(script: &Script, source: &str, offset: TextSize) -> Option<LineRange> {
+fn next_command_range(file: &File, offset: TextSize) -> Option<LineRange> {
     let mut next = None;
-    for command in &script.commands {
-        walk_command(command, source, &mut |span| {
+    for command in file.body.iter() {
+        walk_command(command, &mut |span| {
             consider_command(span, offset, &mut next)
         });
     }
@@ -198,173 +192,155 @@ fn line_range(span: Span) -> Option<LineRange> {
     })
 }
 
-fn walk_commands<F>(commands: &[Command], source: &str, visit: &mut F)
+fn walk_commands<F>(commands: &StmtSeq, visit: &mut F)
 where
     F: FnMut(Span),
 {
-    for command in commands {
-        walk_command(command, source, visit);
+    for command in commands.iter() {
+        walk_command(command, visit);
     }
 }
 
-fn walk_command<F>(command: &Command, source: &str, visit: &mut F)
+fn walk_command<F>(stmt: &Stmt, visit: &mut F)
 where
     F: FnMut(Span),
 {
-    visit(command_span(command));
+    visit(stmt.span);
 
-    match command {
+    match &stmt.command {
         Command::Simple(command) => {
-            walk_assignments(&command.assignments, source, visit);
-            walk_word(&command.name, source, visit);
-            walk_words(&command.args, source, visit);
-            walk_redirects(&command.redirects, source, visit);
+            walk_assignments(&command.assignments, visit);
+            walk_word(&command.name, visit);
+            walk_words(&command.args, visit);
         }
         Command::Builtin(BuiltinCommand::Break(command)) => {
-            walk_assignments(&command.assignments, source, visit);
+            walk_assignments(&command.assignments, visit);
             if let Some(word) = &command.depth {
-                walk_word(word, source, visit);
+                walk_word(word, visit);
             }
-            walk_words(&command.extra_args, source, visit);
-            walk_redirects(&command.redirects, source, visit);
+            walk_words(&command.extra_args, visit);
         }
         Command::Builtin(BuiltinCommand::Continue(command)) => {
-            walk_assignments(&command.assignments, source, visit);
+            walk_assignments(&command.assignments, visit);
             if let Some(word) = &command.depth {
-                walk_word(word, source, visit);
+                walk_word(word, visit);
             }
-            walk_words(&command.extra_args, source, visit);
-            walk_redirects(&command.redirects, source, visit);
+            walk_words(&command.extra_args, visit);
         }
         Command::Builtin(BuiltinCommand::Return(command)) => {
-            walk_assignments(&command.assignments, source, visit);
+            walk_assignments(&command.assignments, visit);
             if let Some(word) = &command.code {
-                walk_word(word, source, visit);
+                walk_word(word, visit);
             }
-            walk_words(&command.extra_args, source, visit);
-            walk_redirects(&command.redirects, source, visit);
+            walk_words(&command.extra_args, visit);
         }
         Command::Builtin(BuiltinCommand::Exit(command)) => {
-            walk_assignments(&command.assignments, source, visit);
+            walk_assignments(&command.assignments, visit);
             if let Some(word) = &command.code {
-                walk_word(word, source, visit);
+                walk_word(word, visit);
             }
-            walk_words(&command.extra_args, source, visit);
-            walk_redirects(&command.redirects, source, visit);
+            walk_words(&command.extra_args, visit);
         }
         Command::Decl(command) => {
-            walk_assignments(&command.assignments, source, visit);
+            walk_assignments(&command.assignments, visit);
             for operand in &command.operands {
                 match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        walk_word(word, source, visit)
-                    }
-                    DeclOperand::Name(reference) => {
-                        walk_var_ref_subscript(reference, source, visit)
-                    }
-                    DeclOperand::Assignment(assignment) => {
-                        walk_assignment(assignment, source, visit)
-                    }
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => walk_word(word, visit),
+                    DeclOperand::Name(_) => {}
+                    DeclOperand::Assignment(assignment) => walk_assignment(assignment, visit),
                 }
             }
-            walk_redirects(&command.redirects, source, visit);
         }
-        Command::Pipeline(command) => walk_commands(&command.commands, source, visit),
-        Command::List(command) => {
-            walk_command(command.first.as_ref(), source, visit);
-            for item in &command.rest {
-                walk_command(&item.command, source, visit);
-            }
+        Command::Binary(command) => {
+            walk_command(&command.left, visit);
+            walk_command(&command.right, visit);
         }
-        Command::Compound(command, redirects) => {
-            walk_compound(command, source, visit);
-            walk_redirects(redirects, source, visit);
+        Command::Compound(command) => {
+            walk_compound(command, visit);
         }
-        Command::Function(FunctionDef { body, .. }) => walk_command(body, source, visit),
+        Command::Function(FunctionDef { body, .. }) => walk_command(body, visit),
     }
+
+    walk_redirects(&stmt.redirects, visit);
 }
 
-fn walk_compound<F>(command: &CompoundCommand, source: &str, visit: &mut F)
+fn walk_compound<F>(command: &CompoundCommand, visit: &mut F)
 where
     F: FnMut(Span),
 {
     match command {
         CompoundCommand::If(command) => {
-            walk_commands(&command.condition, source, visit);
-            walk_commands(&command.then_branch, source, visit);
+            walk_commands(&command.condition, visit);
+            walk_commands(&command.then_branch, visit);
             for (condition, body) in &command.elif_branches {
-                walk_commands(condition, source, visit);
-                walk_commands(body, source, visit);
+                walk_commands(condition, visit);
+                walk_commands(body, visit);
             }
             if let Some(body) = &command.else_branch {
-                walk_commands(body, source, visit);
+                walk_commands(body, visit);
             }
         }
         CompoundCommand::For(command) => {
             if let Some(words) = &command.words {
-                walk_words(words, source, visit);
+                walk_words(words, visit);
             }
-            walk_commands(&command.body, source, visit);
+            walk_commands(&command.body, visit);
         }
-        CompoundCommand::ArithmeticFor(command) => walk_commands(&command.body, source, visit),
+        CompoundCommand::ArithmeticFor(command) => walk_commands(&command.body, visit),
         CompoundCommand::While(command) => {
-            walk_commands(&command.condition, source, visit);
-            walk_commands(&command.body, source, visit);
+            walk_commands(&command.condition, visit);
+            walk_commands(&command.body, visit);
         }
         CompoundCommand::Until(command) => {
-            walk_commands(&command.condition, source, visit);
-            walk_commands(&command.body, source, visit);
+            walk_commands(&command.condition, visit);
+            walk_commands(&command.body, visit);
         }
         CompoundCommand::Case(command) => {
-            walk_word(&command.word, source, visit);
+            walk_word(&command.word, visit);
             for case in &command.cases {
-                walk_patterns(&case.patterns, source, visit);
-                walk_commands(&case.commands, source, visit);
+                walk_patterns(&case.patterns, visit);
+                walk_commands(&case.body, visit);
             }
         }
         CompoundCommand::Select(command) => {
-            walk_words(&command.words, source, visit);
-            walk_commands(&command.body, source, visit);
+            walk_words(&command.words, visit);
+            walk_commands(&command.body, visit);
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_commands(commands, source, visit);
+            walk_commands(commands, visit);
         }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
-                walk_command(command, source, visit);
+                walk_command(command, visit);
             }
         }
-        CompoundCommand::Conditional(command) => {
-            walk_conditional_expr(&command.expression, source, visit)
-        }
-        CompoundCommand::Coproc(command) => walk_command(&command.body, source, visit),
+        CompoundCommand::Conditional(command) => walk_conditional_expr(&command.expression, visit),
+        CompoundCommand::Coproc(command) => walk_command(&command.body, visit),
     }
 }
 
-fn walk_assignments<F>(assignments: &[Assignment], source: &str, visit: &mut F)
+fn walk_assignments<F>(assignments: &[Assignment], visit: &mut F)
 where
     F: FnMut(Span),
 {
     for assignment in assignments {
-        walk_assignment(assignment, source, visit);
+        walk_assignment(assignment, visit);
     }
 }
 
-fn walk_assignment<F>(assignment: &Assignment, source: &str, visit: &mut F)
+fn walk_assignment<F>(assignment: &Assignment, visit: &mut F)
 where
     F: FnMut(Span),
 {
-    walk_var_ref_subscript(&assignment.target, source, visit);
     match &assignment.value {
-        AssignmentValue::Scalar(word) => walk_word(word, source, visit),
+        AssignmentValue::Scalar(word) => walk_word(word, visit),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
-                    ArrayElem::Sequential(word) => walk_word(word, source, visit),
-                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        walk_subscript(Some(key), source, visit);
-                        walk_word(value, source, visit)
+                    ArrayElem::Sequential(word) => walk_word(word, visit),
+                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                        walk_word(value, visit)
                     }
                 }
             }
@@ -372,39 +348,39 @@ where
     }
 }
 
-fn walk_words<F>(words: &[Word], source: &str, visit: &mut F)
+fn walk_words<F>(words: &[Word], visit: &mut F)
 where
     F: FnMut(Span),
 {
     for word in words {
-        walk_word(word, source, visit);
+        walk_word(word, visit);
     }
 }
 
-fn walk_patterns<F>(patterns: &[Pattern], source: &str, visit: &mut F)
+fn walk_patterns<F>(patterns: &[Pattern], visit: &mut F)
 where
     F: FnMut(Span),
 {
     for pattern in patterns {
-        walk_pattern(pattern, source, visit);
+        walk_pattern(pattern, visit);
     }
 }
 
-fn walk_word<F>(word: &Word, source: &str, visit: &mut F)
+fn walk_word<F>(word: &Word, visit: &mut F)
 where
     F: FnMut(Span),
 {
-    walk_word_parts(&word.parts, source, visit);
+    walk_word_parts(&word.parts, visit);
 }
 
-fn walk_pattern<F>(pattern: &Pattern, source: &str, visit: &mut F)
+fn walk_pattern<F>(pattern: &Pattern, visit: &mut F)
 where
     F: FnMut(Span),
 {
     for (part, _) in pattern.parts_with_spans() {
         match part {
-            PatternPart::Group { patterns, .. } => walk_patterns(patterns, source, visit),
-            PatternPart::Word(word) => walk_word(word, source, visit),
+            PatternPart::Group { patterns, .. } => walk_patterns(patterns, visit),
+            PatternPart::Word(word) => walk_word(word, visit),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
@@ -413,30 +389,28 @@ where
     }
 }
 
-fn walk_word_parts<F>(parts: &[WordPartNode], source: &str, visit: &mut F)
+fn walk_word_parts<F>(parts: &[WordPartNode], visit: &mut F)
 where
     F: FnMut(Span),
 {
     for part in parts {
         match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, source, visit),
+            WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, visit),
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 if let Some(expression_ast) = expression_ast.as_ref() {
                     query::visit_arithmetic_words(expression_ast, &mut |word| {
-                        walk_word(word, source, visit);
+                        walk_word(word, visit);
                     });
                 }
             }
-            WordPart::CommandSubstitution { commands, .. }
-            | WordPart::ProcessSubstitution { commands, .. } => {
-                walk_commands(commands, source, visit)
-            }
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => walk_commands(body, visit),
             _ => {}
         }
     }
 }
 
-fn walk_redirects<F>(redirects: &[Redirect], source: &str, visit: &mut F)
+fn walk_redirects<F>(redirects: &[Redirect], visit: &mut F)
 where
     F: FnMut(Span),
 {
@@ -445,63 +419,36 @@ where
             Some(word) => word,
             None => &redirect.heredoc().expect("expected heredoc redirect").body,
         };
-        walk_word(word, source, visit);
+        walk_word(word, visit);
     }
 }
 
-fn walk_conditional_expr<F>(expression: &ConditionalExpr, source: &str, visit: &mut F)
+fn walk_conditional_expr<F>(expression: &ConditionalExpr, visit: &mut F)
 where
     F: FnMut(Span),
 {
     match expression {
         ConditionalExpr::Binary(expr) => {
-            walk_conditional_expr(&expr.left, source, visit);
-            walk_conditional_expr(&expr.right, source, visit);
+            walk_conditional_expr(&expr.left, visit);
+            walk_conditional_expr(&expr.right, visit);
         }
-        ConditionalExpr::Unary(expr) => walk_conditional_expr(&expr.expr, source, visit),
-        ConditionalExpr::Parenthesized(expr) => walk_conditional_expr(&expr.expr, source, visit),
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            walk_word(word, source, visit)
-        }
-        ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, source, visit),
+        ConditionalExpr::Unary(expr) => walk_conditional_expr(&expr.expr, visit),
+        ConditionalExpr::Parenthesized(expr) => walk_conditional_expr(&expr.expr, visit),
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => walk_word(word, visit),
+        ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, visit),
         ConditionalExpr::VarRef(reference) => {
-            query::visit_var_ref_subscript_words(reference, source, &mut |word| {
-                walk_word(word, source, visit);
+            query::visit_var_ref_subscript_words(reference, &mut |word| {
+                walk_word(word, visit);
             });
         }
     }
 }
 
-fn walk_var_ref_subscript<F>(reference: &shuck_ast::VarRef, source: &str, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    walk_subscript(reference.subscript.as_ref(), source, visit);
+fn command_span(command: &Stmt) -> Span {
+    command.span
 }
 
-fn walk_subscript<F>(subscript: Option<&Subscript>, source: &str, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    let Some(subscript) = subscript else {
-        return;
-    };
-    if subscript.selector().is_some() {
-        return;
-    }
-    if let Some(expression_ast) = subscript.arithmetic_ast.as_ref() {
-        query::visit_arithmetic_words(expression_ast, &mut |word| {
-            walk_word(word, source, visit);
-        });
-        return;
-    }
-
-    let text = subscript.syntax_source_text();
-    let word = Parser::parse_word_fragment(source, text.slice(source), text.span());
-    walk_word(&word, source, visit);
-}
-
-fn command_span(command: &Command) -> Span {
+fn command_span_from_command(command: &Command) -> Span {
     match command {
         Command::Simple(command) => command.span,
         Command::Builtin(BuiltinCommand::Break(command)) => command.span,
@@ -509,9 +456,8 @@ fn command_span(command: &Command) -> Span {
         Command::Builtin(BuiltinCommand::Return(command)) => command.span,
         Command::Builtin(BuiltinCommand::Exit(command)) => command.span,
         Command::Decl(command) => command.span,
-        Command::Pipeline(command) => command.span,
-        Command::List(CommandList { span, .. }) => *span,
-        Command::Compound(command, _) => command_span_from_compound(command),
+        Command::Binary(command) => command.span,
+        Command::Compound(command) => command_span_from_compound(command),
         Command::Function(command) => command.span,
     }
 }
@@ -556,9 +502,8 @@ mod tests {
         );
         SuppressionIndex::new(
             &directives,
-            &output.script,
-            source,
-            first_statement_line(&output.script).unwrap_or(u32::MAX),
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
         )
     }
 
@@ -649,19 +594,5 @@ echo $foo
 
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 6));
-    }
-
-    #[test]
-    fn scopes_shellcheck_disable_to_keyed_array_subscript_diagnostics() {
-        let source = "\
-echo ready
-# shellcheck disable=SC2016
-declare -A map=(['$HOME']=1)
-declare -A other=(['$HOME']=1)
-";
-        let index = suppression_index(source);
-
-        assert!(index.is_suppressed(Rule::SingleQuotedLiteral, 3));
-        assert!(!index.is_suppressed(Rule::SingleQuotedLiteral, 4));
     }
 }

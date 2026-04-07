@@ -92,14 +92,8 @@ pub fn normalize_command<'a>(command: &'a Command, source: &str) -> NormalizedCo
                 declaration: None,
             }
         }
-        Command::Pipeline(command) => empty_normalized_command(command.span),
-        Command::List(command) => empty_normalized_command(command.span),
-        Command::Compound(_, redirects) => {
-            let span = redirects
-                .first()
-                .map_or(Span::new(), |redirect| redirect.span);
-            empty_normalized_command(span)
-        }
+        Command::Binary(command) => empty_normalized_command(command.span),
+        Command::Compound(command) => empty_normalized_command(compound_span(command)),
         Command::Function(command) => empty_normalized_command(command.span),
     }
 }
@@ -183,7 +177,7 @@ fn normalize_decl_command<'a>(command: &'a DeclClause) -> NormalizedCommand<'a> 
         declaration: Some(NormalizedDeclaration {
             kind: declaration_kind(raw_kind),
             span: command.span,
-            redirects: &command.redirects,
+            redirects: &[],
             assignments: &command.assignments,
             operands: &command.operands,
             assignment_operands,
@@ -209,6 +203,24 @@ fn empty_normalized_command<'a>(span: Span) -> NormalizedCommand<'a> {
         body_span: span,
         body_words: Vec::new(),
         declaration: None,
+    }
+}
+
+fn compound_span(command: &shuck_ast::CompoundCommand) -> Span {
+    match command {
+        shuck_ast::CompoundCommand::If(command) => command.span,
+        shuck_ast::CompoundCommand::For(command) => command.span,
+        shuck_ast::CompoundCommand::ArithmeticFor(command) => command.span,
+        shuck_ast::CompoundCommand::While(command) => command.span,
+        shuck_ast::CompoundCommand::Until(command) => command.span,
+        shuck_ast::CompoundCommand::Case(command) => command.span,
+        shuck_ast::CompoundCommand::Select(command) => command.span,
+        shuck_ast::CompoundCommand::Subshell(commands)
+        | shuck_ast::CompoundCommand::BraceGroup(commands) => commands.span,
+        shuck_ast::CompoundCommand::Arithmetic(command) => command.span,
+        shuck_ast::CompoundCommand::Time(command) => command.span,
+        shuck_ast::CompoundCommand::Conditional(command) => command.span,
+        shuck_ast::CompoundCommand::Coproc(command) => command.span,
     }
 }
 
@@ -439,7 +451,7 @@ mod tests {
 
     fn parse_first_command(source: &str) -> Command {
         let output = Parser::new(source).parse().unwrap();
-        output.script.commands.into_iter().next().unwrap()
+        output.file.body.stmts.into_iter().next().unwrap().command
     }
 
     #[test]

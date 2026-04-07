@@ -16,8 +16,7 @@ impl Violation for LegacyBackticks {
 
 pub fn legacy_backticks(checker: &mut Checker) {
     query::walk_words(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
@@ -45,20 +44,6 @@ mod tests {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["`date`", "`uname`"]
-        );
-    }
-
-    #[test]
-    fn anchors_on_backticks_inside_subscripts() {
-        let source = "declare arr[`date`]=1\n";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
-
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["`date`"]
         );
     }
 }

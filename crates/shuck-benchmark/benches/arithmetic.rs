@@ -64,7 +64,7 @@ fn parse_source(source: &str) -> usize {
         .parse()
         .expect("arithmetic benchmark inputs should parse");
 
-    black_box(output.script.commands.len())
+    black_box(output.file.body.len())
 }
 
 fn bench_arithmetic(c: &mut Criterion) {

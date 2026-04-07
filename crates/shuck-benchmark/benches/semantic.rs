@@ -8,7 +8,7 @@ configure_benchmark_allocator!();
 fn build_semantic(source: &str) -> usize {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.script, source, &indexer);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
 
     black_box(semantic.bindings().len() + semantic.references().len() + semantic.scopes().len())
 }

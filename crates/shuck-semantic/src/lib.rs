@@ -23,7 +23,7 @@ pub use scope::{Scope, ScopeId, ScopeKind};
 pub use source_ref::{SourceRef, SourceRefKind};
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, Name, Script, Span};
+use shuck_ast::{Command, File, Name, Span};
 use shuck_indexer::Indexer;
 use std::path::{Path, PathBuf};
 
@@ -134,9 +134,9 @@ pub struct SemanticModel {
 }
 
 impl SemanticModel {
-    pub fn build(script: &Script, source: &str, indexer: &Indexer) -> Self {
+    pub fn build(file: &File, source: &str, indexer: &Indexer) -> Self {
         let mut observer = NoopTraversalObserver;
-        build_with_observer(script, source, indexer, &mut observer)
+        build_with_observer(file, source, indexer, &mut observer)
     }
 
     fn from_build_output(built: builder::BuildOutput) -> Self {
@@ -508,28 +508,28 @@ impl SemanticModel {
 
 #[doc(hidden)]
 pub fn build_with_observer(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
 ) -> SemanticModel {
-    build_semantic_model(script, source, indexer, observer, None, false, None)
+    build_semantic_model(file, source, indexer, observer, None, false, None)
 }
 
 #[doc(hidden)]
 pub fn build_with_observer_at_path(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
     source_path: Option<&Path>,
 ) -> SemanticModel {
-    build_with_observer_at_path_with_resolver(script, source, indexer, observer, source_path, None)
+    build_with_observer_at_path_with_resolver(file, source, indexer, observer, source_path, None)
 }
 
 #[doc(hidden)]
 pub fn build_with_observer_at_path_with_resolver(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
@@ -537,7 +537,7 @@ pub fn build_with_observer_at_path_with_resolver(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> SemanticModel {
     build_semantic_model(
-        script,
+        file,
         source,
         indexer,
         observer,
@@ -548,7 +548,7 @@ pub fn build_with_observer_at_path_with_resolver(
 }
 
 fn build_semantic_model(
-    script: &Script,
+    file: &File,
     source: &str,
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
@@ -557,7 +557,7 @@ fn build_semantic_model(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> SemanticModel {
     let built = SemanticModelBuilder::build(
-        script,
+        file,
         source,
         indexer,
         observer,
@@ -567,7 +567,7 @@ fn build_semantic_model(
     if include_source_closure && let Some(source_path) = source_path {
         let synthetic_reads = source_closure::collect_source_closure_reads(
             &model,
-            script,
+            file,
             source,
             source_path,
             source_path_resolver,
@@ -675,7 +675,7 @@ mod tests {
     fn model(source: &str) -> SemanticModel {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        SemanticModel::build(&output.script, source, &indexer)
+        SemanticModel::build(&output.file, source, &indexer)
     }
 
     fn model_at_path(path: &Path) -> SemanticModel {
@@ -691,7 +691,7 @@ mod tests {
         let indexer = Indexer::new(&source, &output);
         let mut observer = NoopTraversalObserver;
         build_with_observer_at_path_with_resolver(
-            &output.script,
+            &output.file,
             &source,
             &indexer,
             &mut observer,
@@ -1003,24 +1003,22 @@ done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.script, source, &indexer);
+        let model = SemanticModel::build(&output.file, source, &indexer);
 
-        let Command::Compound(CompoundCommand::If(if_command), _) = &output.script.commands[0]
-        else {
+        let Command::Compound(CompoundCommand::If(if_command)) = &output.file.body[0].command else {
             panic!("expected if command");
         };
-        let condition_span = match &if_command.condition[0] {
+        let condition_span = match &if_command.condition[0].command {
             Command::Simple(command) => command.span,
             other => panic!("unexpected condition command: {other:?}"),
         };
         let condition_context = model.flow_context_at(&condition_span).unwrap();
         assert!(condition_context.exit_status_checked);
 
-        let Command::Compound(CompoundCommand::For(for_command), _) = &output.script.commands[1]
-        else {
+        let Command::Compound(CompoundCommand::For(for_command)) = &output.file.body[1].command else {
             panic!("expected for command");
         };
-        let break_span = match &for_command.body[0] {
+        let break_span = match &for_command.body[0].command {
             Command::Builtin(shuck_ast::BuiltinCommand::Break(command)) => command.span,
             other => panic!("unexpected loop body command: {other:?}"),
         };
@@ -2488,7 +2486,7 @@ echo done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.script, source, &indexer);
+        let model = SemanticModel::build(&output.file, source, &indexer);
 
         assert_eq!(model.recorded_program.file_commands.len(), 2);
         let conditional = &model.recorded_program.file_commands[0];

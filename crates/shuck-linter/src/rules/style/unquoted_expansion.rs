@@ -24,18 +24,18 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
     let mut safe_values = SafeValueIndex::build(
         checker.semantic(),
-        checker.ast().commands.as_slice(),
+        &checker.ast().body,
         source,
     );
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
-            query::visit_expansion_words(command, source, &mut |word, context| {
+        &mut |visit| {
+            let command = visit.command;
+            query::visit_expansion_words(visit, source, &mut |word, context| {
                 if !should_check_context(context, checker.shell()) {
                     return;
                 }

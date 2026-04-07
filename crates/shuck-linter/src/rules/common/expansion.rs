@@ -394,8 +394,8 @@ pub fn classify_substitution(
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
-        &mut |command, _| {
-            let state = classify_command_redirects(query::command_redirects(command), source);
+        &mut |visit| {
+            let state = classify_command_redirects(query::command_redirects(visit), source);
             has_stdout_redirect |= state.has_stdout_redirect;
             stdout_intent = Some(match stdout_intent {
                 Some(current) => current.merge(state.stdout_intent),
@@ -861,8 +861,8 @@ mod tests {
     use crate::rules::common::query::iter_word_command_substitutions;
 
     fn parse_argument_words(source: &str) -> Vec<shuck_ast::Word> {
-        let commands = Parser::new(source).parse().unwrap().script.commands;
-        let Command::Simple(command) = &commands[0] else {
+        let file = Parser::new(source).parse().unwrap().file;
+        let Command::Simple(command) = &file.body[0].command else {
             panic!("expected simple command");
         };
         command.args.clone()
@@ -916,38 +916,33 @@ mod tests {
     #[test]
     fn analyze_redirect_target_distinguishes_descriptor_dups_and_dev_null() {
         let static_dup_source = "echo hi 2>&3\n";
-        let static_dup_command = Parser::new(static_dup_source)
-            .parse()
-            .unwrap()
-            .script
-            .commands;
-        let Command::Simple(static_dup_simple) = &static_dup_command[0] else {
+        let static_dup_file = Parser::new(static_dup_source).parse().unwrap().file;
+        let Command::Simple(_) = &static_dup_file.body[0].command else {
             panic!("expected simple command");
         };
-        let static_dup =
-            analyze_redirect_target(&static_dup_simple.redirects[0], static_dup_source)
-                .expect("expected redirect analysis");
+        let static_dup = analyze_redirect_target(&static_dup_file.body[0].redirects[0], static_dup_source)
+            .expect("expected redirect analysis");
         assert!(static_dup.is_descriptor_dup());
         assert_eq!(static_dup.numeric_descriptor_target, Some(3));
         assert!(!static_dup.is_runtime_sensitive());
 
         let file_source = "echo hi > /dev/null\n";
-        let file_command = Parser::new(file_source).parse().unwrap().script.commands;
-        let Command::Simple(file_simple) = &file_command[0] else {
+        let file_commands = Parser::new(file_source).parse().unwrap().file;
+        let Command::Simple(_) = &file_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let file = analyze_redirect_target(&file_simple.redirects[0], file_source)
+        let file = analyze_redirect_target(&file_commands.body[0].redirects[0], file_source)
             .expect("expected redirect analysis");
         assert!(file.is_file_target());
         assert!(file.is_definitely_dev_null());
         assert!(!file.is_runtime_sensitive());
 
         let maybe_source = "echo hi > \"$target\"\n";
-        let maybe_command = Parser::new(maybe_source).parse().unwrap().script.commands;
-        let Command::Simple(maybe_simple) = &maybe_command[0] else {
+        let maybe_commands = Parser::new(maybe_source).parse().unwrap().file;
+        let Command::Simple(_) = &maybe_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let maybe = analyze_redirect_target(&maybe_simple.redirects[0], maybe_source)
+        let maybe = analyze_redirect_target(&maybe_commands.body[0].redirects[0], maybe_source)
             .expect("expected redirect analysis");
         assert!(maybe.is_file_target());
         assert_eq!(
@@ -957,21 +952,21 @@ mod tests {
         assert!(maybe.is_runtime_sensitive());
 
         let fanout_source = "echo hi > ${targets[@]}\n";
-        let fanout_command = Parser::new(fanout_source).parse().unwrap().script.commands;
-        let Command::Simple(fanout_simple) = &fanout_command[0] else {
+        let fanout_commands = Parser::new(fanout_source).parse().unwrap().file;
+        let Command::Simple(_) = &fanout_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let fanout = analyze_redirect_target(&fanout_simple.redirects[0], fanout_source)
+        let fanout = analyze_redirect_target(&fanout_commands.body[0].redirects[0], fanout_source)
             .expect("expected redirect analysis");
         assert!(fanout.can_expand_to_multiple_fields());
         assert!(fanout.is_runtime_sensitive());
 
         let tilde_source = "echo hi > ~/*.log\n";
-        let tilde_command = Parser::new(tilde_source).parse().unwrap().script.commands;
-        let Command::Simple(tilde_simple) = &tilde_command[0] else {
+        let tilde_commands = Parser::new(tilde_source).parse().unwrap().file;
+        let Command::Simple(_) = &tilde_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let tilde = analyze_redirect_target(&tilde_simple.redirects[0], tilde_source)
+        let tilde = analyze_redirect_target(&tilde_commands.body[0].redirects[0], tilde_source)
             .expect("expected redirect analysis");
         assert!(tilde.is_file_target());
         assert_eq!(
@@ -1122,8 +1117,8 @@ mod tests {
         ];
 
         for (source, expected_intent, expected_redirect) in cases {
-            let commands = Parser::new(source).parse().unwrap().script.commands;
-            let Command::Simple(command) = &commands[0] else {
+            let commands = Parser::new(source).parse().unwrap().file.body;
+            let Command::Simple(command) = &commands[0].command else {
                 panic!("expected simple command");
             };
             let substitution =

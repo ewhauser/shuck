@@ -1,8 +1,9 @@
 use crate::rules::common::{command, query};
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CommandList, CompoundCommand,
+    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
     ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, ParameterOp,
-    Pattern, PatternPart, Redirect, SimpleCommand, Span, Word, WordPart, WordPartNode,
+    Pattern, PatternPart, Redirect, SimpleCommand, Span, Stmt, StmtSeq, Word, WordPart,
+    WordPartNode,
 };
 
 use super::syntax::{assignment_target_name, simple_test_operands, static_word_text};
@@ -45,43 +46,41 @@ impl<'a> ScanContext<'a> {
 
 pub fn single_quoted_literal(checker: &mut Checker) {
     let mut spans = Vec::new();
-    collect_commands(&checker.ast().commands, checker.source(), &mut spans);
+    collect_commands(&checker.ast().body, checker.source(), &mut spans);
 
     for span in spans {
         checker.report_dedup(SingleQuotedLiteral, span);
     }
 }
 
-fn collect_commands(commands: &[Command], source: &str, spans: &mut Vec<Span>) {
-    for command in commands {
+fn collect_commands(commands: &StmtSeq, source: &str, spans: &mut Vec<Span>) {
+    for command in commands.iter() {
         collect_command(command, source, spans);
     }
 }
 
-fn collect_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
-    let normalized = command::normalize_command(command, source);
+fn collect_command(command: &Stmt, source: &str, spans: &mut Vec<Span>) {
+    let normalized = command::normalize_command(&command.command, source);
     let context = ScanContext {
         command_name: normalized.effective_or_literal_name(),
         ..ScanContext::default()
     };
 
-    match command {
+    match &command.command {
         Command::Simple(command) => collect_simple_command(command, source, spans, context),
         Command::Builtin(command) => collect_builtin(command, source, spans),
         Command::Decl(command) => collect_decl_command(command, source, spans),
-        Command::Pipeline(command) => collect_commands(&command.commands, source, spans),
-        Command::List(CommandList { first, rest, .. }) => {
-            collect_command(first, source, spans);
-            for item in rest {
-                collect_command(&item.command, source, spans);
-            }
+        Command::Binary(command) => {
+            collect_command(&command.left, source, spans);
+            collect_command(&command.right, source, spans);
         }
-        Command::Compound(command, redirects) => {
+        Command::Compound(command) => {
             collect_compound(command, source, spans);
-            collect_redirects(redirects, source, spans, ScanContext::default());
         }
         Command::Function(FunctionDef { body, .. }) => collect_command(body, source, spans),
     }
+
+    collect_redirects(&command.redirects, source, spans, ScanContext::default());
 }
 
 fn collect_simple_command(
@@ -102,8 +101,6 @@ fn collect_simple_command(
         };
         collect_word(word, source, spans, context);
     }
-
-    collect_redirects(&command.redirects, source, spans, context);
 }
 
 fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>) {
@@ -115,7 +112,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans, context);
             }
             collect_words(&command.extra_args, source, spans, context);
-            collect_redirects(&command.redirects, source, spans, context);
         }
         BuiltinCommand::Continue(command) => {
             collect_assignments(&command.assignments, source, spans, context);
@@ -123,7 +119,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans, context);
             }
             collect_words(&command.extra_args, source, spans, context);
-            collect_redirects(&command.redirects, source, spans, context);
         }
         BuiltinCommand::Return(command) => {
             collect_assignments(&command.assignments, source, spans, context);
@@ -131,7 +126,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans, context);
             }
             collect_words(&command.extra_args, source, spans, context);
-            collect_redirects(&command.redirects, source, spans, context);
         }
         BuiltinCommand::Exit(command) => {
             collect_assignments(&command.assignments, source, spans, context);
@@ -139,7 +133,6 @@ fn collect_builtin(command: &BuiltinCommand, source: &str, spans: &mut Vec<Span>
                 collect_word(word, source, spans, context);
             }
             collect_words(&command.extra_args, source, spans, context);
-            collect_redirects(&command.redirects, source, spans, context);
         }
     }
 }
@@ -162,7 +155,6 @@ fn collect_decl_command(command: &DeclClause, source: &str, spans: &mut Vec<Span
             }
         }
     }
-    collect_redirects(&command.redirects, source, spans, context);
 }
 
 fn collect_compound(command: &CompoundCommand, source: &str, spans: &mut Vec<Span>) {
@@ -197,7 +189,7 @@ fn collect_compound(command: &CompoundCommand, source: &str, spans: &mut Vec<Spa
             collect_word(&command.word, source, spans, ScanContext::default());
             for case in &command.cases {
                 collect_patterns(&case.patterns, source, spans, ScanContext::default());
-                collect_commands(&case.commands, source, spans);
+                collect_commands(&case.body, source, spans);
             }
         }
         CompoundCommand::Select(command) => {
@@ -316,9 +308,9 @@ fn collect_word_parts(
             } => {
                 collect_parameter_operator_patterns(operator, source, spans, context);
             }
-            WordPart::CommandSubstitution { commands, .. }
-            | WordPart::ProcessSubstitution { commands, .. } => {
-                collect_commands(commands, source, spans);
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => {
+                collect_commands(body, source, spans);
             }
             _ => {}
         }

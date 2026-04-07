@@ -24,12 +24,12 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
     let source = checker.source();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
+        &mut |visit| {
+            let command = visit.command;
             let normalized = command::normalize_command(command, source);
             if !normalized.has_wrapper(WrapperKind::SudoFamily) {
                 return;
@@ -39,7 +39,7 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
                 return;
             }
 
-            for redirect in query::command_redirects(command) {
+            for redirect in query::command_redirects(visit) {
                 if redirects_output_to_file(redirect)
                     && !redirect_target_is_dev_null(redirect, source)
                 {

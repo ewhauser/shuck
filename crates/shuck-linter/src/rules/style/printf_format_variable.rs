@@ -24,12 +24,12 @@ pub fn printf_format_variable(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
+        &mut |visit| {
+            let command = visit.command;
             let normalized = command::normalize_command(command, source);
             if !normalized.effective_name_is("printf") {
                 return;

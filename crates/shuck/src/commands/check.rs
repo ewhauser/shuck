@@ -226,16 +226,15 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                     let suppression_index = (!directives.is_empty()).then(|| {
                         SuppressionIndex::new(
                             &directives,
-                            &output.script,
-                            &source,
-                            first_statement_line(&output.script).unwrap_or(u32::MAX),
+                            &output.file,
+                            first_statement_line(&output.file).unwrap_or(u32::MAX),
                         )
                     });
                     let linter_settings = base_linter_settings
                         .clone()
                         .with_shell(ShellDialect::infer(&source, Some(&file.absolute_path)));
                     let diagnostics = shuck_linter::lint_file_at_path(
-                        &output.script,
+                        &output.file,
                         &source,
                         &indexer,
                         &linter_settings,

@@ -181,6 +181,14 @@ impl StmtSeq {
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Stmt> {
         self.stmts.iter_mut()
     }
+
+    pub fn first(&self) -> Option<&Stmt> {
+        self.stmts.first()
+    }
+
+    pub fn last(&self) -> Option<&Stmt> {
+        self.stmts.last()
+    }
 }
 
 impl std::ops::Index<usize> for StmtSeq {
@@ -2342,6 +2350,48 @@ mod tests {
         }
     }
 
+    fn stmt(command: Command) -> Stmt {
+        Stmt {
+            leading_comments: vec![],
+            command,
+            negated: false,
+            redirects: vec![],
+            terminator: None,
+            terminator_span: None,
+            inline_comment: None,
+            span: Span::new(),
+        }
+    }
+
+    fn stmt_with_redirects(command: Command, redirects: Vec<Redirect>) -> Stmt {
+        Stmt {
+            redirects,
+            ..stmt(command)
+        }
+    }
+
+    fn stmt_seq(stmts: Vec<Stmt>) -> StmtSeq {
+        StmtSeq {
+            leading_comments: vec![],
+            stmts,
+            trailing_comments: vec![],
+            span: Span::new(),
+        }
+    }
+
+    fn simple_command(name: &str, args: Vec<Word>) -> SimpleCommand {
+        SimpleCommand {
+            name: Word::literal(name),
+            args,
+            assignments: vec![],
+            span: Span::new(),
+        }
+    }
+
+    fn simple_stmt(name: &str, args: Vec<Word>) -> Stmt {
+        stmt(Command::Simple(simple_command(name, args)))
+    }
+
     fn span_for_source(source: &str) -> Span {
         Span::from_positions(
             Position {
@@ -2817,24 +2867,17 @@ mod tests {
 
     #[test]
     fn simple_command_construction() {
-        let cmd = SimpleCommand {
-            name: Word::literal("ls"),
-            args: vec![Word::literal("-la")],
-            redirects: vec![],
-            assignments: vec![],
-            span: Span::new(),
-        };
+        let cmd = simple_command("ls", vec![Word::literal("-la")]);
         assert_eq!(format!("{}", cmd.name), "ls");
         assert_eq!(cmd.args.len(), 1);
         assert_eq!(format!("{}", cmd.args[0]), "-la");
     }
 
     #[test]
-    fn simple_command_with_redirects() {
-        let cmd = SimpleCommand {
-            name: Word::literal("echo"),
-            args: vec![Word::literal("hi")],
-            redirects: vec![Redirect {
+    fn statement_redirects_are_stored_on_stmt() {
+        let cmd = stmt_with_redirects(
+            Command::Simple(simple_command("echo", vec![Word::literal("hi")])),
+            vec![Redirect {
                 fd: Some(1),
                 fd_var: None,
                 fd_var_span: None,
@@ -2842,9 +2885,7 @@ mod tests {
                 span: Span::new(),
                 target: RedirectTarget::Word(Word::literal("out.txt")),
             }],
-            assignments: vec![],
-            span: Span::new(),
-        };
+        );
         assert_eq!(cmd.redirects.len(), 1);
         assert_eq!(cmd.redirects[0].fd, Some(1));
         assert_eq!(cmd.redirects[0].kind, RedirectKind::Output);
@@ -2853,14 +2894,11 @@ mod tests {
     #[test]
     fn simple_command_with_assignments() {
         let cmd = SimpleCommand {
-            name: Word::literal("env"),
-            args: vec![],
-            redirects: vec![],
             assignments: vec![assignment(
                 plain_ref("FOO"),
                 AssignmentValue::Scalar(Word::literal("bar")),
             )],
-            span: Span::new(),
+            ..simple_command("env", vec![])
         };
         assert_eq!(cmd.assignments.len(), 1);
         assert_eq!(cmd.assignments[0].target.name, "FOO");
@@ -2874,7 +2912,6 @@ mod tests {
         let cmd = BuiltinCommand::Break(BreakCommand {
             depth: Some(Word::literal("2")),
             extra_args: vec![Word::literal("extra")],
-            redirects: vec![],
             assignments: vec![],
             span: Span::new(),
         });
@@ -2890,10 +2927,17 @@ mod tests {
 
     #[test]
     fn builtin_return_command_with_redirects_and_assignments() {
-        let cmd = BuiltinCommand::Return(ReturnCommand {
-            code: Some(Word::literal("42")),
-            extra_args: vec![],
-            redirects: vec![Redirect {
+        let cmd = stmt_with_redirects(
+            Command::Builtin(BuiltinCommand::Return(ReturnCommand {
+                code: Some(Word::literal("42")),
+                extra_args: vec![],
+                assignments: vec![assignment(
+                    plain_ref("FOO"),
+                    AssignmentValue::Scalar(Word::literal("bar")),
+                )],
+                span: Span::new(),
+            })),
+            vec![Redirect {
                 fd: None,
                 fd_var: None,
                 fd_var_span: None,
@@ -2901,100 +2945,63 @@ mod tests {
                 span: Span::new(),
                 target: RedirectTarget::Word(Word::literal("out.txt")),
             }],
-            assignments: vec![assignment(
-                plain_ref("FOO"),
-                AssignmentValue::Scalar(Word::literal("bar")),
-            )],
-            span: Span::new(),
-        });
+        );
 
-        if let BuiltinCommand::Return(command) = &cmd {
+        if let Command::Builtin(BuiltinCommand::Return(command)) = &cmd.command {
             assert_eq!(command.code.as_ref().unwrap().to_string(), "42");
-            assert_eq!(command.redirects.len(), 1);
             assert_eq!(command.assignments.len(), 1);
+            assert_eq!(cmd.redirects.len(), 1);
         } else {
             panic!("expected Return builtin");
         }
     }
 
-    // --- Pipeline ---
+    // --- BinaryCommand ---
 
     #[test]
-    fn pipeline_construction() {
-        let pipe = Pipeline {
-            negated: false,
-            commands: vec![
-                Command::Simple(SimpleCommand {
-                    name: Word::literal("ls"),
-                    args: vec![],
-                    redirects: vec![],
-                    assignments: vec![],
-                    span: Span::new(),
-                }),
-                Command::Simple(SimpleCommand {
-                    name: Word::literal("grep"),
-                    args: vec![Word::literal("foo")],
-                    redirects: vec![],
-                    assignments: vec![],
-                    span: Span::new(),
-                }),
-            ],
+    fn binary_command_construction() {
+        let pipe = BinaryCommand {
+            left: Box::new(simple_stmt("ls", vec![])),
+            op: BinaryOp::Pipe,
+            op_span: Span::new(),
+            right: Box::new(simple_stmt("grep", vec![Word::literal("foo")])),
             span: Span::new(),
         };
-        assert!(!pipe.negated);
-        assert_eq!(pipe.commands.len(), 2);
+        assert_eq!(pipe.op, BinaryOp::Pipe);
+        assert!(matches!(pipe.left.command, Command::Simple(_)));
+        assert!(matches!(pipe.right.command, Command::Simple(_)));
     }
 
     #[test]
-    fn pipeline_negated() {
-        let pipe = Pipeline {
-            negated: true,
-            commands: vec![],
-            span: Span::new(),
-        };
-        assert!(pipe.negated);
+    fn stmt_negated() {
+        let mut command = simple_stmt("echo", vec![Word::literal("hi")]);
+        command.negated = true;
+        assert!(command.negated);
     }
 
-    // --- CommandList ---
+    // --- StmtSeq ---
 
     #[test]
-    fn command_list_with_operators() {
-        let first = Command::Simple(SimpleCommand {
-            name: Word::literal("true"),
-            args: vec![],
-            redirects: vec![],
-            assignments: vec![],
-            span: Span::new(),
-        });
-        let second = Command::Simple(SimpleCommand {
-            name: Word::literal("echo"),
-            args: vec![Word::literal("ok")],
-            redirects: vec![],
-            assignments: vec![],
-            span: Span::new(),
-        });
-        let list = CommandList {
-            first: Box::new(first),
-            rest: vec![CommandListItem {
-                operator: ListOperator::And,
-                operator_span: Span::new(),
-                command: second,
-            }],
-            span: Span::new(),
-        };
-        assert_eq!(list.rest.len(), 1);
-        assert_eq!(list.rest[0].operator, ListOperator::And);
+    fn stmt_seq_with_multiple_statements() {
+        let list = stmt_seq(vec![
+            simple_stmt("true", vec![]),
+            simple_stmt("echo", vec![Word::literal("ok")]),
+        ]);
+        assert_eq!(list.len(), 2);
+        assert!(matches!(list[0].command, Command::Simple(_)));
     }
 
-    // --- ListOperator ---
+    // --- BinaryOp / StmtTerminator ---
 
     #[test]
-    fn list_operator_equality() {
-        assert_eq!(ListOperator::And, ListOperator::And);
-        assert_eq!(ListOperator::Or, ListOperator::Or);
-        assert_eq!(ListOperator::Semicolon, ListOperator::Semicolon);
-        assert_eq!(ListOperator::Background, ListOperator::Background);
-        assert_ne!(ListOperator::And, ListOperator::Or);
+    fn statement_operators_equality() {
+        assert_eq!(BinaryOp::And, BinaryOp::And);
+        assert_eq!(BinaryOp::Or, BinaryOp::Or);
+        assert_eq!(BinaryOp::Pipe, BinaryOp::Pipe);
+        assert_eq!(BinaryOp::PipeAll, BinaryOp::PipeAll);
+        assert_ne!(BinaryOp::And, BinaryOp::Or);
+        assert_eq!(StmtTerminator::Semicolon, StmtTerminator::Semicolon);
+        assert_eq!(StmtTerminator::Background, StmtTerminator::Background);
     }
 
     // --- RedirectKind ---
@@ -3144,8 +3151,8 @@ mod tests {
     #[test]
     fn if_command_construction() {
         let if_cmd = IfCommand {
-            condition: vec![],
-            then_branch: vec![],
+            condition: stmt_seq(vec![]),
+            then_branch: stmt_seq(vec![]),
             elif_branches: vec![],
             else_branch: None,
             span: Span::new(),
@@ -3160,7 +3167,7 @@ mod tests {
             variable: "i".into(),
             variable_span: Span::new(),
             words: None,
-            body: vec![],
+            body: stmt_seq(vec![]),
             span: Span::new(),
         };
         assert!(for_cmd.words.is_none());
@@ -3173,7 +3180,7 @@ mod tests {
             variable: "x".into(),
             variable_span: Span::new(),
             words: Some(vec![Word::literal("1"), Word::literal("2")]),
-            body: vec![],
+            body: stmt_seq(vec![]),
             span: Span::new(),
         };
         assert_eq!(for_cmd.words.as_ref().unwrap().len(), 2);
@@ -3192,7 +3199,7 @@ mod tests {
             step_span: Some(Span::new()),
             step_ast: None,
             right_paren_span: Span::new(),
-            body: vec![],
+            body: stmt_seq(vec![]),
             span: Span::new(),
         };
         assert!(cmd.init_span.is_some());
@@ -3206,72 +3213,55 @@ mod tests {
             name: "my_func".into(),
             name_span: Span::new(),
             surface: FunctionSurface::default(),
-            body: Box::new(Command::Simple(SimpleCommand {
-                name: Word::literal("echo"),
-                args: vec![Word::literal("hello")],
-                redirects: vec![],
-                assignments: vec![],
-                span: Span::new(),
-            })),
+            body: Box::new(simple_stmt("echo", vec![Word::literal("hello")])),
             span: Span::new(),
         };
         assert_eq!(func.name, "my_func");
     }
 
-    // --- Script ---
+    // --- File ---
 
     #[test]
-    fn script_empty() {
-        let script = Script {
-            commands: vec![],
+    fn file_empty() {
+        let file = File {
+            body: stmt_seq(vec![]),
             span: Span::new(),
         };
-        assert!(script.commands.is_empty());
+        assert!(file.body.is_empty());
     }
 
     // --- Command enum variants ---
 
     #[test]
     fn command_variants_constructible() {
-        let simple = Command::Simple(SimpleCommand {
-            name: Word::literal("echo"),
-            args: vec![],
-            redirects: vec![],
-            assignments: vec![],
-            span: Span::new(),
-        });
+        let simple = Command::Simple(simple_command("echo", vec![]));
         assert!(matches!(simple, Command::Simple(_)));
 
-        let pipe = Command::Pipeline(Pipeline {
-            negated: false,
-            commands: vec![],
+        let pipe = Command::Binary(BinaryCommand {
+            left: Box::new(simple_stmt("echo", vec![])),
+            op: BinaryOp::Pipe,
+            op_span: Span::new(),
+            right: Box::new(simple_stmt("cat", vec![])),
             span: Span::new(),
         });
-        assert!(matches!(pipe, Command::Pipeline(_)));
+        assert!(matches!(pipe, Command::Binary(_)));
 
         let builtin = Command::Builtin(BuiltinCommand::Exit(ExitCommand {
             code: Some(Word::literal("1")),
             extra_args: vec![],
-            redirects: vec![],
             assignments: vec![],
             span: Span::new(),
         }));
         assert!(matches!(builtin, Command::Builtin(_)));
 
-        let compound = Command::Compound(CompoundCommand::BraceGroup(vec![]), vec![]);
-        assert!(matches!(compound, Command::Compound(..)));
+        let compound = Command::Compound(CompoundCommand::BraceGroup(stmt_seq(vec![])));
+        assert!(matches!(compound, Command::Compound(_)));
 
         let func = Command::Function(FunctionDef {
             name: "f".into(),
             name_span: Span::new(),
             surface: FunctionSurface::default(),
-            body: Box::new(Command::Simple(SimpleCommand {
-                name: Word::literal("true"),
-                args: vec![],
-                redirects: vec![],
-                assignments: vec![],
-                span: Span::new(),
-            })),
+            body: Box::new(simple_stmt("true", vec![])),
             span: Span::new(),
         });
         assert!(matches!(func, Command::Function(_)));
@@ -3281,7 +3271,7 @@ mod tests {
 
     #[test]
     fn compound_command_subshell() {
-        let cmd = CompoundCommand::Subshell(vec![]);
+        let cmd = CompoundCommand::Subshell(stmt_seq(vec![]));
         assert!(matches!(cmd, CompoundCommand::Subshell(_)));
     }
 

@@ -31,7 +31,7 @@ mod tests {
 
     fn parse_first_command(source: &str) -> Command {
         let output = Parser::new(source).parse().unwrap();
-        output.script.commands.into_iter().next().unwrap()
+        output.file.body.stmts.into_iter().next().unwrap().command
     }
 
     #[test]

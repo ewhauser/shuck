@@ -174,15 +174,15 @@ mod tests {
         classify_test_operand, classify_word,
     };
 
-    fn parse_commands(source: &str) -> Vec<Command> {
-        Parser::new(source).parse().unwrap().script.commands
+    fn parse_commands(source: &str) -> shuck_ast::StmtSeq {
+        Parser::new(source).parse().unwrap().file.body
     }
 
     #[test]
     fn classify_word_distinguishes_fixed_literals_and_quoted_expansions() {
         let source = "printf \"literal\" \"prefix$foo\"\n";
         let commands = parse_commands(source);
-        let Command::Simple(command) = &commands[0] else {
+        let Command::Simple(command) = &commands[0].command else {
             panic!("expected simple command");
         };
 
@@ -203,7 +203,7 @@ mod tests {
     fn classify_word_reports_plain_and_mixed_command_substitutions() {
         let source = "printf \"$(date)\" \"prefix$(date)\"\n";
         let commands = parse_commands(source);
-        let Command::Simple(command) = &commands[0] else {
+        let Command::Simple(command) = &commands[0].command else {
             panic!("expected simple command");
         };
 
@@ -221,7 +221,7 @@ mod tests {
     fn classify_word_reports_scalar_and_array_expansions() {
         let source = "printf $foo ${arr[@]} ${arr[0]} ${arr[@]:1}\n";
         let commands = parse_commands(source);
-        let Command::Simple(command) = &commands[0] else {
+        let Command::Simple(command) = &commands[0].command else {
             panic!("expected simple command");
         };
 
@@ -248,7 +248,7 @@ mod tests {
         let source = "test foo\ntest ~\n[[ \"$re\" ]]\n[[ literal ]]\n[[ ~ ]]\n";
         let commands = parse_commands(source);
 
-        let Command::Simple(simple_test) = &commands[0] else {
+        let Command::Simple(simple_test) = &commands[0].command else {
             panic!("expected simple command");
         };
         assert_eq!(
@@ -256,7 +256,7 @@ mod tests {
             TestOperandClass::FixedLiteral
         );
 
-        let Command::Simple(runtime_test) = &commands[1] else {
+        let Command::Simple(runtime_test) = &commands[1].command else {
             panic!("expected simple command");
         };
         assert_eq!(
@@ -264,7 +264,7 @@ mod tests {
             TestOperandClass::RuntimeSensitive
         );
 
-        let Command::Compound(CompoundCommand::Conditional(runtime), _) = &commands[2] else {
+        let Command::Compound(CompoundCommand::Conditional(runtime)) = &commands[2].command else {
             panic!("expected conditional");
         };
         assert_eq!(
@@ -272,7 +272,7 @@ mod tests {
             TestOperandClass::RuntimeSensitive
         );
 
-        let Command::Compound(CompoundCommand::Conditional(literal), _) = &commands[3] else {
+        let Command::Compound(CompoundCommand::Conditional(literal)) = &commands[3].command else {
             panic!("expected conditional");
         };
         assert_eq!(
@@ -280,7 +280,7 @@ mod tests {
             TestOperandClass::FixedLiteral
         );
 
-        let Command::Compound(CompoundCommand::Conditional(runtime), _) = &commands[4] else {
+        let Command::Compound(CompoundCommand::Conditional(runtime)) = &commands[4].command else {
             panic!("expected conditional");
         };
         assert_eq!(
@@ -293,7 +293,7 @@ mod tests {
     fn contextual_operand_classification_respects_regex_and_case_contexts() {
         let source = "printf ~ *.sh {a,b}\n";
         let commands = parse_commands(source);
-        let Command::Simple(command) = &commands[0] else {
+        let Command::Simple(command) = &commands[0].command else {
             panic!("expected simple command");
         };
 

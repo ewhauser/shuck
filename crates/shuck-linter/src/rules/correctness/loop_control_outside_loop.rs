@@ -21,12 +21,13 @@ pub fn loop_control_outside_loop(checker: &mut Checker) {
     let mut violations = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, context| {
+        &mut |visit| {
+            let command = visit.command;
+            let context = visit.context;
             if context.loop_depth > 0 {
                 return;
             }

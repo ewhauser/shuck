@@ -19,13 +19,12 @@ fn lint_source(
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
-            &output.script,
-            source,
-            first_statement_line(&output.script).unwrap_or(u32::MAX),
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
         )
     });
     let diagnostics = lint_file(
-        &output.script,
+        &output.file,
         source,
         &indexer,
         settings,

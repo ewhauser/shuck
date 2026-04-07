@@ -22,13 +22,13 @@ pub fn loop_from_command_output(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
-        &mut |command, _| {
-            let Command::Compound(CompoundCommand::For(command), _) = command else {
+        &mut |visit| {
+            let command = visit.command;
+            let Command::Compound(CompoundCommand::For(command)) = command else {
                 return;
             };
 

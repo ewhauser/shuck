@@ -19,13 +19,13 @@ pub fn case_pattern_var(checker: &mut Checker) {
     let mut spans = Vec::new();
 
     query::walk_commands(
-        &checker.ast().commands,
-        checker.source(),
+        &checker.ast().body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-        &mut |command, _| {
-            query::visit_expansion_words(command, checker.source(), &mut |word, context| {
+        &mut |visit| {
+            let command = visit.command;
+            query::visit_expansion_words(visit, checker.source(), &mut |word, context| {
                 if context == ExpansionContext::CasePattern
                     && classify_word(word, checker.source()).is_expanded()
                 {

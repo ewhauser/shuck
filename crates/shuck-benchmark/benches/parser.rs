@@ -5,7 +5,7 @@ configure_benchmark_allocator!();
 
 fn parse_source(source: &str) -> usize {
     let output = parse_fixture(source);
-    black_box(output.script.commands.len())
+    black_box(output.file.body.len())
 }
 
 fn bench_parser(c: &mut Criterion) {
