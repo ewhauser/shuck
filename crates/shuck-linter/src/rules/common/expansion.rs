@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use shuck_ast::{
-    PrefixMatchKind, Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart,
-    WordPartNode,
+    PrefixMatchKind, Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart, WordPartNode,
 };
 
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
@@ -626,11 +625,7 @@ fn redirect_dup_output_sink(
     *fds.get(&fd).unwrap_or(&OutputSink::Other)
 }
 
-fn analyze_parts(
-    parts: &[WordPartNode],
-    in_double_quotes: bool,
-    summary: &mut AnalysisSummary,
-) {
+fn analyze_parts(parts: &[WordPartNode], in_double_quotes: bool, summary: &mut AnalysisSummary) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}

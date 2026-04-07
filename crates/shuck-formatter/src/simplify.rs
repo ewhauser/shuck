@@ -1158,10 +1158,9 @@ fn rewrite_var_ref_source_texts(
     source: &str,
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
-    reference
-        .subscript
-        .as_mut()
-        .map_or(0, |subscript| rewrite_subscript_source_texts(subscript, source, visitor))
+    reference.subscript.as_mut().map_or(0, |subscript| {
+        rewrite_subscript_source_texts(subscript, source, visitor)
+    })
 }
 
 fn rewrite_subscript_source_texts(

@@ -392,7 +392,10 @@ mod tests {
             "[[ -v assoc[\"k\"] ]]\n",
             "declare -A assoc=([\"key\"]=v ['alt']+=w)\n",
         ] {
-            assert_eq!(format_source(source, None, &options).unwrap(), FormattedSource::Unchanged);
+            assert_eq!(
+                format_source(source, None, &options).unwrap(),
+                FormattedSource::Unchanged
+            );
             assert_source_and_ast_paths_match(source, None, &options);
         }
     }
@@ -402,7 +405,10 @@ mod tests {
         let source = "printf '%s\\n' \"${!prefix@}\" \"${!prefix*}\"\n";
         let options = ShellFormatOptions::default();
 
-        assert_eq!(format_source(source, None, &options).unwrap(), FormattedSource::Unchanged);
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
         assert_source_and_ast_paths_match(source, None, &options);
     }
 

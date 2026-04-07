@@ -46,15 +46,15 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_array_expansion_spans(&word.parts, source, false, false, &mut spans);
+    collect_array_expansion_spans(&word.parts, false, false, &mut spans);
     spans
 }
 
-pub fn unquoted_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn unquoted_array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_array_expansion_spans(&word.parts, source, false, true, &mut spans);
+    collect_array_expansion_spans(&word.parts, false, true, &mut spans);
     spans
 }
 
@@ -64,9 +64,9 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn scalar_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_scalar_expansion_spans(&word.parts, source, &mut spans);
+    collect_scalar_expansion_spans(&word.parts, &mut spans);
     spans
 }
 
@@ -113,7 +113,6 @@ fn collect_unquoted_command_substitution_spans(
 
 fn collect_array_expansion_spans(
     parts: &[WordPartNode],
-    source: &str,
     quoted: bool,
     only_unquoted: bool,
     spans: &mut Vec<Span>,
@@ -122,7 +121,7 @@ fn collect_array_expansion_spans(
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_array_expansion_spans(parts, source, true, only_unquoted, spans)
+                collect_array_expansion_spans(parts, true, only_unquoted, spans)
             }
             WordPart::ArrayAccess(reference)
                 if reference.has_array_selector() && (!quoted || !only_unquoted) =>
@@ -162,13 +161,11 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     }
 }
 
-fn collect_scalar_expansion_spans(parts: &[WordPartNode], source: &str, spans: &mut Vec<Span>) {
+fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_scalar_expansion_spans(parts, source, spans)
-            }
+            WordPart::DoubleQuoted { parts, .. } => collect_scalar_expansion_spans(parts, spans),
             WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
             WordPart::Variable(_)
             | WordPart::ArithmeticExpansion { .. }

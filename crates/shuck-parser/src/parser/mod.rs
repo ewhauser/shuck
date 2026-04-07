@@ -29,8 +29,8 @@ use shuck_ast::{
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand,
     DeclClause, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter,
     IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Pipeline, Position, Redirect, RedirectKind, RedirectTarget,
-    PrefixMatchKind, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
+    PatternPart, PatternPartNode, Pipeline, Position, PrefixMatchKind, Redirect, RedirectKind,
+    RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
     Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand,
     TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
 };
@@ -1815,10 +1815,7 @@ impl<'a> Parser<'a> {
                 SourceText::cooked(span, raw_text.clone())
             };
             let cooked = raw_text[1..raw_text.len() - 1].to_string();
-            return (
-                self.source_text(cooked, span.start, span.end),
-                Some(raw),
-            );
+            return (self.source_text(cooked, span.start, span.end), Some(raw));
         }
 
         let text = if self.source_matches(span, raw) {
@@ -8857,10 +8854,12 @@ mod tests {
         };
         let body = &redirect_heredoc(&command.redirects[0]).body;
 
-        assert!(!body
-            .parts
-            .iter()
-            .any(|part| matches!(part.kind, WordPart::SingleQuoted { .. })));
+        assert!(
+            !body
+                .parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::SingleQuoted { .. }))
+        );
         assert_eq!(body.render_syntax(input), "'$HOME\n");
     }
 
@@ -8875,7 +8874,10 @@ mod tests {
         let heredoc = redirect_heredoc(&command.redirects[0]);
 
         assert!(heredoc.delimiter.strip_tabs);
-        assert!(matches!(heredoc.body.parts[0].kind, WordPart::SingleQuoted { .. }));
+        assert!(matches!(
+            heredoc.body.parts[0].kind,
+            WordPart::SingleQuoted { .. }
+        ));
         assert_eq!(heredoc.body.render_syntax(input), "'$HOME'\n");
     }
 
@@ -11368,7 +11370,8 @@ echo "${var-"}"}"
             panic!("expected quoted prefix match");
         };
         let WordPart::DoubleQuoted {
-            parts: second_inner, ..
+            parts: second_inner,
+            ..
         } = &second_part.kind
         else {
             panic!("expected double-quoted prefix match");

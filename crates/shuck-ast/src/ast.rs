@@ -1731,9 +1731,7 @@ fn fmt_word_part_with_source_mode(
                 write!(f, "${{!{}}}", name)?
             }
         }
-        WordPart::PrefixMatch { prefix, kind } => {
-            write!(f, "${{!{}{}}}", prefix, kind.as_char())?
-        }
+        WordPart::PrefixMatch { prefix, kind } => write!(f, "${{!{}{}}}", prefix, kind.as_char())?,
         WordPart::ProcessSubstitution { commands, is_input } => match source {
             Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
             _ => {
