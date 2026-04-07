@@ -146,7 +146,7 @@ fn collect_decl_command(command: &DeclClause, source: &str, spans: &mut Vec<Span
                 collect_word(word, source, spans, context);
             }
             DeclOperand::Name(reference) => {
-                query::visit_var_ref_subscript_words(reference, source, &mut |word| {
+                query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
                     collect_word(word, source, spans, context);
                 });
             }
@@ -230,7 +230,7 @@ fn collect_assignment(
     context: ScanContext<'_>,
 ) {
     let context = context.with_assignment_target(assignment_target_name(assignment));
-    query::visit_var_ref_subscript_words(&assignment.target, source, &mut |word| {
+    query::visit_var_ref_subscript_words_with_source(&assignment.target, source, &mut |word| {
         collect_word(word, source, spans, context);
     });
     match &assignment.value {
@@ -385,7 +385,7 @@ fn collect_conditional_expr(
         }
         ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans, context),
         ConditionalExpr::VarRef(reference) => {
-            query::visit_var_ref_subscript_words(reference, source, &mut |word| {
+            query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
                 collect_word(word, source, spans, context);
             });
         }

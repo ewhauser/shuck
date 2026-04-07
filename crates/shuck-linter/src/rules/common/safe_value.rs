@@ -86,7 +86,6 @@ impl<'a> SafeValueIndex<'a> {
 
         for visit in query::iter_commands(
             commands,
-            source,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
             },

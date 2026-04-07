@@ -390,7 +390,6 @@ pub fn classify_substitution(
 
     query::walk_commands(
         substitution.commands,
-        source,
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },

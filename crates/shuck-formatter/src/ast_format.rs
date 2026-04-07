@@ -104,11 +104,23 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
 struct Renderer<'a> {
     source: &'a str,
     options: &'a ResolvedShellFormatOptions,
+    line_starts: Vec<usize>,
 }
 
 impl<'a> Renderer<'a> {
     fn new(source: &'a str, options: &'a ResolvedShellFormatOptions) -> Self {
-        Self { source, options }
+        let mut line_starts = vec![0];
+        line_starts.extend(
+            source
+                .bytes()
+                .enumerate()
+                .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
+        );
+        Self {
+            source,
+            options,
+            line_starts,
+        }
     }
 
     fn render_file(&self, file: &File) -> String {
@@ -126,6 +138,55 @@ impl<'a> Renderer<'a> {
         comment.range.slice(self.source)
     }
 
+    fn line_of_offset(&self, offset: usize) -> usize {
+        self.line_starts.partition_point(|start| *start <= offset)
+    }
+
+    fn comment_line(&self, comment: Comment) -> usize {
+        self.line_of_offset(usize::from(comment.range.start()))
+    }
+
+    fn span_end_line(&self, span: shuck_ast::Span) -> usize {
+        if span.end.offset > span.start.offset && span.end.column == 1 && span.end.line > 0 {
+            span.end.line.saturating_sub(1)
+        } else {
+            span.end.line
+        }
+    }
+
+    fn push_rendered_item(
+        &self,
+        output: &mut String,
+        previous_end_line: &mut Option<usize>,
+        text: &str,
+        start_line: usize,
+        end_line: usize,
+    ) {
+        if text.is_empty() {
+            return;
+        }
+        if let Some(previous_end_line) = previous_end_line {
+            output.push('\n');
+            for _ in 0..start_line.saturating_sub(previous_end_line.saturating_add(1)) {
+                output.push('\n');
+            }
+        }
+        output.push_str(text);
+        *previous_end_line = Some(end_line.max(start_line));
+    }
+
+    fn stmt_start_line(&self, stmt: &Stmt) -> usize {
+        match &stmt.command {
+            Command::Compound(CompoundCommand::BraceGroup(body))
+            | Command::Compound(CompoundCommand::Subshell(body)) => body
+                .first()
+                .map(|inner| inner.span.start.line.saturating_sub(1))
+                .filter(|line| *line > 0)
+                .unwrap_or(stmt.span.start.line),
+            _ => stmt.span.start.line,
+        }
+    }
+
     fn render_stmt_seq(
         &self,
         stmts: &[Stmt],
@@ -133,38 +194,88 @@ impl<'a> Renderer<'a> {
         trailing_comments: &[Comment],
         level: usize,
     ) -> String {
-        let mut lines = Vec::new();
+        let mut rendered = String::new();
+        let mut previous_end_line = None;
 
         if !self.options.minify() {
             for comment in leading_comments {
-                lines.push(format!("{}{}", self.indent(level), self.comment_text(*comment)));
+                if stmts
+                    .first()
+                    .is_some_and(|stmt| self.is_group_wrapper_comment(stmt, *comment))
+                {
+                    continue;
+                }
+                let line = self.comment_line(*comment);
+                self.push_rendered_item(
+                    &mut rendered,
+                    &mut previous_end_line,
+                    &format!("{}{}", self.indent(level), self.comment_text(*comment)),
+                    line,
+                    line,
+                );
             }
         }
 
         for stmt in stmts {
             if !self.options.minify() {
-                for comment in &stmt.leading_comments {
-                    lines.push(format!("{}{}", self.indent(level), self.comment_text(*comment)));
+                for comment in stmt
+                    .leading_comments
+                    .iter()
+                    .copied()
+                    .filter(|comment| {
+                        self.comment_line(*comment) != stmt.span.start.line
+                            && Some(*comment) != self.group_wrapper_comment(stmt)
+                    })
+                {
+                    let line = self.comment_line(comment);
+                    self.push_rendered_item(
+                        &mut rendered,
+                        &mut previous_end_line,
+                        &format!("{}{}", self.indent(level), self.comment_text(comment)),
+                        line,
+                        line,
+                    );
                 }
             }
 
-            let mut rendered = format!("{}{}", self.indent(level), self.render_stmt(stmt, level));
+            let stmt_text = format!("{}{}", self.indent(level), self.render_stmt(stmt, level));
+            self.push_rendered_item(
+                &mut rendered,
+                &mut previous_end_line,
+                &stmt_text,
+                self.stmt_start_line(stmt),
+                self.span_end_line(stmt.span).max(stmt.span.start.line),
+            );
+
             if !self.options.minify()
+                && !self.renders_stmt_inline_comment(stmt)
                 && let Some(comment) = stmt.inline_comment
             {
-                rendered.push_str("  ");
-                rendered.push_str(self.comment_text(comment));
+                let line = self.comment_line(comment);
+                self.push_rendered_item(
+                    &mut rendered,
+                    &mut previous_end_line,
+                    &format!("{}{}", self.indent(level), self.comment_text(comment)),
+                    line,
+                    line,
+                );
             }
-            lines.push(rendered);
         }
 
         if !self.options.minify() {
             for comment in trailing_comments {
-                lines.push(format!("{}{}", self.indent(level), self.comment_text(*comment)));
+                let line = self.comment_line(*comment);
+                self.push_rendered_item(
+                    &mut rendered,
+                    &mut previous_end_line,
+                    &format!("{}{}", self.indent(level), self.comment_text(*comment)),
+                    line,
+                    line,
+                );
             }
         }
 
-        lines.join("\n")
+        rendered
     }
 
     fn render_stmt_seq_inline(&self, sequence: &StmtSeq, level: usize) -> String {
@@ -179,33 +290,62 @@ impl<'a> Renderer<'a> {
                     rendered.push(' ');
                 }
             }
-            rendered.push_str(&self.render_stmt(stmt, level));
+            rendered.push_str(&self.render_stmt_inline(stmt, level));
         }
         rendered
     }
 
     fn render_stmt(&self, stmt: &Stmt, level: usize) -> String {
+        self.render_stmt_with_options(stmt, level, true)
+    }
+
+    fn render_stmt_inline(&self, stmt: &Stmt, level: usize) -> String {
+        self.render_stmt_with_options(stmt, level, false)
+    }
+
+    fn render_stmt_with_options(
+        &self,
+        stmt: &Stmt,
+        level: usize,
+        include_terminator: bool,
+    ) -> String {
         let mut rendered = String::new();
         if stmt.negated {
             rendered.push_str("! ");
         }
-        rendered.push_str(&self.render_command(&stmt.command, level));
+        rendered.push_str(&self.render_command(&stmt.command, level, stmt));
         if !stmt.redirects.is_empty() {
             if !rendered.is_empty() {
                 rendered.push(' ');
             }
             rendered.push_str(&self.render_redirects(&stmt.redirects));
         }
-        if let Some(terminator) = stmt.terminator {
+        if include_terminator && let Some(terminator) = stmt.terminator {
             match terminator {
                 StmtTerminator::Semicolon => rendered.push(';'),
                 StmtTerminator::Background => rendered.push_str(" &"),
             }
         }
+        if !self.options.minify()
+            && self.renders_stmt_inline_comment(stmt)
+            && let Some(comment) = self.inline_comment_for_stmt(stmt)
+        {
+            rendered.push_str(if stmt.redirects.iter().any(|redirect| redirect.heredoc().is_some()) {
+                " "
+            } else {
+                "  "
+            });
+            rendered.push_str(self.comment_text(comment));
+        }
+        let heredocs = self.render_heredocs(&stmt.redirects);
+        if !heredocs.is_empty() {
+            rendered.push('\n');
+            rendered.push_str(&heredocs);
+        }
         rendered
     }
 
-    fn render_command(&self, command: &Command, level: usize) -> String {
+    fn render_command(&self, command: &Command, level: usize, stmt: &Stmt) -> String {
         match command {
             Command::Simple(command) => self.render_simple_like(
                 command.assignments.iter().map(|assignment| self.render_assignment(assignment)),
@@ -228,19 +368,36 @@ impl<'a> Renderer<'a> {
                 )
             }
             Command::Binary(command) => {
-                let separator = if self.options.binary_next_line() {
-                    format!(" \\\n{}{}", self.indent(level + 1), self.render_binary_op(&command.op))
+                let right_gap = self
+                    .source
+                    .get(command.op_span.end.offset..command.right.span.start.offset)
+                    .unwrap_or_default();
+                let separator = if self.options.binary_next_line() && !right_gap.contains('\n') {
+                    format!(" {} ", self.render_binary_op(&command.op))
+                } else if self.options.binary_next_line() {
+                    format!(
+                        " \\\n{}{} ",
+                        self.indent(level + 1),
+                        self.render_binary_op(&command.op)
+                    )
+                } else if right_gap.contains('\n') {
+                    format!(
+                        " {}\n{}",
+                        self.render_binary_op(&command.op),
+                        self.indent(level + 1)
+                    )
                 } else {
                     format!(" {} ", self.render_binary_op(&command.op))
                 };
+                let right_level = usize::from(separator.contains('\n'));
                 format!(
                     "{}{}{}",
                     self.render_stmt(&command.left, level),
                     separator,
-                    self.render_stmt(&command.right, level)
+                    self.render_stmt(&command.right, level + right_level)
                 )
             }
-            Command::Compound(command) => self.render_compound(command, level),
+            Command::Compound(command) => self.render_compound(command, level, stmt),
             Command::Function(function) => self.render_function(function, level),
         }
     }
@@ -296,9 +453,25 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    fn render_compound(&self, command: &CompoundCommand, level: usize) -> String {
+    fn render_compound(&self, command: &CompoundCommand, level: usize, stmt: &Stmt) -> String {
         match command {
             CompoundCommand::If(command) => {
+                if self.options.never_split() && self.can_render_stmt_seq_inline(&command.then_branch)
+                {
+                    let mut rendered = format!(
+                        "if {}; then {}",
+                        self.render_stmt_seq_inline(&command.condition, level),
+                        self.render_stmt_seq_inline(&command.then_branch, level),
+                    );
+                    if let Some(body) = &command.else_branch
+                        && self.can_render_stmt_seq_inline(body)
+                    {
+                        rendered.push_str(" else ");
+                        rendered.push_str(&self.render_stmt_seq_inline(body, level));
+                    }
+                    rendered.push_str("; fi");
+                    return rendered;
+                }
                 let mut rendered = format!(
                     "if {}; then",
                     self.render_stmt_seq_inline(&command.condition, level)
@@ -408,7 +581,14 @@ impl<'a> Renderer<'a> {
                 let mut rendered = format!("case {} in", command.word.render_syntax(self.source));
                 for item in &command.cases {
                     rendered.push('\n');
-                    rendered.push_str(&self.render_case_item(item, level + 1));
+                    rendered.push_str(&self.render_case_item(
+                        item,
+                        if self.options.switch_case_indent() {
+                            level + 1
+                        } else {
+                            level
+                        },
+                    ));
                 }
                 rendered.push('\n');
                 rendered.push_str(&self.indent(level));
@@ -416,6 +596,11 @@ impl<'a> Renderer<'a> {
                 rendered
             }
             CompoundCommand::Select(command) => {
+                if stmt.span.start.line == self.span_end_line(stmt.span)
+                    && !self.options.function_next_line()
+                {
+                    return stmt.span.slice(self.source).trim_end().to_string();
+                }
                 let mut rendered = format!("select {} in", command.variable);
                 for word in &command.words {
                     rendered.push(' ');
@@ -437,8 +622,8 @@ impl<'a> Renderer<'a> {
                 rendered.push_str("done");
                 rendered
             }
-            CompoundCommand::Subshell(body) => self.render_group("(", ")", body, level),
-            CompoundCommand::BraceGroup(body) => self.render_group("{", "}", body, level),
+            CompoundCommand::Subshell(body) => self.render_group("(", ")", body, level, stmt),
+            CompoundCommand::BraceGroup(body) => self.render_group("{", "}", body, level, stmt),
             CompoundCommand::Arithmetic(command) => command.span.slice(self.source).to_string(),
             CompoundCommand::Time(command) => {
                 let mut rendered = String::from("time");
@@ -496,18 +681,32 @@ impl<'a> Renderer<'a> {
             .map(|pattern| pattern.render_syntax(self.source))
             .collect::<Vec<_>>()
             .join(" | ");
+        if !self.options.switch_case_indent() && self.can_render_stmt_seq_inline(&item.body) {
+            return format!(
+                "{}{}) {} {}",
+                self.indent(level),
+                patterns,
+                self.render_stmt_seq_inline(&item.body, level),
+                match item.terminator {
+                    CaseTerminator::Break => ";;",
+                    CaseTerminator::FallThrough => ";&",
+                    CaseTerminator::Continue => ";;&",
+                }
+            );
+        }
+
         let mut rendered = format!("{}{})", self.indent(level), patterns);
         let body = self.render_stmt_seq(
             item.body.as_slice(),
             &item.body.leading_comments,
             &item.body.trailing_comments,
-            level + 1 + usize::from(self.options.switch_case_indent()),
+            level + 1,
         );
         if !body.is_empty() {
             rendered.push('\n');
             rendered.push_str(&body);
             rendered.push('\n');
-            rendered.push_str(&self.indent(level));
+            rendered.push_str(&self.indent(level + 1));
         }
         rendered.push_str(match item.terminator {
             CaseTerminator::Break => ";;",
@@ -517,25 +716,67 @@ impl<'a> Renderer<'a> {
         rendered
     }
 
-    fn render_group(&self, open: &str, close: &str, body: &StmtSeq, level: usize) -> String {
+    fn render_group(
+        &self,
+        open: &str,
+        close: &str,
+        body: &StmtSeq,
+        level: usize,
+        stmt: &Stmt,
+    ) -> String {
+        if stmt.span.start.line == self.span_end_line(stmt.span) {
+            let body_inline = self.render_stmt_seq_inline(body, level);
+            return if open == "(" {
+                format!("({body_inline})")
+            } else {
+                format!("{open} {body_inline} {close}")
+            };
+        }
+
+        let opener_comment = body
+            .leading_comments
+            .iter()
+            .copied()
+            .find(|comment| self.comment_line(*comment) == stmt.span.start.line)
+            .or_else(|| self.group_wrapper_comment(stmt));
+        let leading_comments = body
+            .leading_comments
+            .iter()
+            .copied()
+            .filter(|comment| Some(*comment) != opener_comment)
+            .collect::<Vec<_>>();
         let body_text = self.render_stmt_seq(
             body.as_slice(),
-            &body.leading_comments,
+            &leading_comments,
             &body.trailing_comments,
             level + 1,
         );
         if body_text.is_empty() {
             format!("{open} {close}")
         } else {
-            format!(
-                "{open}\n{body}\n{indent}{close}",
-                body = body_text,
-                indent = self.indent(level)
-            )
+            let mut rendered = String::from(open);
+            if let Some(comment) = opener_comment {
+                rendered.push(' ');
+                rendered.push_str(self.comment_text(comment));
+            } else if let Some(comment_text) = self.source_group_wrapper_comment(open, body, stmt) {
+                rendered.push(' ');
+                rendered.push_str(comment_text);
+            }
+            rendered.push('\n');
+            rendered.push_str(&body_text);
+            rendered.push('\n');
+            rendered.push_str(&self.indent(level));
+            rendered.push_str(close);
+            rendered
         }
     }
 
     fn render_function(&self, function: &FunctionDef, level: usize) -> String {
+        if function.span.start.line == self.span_end_line(function.span)
+            && !self.options.function_next_line()
+        {
+            return function.span.slice(self.source).trim_end().to_string();
+        }
         let mut rendered = String::new();
         if function.surface.uses_function_keyword() {
             rendered.push_str("function ");
@@ -683,6 +924,121 @@ impl<'a> Renderer<'a> {
         }
 
         self.render_source_text(subscript.syntax_source_text())
+    }
+
+    fn inline_comment_for_stmt(&self, stmt: &Stmt) -> Option<Comment> {
+        stmt.inline_comment.or_else(|| {
+            stmt.leading_comments
+                .iter()
+                .copied()
+                .find(|comment| self.comment_line(*comment) == stmt.span.start.line)
+        })
+    }
+
+    fn is_group_wrapper_comment(&self, stmt: &Stmt, comment: Comment) -> bool {
+        matches!(
+            stmt.command,
+            Command::Compound(CompoundCommand::BraceGroup(_))
+                | Command::Compound(CompoundCommand::Subshell(_))
+        ) && {
+            let comment_start = usize::from(comment.range.start());
+            let line_start = self
+                .source
+                .get(..comment_start)
+                .and_then(|prefix| prefix.rfind('\n').map(|index| index + 1))
+                .unwrap_or(0);
+            let prefix = self
+                .source
+                .get(line_start..comment_start)
+                .unwrap_or_default()
+                .trim_end();
+            prefix == "{" || prefix == "("
+        }
+    }
+
+    fn group_wrapper_comment(&self, stmt: &Stmt) -> Option<Comment> {
+        stmt.leading_comments
+            .iter()
+            .copied()
+            .find(|comment| self.is_group_wrapper_comment(stmt, *comment))
+    }
+
+    fn source_group_wrapper_comment<'b>(
+        &'b self,
+        open: &str,
+        body: &StmtSeq,
+        stmt: &Stmt,
+    ) -> Option<&'b str> {
+        let open_line = body
+            .first()
+            .map(|inner| inner.span.start.line.saturating_sub(1))
+            .filter(|line| *line > 0)
+            .unwrap_or(stmt.span.start.line);
+        let start = *self.line_starts.get(open_line.saturating_sub(1))?;
+        let end = self
+            .line_starts
+            .get(open_line)
+            .copied()
+            .unwrap_or(self.source.len());
+        let line = self.source.get(start..end)?;
+        let hash = line.find('#')?;
+        (line[..hash].trim_end() == open).then(|| line[hash..].trim_end_matches(['\n', '\r']))
+    }
+
+    fn renders_stmt_inline_comment(&self, stmt: &Stmt) -> bool {
+        matches!(
+            stmt.command,
+            Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
+        ) && self.inline_comment_for_stmt(stmt).is_some()
+    }
+
+    fn render_heredocs(&self, redirects: &[Redirect]) -> String {
+        redirects
+            .iter()
+            .filter_map(|redirect| redirect.heredoc())
+            .map(|heredoc| {
+                let body = heredoc.body.render_syntax(self.source);
+                let delimiter = heredoc.delimiter.raw.render_syntax(self.source);
+                if body.ends_with('\n') {
+                    format!("{body}{delimiter}")
+                } else {
+                    format!("{body}\n{delimiter}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn can_render_stmt_seq_inline(&self, sequence: &StmtSeq) -> bool {
+        sequence.leading_comments.is_empty()
+            && sequence.trailing_comments.is_empty()
+            && sequence
+                .iter()
+                .all(|stmt| self.can_render_stmt_inline(stmt))
+    }
+
+    fn can_render_stmt_inline(&self, stmt: &Stmt) -> bool {
+        stmt.leading_comments
+            .iter()
+            .all(|comment| self.comment_line(*comment) == stmt.span.start.line)
+            && stmt.inline_comment.is_none()
+            && stmt.redirects.iter().all(|redirect| redirect.heredoc().is_none())
+            && match &stmt.command {
+                Command::Binary(command) => {
+                    !self.options.binary_next_line()
+                        && command.left.span.start.line == command.right.span.end.line
+                        && self.can_render_stmt_inline(&command.left)
+                        && self.can_render_stmt_inline(&command.right)
+                }
+                Command::Compound(command) => match command {
+                    CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                        self.can_render_stmt_seq_inline(body)
+                    }
+                    _ => false,
+                },
+                Command::Function(function) => self.can_render_stmt_inline(&function.body),
+                Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => true,
+            }
     }
 
     fn render_source_text(&self, text: &SourceText) -> String {

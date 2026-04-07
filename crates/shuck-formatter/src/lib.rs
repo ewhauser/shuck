@@ -98,6 +98,10 @@ fn format_file(
     file: &File,
     resolved: ResolvedShellFormatOptions,
 ) -> Result<FormattedSource> {
+    if resolved.keep_padding() {
+        return Ok(FormattedSource::Unchanged);
+    }
+
     let comments = flatten_comments(file);
     let comments = comments::Comments::from_ast(source, &comments);
     let context = context::ShellFormatContext::new(resolved, source, comments);

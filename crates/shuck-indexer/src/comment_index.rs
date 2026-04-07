@@ -1,6 +1,10 @@
 use std::ops::Range;
 
-use shuck_ast::{Comment, Command, CompoundCommand, File, Stmt, StmtSeq, TextRange, TextSize};
+use shuck_ast::{
+    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment, CompoundCommand,
+    ConditionalExpr, DeclOperand, File, Pattern, PatternPart, PatternPartNode, Redirect, Stmt,
+    StmtSeq, TextRange, TextSize, Word, WordPart, WordPartNode,
+};
 
 use crate::LineIndex;
 
@@ -136,18 +140,50 @@ fn collect_stmt_comments(stmt: &Stmt, comments: &mut Vec<Comment>) {
     if let Some(comment) = stmt.inline_comment {
         comments.push(comment);
     }
+    collect_redirect_comments(&stmt.redirects, comments);
     collect_command_comments(&stmt.command, comments);
 }
 
 fn collect_command_comments(command: &Command, comments: &mut Vec<Comment>) {
     match command {
+        Command::Simple(command) => {
+            collect_word_comments(&command.name, comments);
+            for argument in &command.args {
+                collect_word_comments(argument, comments);
+            }
+            for assignment in &command.assignments {
+                collect_assignment_comments(assignment, comments);
+            }
+        }
+        Command::Builtin(command) => collect_builtin_comments(command, comments),
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                collect_assignment_comments(assignment, comments);
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_word_comments(word, comments);
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_assignment_comments(assignment, comments);
+                    }
+                    DeclOperand::Name(reference) => {
+                        if let Some(subscript) = &reference.subscript
+                            && let Some(expression) = &subscript.arithmetic_ast
+                        {
+                            collect_arithmetic_expr_comments(expression, comments);
+                        }
+                    }
+                }
+            }
+        }
         Command::Binary(command) => {
             collect_stmt_comments(&command.left, comments);
             collect_stmt_comments(&command.right, comments);
         }
         Command::Compound(command) => collect_compound_comments(command, comments),
         Command::Function(function) => collect_stmt_comments(&function.body, comments),
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
     }
 }
 
@@ -164,7 +200,14 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
                 collect_stmt_seq_comments(body, comments);
             }
         }
-        CompoundCommand::For(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::For(command) => {
+            if let Some(words) = &command.words {
+                for word in words {
+                    collect_word_comments(word, comments);
+                }
+            }
+            collect_stmt_seq_comments(&command.body, comments);
+        }
         CompoundCommand::ArithmeticFor(command) => collect_stmt_seq_comments(&command.body, comments),
         CompoundCommand::While(command) => {
             collect_stmt_seq_comments(&command.condition, comments);
@@ -175,11 +218,20 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
             collect_stmt_seq_comments(&command.body, comments);
         }
         CompoundCommand::Case(command) => {
+            collect_word_comments(&command.word, comments);
             for case in &command.cases {
+                for pattern in &case.patterns {
+                    collect_pattern_comments(pattern, comments);
+                }
                 collect_stmt_seq_comments(&case.body, comments);
             }
         }
-        CompoundCommand::Select(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::Select(command) => {
+            for word in &command.words {
+                collect_word_comments(word, comments);
+            }
+            collect_stmt_seq_comments(&command.body, comments);
+        }
         CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
             collect_stmt_seq_comments(body, comments);
         }
@@ -189,7 +241,189 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
             }
         }
         CompoundCommand::Coproc(command) => collect_stmt_comments(&command.body, comments),
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+        CompoundCommand::Conditional(command) => {
+            collect_conditional_expr_comments(&command.expression, comments);
+        }
+        CompoundCommand::Arithmetic(_) => {}
+    }
+}
+
+fn collect_builtin_comments(command: &BuiltinCommand, comments: &mut Vec<Comment>) {
+    match command {
+        BuiltinCommand::Break(command) => {
+            for assignment in &command.assignments {
+                collect_assignment_comments(assignment, comments);
+            }
+            if let Some(depth) = &command.depth {
+                collect_word_comments(depth, comments);
+            }
+            for argument in &command.extra_args {
+                collect_word_comments(argument, comments);
+            }
+        }
+        BuiltinCommand::Continue(command) => {
+            for assignment in &command.assignments {
+                collect_assignment_comments(assignment, comments);
+            }
+            if let Some(depth) = &command.depth {
+                collect_word_comments(depth, comments);
+            }
+            for argument in &command.extra_args {
+                collect_word_comments(argument, comments);
+            }
+        }
+        BuiltinCommand::Return(command) => {
+            for assignment in &command.assignments {
+                collect_assignment_comments(assignment, comments);
+            }
+            if let Some(code) = &command.code {
+                collect_word_comments(code, comments);
+            }
+            for argument in &command.extra_args {
+                collect_word_comments(argument, comments);
+            }
+        }
+        BuiltinCommand::Exit(command) => {
+            for assignment in &command.assignments {
+                collect_assignment_comments(assignment, comments);
+            }
+            if let Some(code) = &command.code {
+                collect_word_comments(code, comments);
+            }
+            for argument in &command.extra_args {
+                collect_word_comments(argument, comments);
+            }
+        }
+    }
+}
+
+fn collect_assignment_comments(assignment: &Assignment, comments: &mut Vec<Comment>) {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => collect_word_comments(word, comments),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => collect_word_comments(word, comments),
+                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                        collect_word_comments(value, comments)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_redirect_comments(redirects: &[Redirect], comments: &mut Vec<Comment>) {
+    for redirect in redirects {
+        if let Some(word) = redirect.word_target() {
+            collect_word_comments(word, comments);
+        }
+        if let Some(heredoc) = redirect.heredoc() {
+            collect_word_comments(&heredoc.body, comments);
+        }
+    }
+}
+
+fn collect_pattern_comments(pattern: &Pattern, comments: &mut Vec<Comment>) {
+    for part in &pattern.parts {
+        if let PatternPart::Word(word) = &part.kind {
+            collect_word_comments(word, comments);
+        }
+    }
+}
+
+fn collect_conditional_expr_comments(expression: &ConditionalExpr, comments: &mut Vec<Comment>) {
+    match expression {
+        ConditionalExpr::Binary(expression) => {
+            collect_conditional_expr_comments(&expression.left, comments);
+            collect_conditional_expr_comments(&expression.right, comments);
+        }
+        ConditionalExpr::Unary(expression) => {
+            collect_conditional_expr_comments(&expression.expr, comments);
+        }
+        ConditionalExpr::Parenthesized(expression) => {
+            collect_conditional_expr_comments(&expression.expr, comments);
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_word_comments(word, comments);
+        }
+        ConditionalExpr::Pattern(pattern) => collect_pattern_comments(pattern, comments),
+        ConditionalExpr::VarRef(reference) => {
+            if let Some(subscript) = &reference.subscript
+                && let Some(expression) = &subscript.arithmetic_ast
+            {
+                collect_arithmetic_expr_comments(expression, comments);
+            }
+        }
+    }
+}
+
+fn collect_arithmetic_expr_comments(
+    expression: &shuck_ast::ArithmeticExprNode,
+    comments: &mut Vec<Comment>,
+) {
+    match &expression.kind {
+        shuck_ast::ArithmeticExpr::ShellWord(word) => collect_word_comments(word, comments),
+        shuck_ast::ArithmeticExpr::Indexed { index, .. }
+        | shuck_ast::ArithmeticExpr::Parenthesized { expression: index }
+        | shuck_ast::ArithmeticExpr::Unary { expr: index, .. }
+        | shuck_ast::ArithmeticExpr::Postfix { expr: index, .. } => {
+            collect_arithmetic_expr_comments(index, comments);
+        }
+        shuck_ast::ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_expr_comments(left, comments);
+            collect_arithmetic_expr_comments(right, comments);
+        }
+        shuck_ast::ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_expr_comments(condition, comments);
+            collect_arithmetic_expr_comments(then_expr, comments);
+            collect_arithmetic_expr_comments(else_expr, comments);
+        }
+        shuck_ast::ArithmeticExpr::Assignment { target, value, .. } => {
+            if let shuck_ast::ArithmeticLvalue::Indexed { index, .. } = target {
+                collect_arithmetic_expr_comments(index, comments);
+            }
+            collect_arithmetic_expr_comments(value, comments);
+        }
+        shuck_ast::ArithmeticExpr::Number(_) | shuck_ast::ArithmeticExpr::Variable(_) => {}
+    }
+}
+
+fn collect_word_comments(word: &Word, comments: &mut Vec<Comment>) {
+    collect_word_part_comments(&word.parts, comments);
+}
+
+fn collect_word_part_comments(parts: &[WordPartNode], comments: &mut Vec<Comment>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => collect_word_part_comments(parts, comments),
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => {
+                collect_stmt_seq_comments(body, comments);
+            }
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expression) = expression_ast {
+                    collect_arithmetic_expr_comments(expression, comments);
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. } => {}
+        }
     }
 }
 

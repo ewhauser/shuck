@@ -1265,7 +1265,11 @@ impl Word {
             && word_prefers_whole_source_slice_in_syntax(self)
             && let Some(slice) = syntax_source_slice(self.span, source)
         {
-            f.write_str(trim_unescaped_trailing_whitespace(slice))?;
+            if slice.contains('\n') {
+                f.write_str(slice)?;
+            } else {
+                f.write_str(trim_unescaped_trailing_whitespace(slice))?;
+            }
             return Ok(());
         }
 
@@ -1338,7 +1342,11 @@ impl Pattern {
             && pattern_prefers_whole_source_slice_in_syntax(self)
             && let Some(slice) = syntax_source_slice(self.span, source)
         {
-            f.write_str(trim_unescaped_trailing_whitespace(slice))?;
+            if slice.contains('\n') {
+                f.write_str(slice)?;
+            } else {
+                f.write_str(trim_unescaped_trailing_whitespace(slice))?;
+            }
             return Ok(());
         }
 

@@ -2453,7 +2453,7 @@ echo done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.script, source, &indexer);
+        let model = SemanticModel::build(&output.file, source, &indexer);
 
         assert_eq!(model.recorded_program.file_commands.len(), 2);
         let conditional = &model.recorded_program.file_commands[0];

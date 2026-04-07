@@ -1906,7 +1906,7 @@ fn run_shuck(
         .clone()
         .with_shell(shuck_linter::ShellDialect::from_name(&fixture.shell));
     let diagnostics = shuck_linter::lint_file_at_path_with_resolver(
-        &output.script,
+        &output.file,
         &source,
         &indexer,
         &linter_settings,

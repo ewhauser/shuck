@@ -50,9 +50,13 @@ fn collect_command(command: &Stmt, source: &str, spans: &mut Vec<Span>) {
                         collect_word(word, source, spans);
                     }
                     DeclOperand::Name(reference) => {
-                        query::visit_var_ref_subscript_words(reference, source, &mut |word| {
+                        query::visit_var_ref_subscript_words_with_source(
+                            reference,
+                            source,
+                            &mut |word| {
                             collect_word(word, source, spans);
-                        });
+                            },
+                        );
                     }
                     DeclOperand::Assignment(assignment) => {
                         collect_assignment(assignment, source, spans);
@@ -179,7 +183,7 @@ fn collect_assignments(assignments: &[Assignment], source: &str, spans: &mut Vec
 }
 
 fn collect_assignment(assignment: &Assignment, source: &str, spans: &mut Vec<Span>) {
-    query::visit_var_ref_subscript_words(&assignment.target, source, &mut |word| {
+    query::visit_var_ref_subscript_words_with_source(&assignment.target, source, &mut |word| {
         collect_word(word, source, spans);
     });
     match &assignment.value {
@@ -265,7 +269,7 @@ fn collect_conditional_expr(expression: &ConditionalExpr, source: &str, spans: &
         }
         ConditionalExpr::Pattern(pattern) => collect_pattern(pattern, source, spans),
         ConditionalExpr::VarRef(reference) => {
-            query::visit_var_ref_subscript_words(reference, source, &mut |word| {
+            query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
                 collect_word(word, source, spans);
             });
         }
