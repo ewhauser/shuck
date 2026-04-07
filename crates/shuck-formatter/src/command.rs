@@ -2,10 +2,13 @@ use shuck_ast::{
     ArithmeticCommand, ArithmeticForCommand, Assignment, AssignmentValue, BreakCommand,
     BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CommandListItem,
     CompoundCommand, ConditionalCommand, ContinueCommand, CoprocCommand, ExitCommand, ForCommand,
-    FunctionDef, IfCommand, ListOperator, Pipeline, RedirectKind, ReturnCommand, SelectCommand,
-    SimpleCommand, Span, TimeCommand, UntilCommand, WhileCommand,
+    FunctionDef, IfCommand, ListOperator, Pipeline, RedirectKind, RedirectTarget, ReturnCommand,
+    SelectCommand, SimpleCommand, Span, TimeCommand, UntilCommand, WhileCommand,
 };
-use shuck_format::{Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, verbatim, write};
+use shuck_format::{
+    Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, verbatim,
+    write,
+};
 
 use crate::FormatNodeRule;
 use crate::prelude::{AsFormat, ShellFormatter};
@@ -69,7 +72,9 @@ impl FormatNodeRule<CompoundCommand> for FormatCompoundCommand {
             CompoundCommand::Subshell(commands) => {
                 format_block("(", ")", commands, formatter, false)
             }
-            CompoundCommand::BraceGroup(commands) => format_block("{", "}", commands, formatter, false),
+            CompoundCommand::BraceGroup(commands) => {
+                format_block("{", "}", commands, formatter, false)
+            }
             CompoundCommand::Arithmetic(command) => format_arithmetic(command, formatter),
             CompoundCommand::Time(command) => format_time(command, formatter),
             CompoundCommand::Conditional(command) => format_conditional(command, formatter),
@@ -144,18 +149,38 @@ fn format_builtin_command(
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
     match command {
-        BuiltinCommand::Break(command) => {
-            format_builtin_like("break", &command.assignments, command.depth.as_ref(), &command.extra_args, &command.redirects, formatter)
-        }
-        BuiltinCommand::Continue(command) => {
-            format_builtin_like("continue", &command.assignments, command.depth.as_ref(), &command.extra_args, &command.redirects, formatter)
-        }
-        BuiltinCommand::Return(command) => {
-            format_builtin_like("return", &command.assignments, command.code.as_ref(), &command.extra_args, &command.redirects, formatter)
-        }
-        BuiltinCommand::Exit(command) => {
-            format_builtin_like("exit", &command.assignments, command.code.as_ref(), &command.extra_args, &command.redirects, formatter)
-        }
+        BuiltinCommand::Break(command) => format_builtin_like(
+            "break",
+            &command.assignments,
+            command.depth.as_ref(),
+            &command.extra_args,
+            &command.redirects,
+            formatter,
+        ),
+        BuiltinCommand::Continue(command) => format_builtin_like(
+            "continue",
+            &command.assignments,
+            command.depth.as_ref(),
+            &command.extra_args,
+            &command.redirects,
+            formatter,
+        ),
+        BuiltinCommand::Return(command) => format_builtin_like(
+            "return",
+            &command.assignments,
+            command.code.as_ref(),
+            &command.extra_args,
+            &command.redirects,
+            formatter,
+        ),
+        BuiltinCommand::Exit(command) => format_builtin_like(
+            "exit",
+            &command.assignments,
+            command.code.as_ref(),
+            &command.extra_args,
+            &command.redirects,
+            formatter,
+        ),
     }
 }
 
@@ -188,7 +213,10 @@ fn format_builtin_like(
     Ok(())
 }
 
-fn format_pipeline(pipeline: &Pipeline, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_pipeline(
+    pipeline: &Pipeline,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     if pipeline.negated {
         write!(formatter, [text("! ")])?;
     }
@@ -198,7 +226,10 @@ fn format_pipeline(pipeline: &Pipeline, formatter: &mut ShellFormatter<'_, '_>) 
         if index > 0 {
             if multiline {
                 write!(formatter, [text(" \\"), hard_line_break()])?;
-                let indented = Document::from_elements(vec![text("| "), text(command_summary(command, formatter.context().source()))]);
+                let indented = Document::from_elements(vec![
+                    text("| "),
+                    text(command_summary(command, formatter.context().source())),
+                ]);
                 write!(formatter, [indent(indented)])?;
                 continue;
             }
@@ -211,7 +242,10 @@ fn format_pipeline(pipeline: &Pipeline, formatter: &mut ShellFormatter<'_, '_>) 
     Ok(())
 }
 
-fn format_command_list(list: &CommandList, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_command_list(
+    list: &CommandList,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     list.first.format().fmt(formatter)?;
     for item in &list.rest {
         format_list_item(item, formatter)?;
@@ -219,7 +253,10 @@ fn format_command_list(list: &CommandList, formatter: &mut ShellFormatter<'_, '_
     Ok(())
 }
 
-fn format_list_item(item: &CommandListItem, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_list_item(
+    item: &CommandListItem,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     let separator = match item.operator {
         ListOperator::And => " && ",
         ListOperator::Or => " || ",
@@ -278,8 +315,14 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
     finish_block("done", formatter)
 }
 
-fn format_select(command: &SelectCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-    write!(formatter, [text(format!("select {} in ", command.variable))])?;
+fn format_select(
+    command: &SelectCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    write!(
+        formatter,
+        [text(format!("select {} in ", command.variable))]
+    )?;
     for (index, word) in command.words.iter().enumerate() {
         if index > 0 {
             write!(formatter, [space()])?;
@@ -291,7 +334,10 @@ fn format_select(command: &SelectCommand, formatter: &mut ShellFormatter<'_, '_>
     finish_block("done", formatter)
 }
 
-fn format_while(command: &WhileCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_while(
+    command: &WhileCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     write!(formatter, [text("while ")])?;
     format_inline_commands(&command.condition, formatter)?;
     write!(formatter, [text("; do")])?;
@@ -299,7 +345,10 @@ fn format_while(command: &WhileCommand, formatter: &mut ShellFormatter<'_, '_>) 
     finish_block("done", formatter)
 }
 
-fn format_until(command: &UntilCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_until(
+    command: &UntilCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     write!(formatter, [text("until ")])?;
     format_inline_commands(&command.condition, formatter)?;
     write!(formatter, [text("; do")])?;
@@ -308,7 +357,14 @@ fn format_until(command: &UntilCommand, formatter: &mut ShellFormatter<'_, '_>) 
 }
 
 fn format_case(command: &CaseCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-    write!(formatter, [text("case "), text(command.word.render(formatter.context().source())), text(" in")])?;
+    write!(
+        formatter,
+        [
+            text("case "),
+            text(command.word.render(formatter.context().source())),
+            text(" in")
+        ]
+    )?;
 
     if formatter.context().options().compact_layout() {
         for item in &command.cases {
@@ -345,15 +401,24 @@ fn format_case_item(item: &CaseItem, formatter: &mut ShellFormatter<'_, '_>) -> 
     write!(formatter, [text(pattern)])?;
 
     if item.commands.is_empty() {
-        write!(formatter, [text(format!(" {}", case_terminator(item.terminator)))])
+        write!(
+            formatter,
+            [text(format!(" {}", case_terminator(item.terminator)))]
+        )
     } else if formatter.context().options().compact_layout() {
         write!(formatter, [space()])?;
         format_command_sequence(&item.commands, formatter)?;
-        write!(formatter, [text(format!("; {}", case_terminator(item.terminator)))])
+        write!(
+            formatter,
+            [text(format!("; {}", case_terminator(item.terminator)))]
+        )
     } else {
         if base_indent == 0 && item.commands.len() == 1 {
             write!(formatter, [space()])?;
-            write!(formatter, [text(command_summary(&item.commands[0], source))])?;
+            write!(
+                formatter,
+                [text(command_summary(&item.commands[0], source))]
+            )?;
             write!(formatter, [space(), text(case_terminator(item.terminator))])?;
             return Ok(());
         }
@@ -384,7 +449,10 @@ fn format_block(
     finish_block(close, formatter)
 }
 
-fn format_arithmetic(command: &ArithmeticCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_arithmetic(
+    command: &ArithmeticCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     let source = formatter.context().source();
     let rendered = source
         .get(command.span.start.offset..command.span.end.offset)
@@ -393,13 +461,22 @@ fn format_arithmetic(command: &ArithmeticCommand, formatter: &mut ShellFormatter
     write!(formatter, [text(rendered)])
 }
 
-fn format_arithmetic_for(command: &ArithmeticForCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_arithmetic_for(
+    command: &ArithmeticForCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     let source = formatter.context().source();
     let header = format!(
         "for (({};{};{})); do",
         slice_span(source, command.init_span),
-        command.condition_span.map(|span| span.slice(source)).unwrap_or(""),
-        command.step_span.map(|span| span.slice(source)).unwrap_or(""),
+        command
+            .condition_span
+            .map(|span| span.slice(source))
+            .unwrap_or(""),
+        command
+            .step_span
+            .map(|span| span.slice(source))
+            .unwrap_or(""),
     );
     write!(formatter, [text(header)])?;
     format_body(&command.body, formatter)?;
@@ -419,7 +496,10 @@ fn format_time(command: &TimeCommand, formatter: &mut ShellFormatter<'_, '_>) ->
     Ok(())
 }
 
-fn format_conditional(command: &ConditionalCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_conditional(
+    command: &ConditionalCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     let source = formatter.context().source();
     let rendered = source
         .get(command.span.start.offset..command.span.end.offset)
@@ -428,16 +508,25 @@ fn format_conditional(command: &ConditionalCommand, formatter: &mut ShellFormatt
     write!(formatter, [text(rendered)])
 }
 
-fn format_coproc(command: &CoprocCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_coproc(
+    command: &CoprocCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     write!(formatter, [text("coproc")])?;
     if command.name.as_str() != "COPROC" || command.name_span.is_some() {
-        write!(formatter, [space(), text(command.name.as_str().to_string())])?;
+        write!(
+            formatter,
+            [space(), text(command.name.as_str().to_string())]
+        )?;
     }
     write!(formatter, [space()])?;
     command.body.format().fmt(formatter)
 }
 
-fn format_function(function: &FunctionDef, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_function(
+    function: &FunctionDef,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     write!(formatter, [text(format!("{}()", function.name))])?;
     if formatter.context().options().function_next_line() {
         write!(formatter, [hard_line_break()])?;
@@ -447,7 +536,10 @@ fn format_function(function: &FunctionDef, formatter: &mut ShellFormatter<'_, '_
     function.body.format().fmt(formatter)
 }
 
-fn format_inline_commands(commands: &[Command], formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_inline_commands(
+    commands: &[Command],
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     for (index, command) in commands.iter().enumerate() {
         if index > 0 {
             write!(formatter, [text("; ")])?;
@@ -468,7 +560,10 @@ fn format_body(commands: &[Command], formatter: &mut ShellFormatter<'_, '_>) -> 
     } else {
         write!(formatter, [hard_line_break()])?;
         let mut body = Document::new();
-        body.push(verbatim(commands_summary(commands, formatter.context().source())));
+        body.push(verbatim(commands_summary(
+            commands,
+            formatter.context().source(),
+        )));
         write!(formatter, [indent(body)])
     }
 }
@@ -481,7 +576,10 @@ fn finish_block(close: &str, formatter: &mut ShellFormatter<'_, '_>) -> FormatRe
     }
 }
 
-fn format_redirect_list(redirects: &[shuck_ast::Redirect], formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
+fn format_redirect_list(
+    redirects: &[shuck_ast::Redirect],
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
     for (index, redirect) in redirects.iter().enumerate() {
         if index > 0 {
             write!(formatter, [space()])?;
@@ -530,18 +628,25 @@ fn has_heredoc(command: &Command) -> bool {
             BuiltinCommand::Break(BreakCommand { redirects, .. })
             | BuiltinCommand::Continue(ContinueCommand { redirects, .. })
             | BuiltinCommand::Return(ReturnCommand { redirects, .. })
-            | BuiltinCommand::Exit(ExitCommand { redirects, .. }) => redirects.iter().any(is_heredoc),
+            | BuiltinCommand::Exit(ExitCommand { redirects, .. }) => {
+                redirects.iter().any(is_heredoc)
+            }
         },
         Command::Decl(command) => command.redirects.iter().any(is_heredoc),
         Command::Pipeline(pipeline) => pipeline.commands.iter().any(has_heredoc),
-        Command::List(list) => has_heredoc(&list.first) || list.rest.iter().any(|item| has_heredoc(&item.command)),
+        Command::List(list) => {
+            has_heredoc(&list.first) || list.rest.iter().any(|item| has_heredoc(&item.command))
+        }
         Command::Compound(_, redirects) => redirects.iter().any(is_heredoc),
         Command::Function(function) => has_heredoc(&function.body),
     }
 }
 
 fn is_heredoc(redirect: &shuck_ast::Redirect) -> bool {
-    matches!(redirect.kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip)
+    matches!(
+        redirect.kind,
+        RedirectKind::HereDoc | RedirectKind::HereDocStrip
+    )
 }
 
 fn verbatim_command(command: &Command, source: &str) -> Option<FormatElement> {
@@ -553,8 +658,10 @@ fn command_verbatim_span(command: &Command, source: &str) -> Span {
     let mut span = command_span(command);
     if let Command::Simple(simple) = command {
         for redirect in &simple.redirects {
-            if is_heredoc(redirect) {
-                span = span.merge(extend_heredoc_target_span(redirect.target.span, source));
+            if is_heredoc(redirect)
+                && let RedirectTarget::Heredoc(heredoc) = &redirect.target
+            {
+                span = span.merge(extend_heredoc_target_span(heredoc.body.span, source));
             }
         }
     }
@@ -575,7 +682,9 @@ fn command_span(command: &Command) -> Span {
         Command::List(command) => command.span,
         Command::Compound(command, redirects) => redirects
             .iter()
-            .fold(compound_span(command), |span, redirect| span.merge(redirect.span)),
+            .fold(compound_span(command), |span, redirect| {
+                span.merge(redirect.span)
+            }),
         Command::Function(command) => command.span,
     }
 }
@@ -589,13 +698,11 @@ fn compound_span(command: &CompoundCommand) -> Span {
         CompoundCommand::Until(command) => command.span,
         CompoundCommand::Case(command) => command.span,
         CompoundCommand::Select(command) => command.span,
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            commands
-                .iter()
-                .map(command_span)
-                .reduce(|left, right| left.merge(right))
-                .unwrap_or_default()
-        }
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
+            .iter()
+            .map(command_span)
+            .reduce(|left, right| left.merge(right))
+            .unwrap_or_default(),
         CompoundCommand::Arithmetic(command) => command.span,
         CompoundCommand::Time(command) => command.span,
         CompoundCommand::Conditional(command) => command.span,
@@ -621,9 +728,15 @@ fn emit_leading_comments(line: usize, formatter: &mut ShellFormatter<'_, '_>) ->
         return Ok(());
     }
 
-    let comments = formatter.context_mut().comments_mut().take_leading_before(line);
+    let comments = formatter
+        .context_mut()
+        .comments_mut()
+        .take_leading_before(line);
     for comment in comments {
-        write!(formatter, [text(comment.text().to_string()), hard_line_break()])?;
+        write!(
+            formatter,
+            [text(comment.text().to_string()), hard_line_break()]
+        )?;
     }
     Ok(())
 }
@@ -633,7 +746,10 @@ fn emit_inline_comments(line: usize, formatter: &mut ShellFormatter<'_, '_>) -> 
         return Ok(());
     }
 
-    let comments = formatter.context_mut().comments_mut().take_inline_for_line(line);
+    let comments = formatter
+        .context_mut()
+        .comments_mut()
+        .take_inline_for_line(line);
     for comment in comments {
         write!(formatter, [text("  "), text(comment.text().to_string())])?;
     }

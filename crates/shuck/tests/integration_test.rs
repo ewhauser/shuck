@@ -189,9 +189,7 @@ fn format_stdin_uses_current_project_config() {
     cmd.current_dir(tempdir.path())
         .args(["format", "-"])
         .write_stdin("foo(){\necho hi\n}\n");
-    cmd.assert()
-        .success()
-        .stdout("foo()\n{\n\techo hi\n}\n");
+    cmd.assert().success().stdout("foo()\n{\n\techo hi\n}\n");
 }
 
 #[test]
@@ -288,7 +286,10 @@ fn format_honors_project_config_and_cli_overrides_it() {
         .args(["format", "--function-next-line"]);
     cmd.assert().success().stdout("");
 
-    assert_eq!(fs::read_to_string(script).unwrap(), "foo()\n{\n\techo hi\n}\n");
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
 }
 
 #[test]

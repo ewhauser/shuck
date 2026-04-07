@@ -14,10 +14,7 @@ pub enum FormatElement {
     Line(LineMode),
     Indent(Document),
     Group(Document),
-    BestFit {
-        flat: Document,
-        expanded: Document,
-    },
+    BestFit { flat: Document, expanded: Document },
     Verbatim(String),
 }
 

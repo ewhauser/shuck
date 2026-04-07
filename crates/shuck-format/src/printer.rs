@@ -217,7 +217,9 @@ impl PrinterState {
 
         let indent = match self.options.indent_style {
             IndentStyle::Tab => "\t".repeat(self.indent_level),
-            IndentStyle::Space => " ".repeat(self.indent_level * usize::from(self.options.indent_width)),
+            IndentStyle::Space => {
+                " ".repeat(self.indent_level * usize::from(self.options.indent_width))
+            }
         };
 
         output.push_str(&indent);

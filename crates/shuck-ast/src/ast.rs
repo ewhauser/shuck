@@ -352,7 +352,7 @@ pub enum CompoundCommand {
     /// For loop
     For(ForCommand),
     /// C-style for loop: for ((init; cond; step))
-    ArithmeticFor(ArithmeticForCommand),
+    ArithmeticFor(Box<ArithmeticForCommand>),
     /// While loop
     While(WhileCommand),
     /// Until loop

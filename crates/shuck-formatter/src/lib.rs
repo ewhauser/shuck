@@ -5,9 +5,9 @@ mod generated;
 mod options;
 mod prelude;
 mod redirect;
+mod script;
 mod shared_traits;
 mod simplify;
-mod script;
 mod word;
 
 use std::path::Path;
@@ -20,7 +20,8 @@ use crate::shared_traits::AsFormat;
 pub use crate::options::{ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions};
 pub use shuck_format::IndentStyle;
 
-pub type ShellFormatter<'source, 'buf> = shuck_format::Formatter<context::ShellFormatContext<'source>>;
+pub type ShellFormatter<'source, 'buf> =
+    shuck_format::Formatter<context::ShellFormatContext<'source>>;
 
 pub trait FormatNodeRule<N> {
     fn fmt(&self, node: &N, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()>;
@@ -133,8 +134,12 @@ mod tests {
 
     #[test]
     fn formats_simple_command_with_tabs_by_default() {
-        let formatted = format_source("#!/bin/bash\n echo   hi\n", None, &ShellFormatOptions::default())
-            .unwrap();
+        let formatted = format_source(
+            "#!/bin/bash\n echo   hi\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             formatted,
@@ -144,8 +149,8 @@ mod tests {
 
     #[test]
     fn preserves_inline_comments() {
-        let formatted = format_source("echo hi    # note\n", None, &ShellFormatOptions::default())
-            .unwrap();
+        let formatted =
+            format_source("echo hi    # note\n", None, &ShellFormatOptions::default()).unwrap();
 
         assert_eq!(
             formatted,
@@ -275,8 +280,8 @@ mod tests {
     #[test]
     fn posix_dialect_propagates_parse_errors() {
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Posix);
-        let error = format_source("[[ foo == bar ]]\n", Some(Path::new("test.sh")), &options)
-            .unwrap_err();
+        let error =
+            format_source("[[ foo == bar ]]\n", Some(Path::new("test.sh")), &options).unwrap_err();
 
         assert!(matches!(
             error,

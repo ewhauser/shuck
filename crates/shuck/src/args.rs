@@ -101,17 +101,29 @@ pub struct FormatCommand {
     /// Put binary operators on the next line when breaking lists and pipelines.
     #[arg(long, overrides_with = "no_binary_next_line")]
     pub(crate) binary_next_line: bool,
-    #[arg(long = "no-binary-next-line", overrides_with = "binary_next_line", hide = true)]
+    #[arg(
+        long = "no-binary-next-line",
+        overrides_with = "binary_next_line",
+        hide = true
+    )]
     pub(crate) no_binary_next_line: bool,
     /// Indent the bodies of `case` branches.
     #[arg(long, overrides_with = "no_switch_case_indent")]
     pub(crate) switch_case_indent: bool,
-    #[arg(long = "no-switch-case-indent", overrides_with = "switch_case_indent", hide = true)]
+    #[arg(
+        long = "no-switch-case-indent",
+        overrides_with = "switch_case_indent",
+        hide = true
+    )]
     pub(crate) no_switch_case_indent: bool,
     /// Insert spaces around redirection operators and targets.
     #[arg(long, overrides_with = "no_space_redirects")]
     pub(crate) space_redirects: bool,
-    #[arg(long = "no-space-redirects", overrides_with = "space_redirects", hide = true)]
+    #[arg(
+        long = "no-space-redirects",
+        overrides_with = "space_redirects",
+        hide = true
+    )]
     pub(crate) no_space_redirects: bool,
     /// Preserve source padding when it is safe to do so.
     #[arg(long, overrides_with = "no_keep_padding")]
@@ -121,7 +133,11 @@ pub struct FormatCommand {
     /// Put function opening braces on the next line.
     #[arg(long, overrides_with = "no_function_next_line")]
     pub(crate) function_next_line: bool,
-    #[arg(long = "no-function-next-line", overrides_with = "function_next_line", hide = true)]
+    #[arg(
+        long = "no-function-next-line",
+        overrides_with = "function_next_line",
+        hide = true
+    )]
     pub(crate) no_function_next_line: bool,
     /// Prefer compact layouts and avoid optional splitting.
     #[arg(long, overrides_with = "no_never_split")]

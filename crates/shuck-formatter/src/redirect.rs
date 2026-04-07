@@ -1,4 +1,4 @@
-use shuck_ast::{Redirect, RedirectKind};
+use shuck_ast::{Redirect, RedirectKind, RedirectTarget};
 use shuck_format::{FormatResult, text, write};
 
 use crate::FormatNodeRule;
@@ -35,8 +35,16 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
             RedirectKind::OutputBoth => "&>",
         });
 
-        let target = redirect.target.render(source);
-        if options.space_redirects() && !matches!(redirect.kind, RedirectKind::DupOutput | RedirectKind::DupInput) {
+        let target = match &redirect.target {
+            RedirectTarget::Word(word) => word.render(source),
+            RedirectTarget::Heredoc(heredoc) => heredoc.delimiter.raw.render(source),
+        };
+        if options.space_redirects()
+            && !matches!(
+                redirect.kind,
+                RedirectKind::DupOutput | RedirectKind::DupInput
+            )
+        {
             rendered.push(' ');
         }
         rendered.push_str(&target);

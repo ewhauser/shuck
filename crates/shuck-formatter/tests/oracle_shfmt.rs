@@ -73,7 +73,11 @@ fn run_shfmt(root: &Path, source: &str, filename: &str, flags: &[&str]) -> Strin
         .write_all(source.as_bytes())
         .expect("write source to shfmt");
     let output = child.wait_with_output().expect("wait for shfmt");
-    assert!(output.status.success(), "shfmt exited with {}", output.status);
+    assert!(
+        output.status.success(),
+        "shfmt exited with {}",
+        output.status
+    );
     String::from_utf8(output.stdout).expect("utf8 shfmt output")
 }
 

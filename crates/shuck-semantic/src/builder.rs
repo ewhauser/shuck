@@ -622,7 +622,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             }
                         }
                         RecordedCaseArm {
-                            terminator: case.terminator.clone(),
+                            terminator: case.terminator,
                             commands,
                         }
                     })

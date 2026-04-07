@@ -410,12 +410,12 @@ fn convert_command(
                                             });
                                         }
                                         RecordedCaseArm {
-                                            terminator: terminator.clone(),
+                                            terminator: *terminator,
                                             commands: recorded,
                                         }
                                     } else {
                                         RecordedCaseArm {
-                                            terminator: terminator.clone(),
+                                            terminator: *terminator,
                                             commands: convert_commands(
                                                 commands,
                                                 scopes,

@@ -26,12 +26,11 @@ use shuck_ast::{
     BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandList, CommandListItem,
     CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalBinaryExpr,
     ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, DeclClause,
-    DeclName, DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter,
-    IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position, Redirect,
-    RedirectKind, RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText,
-    Span, TextSize, TimeCommand, TokenKind, UntilCommand, WhileCommand, Word, WordPart,
-    WordPartNode,
+    ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, DeclClause, DeclName,
+    DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter, IfCommand,
+    ListOperator, LiteralText, Name, ParameterOp, Pipeline, Position, Redirect, RedirectKind,
+    RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
+    TextSize, TimeCommand, TokenKind, UntilCommand, WhileCommand, Word, WordPart, WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -325,12 +324,7 @@ impl<'a> Parser<'a> {
 
     /// Create a new parser with a custom fuel limit.
     pub fn with_fuel(input: &'a str, max_fuel: usize) -> Self {
-        Self::with_limits_and_dialect(
-            input,
-            DEFAULT_MAX_AST_DEPTH,
-            max_fuel,
-            ShellDialect::Bash,
-        )
+        Self::with_limits_and_dialect(input, DEFAULT_MAX_AST_DEPTH, max_fuel, ShellDialect::Bash)
     }
 
     /// Create a new parser with custom depth and fuel limits.
@@ -1332,7 +1326,7 @@ impl<'a> Parser<'a> {
         )
         .map(Some)
         .map_err(|error| match error {
-            Error::Parse { message, .. } => self.error(&format!("{context}: {message}")),
+            Error::Parse { message, .. } => self.error(format!("{context}: {message}")),
         })
     }
 
@@ -3305,20 +3299,22 @@ impl<'a> Parser<'a> {
             (body, done_span)
         };
 
-        Ok(CompoundCommand::ArithmeticFor(ArithmeticForCommand {
-            left_paren_span,
-            init_span,
-            init_ast,
-            first_semicolon_span,
-            condition_span,
-            condition_ast,
-            second_semicolon_span,
-            step_span,
-            step_ast,
-            right_paren_span,
-            body,
-            span: start_span.merge(end_span),
-        }))
+        Ok(CompoundCommand::ArithmeticFor(Box::new(
+            ArithmeticForCommand {
+                left_paren_span,
+                init_span,
+                init_ast,
+                first_semicolon_span,
+                condition_span,
+                condition_ast,
+                second_semicolon_span,
+                step_span,
+                step_ast,
+                right_paren_span,
+                body,
+                span: start_span.merge(end_span),
+            },
+        )))
     }
 
     /// Parse a while loop
@@ -6500,13 +6496,13 @@ mod tests {
             .collect()
     }
 
-    fn redirect_word_target<'a>(redirect: &'a Redirect) -> &'a Word {
+    fn redirect_word_target(redirect: &Redirect) -> &Word {
         redirect
             .word_target()
             .expect("expected non-heredoc redirect target")
     }
 
-    fn redirect_heredoc<'a>(redirect: &'a Redirect) -> &'a Heredoc {
+    fn redirect_heredoc(redirect: &Redirect) -> &Heredoc {
         redirect.heredoc().expect("expected heredoc redirect")
     }
 

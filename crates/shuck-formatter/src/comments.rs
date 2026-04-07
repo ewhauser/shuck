@@ -47,7 +47,7 @@ impl<'a> Comments<'a> {
     pub fn take_leading_before(&mut self, line: usize) -> Vec<SourceComment<'a>> {
         let mut taken = Vec::new();
         while let Some(comment) = self.items.get(self.next).copied() {
-            if comment.line >= line && !(comment.line == line && !comment.inline) {
+            if comment.line > line || (comment.line == line && comment.inline) {
                 break;
             }
             taken.push(comment);

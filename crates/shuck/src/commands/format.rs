@@ -269,9 +269,7 @@ fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Re
                         } else {
                             file_key.clone()
                         };
-                        let cache_result = mode
-                            .is_write()
-                            .then_some(FormatCacheData::Unchanged);
+                        let cache_result = mode.is_write().then_some(FormatCacheData::Unchanged);
                         (cache_result, cache_key)
                     }
                     Err(FormatError::Parse {
