@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use shuck_formatter::{FormattedSource, ShellFormatOptions, format_source};
+use shuck_formatter::{FormattedSource, ShellDialect, ShellFormatOptions, format_source};
 
 const DEFAULT_SHFMT_ROOT: &str = "/Users/ewhauser/working/shfmt";
 
@@ -119,11 +119,39 @@ fn oracle_cases() -> Vec<OracleCase> {
             options: ShellFormatOptions::default().with_never_split(true),
         },
         OracleCase {
+            name: "nested heredoc",
+            fixture: "nested_heredoc.sh",
+            filename: "nested_heredoc.sh",
+            shfmt_flags: &[],
+            options: ShellFormatOptions::default(),
+        },
+        OracleCase {
+            name: "binary next line",
+            fixture: "binary_next_line.sh",
+            filename: "binary_next_line.sh",
+            shfmt_flags: &["-bn"],
+            options: ShellFormatOptions::default().with_binary_next_line(true),
+        },
+        OracleCase {
+            name: "simplify",
+            fixture: "simplify.sh",
+            filename: "simplify.sh",
+            shfmt_flags: &["-s"],
+            options: ShellFormatOptions::default().with_simplify(true),
+        },
+        OracleCase {
             name: "minify",
             fixture: "minify.sh",
             filename: "minify.sh",
             shfmt_flags: &["-mn"],
             options: ShellFormatOptions::default().with_minify(true),
+        },
+        OracleCase {
+            name: "mksh select",
+            fixture: "mksh_select.sh",
+            filename: "script.mksh",
+            shfmt_flags: &["-ln=mksh"],
+            options: ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
         },
     ]
 }

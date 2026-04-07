@@ -1112,12 +1112,38 @@ fn fmt_word_part_with_source(
 ) -> fmt::Result {
     match part {
         WordPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
-        WordPart::SingleQuoted { value, .. } => {
-            f.write_str(display_source_text(Some(value), source))?;
+        WordPart::SingleQuoted { value, dollar } => {
+            if let Some(source) = source
+                && value.is_source_backed()
+                && span.end.offset <= source.len()
+            {
+                f.write_str(span.slice(source))?;
+            } else {
+                if *dollar {
+                    f.write_str("$'")?;
+                } else {
+                    f.write_char('\'')?;
+                }
+                f.write_str(display_source_text(Some(value), source))?;
+                f.write_char('\'')?;
+            }
         }
-        WordPart::DoubleQuoted { parts, .. } => {
-            for part in parts {
-                fmt_word_part_with_source(f, &part.kind, part.span, source)?;
+        WordPart::DoubleQuoted { parts, dollar } => {
+            if let Some(source) = source
+                && parts.iter().all(|part| part_is_source_backed(&part.kind))
+                && span.end.offset <= source.len()
+            {
+                f.write_str(span.slice(source))?;
+            } else {
+                if *dollar {
+                    f.write_str("$\"")?;
+                } else {
+                    f.write_char('"')?;
+                }
+                for part in parts {
+                    fmt_word_part_with_source(f, &part.kind, part.span, source)?;
+                }
+                f.write_char('"')?;
             }
         }
         WordPart::Variable(name) => write!(f, "${}", name)?,
@@ -1131,7 +1157,11 @@ fn fmt_word_part_with_source(
         WordPart::ArithmeticExpansion {
             expression, syntax, ..
         } => match source {
-            Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
+            Some(source)
+                if expression.is_source_backed() && span.end.offset <= source.len() =>
+            {
+                f.write_str(span.slice(source))?
+            }
             _ => match syntax {
                 ArithmeticExpansionSyntax::DollarParenParen => {
                     write!(f, "$(({}))", display_source_text(Some(expression), source))?
@@ -1330,6 +1360,47 @@ fn fmt_word_part_with_source(
     }
 
     Ok(())
+}
+
+fn part_is_source_backed(part: &WordPart) -> bool {
+    match part {
+        WordPart::Literal(text) => text.is_source_backed(),
+        WordPart::SingleQuoted { value, .. } => value.is_source_backed(),
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().all(|part| part_is_source_backed(&part.kind)),
+        WordPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
+        WordPart::ParameterExpansion { operand, operator, .. } => {
+            operator_is_source_backed(operator)
+                && operand.as_ref().is_none_or(SourceText::is_source_backed)
+        }
+        WordPart::ArrayAccess { index, .. }
+        | WordPart::Substring { offset: index, .. }
+        | WordPart::ArraySlice { offset: index, .. } => index.is_source_backed(),
+        WordPart::IndirectExpansion { operand, operator, .. } => {
+            operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed)
+        }
+        WordPart::CommandSubstitution { .. }
+        | WordPart::Variable(_)
+        | WordPart::Length(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::PrefixMatch(_)
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => true,
+    }
+}
+
+fn operator_is_source_backed(operator: &ParameterOp) -> bool {
+    match operator {
+        ParameterOp::ReplaceFirst {
+            pattern,
+            replacement,
+        }
+        | ParameterOp::ReplaceAll {
+            pattern,
+            replacement,
+        } => pattern.is_source_backed() && replacement.is_source_backed(),
+        _ => true,
+    }
 }
 
 /// Parameter expansion operators

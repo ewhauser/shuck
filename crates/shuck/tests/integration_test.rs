@@ -204,6 +204,26 @@ fn format_stdin_filename_uses_inferred_posix_dialect() {
 }
 
 #[test]
+fn format_stdin_filename_infers_remaining_common_shell_extensions() {
+    for path in ["script.bash", "script.mksh"] {
+        let mut cmd = Command::cargo_bin("shuck").unwrap();
+        cmd.args(["format", "--stdin-filename", path])
+            .write_stdin("[[ foo == bar ]]\n");
+        cmd.assert().success().stdout("[[ foo == bar ]]\n");
+    }
+
+    for path in ["script.ksh", "script.dash"] {
+        let mut cmd = Command::cargo_bin("shuck").unwrap();
+        cmd.args(["format", "--stdin-filename", path])
+            .write_stdin("[[ foo == bar ]]\n");
+        cmd.assert()
+            .code(2)
+            .stdout(predicate::str::contains(format!("{path}:1:")))
+            .stdout(predicate::str::contains("[[ ]] conditionals"));
+    }
+}
+
+#[test]
 fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclude() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
@@ -290,6 +310,31 @@ fn format_honors_project_config_and_cli_overrides_it() {
         fs::read_to_string(script).unwrap(),
         "foo()\n{\n\techo hi\n}\n"
     );
+}
+
+#[test]
+fn format_prefers_nested_project_config_for_explicit_files() {
+    let tempdir = tempdir().unwrap();
+    let nested = tempdir.path().join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[format]\nfunction-next-line = false\n",
+    )
+    .unwrap();
+    fs::write(
+        nested.join("shuck.toml"),
+        "[format]\nfunction-next-line = true\n",
+    )
+    .unwrap();
+    let script = nested.join("fn.sh");
+    fs::write(&script, "foo(){\necho hi\n}\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path()).args(["format", "nested/fn.sh"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(fs::read_to_string(script).unwrap(), "foo()\n{\n\techo hi\n}\n");
 }
 
 #[test]

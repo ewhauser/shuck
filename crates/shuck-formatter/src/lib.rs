@@ -85,7 +85,8 @@ pub fn format_source(
 
     let mut script = parsed.script;
     if resolved.simplify() || resolved.minify() {
-        simplify::simplify_script(&mut script);
+        let simplify_report = simplify::simplify_script(&mut script, source);
+        debug_assert!(simplify_report.total_changes() >= simplify_report.applied().len());
     }
 
     let comments = comments::Comments::from_ast(source, &parsed.comments);
@@ -159,9 +160,47 @@ mod tests {
     }
 
     #[test]
-    fn preserves_heredoc_commands_verbatim() {
-        let source = "cat <<EOF\nhello\nEOF\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+    fn formats_heredoc_command_heads_structurally() {
+        let formatted = format_source("cat<<EOF\nhello\nEOF\n", None, &ShellFormatOptions::default())
+            .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("cat <<EOF\nhello\nEOF\n".to_string())
+        );
+    }
+
+    #[test]
+    fn formats_nested_heredoc_commands_without_indenting_body() {
+        let formatted = format_source(
+            "if true; then\ncat<<EOF\nhello\nEOF\nfi\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("if true; then\n\tcat <<EOF\nhello\nEOF\nfi\n".to_string())
+        );
+    }
+
+    #[test]
+    fn binary_next_line_pipeline_keeps_heredoc_body_unindented() {
+        let options = ShellFormatOptions::default().with_binary_next_line(true);
+        let formatted =
+            format_source("cat foo | \\\ncat<<EOF\nhello\nEOF\n", None, &options).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("cat foo \\\n\t| cat <<EOF\nhello\nEOF\n".to_string())
+        );
+    }
+
+    #[test]
+    fn binary_next_line_does_not_force_single_line_pipelines_to_wrap() {
+        let options = ShellFormatOptions::default().with_binary_next_line(true);
+        let formatted = format_source("cat foo | cat bar\n", None, &options).unwrap();
 
         assert_eq!(formatted, FormattedSource::Unchanged);
     }
@@ -269,12 +308,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            formatted,
-            FormattedSource::Formatted(
-                "select name in foo; do\n\techo \"$name\";\ndone\n".to_string()
-            )
-        );
+        assert_eq!(formatted, FormattedSource::Unchanged);
     }
 
     #[test]
