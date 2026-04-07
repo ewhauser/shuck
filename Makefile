@@ -156,4 +156,4 @@ flame-cli:
 check:
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings
-	$(NIX_DEVELOP) cargo +nightly udeps --all-targets
+	$(NIX_DEVELOP) env RUSTC_BOOTSTRAP=1 cargo udeps --all-targets
