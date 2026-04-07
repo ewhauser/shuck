@@ -200,7 +200,7 @@ Action items:
 
 - [x] Add a source-backed `SourceText` analysis helper in the common expansion layer.
 - [x] Add tests for escaped dollars, quoted dollars, nested substitutions, and mixed literals inside source-backed operand text.
-- [ ] Delete or fold this bridge into Project 2 once the last flattened operand callers disappear.
+- [x] Delete or fold this bridge into Project 2 once the last flattened operand callers disappear.
 
 gbash references:
 
@@ -319,10 +319,10 @@ This work should build on the runtime-prelude and semantic infrastructure alread
 
 Action items:
 
-- [ ] Refactor `SafeValueIndex` to depend on the new expansion analysis layer.
-- [ ] Replace literal-only safe checks with context-specific safe queries.
-- [ ] Add recursion and cycle tests for binding analysis involving indirect and transformed values.
-- [ ] Add focused `S001` tests that cover known-safe integers, known-safe literals, and unsafe multi-field expansions.
+- [x] Refactor `SafeValueIndex` to depend on the new expansion analysis layer.
+- [x] Replace literal-only safe checks with context-specific safe queries.
+- [x] Add recursion and cycle tests for binding analysis involving indirect and transformed values.
+- [x] Add focused `S001` tests that cover known-safe integers, known-safe literals, and unsafe multi-field expansions.
 
 gbash references:
 
