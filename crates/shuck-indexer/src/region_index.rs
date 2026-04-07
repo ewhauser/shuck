@@ -1,8 +1,8 @@
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CommandList,
-    CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, FunctionDef, Pattern, PatternPart,
-    PatternPartNode, Redirect, RedirectKind, Script, Subscript, TextRange, TextSize, VarRef, Word,
-    WordPart, WordPartNode,
+    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
+    ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, Pattern, PatternPart,
+    PatternPartNode, Redirect, RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize,
+    VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_parser::parser::Parser;
 
@@ -37,10 +37,10 @@ pub struct RegionIndex {
 }
 
 impl RegionIndex {
-    /// Build from source text and the parsed script.
-    pub fn new(source: &str, script: &Script) -> Self {
+    /// Build from source text and the parsed file.
+    pub fn new(source: &str, file: &File) -> Self {
         let mut collector = RegionCollector::new(source);
-        collector.visit_script(script);
+        collector.visit_file(file);
         collector.finish()
     }
 
@@ -201,14 +201,21 @@ impl<'a> RegionCollector<'a> {
         }
     }
 
-    fn visit_script(&mut self, script: &Script) {
-        self.visit_commands(&script.commands);
+    fn visit_file(&mut self, file: &File) {
+        self.visit_stmt_seq(&file.body);
     }
 
-    fn visit_commands(&mut self, commands: &[Command]) {
-        for command in commands {
-            self.visit_command(command);
+    fn visit_stmt_seq(&mut self, commands: &StmtSeq) {
+        for stmt in commands.iter() {
+            self.visit_stmt(stmt);
         }
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        for redirect in &stmt.redirects {
+            self.visit_redirect(redirect);
+        }
+        self.visit_command(&stmt.command);
     }
 
     fn visit_command(&mut self, command: &Command) {
@@ -218,29 +225,18 @@ impl<'a> RegionCollector<'a> {
                 for argument in &command.args {
                     self.visit_word(argument);
                 }
-                for redirect in &command.redirects {
-                    self.visit_redirect(redirect);
-                }
                 for assignment in &command.assignments {
                     self.visit_assignment(assignment);
                 }
             }
             Command::Builtin(command) => self.visit_builtin(command),
             Command::Decl(command) => self.visit_decl(command),
-            Command::Pipeline(pipeline) => self.visit_commands(&pipeline.commands),
-            Command::List(CommandList { first, rest, .. }) => {
-                self.visit_command(first);
-                for item in rest {
-                    self.visit_command(&item.command);
-                }
+            Command::Binary(command) => {
+                self.visit_stmt(&command.left);
+                self.visit_stmt(&command.right);
             }
-            Command::Compound(command, redirects) => {
-                self.visit_compound(command);
-                for redirect in redirects {
-                    self.visit_redirect(redirect);
-                }
-            }
-            Command::Function(FunctionDef { body, .. }) => self.visit_command(body),
+            Command::Compound(command) => self.visit_compound(command),
+            Command::Function(FunctionDef { body, .. }) => self.visit_stmt(body),
         }
     }
 
@@ -253,9 +249,6 @@ impl<'a> RegionCollector<'a> {
                 for argument in &command.extra_args {
                     self.visit_word(argument);
                 }
-                for redirect in &command.redirects {
-                    self.visit_redirect(redirect);
-                }
                 for assignment in &command.assignments {
                     self.visit_assignment(assignment);
                 }
@@ -266,9 +259,6 @@ impl<'a> RegionCollector<'a> {
                 }
                 for argument in &command.extra_args {
                     self.visit_word(argument);
-                }
-                for redirect in &command.redirects {
-                    self.visit_redirect(redirect);
                 }
                 for assignment in &command.assignments {
                     self.visit_assignment(assignment);
@@ -281,9 +271,6 @@ impl<'a> RegionCollector<'a> {
                 for argument in &command.extra_args {
                     self.visit_word(argument);
                 }
-                for redirect in &command.redirects {
-                    self.visit_redirect(redirect);
-                }
                 for assignment in &command.assignments {
                     self.visit_assignment(assignment);
                 }
@@ -294,9 +281,6 @@ impl<'a> RegionCollector<'a> {
                 }
                 for argument in &command.extra_args {
                     self.visit_word(argument);
-                }
-                for redirect in &command.redirects {
-                    self.visit_redirect(redirect);
                 }
                 for assignment in &command.assignments {
                     self.visit_assignment(assignment);
@@ -313,9 +297,6 @@ impl<'a> RegionCollector<'a> {
                 DeclOperand::Assignment(assignment) => self.visit_assignment(assignment),
             }
         }
-        for redirect in &command.redirects {
-            self.visit_redirect(redirect);
-        }
         for assignment in &command.assignments {
             self.visit_assignment(assignment);
         }
@@ -324,14 +305,14 @@ impl<'a> RegionCollector<'a> {
     fn visit_compound(&mut self, command: &CompoundCommand) {
         match command {
             CompoundCommand::If(command) => {
-                self.visit_commands(&command.condition);
-                self.visit_commands(&command.then_branch);
+                self.visit_stmt_seq(&command.condition);
+                self.visit_stmt_seq(&command.then_branch);
                 for (condition, branch) in &command.elif_branches {
-                    self.visit_commands(condition);
-                    self.visit_commands(branch);
+                    self.visit_stmt_seq(condition);
+                    self.visit_stmt_seq(branch);
                 }
                 if let Some(branch) = &command.else_branch {
-                    self.visit_commands(branch);
+                    self.visit_stmt_seq(branch);
                 }
             }
             CompoundCommand::For(command) => {
@@ -340,19 +321,19 @@ impl<'a> RegionCollector<'a> {
                         self.visit_word(word);
                     }
                 }
-                self.visit_commands(&command.body);
+                self.visit_stmt_seq(&command.body);
             }
             CompoundCommand::ArithmeticFor(command) => {
                 self.push_arithmetic_range(command);
-                self.visit_commands(&command.body);
+                self.visit_stmt_seq(&command.body);
             }
             CompoundCommand::While(command) => {
-                self.visit_commands(&command.condition);
-                self.visit_commands(&command.body);
+                self.visit_stmt_seq(&command.condition);
+                self.visit_stmt_seq(&command.body);
             }
             CompoundCommand::Until(command) => {
-                self.visit_commands(&command.condition);
-                self.visit_commands(&command.body);
+                self.visit_stmt_seq(&command.condition);
+                self.visit_stmt_seq(&command.body);
             }
             CompoundCommand::Case(command) => {
                 self.visit_word(&command.word);
@@ -360,31 +341,31 @@ impl<'a> RegionCollector<'a> {
                     for pattern in &item.patterns {
                         self.visit_pattern(pattern);
                     }
-                    self.visit_commands(&item.commands);
+                    self.visit_stmt_seq(&item.body);
                 }
             }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
                     self.visit_word(word);
                 }
-                self.visit_commands(&command.body);
+                self.visit_stmt_seq(&command.body);
             }
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-                self.visit_commands(commands);
+                self.visit_stmt_seq(commands);
             }
             CompoundCommand::Arithmetic(command) => {
                 push_range(&mut self.arithmetic, command.span.to_range());
             }
             CompoundCommand::Time(command) => {
                 if let Some(command) = &command.command {
-                    self.visit_command(command);
+                    self.visit_stmt(command);
                 }
             }
             CompoundCommand::Conditional(command) => {
                 push_range(&mut self.conditionals, command.span.to_range());
                 self.visit_conditional_expr(&command.expression);
             }
-            CompoundCommand::Coproc(command) => self.visit_command(&command.body),
+            CompoundCommand::Coproc(command) => self.visit_stmt(&command.body),
         }
     }
 
@@ -486,14 +467,14 @@ impl<'a> RegionCollector<'a> {
                     push_range(&mut self.double_quoted, range);
                     self.visit_word_parts(parts);
                 }
-                WordPart::CommandSubstitution { commands, .. } => {
+                WordPart::CommandSubstitution { body, .. } => {
                     push_range(&mut self.command_substitutions, range);
-                    self.visit_commands(commands);
+                    self.visit_stmt_seq(body);
                 }
                 WordPart::ArithmeticExpansion { .. } => {
                     push_range(&mut self.arithmetic, range);
                 }
-                WordPart::ProcessSubstitution { commands, .. } => self.visit_commands(commands),
+                WordPart::ProcessSubstitution { body, .. } => self.visit_stmt_seq(body),
                 WordPart::Literal(_)
                 | WordPart::Variable(_)
                 | WordPart::ParameterExpansion { .. }
@@ -617,7 +598,7 @@ mod tests {
 
     fn regions(source: &str) -> RegionIndex {
         let output = Parser::new(source).parse().unwrap();
-        RegionIndex::new(source, &output.script)
+        RegionIndex::new(source, &output.file)
     }
 
     #[test]

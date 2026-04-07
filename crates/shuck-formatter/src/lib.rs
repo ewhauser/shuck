@@ -1,21 +1,17 @@
-mod command;
+mod ast_format;
 mod comments;
 mod context;
-mod generated;
 mod options;
 mod prelude;
-mod redirect;
-mod script;
 mod shared_traits;
-mod simplify;
-mod word;
 
 use std::path::Path;
 
-use shuck_ast::{Comment, Script};
+use shuck_ast::File;
 use shuck_format::{FormatResult, format};
 use shuck_parser::{Error as ParseError, parser::Parser};
 
+use crate::ast_format::{FormatFile, flatten_comments};
 use crate::shared_traits::AsFormat;
 
 pub use crate::options::{ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions};
@@ -84,36 +80,28 @@ pub fn format_source(
         .parse()
         .map_err(map_parse_error)?;
 
-    format_script_ast(source, &parsed.script, &parsed.comments, path, options)
+    format_file_ast(source, &parsed.file, path, options)
 }
 
-pub fn format_script_ast(
+pub fn format_file_ast(
     source: &str,
-    script: &Script,
-    comments: &[Comment],
+    file: &File,
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
     let resolved = options.resolve(source, path);
-    if resolved.simplify() || resolved.minify() {
-        let mut rewritten = script.clone();
-        let simplify_report = simplify::simplify_script(&mut rewritten, source);
-        debug_assert!(simplify_report.total_changes() >= simplify_report.applied().len());
-        return format_script(source, &rewritten, comments, resolved);
-    }
-
-    format_script(source, script, comments, resolved)
+    format_file(source, file, resolved)
 }
 
-fn format_script(
+fn format_file(
     source: &str,
-    script: &Script,
-    comment_ranges: &[Comment],
+    file: &File,
     resolved: ResolvedShellFormatOptions,
 ) -> Result<FormattedSource> {
-    let comments = comments::Comments::from_ast(source, comment_ranges);
+    let comments = flatten_comments(file);
+    let comments = comments::Comments::from_ast(source, &comments);
     let context = context::ShellFormatContext::new(resolved, source, comments);
-    let formatted = format!(context, [script.format()])
+    let formatted = format!(context, [file.format()])
         .map_err(|error| FormatError::Internal(error.to_string()))?;
     let mut output = formatted
         .print()
@@ -131,8 +119,9 @@ fn format_script(
 #[cfg(feature = "benchmarking")]
 #[doc(hidden)]
 #[must_use]
-pub fn build_comment_index(source: &str, comments: &[Comment]) -> usize {
-    comments::Comments::from_ast(source, comments).len()
+pub fn build_comment_index(source: &str, file: &File) -> usize {
+    let comments = flatten_comments(file);
+    comments::Comments::from_ast(source, &comments).len()
 }
 
 fn ensure_single_trailing_newline(output: &mut String) {

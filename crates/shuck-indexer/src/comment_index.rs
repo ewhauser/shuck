@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use shuck_ast::{Comment, TextRange, TextSize};
+use shuck_ast::{Comment, Command, CompoundCommand, File, Stmt, StmtSeq, TextRange, TextSize};
 
 use crate::LineIndex;
 
@@ -23,10 +23,12 @@ pub struct CommentIndex {
 }
 
 impl CommentIndex {
-    /// Build from parser comments and source text.
-    pub fn new(source: &str, line_index: &LineIndex, comments: &[Comment]) -> Self {
+    /// Build from AST-owned comments and source text.
+    pub fn new(source: &str, line_index: &LineIndex, file: &File) -> Self {
+        let mut comments = Vec::new();
+        collect_file_comments(file, &mut comments);
         let mut indexed_comments = comments
-            .iter()
+            .into_iter()
             .filter(|comment| {
                 let start = usize::from(comment.range.start());
                 let end = usize::from(comment.range.end());
@@ -117,6 +119,80 @@ fn is_horizontal_whitespace(text: &str) -> bool {
     text.chars().all(|ch| matches!(ch, ' ' | '\t' | '\r'))
 }
 
+fn collect_file_comments(file: &File, comments: &mut Vec<Comment>) {
+    collect_stmt_seq_comments(&file.body, comments);
+}
+
+fn collect_stmt_seq_comments(sequence: &StmtSeq, comments: &mut Vec<Comment>) {
+    comments.extend(sequence.leading_comments.iter().copied());
+    for stmt in sequence.iter() {
+        collect_stmt_comments(stmt, comments);
+    }
+    comments.extend(sequence.trailing_comments.iter().copied());
+}
+
+fn collect_stmt_comments(stmt: &Stmt, comments: &mut Vec<Comment>) {
+    comments.extend(stmt.leading_comments.iter().copied());
+    if let Some(comment) = stmt.inline_comment {
+        comments.push(comment);
+    }
+    collect_command_comments(&stmt.command, comments);
+}
+
+fn collect_command_comments(command: &Command, comments: &mut Vec<Comment>) {
+    match command {
+        Command::Binary(command) => {
+            collect_stmt_comments(&command.left, comments);
+            collect_stmt_comments(&command.right, comments);
+        }
+        Command::Compound(command) => collect_compound_comments(command, comments),
+        Command::Function(function) => collect_stmt_comments(&function.body, comments),
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
+}
+
+fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comment>) {
+    match command {
+        CompoundCommand::If(command) => {
+            collect_stmt_seq_comments(&command.condition, comments);
+            collect_stmt_seq_comments(&command.then_branch, comments);
+            for (condition, body) in &command.elif_branches {
+                collect_stmt_seq_comments(condition, comments);
+                collect_stmt_seq_comments(body, comments);
+            }
+            if let Some(body) = &command.else_branch {
+                collect_stmt_seq_comments(body, comments);
+            }
+        }
+        CompoundCommand::For(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::ArithmeticFor(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::While(command) => {
+            collect_stmt_seq_comments(&command.condition, comments);
+            collect_stmt_seq_comments(&command.body, comments);
+        }
+        CompoundCommand::Until(command) => {
+            collect_stmt_seq_comments(&command.condition, comments);
+            collect_stmt_seq_comments(&command.body, comments);
+        }
+        CompoundCommand::Case(command) => {
+            for case in &command.cases {
+                collect_stmt_seq_comments(&case.body, comments);
+            }
+        }
+        CompoundCommand::Select(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+            collect_stmt_seq_comments(body, comments);
+        }
+        CompoundCommand::Time(command) => {
+            if let Some(inner) = &command.command {
+                collect_stmt_comments(inner, comments);
+            }
+        }
+        CompoundCommand::Coproc(command) => collect_stmt_comments(&command.body, comments),
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,7 +201,7 @@ mod tests {
     fn comments(source: &str) -> CommentIndex {
         let output = Parser::new(source).parse().unwrap();
         let lines = LineIndex::new(source);
-        CommentIndex::new(source, &lines, &output.comments)
+        CommentIndex::new(source, &lines, &output.file)
     }
 
     #[test]

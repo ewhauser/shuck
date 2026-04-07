@@ -157,6 +157,46 @@ pub struct StmtSeq {
     pub span: Span,
 }
 
+impl StmtSeq {
+    pub fn len(&self) -> usize {
+        self.stmts.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stmts.is_empty()
+    }
+
+    pub fn as_slice(&self) -> &[Stmt] {
+        &self.stmts
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [Stmt] {
+        &mut self.stmts
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Stmt> {
+        self.stmts.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Stmt> {
+        self.stmts.iter_mut()
+    }
+}
+
+impl std::ops::Index<usize> for StmtSeq {
+    type Output = Stmt;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.stmts[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for StmtSeq {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.stmts[index]
+    }
+}
+
 /// A statement terminator in a surrounding sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StmtTerminator {
