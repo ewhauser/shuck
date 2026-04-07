@@ -915,14 +915,51 @@ pub struct CaseItem {
     pub terminator: CaseTerminator,
 }
 
+/// Surface syntax preserved for a function declaration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FunctionSurface {
+    pub function_keyword_span: Option<Span>,
+    pub name_parens_span: Option<Span>,
+}
+
+impl FunctionSurface {
+    pub fn uses_function_keyword(&self) -> bool {
+        self.function_keyword_span.is_some()
+    }
+
+    pub fn has_name_parens(&self) -> bool {
+        self.name_parens_span.is_some()
+    }
+
+    pub fn rebased(&mut self, base: Position) {
+        if let Some(span) = &mut self.function_keyword_span {
+            *span = span.rebased(base);
+        }
+        if let Some(span) = &mut self.name_parens_span {
+            *span = span.rebased(base);
+        }
+    }
+}
+
 /// Function definition.
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
     pub name: Name,
     pub name_span: Span,
+    pub surface: FunctionSurface,
     pub body: Box<Command>,
     /// Source span of this function definition
     pub span: Span,
+}
+
+impl FunctionDef {
+    pub fn uses_function_keyword(&self) -> bool {
+        self.surface.uses_function_keyword()
+    }
+
+    pub fn has_name_parens(&self) -> bool {
+        self.surface.has_name_parens()
+    }
 }
 
 /// Original syntax form for command substitution.
@@ -3123,6 +3160,7 @@ mod tests {
         let func = FunctionDef {
             name: "my_func".into(),
             name_span: Span::new(),
+            surface: FunctionSurface::default(),
             body: Box::new(Command::Simple(SimpleCommand {
                 name: Word::literal("echo"),
                 args: vec![Word::literal("hello")],
@@ -3181,6 +3219,7 @@ mod tests {
         let func = Command::Function(FunctionDef {
             name: "f".into(),
             name_span: Span::new(),
+            surface: FunctionSurface::default(),
             body: Box::new(Command::Simple(SimpleCommand {
                 name: Word::literal("true"),
                 args: vec![],

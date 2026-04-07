@@ -28,12 +28,12 @@ use shuck_ast::{
     CommandListItem, CommandSubstitutionSyntax, Comment, CompoundCommand, ConditionalBinaryExpr,
     ConditionalBinaryOp, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
     ConditionalUnaryExpr, ConditionalUnaryOp, ContinueCommand, CoprocCommand, DeclClause,
-    DeclOperand, ExitCommand, ForCommand, FunctionDef, Heredoc, HeredocDelimiter, IfCommand,
-    ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind, PatternPart,
-    PatternPartNode, Pipeline, Position, PrefixMatchKind, Redirect, RedirectKind, RedirectTarget,
-    ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span, Subscript,
-    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
-    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    DeclOperand, ExitCommand, ForCommand, FunctionDef, FunctionSurface, Heredoc, HeredocDelimiter,
+    IfCommand, ListOperator, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
+    PatternPart, PatternPartNode, Pipeline, Position, PrefixMatchKind, Redirect, RedirectKind,
+    RedirectTarget, ReturnCommand, Script, SelectCommand, SimpleCommand, SourceText, Span,
+    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand,
+    TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -1571,6 +1571,7 @@ impl<'a> Parser<'a> {
             Command::Function(function) => {
                 function.span = function.span.rebased(base);
                 function.name_span = function.name_span.rebased(base);
+                function.surface.rebased(base);
                 Self::rebase_command(&mut function.body, base);
             }
         }
@@ -2899,12 +2900,18 @@ impl<'a> Parser<'a> {
         self.current_keyword
     }
 
-    fn skip_newlines(&mut self) -> Result<()> {
+    fn skip_newlines_with_flag(&mut self) -> Result<bool> {
+        let mut skipped = false;
         while self.at(TokenKind::Newline) {
             self.tick()?;
             self.advance();
+            skipped = true;
         }
-        Ok(())
+        Ok(skipped)
+    }
+
+    fn skip_newlines(&mut self) -> Result<()> {
+        self.skip_newlines_with_flag().map(|_| ())
     }
 
     /// Parse a command list (commands connected by && or ||)
@@ -5034,15 +5041,41 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_function_body_command(&mut self) -> Result<Command> {
-        let compound = match self.current_token_kind {
-            Some(TokenKind::LeftBrace) => self.parse_brace_group()?,
-            Some(TokenKind::LeftParen) => self.parse_subshell()?,
-            _ => {
-                return Err(Error::parse(
-                    "expected '{' or '(' for function body".to_string(),
-                ));
-            }
+    fn parse_function_body_command(&mut self, allow_bare_compound: bool) -> Result<Command> {
+        let compound = match self.current_keyword() {
+            Some(Keyword::If) if allow_bare_compound => self.parse_if()?,
+            Some(Keyword::For) if allow_bare_compound => self.parse_for()?,
+            Some(Keyword::While) if allow_bare_compound => self.parse_while()?,
+            Some(Keyword::Until) if allow_bare_compound => self.parse_until()?,
+            Some(Keyword::Case) if allow_bare_compound => self.parse_case()?,
+            Some(Keyword::Select) if allow_bare_compound => self.parse_select()?,
+            _ => match self.current_token_kind {
+                Some(TokenKind::LeftBrace) => self.parse_brace_group()?,
+                Some(TokenKind::LeftParen) => self.parse_subshell()?,
+                Some(TokenKind::DoubleLeftBracket) if allow_bare_compound => {
+                    self.parse_conditional()?
+                }
+                Some(TokenKind::DoubleLeftParen) if allow_bare_compound => {
+                    if self.looks_like_command_style_double_paren() {
+                        self.split_current_double_left_paren();
+                        self.parse_subshell()?
+                    } else {
+                        let mut arithmetic_probe = self.clone();
+                        if let Ok(compound) = arithmetic_probe.parse_arithmetic_command() {
+                            *self = arithmetic_probe;
+                            compound
+                        } else {
+                            self.split_current_double_left_paren();
+                            self.parse_subshell()?
+                        }
+                    }
+                }
+                _ => {
+                    return Err(Error::parse(
+                        "expected compound command for function body".to_string(),
+                    ));
+                }
+            },
         };
         let redirects = self.parse_trailing_redirects();
         Ok(Command::Compound(compound, redirects))
@@ -5065,25 +5098,35 @@ impl<'a> Parser<'a> {
         };
         let (name, name_span) = (Name::from(name_text.as_ref()), self.current_span);
         self.advance();
-        self.skip_newlines()?;
+        let saw_newline_after_name = self.skip_newlines_with_flag()?;
 
         // Optional () after name
-        if self.at(TokenKind::LeftParen) {
+        let mut name_parens_span = None;
+        let allow_bare_compound = if self.at(TokenKind::LeftParen) {
+            let left_paren_span = self.current_span;
             self.advance(); // consume '('
             if !self.at(TokenKind::RightParen) {
                 return Err(Error::parse(
                     "expected ')' in function definition".to_string(),
                 ));
             }
+            let right_paren_span = self.current_span;
             self.advance(); // consume ')'
-            self.skip_newlines()?;
-        }
+            name_parens_span = Some(left_paren_span.merge(right_paren_span));
+            self.skip_newlines_with_flag()?
+        } else {
+            saw_newline_after_name
+        };
 
-        let body = self.parse_function_body_command()?;
+        let body = self.parse_function_body_command(allow_bare_compound)?;
 
         Ok(Command::Function(FunctionDef {
             name,
             name_span,
+            surface: FunctionSurface {
+                function_keyword_span: Some(start_span),
+                name_parens_span,
+            },
             body: Box::new(body),
             span: start_span.merge(self.current_span),
         }))
@@ -5107,19 +5150,25 @@ impl<'a> Parser<'a> {
         if !self.at(TokenKind::LeftParen) {
             return Err(self.error("expected '(' in function definition"));
         }
+        let left_paren_span = self.current_span;
         self.advance(); // consume '('
 
         if !self.at(TokenKind::RightParen) {
             return Err(self.error("expected ')' in function definition"));
         }
+        let right_paren_span = self.current_span;
         self.advance(); // consume ')'
         self.skip_newlines()?;
 
-        let body = self.parse_function_body_command()?;
+        let body = self.parse_function_body_command(true)?;
 
         Ok(Command::Function(FunctionDef {
             name,
             name_span,
+            surface: FunctionSurface {
+                function_keyword_span: None,
+                name_parens_span: Some(left_paren_span.merge(right_paren_span)),
+            },
             body: Box::new(body),
             span: start_span.merge(self.current_span),
         }))
@@ -8278,6 +8327,13 @@ mod tests {
         redirect.heredoc().expect("expected heredoc redirect")
     }
 
+    fn expect_function(command: &Command) -> &FunctionDef {
+        let Command::Function(function) = command else {
+            panic!("expected function definition");
+        };
+        function
+    }
+
     fn expect_compound(command: &Command) -> (&CompoundCommand, &[Redirect]) {
         let Command::Compound(compound, redirects) = command else {
             panic!("expected compound command");
@@ -8781,12 +8837,12 @@ mod tests {
         let input = "f() { cat; } <<EOF\nhello\nEOF\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Function(function) = &script.commands[0] else {
-            panic!("expected function definition");
-        };
+        let function = expect_function(&script.commands[0]);
         let Command::Compound(_, redirects) = function.body.as_ref() else {
             panic!("expected compound function body");
         };
+        assert!(!function.uses_function_keyword());
+        assert!(function.has_name_parens());
         assert_eq!(redirects.len(), 1);
         assert_eq!(redirects[0].kind, RedirectKind::HereDoc);
     }
@@ -8798,16 +8854,92 @@ mod tests {
 
         assert_eq!(script.commands.len(), 2);
 
-        let Command::Function(function) = &script.commands[0] else {
-            panic!("expected function definition");
-        };
+        let function = expect_function(&script.commands[0]);
         let Command::Compound(CompoundCommand::BraceGroup(body), redirects) =
             function.body.as_ref()
         else {
             panic!("expected brace-group function body");
         };
+        assert!(!function.uses_function_keyword());
+        assert!(function.has_name_parens());
         assert!(redirects.is_empty());
         assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn test_function_keyword_without_parens_preserves_surface_form() {
+        let input = "function inc { :; }\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let Command::Compound(CompoundCommand::BraceGroup(body), redirects) =
+            function.body.as_ref()
+        else {
+            panic!("expected brace-group function body");
+        };
+
+        assert!(function.uses_function_keyword());
+        assert!(!function.has_name_parens());
+        assert_eq!(
+            function
+                .surface
+                .function_keyword_span
+                .map(|span| span.slice(input)),
+            Some("function")
+        );
+        assert_eq!(function.surface.name_parens_span, None);
+        assert!(redirects.is_empty());
+        assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn test_function_keyword_with_parens_preserves_surface_form() {
+        let input = "function inc() { :; }\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let (compound, redirects) = expect_compound(function.body.as_ref());
+
+        assert!(function.uses_function_keyword());
+        assert!(function.has_name_parens());
+        assert_eq!(
+            function
+                .surface
+                .function_keyword_span
+                .map(|span| span.slice(input)),
+            Some("function")
+        );
+        assert_eq!(
+            function
+                .surface
+                .name_parens_span
+                .map(|span| span.slice(input)),
+            Some("()")
+        );
+        assert!(matches!(compound, CompoundCommand::BraceGroup(_)));
+        assert!(redirects.is_empty());
+    }
+
+    #[test]
+    fn test_posix_function_with_brace_group_preserves_surface_form() {
+        let input = "inc() { :; }\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let (compound, redirects) = expect_compound(function.body.as_ref());
+
+        assert!(!function.uses_function_keyword());
+        assert!(function.has_name_parens());
+        assert_eq!(function.surface.function_keyword_span, None);
+        assert_eq!(
+            function
+                .surface
+                .name_parens_span
+                .map(|span| span.slice(input)),
+            Some("()")
+        );
+        assert!(matches!(compound, CompoundCommand::BraceGroup(_)));
+        assert!(redirects.is_empty());
     }
 
     #[test]
@@ -8815,13 +8947,13 @@ mod tests {
         let input = "inc_subshell() ( j=$((j+5)); )\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Function(function) = &script.commands[0] else {
-            panic!("expected function definition");
-        };
+        let function = expect_function(&script.commands[0]);
         let Command::Compound(CompoundCommand::Subshell(body), redirects) = function.body.as_ref()
         else {
             panic!("expected subshell function body");
         };
+        assert!(!function.uses_function_keyword());
+        assert!(function.has_name_parens());
         assert!(redirects.is_empty());
         assert_eq!(body.len(), 1);
     }
@@ -8831,15 +8963,136 @@ mod tests {
         let input = "function inc_subshell() ( j=$((j+5)); )\n";
         let script = Parser::new(input).parse().unwrap().script;
 
-        let Command::Function(function) = &script.commands[0] else {
-            panic!("expected function definition");
-        };
+        let function = expect_function(&script.commands[0]);
         let Command::Compound(CompoundCommand::Subshell(body), redirects) = function.body.as_ref()
         else {
             panic!("expected subshell function body");
         };
+        assert!(function.uses_function_keyword());
+        assert!(function.has_name_parens());
         assert!(redirects.is_empty());
         assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn test_posix_function_allows_conditional_body() {
+        let input = "f() [[ -n \"$x\" ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let Command::Compound(CompoundCommand::Conditional(command), redirects) =
+            function.body.as_ref()
+        else {
+            panic!("expected conditional function body");
+        };
+
+        assert!(!function.uses_function_keyword());
+        assert!(function.has_name_parens());
+        assert!(redirects.is_empty());
+        assert_eq!(command.span.slice(input), "[[ -n \"$x\" ]]");
+    }
+
+    #[test]
+    fn test_posix_function_allows_arithmetic_body() {
+        let input = "f() (( x + 1 ))\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let Command::Compound(CompoundCommand::Arithmetic(command), redirects) =
+            function.body.as_ref()
+        else {
+            panic!("expected arithmetic function body");
+        };
+
+        assert!(!function.uses_function_keyword());
+        assert!(function.has_name_parens());
+        assert!(redirects.is_empty());
+        assert_eq!(command.span.slice(input), "(( x + 1 ))");
+    }
+
+    #[test]
+    fn test_posix_function_allows_if_body() {
+        let input = "f() if true; then :; fi\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let Command::Compound(CompoundCommand::If(_), redirects) = function.body.as_ref() else {
+            panic!("expected if function body");
+        };
+
+        assert!(!function.uses_function_keyword());
+        assert!(function.has_name_parens());
+        assert!(redirects.is_empty());
+    }
+
+    #[test]
+    fn test_function_keyword_allows_newline_conditional_body() {
+        let input = "function f()\n[[ -n x ]]\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let Command::Compound(CompoundCommand::Conditional(command), redirects) =
+            function.body.as_ref()
+        else {
+            panic!("expected conditional function body");
+        };
+
+        assert!(function.uses_function_keyword());
+        assert!(function.has_name_parens());
+        assert!(redirects.is_empty());
+        assert_eq!(command.span.slice(input), "[[ -n x ]]");
+    }
+
+    #[test]
+    fn test_function_keyword_rejects_same_line_conditional_body() {
+        let parser = Parser::new("function f() [[ -n x ]]\n");
+        assert!(
+            parser.parse().is_err(),
+            "same-line conditional body should be rejected for function keyword definitions"
+        );
+    }
+
+    #[test]
+    fn test_function_body_rejects_simple_command() {
+        let parser = Parser::new("f() echo hi\n");
+        assert!(
+            parser.parse().is_err(),
+            "simple command should not be accepted as a function body"
+        );
+    }
+
+    #[test]
+    fn test_function_body_rejects_time_command() {
+        let parser = Parser::new("f() time { :; }\n");
+        assert!(
+            parser.parse().is_err(),
+            "time command should not be accepted as a function body"
+        );
+    }
+
+    #[test]
+    fn test_function_body_rejects_coproc_command() {
+        let parser = Parser::new("f() coproc cat\n");
+        assert!(
+            parser.parse().is_err(),
+            "coproc command should not be accepted as a function body"
+        );
+    }
+
+    #[test]
+    fn test_function_conditional_body_absorbs_trailing_redirect() {
+        let input = "f() [[ -n x ]] >out\n";
+        let script = Parser::new(input).parse().unwrap().script;
+
+        let function = expect_function(&script.commands[0]);
+        let Command::Compound(CompoundCommand::Conditional(_), redirects) = function.body.as_ref()
+        else {
+            panic!("expected conditional function body");
+        };
+
+        assert_eq!(redirects.len(), 1);
+        assert_eq!(redirects[0].kind, RedirectKind::Output);
+        assert_eq!(redirect_word_target(&redirects[0]).render(input), "out");
     }
 
     #[test]

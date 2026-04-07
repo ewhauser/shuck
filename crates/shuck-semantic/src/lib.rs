@@ -1816,6 +1816,20 @@ f
     }
 
     #[test]
+    fn deferred_non_brace_function_bodies_resolve_later_file_scope_bindings() {
+        let source = "f() if true; then echo $X; fi\nX=1\nf\n";
+        let model = model(source);
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "X")
+            .unwrap();
+        let binding = model.resolved_binding(reference.id).unwrap();
+        assert_eq!(binding.span.slice(source), "X");
+    }
+
+    #[test]
     fn top_level_reads_remain_source_order_sensitive() {
         let source = "echo $X\nX=1\n";
         let model = model(source);
