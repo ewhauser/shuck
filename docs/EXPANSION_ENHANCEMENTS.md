@@ -236,10 +236,10 @@ This should extend the current substitution-intent logic rather than replace it.
 
 Action items:
 
-- [ ] Add a redirect-target classifier under `rules/common`.
-- [ ] Teach the classifier about descriptor duplication versus file redirection.
-- [ ] Model "not statically literal" separately from "definitely not `/dev/null`".
-- [ ] Add regressions for redirected substitutions, numeric dup targets, and words that may fan out into multiple redirect fields.
+- [x] Add a redirect-target classifier under `rules/common`.
+- [x] Teach the classifier about descriptor duplication versus file redirection.
+- [x] Model "not statically literal" separately from "definitely not `/dev/null`".
+- [x] Add regressions for redirected substitutions, numeric dup targets, and words that may fan out into multiple redirect fields.
 
 gbash references:
 

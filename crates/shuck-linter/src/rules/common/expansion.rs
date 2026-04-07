@@ -1,7 +1,13 @@
-use shuck_ast::{RedirectKind, SourceText, Span, SubscriptSelector, Word, WordPart, WordPartNode};
+use std::collections::HashMap;
+
+use shuck_ast::{
+    Redirect, RedirectKind, SourceText, Span, SubscriptSelector, Word, WordPart, WordPartNode,
+};
 use shuck_parser::parser::Parser;
 
+use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
 use super::span;
+use super::word::static_word_text;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExpansionContext {
@@ -83,6 +89,7 @@ pub struct ExpansionHazards {
     pub brace_fanout: bool,
     pub runtime_pattern: bool,
     pub command_or_process_substitution: bool,
+    pub arithmetic_expansion: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +145,99 @@ impl ExpansionAnalysis {
             (false, true) => WordExpansionKind::Array,
             (true, true) => WordExpansionKind::Mixed,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedirectTargetKind {
+    File,
+    DescriptorDup,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedirectDevNullStatus {
+    DefinitelyDevNull,
+    DefinitelyNotDevNull,
+    MaybeDevNull,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RedirectTargetAnalysis {
+    pub kind: RedirectTargetKind,
+    pub dev_null_status: Option<RedirectDevNullStatus>,
+    pub numeric_descriptor_target: Option<i32>,
+    pub expansion: ExpansionAnalysis,
+}
+
+impl RedirectTargetAnalysis {
+    pub fn is_descriptor_dup(self) -> bool {
+        matches!(self.kind, RedirectTargetKind::DescriptorDup)
+    }
+
+    pub fn is_file_target(self) -> bool {
+        matches!(self.kind, RedirectTargetKind::File)
+    }
+
+    pub fn is_definitely_dev_null(self) -> bool {
+        matches!(
+            self.dev_null_status,
+            Some(RedirectDevNullStatus::DefinitelyDevNull)
+        )
+    }
+
+    pub fn is_definitely_not_dev_null(self) -> bool {
+        matches!(
+            self.dev_null_status,
+            Some(RedirectDevNullStatus::DefinitelyNotDevNull)
+        )
+    }
+
+    pub fn is_runtime_sensitive(self) -> bool {
+        self.expansion.literalness == WordLiteralness::Expanded
+            || matches!(
+                self.dev_null_status,
+                Some(RedirectDevNullStatus::MaybeDevNull)
+            )
+    }
+
+    pub fn can_expand_to_multiple_fields(self) -> bool {
+        self.expansion.can_expand_to_multiple_fields
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubstitutionOutputIntent {
+    Captured,
+    Discarded,
+    Rerouted,
+    Mixed,
+}
+
+impl SubstitutionOutputIntent {
+    fn merge(self, other: Self) -> Self {
+        if self == other { self } else { Self::Mixed }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubstitutionClassification {
+    pub kind: CommandSubstitutionKind,
+    pub span: Span,
+    pub stdout_intent: SubstitutionOutputIntent,
+    pub has_stdout_redirect: bool,
+}
+
+impl SubstitutionClassification {
+    pub fn stdout_is_captured(self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Captured
+    }
+
+    pub fn stdout_is_discarded(self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Discarded
+    }
+
+    pub fn stdout_is_rerouted(self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Rerouted
     }
 }
 
@@ -225,6 +325,79 @@ pub fn analyze_source_text_operand(text: &SourceText, source: &str) -> SourceTex
     SourceTextExpansionAnalysis { expansion_spans }
 }
 
+pub fn analyze_redirect_target(
+    redirect: &Redirect,
+    source: &str,
+) -> Option<RedirectTargetAnalysis> {
+    let target = redirect.word_target()?;
+    let expansion = analyze_word(target, source);
+
+    let (kind, dev_null_status, numeric_descriptor_target) = match redirect.kind {
+        RedirectKind::DupOutput | RedirectKind::DupInput => (
+            RedirectTargetKind::DescriptorDup,
+            None,
+            static_word_text(target, source).and_then(|text| text.parse::<i32>().ok()),
+        ),
+        RedirectKind::HereDoc | RedirectKind::HereDocStrip => return None,
+        RedirectKind::HereString
+        | RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::OutputBoth => (
+            RedirectTargetKind::File,
+            Some(
+                if static_word_text(target, source).as_deref() == Some("/dev/null") {
+                    RedirectDevNullStatus::DefinitelyDevNull
+                } else if expansion.is_fixed_literal() {
+                    RedirectDevNullStatus::DefinitelyNotDevNull
+                } else {
+                    RedirectDevNullStatus::MaybeDevNull
+                },
+            ),
+            None,
+        ),
+    };
+
+    Some(RedirectTargetAnalysis {
+        kind,
+        dev_null_status,
+        numeric_descriptor_target,
+        expansion,
+    })
+}
+
+pub fn classify_substitution(
+    substitution: NestedCommandSubstitution<'_>,
+    source: &str,
+) -> SubstitutionClassification {
+    let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
+    let mut has_stdout_redirect = false;
+
+    query::walk_commands(
+        substitution.commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+        &mut |command, _| {
+            let state = classify_command_redirects(query::command_redirects(command), source);
+            has_stdout_redirect |= state.has_stdout_redirect;
+            stdout_intent = Some(match stdout_intent {
+                Some(current) => current.merge(state.stdout_intent),
+                None => state.stdout_intent,
+            });
+        },
+    );
+
+    SubstitutionClassification {
+        kind: substitution.kind,
+        span: substitution.span,
+        stdout_intent: stdout_intent.unwrap_or(SubstitutionOutputIntent::Captured),
+        has_stdout_redirect,
+    }
+}
+
 fn source_text_span_is_active(source: &str, span: Span) -> bool {
     if !span.slice(source).starts_with('$') {
         return true;
@@ -240,6 +413,94 @@ fn source_text_span_is_active(source: &str, span: Span) -> bool {
     }
 
     backslashes.is_multiple_of(2)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputSink {
+    Captured,
+    DevNull,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RedirectState {
+    stdout_intent: SubstitutionOutputIntent,
+    has_stdout_redirect: bool,
+}
+
+fn classify_command_redirects(redirects: &[Redirect], source: &str) -> RedirectState {
+    let mut fds = HashMap::from([(1, OutputSink::Captured), (2, OutputSink::Other)]);
+    let mut has_stdout_redirect = false;
+
+    for redirect in redirects {
+        match redirect.kind {
+            RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
+                let sink = redirect_file_sink(redirect, source);
+                let fd = redirect.fd.unwrap_or(1);
+                has_stdout_redirect |= fd == 1;
+                fds.insert(fd, sink);
+            }
+            RedirectKind::OutputBoth => {
+                let sink = redirect_file_sink(redirect, source);
+                has_stdout_redirect = true;
+                fds.insert(1, sink);
+                fds.insert(2, sink);
+            }
+            RedirectKind::DupOutput => {
+                let fd = redirect.fd.unwrap_or(1);
+                let sink = redirect_dup_output_sink(redirect, &fds, source);
+                has_stdout_redirect |= fd == 1;
+                fds.insert(fd, sink);
+            }
+            RedirectKind::Input
+            | RedirectKind::ReadWrite
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::DupInput => {}
+        }
+    }
+
+    let stdout_sink = *fds.get(&1).unwrap_or(&OutputSink::Other);
+    let stderr_sink = *fds.get(&2).unwrap_or(&OutputSink::Other);
+    let stdout_intent = if matches!(stdout_sink, OutputSink::Captured)
+        || matches!(stderr_sink, OutputSink::Captured)
+    {
+        SubstitutionOutputIntent::Captured
+    } else if matches!(stdout_sink, OutputSink::DevNull) {
+        SubstitutionOutputIntent::Discarded
+    } else {
+        SubstitutionOutputIntent::Rerouted
+    };
+
+    RedirectState {
+        stdout_intent,
+        has_stdout_redirect,
+    }
+}
+
+fn redirect_file_sink(redirect: &Redirect, source: &str) -> OutputSink {
+    match analyze_redirect_target(redirect, source) {
+        Some(analysis) if analysis.is_definitely_dev_null() => OutputSink::DevNull,
+        Some(_) => OutputSink::Other,
+        None => OutputSink::Other,
+    }
+}
+
+fn redirect_dup_output_sink(
+    redirect: &Redirect,
+    fds: &HashMap<i32, OutputSink>,
+    source: &str,
+) -> OutputSink {
+    let Some(analysis) = analyze_redirect_target(redirect, source) else {
+        return OutputSink::Other;
+    };
+
+    let Some(fd) = analysis.numeric_descriptor_target else {
+        return OutputSink::Other;
+    };
+
+    *fds.get(&fd).unwrap_or(&OutputSink::Other)
 }
 
 fn analyze_parts(
@@ -268,6 +529,7 @@ fn analyze_parts(
                 summary.hazards.runtime_pattern |= analysis.hazards.runtime_pattern;
                 summary.hazards.command_or_process_substitution |=
                     analysis.hazards.command_or_process_substitution;
+                summary.hazards.arithmetic_expansion |= analysis.hazards.arithmetic_expansion;
                 summary.command_substitution_count += usize::from(analysis.command_substitution);
                 summary.has_process_substitution |= analysis.process_substitution;
             }
@@ -306,6 +568,7 @@ fn analyze_part(part: &WordPart, span: Span, source: &str, in_double_quotes: boo
             ExpansionHazards {
                 field_splitting: !in_double_quotes,
                 pathname_matching: !in_double_quotes,
+                arithmetic_expansion: matches!(part, WordPart::ArithmeticExpansion { .. }),
                 ..ExpansionHazards::default()
             },
             false,
@@ -475,9 +738,11 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        ExpansionAnalysis, ExpansionValueShape, WordLiteralness, WordQuote,
-        analyze_source_text_operand, analyze_word,
+        ExpansionAnalysis, ExpansionValueShape, RedirectDevNullStatus, SubstitutionOutputIntent,
+        WordLiteralness, WordQuote, analyze_redirect_target, analyze_source_text_operand,
+        analyze_word, classify_substitution,
     };
+    use crate::rules::common::query::iter_word_command_substitutions;
 
     fn parse_argument_words(source: &str) -> Vec<shuck_ast::Word> {
         let commands = Parser::new(source).parse().unwrap().script.commands;
@@ -648,5 +913,153 @@ replaced=${value/pat/prefix$replacement}
                 .collect::<Vec<_>>(),
             vec!["$replacement"]
         );
+    }
+
+    #[test]
+    fn analyze_redirect_target_distinguishes_descriptor_dups_and_dev_null() {
+        let static_dup_source = "echo hi 2>&3\n";
+        let static_dup_command = Parser::new(static_dup_source)
+            .parse()
+            .unwrap()
+            .script
+            .commands;
+        let Command::Simple(static_dup_simple) = &static_dup_command[0] else {
+            panic!("expected simple command");
+        };
+        let static_dup =
+            analyze_redirect_target(&static_dup_simple.redirects[0], static_dup_source)
+                .expect("expected redirect analysis");
+        assert!(static_dup.is_descriptor_dup());
+        assert_eq!(static_dup.numeric_descriptor_target, Some(3));
+        assert!(!static_dup.is_runtime_sensitive());
+
+        let file_source = "echo hi > /dev/null\n";
+        let file_command = Parser::new(file_source).parse().unwrap().script.commands;
+        let Command::Simple(file_simple) = &file_command[0] else {
+            panic!("expected simple command");
+        };
+        let file = analyze_redirect_target(&file_simple.redirects[0], file_source)
+            .expect("expected redirect analysis");
+        assert!(file.is_file_target());
+        assert!(file.is_definitely_dev_null());
+        assert!(!file.is_runtime_sensitive());
+
+        let maybe_source = "echo hi > \"$target\"\n";
+        let maybe_command = Parser::new(maybe_source).parse().unwrap().script.commands;
+        let Command::Simple(maybe_simple) = &maybe_command[0] else {
+            panic!("expected simple command");
+        };
+        let maybe = analyze_redirect_target(&maybe_simple.redirects[0], maybe_source)
+            .expect("expected redirect analysis");
+        assert!(maybe.is_file_target());
+        assert_eq!(
+            maybe.dev_null_status,
+            Some(RedirectDevNullStatus::MaybeDevNull)
+        );
+        assert!(maybe.is_runtime_sensitive());
+
+        let fanout_source = "echo hi > ${targets[@]}\n";
+        let fanout_command = Parser::new(fanout_source).parse().unwrap().script.commands;
+        let Command::Simple(fanout_simple) = &fanout_command[0] else {
+            panic!("expected simple command");
+        };
+        let fanout = analyze_redirect_target(&fanout_simple.redirects[0], fanout_source)
+            .expect("expected redirect analysis");
+        assert!(fanout.can_expand_to_multiple_fields());
+        assert!(fanout.is_runtime_sensitive());
+    }
+
+    #[test]
+    fn classify_substitution_reports_stdout_intent_and_redirects() {
+        let cases = [
+            (
+                "out=$(printf hi)\n",
+                SubstitutionOutputIntent::Captured,
+                false,
+            ),
+            (
+                "out=$(printf hi > out.txt)\n",
+                SubstitutionOutputIntent::Rerouted,
+                true,
+            ),
+            (
+                "out=$(printf hi >/dev/null 2>&1)\n",
+                SubstitutionOutputIntent::Discarded,
+                true,
+            ),
+            (
+                "out=$(whiptail 3>&1 1>&2 2>&3)\n",
+                SubstitutionOutputIntent::Captured,
+                true,
+            ),
+            (
+                "out=$(jq -r . <<< \"$status\" || die >&2)\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(awk 'BEGIN { print \"ok\" }' || warn >&2)\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(getopt -o a -- \"$@\" || { usage >&2 && false; })\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(\"${cmd[@]}\" \"${options[@]}\" 2>&1 >/dev/tty)\n",
+                SubstitutionOutputIntent::Captured,
+                true,
+            ),
+            (
+                "out=$(cat <<'EOF'\nhello\nEOF\n)\n",
+                SubstitutionOutputIntent::Captured,
+                false,
+            ),
+            (
+                "out=$(printf quiet >/dev/null; printf loud)\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(printf quiet >/dev/null; printf loud > out.txt)\n",
+                SubstitutionOutputIntent::Mixed,
+                true,
+            ),
+            (
+                "out=$(printf hi > \"$target\")\n",
+                SubstitutionOutputIntent::Rerouted,
+                true,
+            ),
+            (
+                "out=$(printf hi > ${targets[@]})\n",
+                SubstitutionOutputIntent::Rerouted,
+                true,
+            ),
+            (
+                "out=$(printf hi 2>&\"$fd\")\n",
+                SubstitutionOutputIntent::Captured,
+                false,
+            ),
+        ];
+
+        for (source, expected_intent, expected_redirect) in cases {
+            let commands = Parser::new(source).parse().unwrap().script.commands;
+            let Command::Simple(command) = &commands[0] else {
+                panic!("expected simple command");
+            };
+            let substitution =
+                iter_word_command_substitutions(match &command.assignments[0].value {
+                    shuck_ast::AssignmentValue::Scalar(word) => word,
+                    shuck_ast::AssignmentValue::Compound(_) => panic!("expected scalar assignment"),
+                })
+                .next()
+                .expect("expected command substitution");
+
+            let classification = classify_substitution(substitution, source);
+            assert_eq!(classification.stdout_intent, expected_intent);
+            assert_eq!(classification.has_stdout_redirect, expected_redirect);
+        }
     }
 }

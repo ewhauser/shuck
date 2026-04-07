@@ -1,5 +1,4 @@
-use shuck_ast::WordPart;
-
+use crate::rules::common::expansion::analyze_redirect_target;
 use crate::rules::common::query::{self, CommandWalkOptions, visit_command_redirects};
 use crate::{Checker, Rule, Violation};
 
@@ -29,10 +28,8 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
                     return;
                 };
 
-                if target
-                    .parts
-                    .iter()
-                    .any(|part| contains_arithmetic_expansion(&part.kind))
+                if analyze_redirect_target(redirect, checker.source())
+                    .is_some_and(|analysis| analysis.expansion.hazards.arithmetic_expansion)
                 {
                     spans.push(target.span);
                 }
@@ -45,12 +42,30 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
     }
 }
 
-fn contains_arithmetic_expansion(part: &WordPart) -> bool {
-    match part {
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| contains_arithmetic_expansion(&part.kind)),
-        WordPart::ArithmeticExpansion { .. } => true,
-        _ => false,
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_redirect_targets_with_arithmetic_expansion() {
+        let source = "\
+#!/bin/bash
+echo hi > \"$((i++))\"
+echo hi > \"$target\"
+echo hi > out.txt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArithmeticRedirectionTarget),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
     }
 }

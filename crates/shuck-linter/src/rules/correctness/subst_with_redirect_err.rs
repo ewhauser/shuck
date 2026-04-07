@@ -1,7 +1,7 @@
+use crate::rules::common::expansion::classify_substitution;
 use crate::rules::common::query::{
     self, CommandSubstitutionKind, CommandWalkOptions, visit_command_words,
 };
-use crate::rules::common::word::classify_substitution;
 use crate::{Checker, Rule, Violation};
 
 pub struct SubstWithRedirectErr;
@@ -63,6 +63,9 @@ choice=$(\"${cmd[@]}\" \"${options[@]}\" 2>&1 >/dev/tty)
 out=$(printf quiet >/dev/null; printf loud)
 out=$(printf hi >/dev/null 2>&1)
 out=$(printf hi 1>/dev/null)
+out=$(printf hi > \"$target\")
+out=$(printf hi > ${targets[@]})
+out=$(printf hi 2>&\"$fd\")
 ";
         let diagnostics = test_snippet(
             source,
