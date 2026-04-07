@@ -165,7 +165,7 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
 }
 
 pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
-    if let Some("sh" | "bash" | "zsh" | "ksh") = path
+    if let Some("sh" | "bash" | "zsh" | "ksh" | "dash" | "mksh") = path
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())

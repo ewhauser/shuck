@@ -3,17 +3,17 @@ use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
 use shuck_formatter::{
-    FormatError, FormattedSource, FormatterSettings, IndentStyle, LineEnding, QuoteStyle,
-    format_source,
+    FormatError, FormattedSource, IndentStyle, ShellDialect, ShellFormatOptions, format_source,
 };
 use similar::TextDiff;
 
 use crate::ExitStatus;
 use crate::args::FormatCommand;
+use crate::config::load_project_config;
 use crate::discover::{DiscoveredFile, ProjectRoot};
 use crate::format_resolver::resolve_format_files;
 
@@ -72,19 +72,33 @@ impl FormatMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EffectiveFormatSettings {
-    line_width: u16,
+    dialect: ShellDialect,
     indent_style: IndentStyle,
-    quote_style: QuoteStyle,
-    line_ending: LineEnding,
+    indent_width: u8,
+    binary_next_line: bool,
+    switch_case_indent: bool,
+    space_redirects: bool,
+    keep_padding: bool,
+    function_next_line: bool,
+    never_split: bool,
+    simplify: bool,
+    minify: bool,
 }
 
-impl From<&FormatterSettings> for EffectiveFormatSettings {
-    fn from(settings: &FormatterSettings) -> Self {
+impl From<&ShellFormatOptions> for EffectiveFormatSettings {
+    fn from(settings: &ShellFormatOptions) -> Self {
         Self {
-            line_width: settings.line_width,
-            indent_style: settings.indent_style,
-            quote_style: settings.quote_style,
-            line_ending: settings.line_ending,
+            dialect: settings.dialect(),
+            indent_style: settings.indent_style(),
+            indent_width: settings.indent_width(),
+            binary_next_line: settings.binary_next_line(),
+            switch_case_indent: settings.switch_case_indent(),
+            space_redirects: settings.space_redirects(),
+            keep_padding: settings.keep_padding(),
+            function_next_line: settings.function_next_line(),
+            never_split: settings.never_split(),
+            simplify: settings.simplify(),
+            minify: settings.minify(),
         }
     }
 }
@@ -92,10 +106,17 @@ impl From<&FormatterSettings> for EffectiveFormatSettings {
 impl CacheKey for EffectiveFormatSettings {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         state.write_tag(b"effective-format-settings");
-        state.write_u64(u64::from(self.line_width));
+        state.write_u8(shell_dialect_key(self.dialect));
         state.write_u8(indent_style_key(self.indent_style));
-        state.write_u8(quote_style_key(self.quote_style));
-        state.write_u8(line_ending_key(self.line_ending));
+        state.write_u8(self.indent_width);
+        state.write_bool(self.binary_next_line);
+        state.write_bool(self.switch_case_indent);
+        state.write_bool(self.space_redirects);
+        state.write_bool(self.keep_padding);
+        state.write_bool(self.function_next_line);
+        state.write_bool(self.never_split);
+        state.write_bool(self.simplify);
+        state.write_bool(self.minify);
     }
 }
 
@@ -115,7 +136,7 @@ impl CacheKey for ProjectCacheKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum FormatCacheData {
-    Success,
+    Unchanged,
     ParseError(ParseCacheFailure),
 }
 
@@ -183,15 +204,14 @@ fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Re
             .or_default()
             .push(file);
     }
-
-    let settings = FormatterSettings::default();
-    let effective_settings = EffectiveFormatSettings::from(&settings);
     let mut report = FormatReport::default();
 
     for (project_root, files) in groups {
+        let settings = resolve_project_format_options(args, &project_root.storage_root)?;
+        let effective_settings = EffectiveFormatSettings::from(&settings);
         let cache_key = ProjectCacheKey {
             canonical_project_root: project_root.canonical_root.clone(),
-            settings: effective_settings.clone(),
+            settings: effective_settings,
         };
         let mut cache = if args.no_cache {
             None
@@ -224,7 +244,9 @@ fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Re
             let source = fs::read_to_string(&file.absolute_path)?;
             let (cached_result, cached_key) =
                 match format_source(&source, Some(&file.absolute_path), &settings) {
-                    Ok(FormattedSource::Unchanged) => (FormatCacheData::Success, file_key.clone()),
+                    Ok(FormattedSource::Unchanged) => {
+                        (Some(FormatCacheData::Unchanged), file_key.clone())
+                    }
                     Ok(FormattedSource::Formatted(formatted)) => {
                         report.changed_files.push(file.display_path.clone());
                         match mode {
@@ -247,7 +269,10 @@ fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Re
                         } else {
                             file_key.clone()
                         };
-                        (FormatCacheData::Success, cache_key)
+                        let cache_result = mode
+                            .is_write()
+                            .then_some(FormatCacheData::Unchanged);
+                        (cache_result, cache_key)
                     }
                     Err(FormatError::Parse {
                         message,
@@ -262,17 +287,20 @@ fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Re
                         });
 
                         (
-                            FormatCacheData::ParseError(ParseCacheFailure {
+                            Some(FormatCacheData::ParseError(ParseCacheFailure {
                                 message,
                                 line,
                                 column,
-                            }),
+                            })),
                             file_key.clone(),
                         )
                     }
+                    Err(FormatError::Internal(message)) => return Err(anyhow!(message)),
                 };
 
-            if let Some(cache) = cache.as_mut() {
+            if let Some(cache) = cache.as_mut()
+                && let Some(cached_result) = cached_result
+            {
                 cache.insert(file.relative_path, cached_key, cached_result);
             }
             report.cache_misses += 1;
@@ -294,6 +322,55 @@ fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Re
     Ok(report)
 }
 
+pub(crate) fn resolve_project_format_options(
+    args: &FormatCommand,
+    project_root: &Path,
+) -> Result<ShellFormatOptions> {
+    let config = load_project_config(project_root)?;
+    let options = config.format.apply_to(ShellFormatOptions::default())?;
+    apply_cli_overrides(args, options)
+}
+
+fn apply_cli_overrides(
+    args: &FormatCommand,
+    mut options: ShellFormatOptions,
+) -> Result<ShellFormatOptions> {
+    if let Some(dialect) = args.dialect {
+        options = options.with_dialect(dialect.into());
+    }
+    if let Some(indent_style) = args.indent_style {
+        options = options.with_indent_style(indent_style.into());
+    }
+    if let Some(indent_width) = args.indent_width {
+        if indent_width == 0 {
+            return Err(anyhow!("`--indent-width` must be at least 1"));
+        }
+        options = options.with_indent_width(indent_width);
+    }
+    if let Some(binary_next_line) = args.binary_next_line() {
+        options = options.with_binary_next_line(binary_next_line);
+    }
+    if let Some(switch_case_indent) = args.switch_case_indent() {
+        options = options.with_switch_case_indent(switch_case_indent);
+    }
+    if let Some(space_redirects) = args.space_redirects() {
+        options = options.with_space_redirects(space_redirects);
+    }
+    if let Some(keep_padding) = args.keep_padding() {
+        options = options.with_keep_padding(keep_padding);
+    }
+    if let Some(function_next_line) = args.function_next_line() {
+        options = options.with_function_next_line(function_next_line);
+    }
+    if let Some(never_split) = args.never_split() {
+        options = options.with_never_split(never_split);
+    }
+
+    Ok(options
+        .with_simplify(args.simplify)
+        .with_minify(args.minify))
+}
+
 const fn indent_style_key(style: IndentStyle) -> u8 {
     match style {
         IndentStyle::Space => 0,
@@ -301,20 +378,12 @@ const fn indent_style_key(style: IndentStyle) -> u8 {
     }
 }
 
-const fn quote_style_key(style: QuoteStyle) -> u8 {
-    match style {
-        QuoteStyle::Preserve => 0,
-        QuoteStyle::Single => 1,
-        QuoteStyle::Double => 2,
-    }
-}
-
-const fn line_ending_key(line_ending: LineEnding) -> u8 {
-    match line_ending {
-        LineEnding::Auto => 0,
-        LineEnding::Lf => 1,
-        LineEnding::CrLf => 2,
-        LineEnding::Native => 3,
+const fn shell_dialect_key(dialect: ShellDialect) -> u8 {
+    match dialect {
+        ShellDialect::Auto => 0,
+        ShellDialect::Bash => 1,
+        ShellDialect::Posix => 2,
+        ShellDialect::Mksh => 3,
     }
 }
 
@@ -334,6 +403,23 @@ mod tests {
             no_cache,
             stdin_filename: None,
             exclude: Vec::new(),
+            dialect: None,
+            indent_style: None,
+            indent_width: None,
+            binary_next_line: false,
+            no_binary_next_line: false,
+            switch_case_indent: false,
+            no_switch_case_indent: false,
+            space_redirects: false,
+            no_space_redirects: false,
+            keep_padding: false,
+            no_keep_padding: false,
+            function_next_line: false,
+            no_function_next_line: false,
+            never_split: false,
+            no_never_split: false,
+            simplify: false,
+            minify: false,
             respect_gitignore: false,
             no_respect_gitignore: false,
             force_exclude: false,

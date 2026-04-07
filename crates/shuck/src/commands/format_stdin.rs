@@ -1,12 +1,15 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
-use shuck_formatter::{FormatError, FormattedSource, FormatterSettings, format_source};
+use anyhow::{Result, anyhow};
+use shuck_formatter::{FormatError, FormattedSource, format_source};
 
 use crate::ExitStatus;
 use crate::args::FormatCommand;
-use crate::commands::format::{FormatMode, unified_diff, write_parse_error_line};
+use crate::commands::format::{
+    FormatMode, resolve_project_format_options, unified_diff, write_parse_error_line,
+};
+use crate::config::{resolve_project_root_for_file, resolve_project_root_for_input};
 use crate::stdin::read_from_stdin;
 
 pub(crate) fn format_stdin(args: FormatCommand) -> Result<ExitStatus> {
@@ -14,8 +17,11 @@ pub(crate) fn format_stdin(args: FormatCommand) -> Result<ExitStatus> {
     let source = read_from_stdin()?;
     let path = args.stdin_filename.as_deref();
     let display_path = display_path(path);
+    let cwd = std::env::current_dir()?;
+    let project_root = stdin_project_root(path, &cwd)?;
+    let options = resolve_project_format_options(&args, &project_root)?;
 
-    match format_source(&source, path, &FormatterSettings::default()) {
+    match format_source(&source, path, &options) {
         Ok(FormattedSource::Unchanged) => {
             if mode.is_write() {
                 let mut stdout = io::stdout().lock();
@@ -49,10 +55,25 @@ pub(crate) fn format_stdin(args: FormatCommand) -> Result<ExitStatus> {
             write_parse_error_line(&mut stdout, &display_path, line, column, &message)?;
             Ok(ExitStatus::Error)
         }
+        Err(FormatError::Internal(message)) => Err(anyhow!(message)),
     }
 }
 
 fn display_path(path: Option<&Path>) -> PathBuf {
     path.map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("<stdin>"))
+}
+
+fn stdin_project_root(path: Option<&Path>, cwd: &Path) -> Result<PathBuf> {
+    match path {
+        Some(path) => {
+            let path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                cwd.join(path)
+            };
+            Ok(resolve_project_root_for_file(&path, cwd)?)
+        }
+        None => Ok(resolve_project_root_for_input(cwd)?),
+    }
 }

@@ -678,7 +678,7 @@ pub struct CaseCommand {
 }
 
 /// Terminator for a case item.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CaseTerminator {
     /// `;;` — stop matching
     Break,

@@ -58,6 +58,24 @@ pub struct ParseOutput {
     pub comments: Vec<Comment>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ShellDialect {
+    Posix,
+    Mksh,
+    #[default]
+    Bash,
+}
+
+impl ShellDialect {
+    pub fn from_name(name: &str) -> Self {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "sh" | "dash" | "ksh" | "posix" => Self::Posix,
+            "mksh" => Self::Mksh,
+            _ => Self::Bash,
+        }
+    }
+}
+
 /// Parser for bash scripts.
 #[derive(Clone)]
 pub struct Parser<'a> {
@@ -90,6 +108,7 @@ pub struct Parser<'a> {
     /// Whether the next fetched word is eligible for alias expansion because
     /// the previous alias expansion ended with trailing whitespace.
     expand_next_word: bool,
+    dialect: ShellDialect,
 }
 
 /// A parser diagnostic emitted while recovering from invalid input.
@@ -274,17 +293,42 @@ const IF_BODY_TERMINATORS: KeywordSet = keyword_set![Elif, Else, Fi];
 impl<'a> Parser<'a> {
     /// Create a new parser for the given input.
     pub fn new(input: &'a str) -> Self {
-        Self::with_limits(input, DEFAULT_MAX_AST_DEPTH, DEFAULT_MAX_PARSER_OPERATIONS)
+        Self::with_limits_and_dialect(
+            input,
+            DEFAULT_MAX_AST_DEPTH,
+            DEFAULT_MAX_PARSER_OPERATIONS,
+            ShellDialect::Bash,
+        )
+    }
+
+    /// Create a new parser for the given input and shell dialect.
+    pub fn with_dialect(input: &'a str, dialect: ShellDialect) -> Self {
+        Self::with_limits_and_dialect(
+            input,
+            DEFAULT_MAX_AST_DEPTH,
+            DEFAULT_MAX_PARSER_OPERATIONS,
+            dialect,
+        )
     }
 
     /// Create a new parser with a custom maximum AST depth.
     pub fn with_max_depth(input: &'a str, max_depth: usize) -> Self {
-        Self::with_limits(input, max_depth, DEFAULT_MAX_PARSER_OPERATIONS)
+        Self::with_limits_and_dialect(
+            input,
+            max_depth,
+            DEFAULT_MAX_PARSER_OPERATIONS,
+            ShellDialect::Bash,
+        )
     }
 
     /// Create a new parser with a custom fuel limit.
     pub fn with_fuel(input: &'a str, max_fuel: usize) -> Self {
-        Self::with_limits(input, DEFAULT_MAX_AST_DEPTH, max_fuel)
+        Self::with_limits_and_dialect(
+            input,
+            DEFAULT_MAX_AST_DEPTH,
+            max_fuel,
+            ShellDialect::Bash,
+        )
     }
 
     /// Create a new parser with custom depth and fuel limits.
@@ -293,6 +337,16 @@ impl<'a> Parser<'a> {
     /// to prevent stack overflow from misconfiguration. Even if the caller passes
     /// `max_depth = 1_000_000`, the parser will cap it at 500.
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
+        Self::with_limits_and_dialect(input, max_depth, max_fuel, ShellDialect::Bash)
+    }
+
+    /// Create a new parser with custom depth, fuel, and dialect settings.
+    pub fn with_limits_and_dialect(
+        input: &'a str,
+        max_depth: usize,
+        max_fuel: usize,
+        dialect: ShellDialect,
+    ) -> Self {
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
         let mut comments = Vec::new();
         let (current_token, current_token_kind, current_keyword, current_span) = loop {
@@ -332,7 +386,12 @@ impl<'a> Parser<'a> {
             aliases: HashMap::new(),
             expand_aliases: false,
             expand_next_word: false,
+            dialect,
         }
+    }
+
+    pub fn dialect(&self) -> ShellDialect {
+        self.dialect
     }
 
     /// Get the current token's span.
@@ -730,7 +789,8 @@ impl<'a> Parser<'a> {
 
     fn nested_commands_from_source(&mut self, source: &str, base: Position) -> Vec<Command> {
         let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
-        let inner_parser = Parser::with_limits(source, remaining_depth, self.fuel);
+        let inner_parser =
+            Parser::with_limits_and_dialect(source, remaining_depth, self.fuel, self.dialect);
         match inner_parser.parse() {
             Ok(mut output) => {
                 let base_offset = TextSize::new(base.offset as u32);
@@ -1551,6 +1611,22 @@ impl<'a> Parser<'a> {
             self.current_span.start.line,
             self.current_span.start.column,
         )
+    }
+
+    fn ensure_bash_or_mksh(&self, feature: &str) -> Result<()> {
+        if matches!(self.dialect, ShellDialect::Posix) {
+            Err(self.error(format!("{feature} is not available in POSIX shell mode")))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn ensure_bash_only(&self, feature: &str) -> Result<()> {
+        if matches!(self.dialect, ShellDialect::Bash) {
+            Ok(())
+        } else {
+            Err(self.error(format!("{feature} is only available in Bash mode")))
+        }
     }
 
     /// Consume one unit of fuel, returning an error if exhausted
@@ -2869,6 +2945,7 @@ impl<'a> Parser<'a> {
 
     /// Parse select loop: select var in list; do body; done
     fn parse_select(&mut self) -> Result<CompoundCommand> {
+        self.ensure_bash_or_mksh("select loops")?;
         let start_span = self.current_span;
         self.push_depth()?;
         self.advance(); // consume 'select'
@@ -2941,6 +3018,7 @@ impl<'a> Parser<'a> {
     /// Parse C-style arithmetic for loop inner: for ((init; cond; step)); do body; done
     /// Note: depth tracking is done by parse_for which calls this
     fn parse_arithmetic_for_inner(&mut self, start_span: Span) -> Result<CompoundCommand> {
+        self.ensure_bash_only("c-style for loops")?;
         let left_paren_span = self.current_span;
         self.advance(); // consume '(('
 
@@ -3260,6 +3338,7 @@ impl<'a> Parser<'a> {
     /// name. Otherwise the command starts immediately and the default name
     /// "COPROC" is used.
     fn parse_coproc(&mut self) -> Result<CompoundCommand> {
+        self.ensure_bash_only("coprocess commands")?;
         let start_span = self.current_span;
         self.advance(); // consume 'coproc'
         self.skip_newlines()?;
@@ -3399,6 +3478,7 @@ impl<'a> Parser<'a> {
     /// Parse arithmetic command ((expression))
     /// Parse [[ conditional expression ]]
     fn parse_conditional(&mut self) -> Result<CompoundCommand> {
+        self.ensure_bash_or_mksh("[[ ]] conditionals")?;
         let left_bracket_span = self.current_span;
         self.advance(); // consume '[['
         self.skip_conditional_newlines();
@@ -3855,6 +3935,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_arithmetic_command(&mut self) -> Result<CompoundCommand> {
+        self.ensure_bash_or_mksh("arithmetic commands")?;
         let left_paren_span = self.current_span;
         self.advance(); // consume '(('
 
@@ -3922,6 +4003,7 @@ impl<'a> Parser<'a> {
 
     /// Parse function definition with 'function' keyword: function name { body }
     fn parse_function_keyword(&mut self) -> Result<Command> {
+        self.ensure_bash_or_mksh("function keyword definitions")?;
         let start_span = self.current_span;
         self.advance(); // consume 'function'
         self.skip_newlines()?;
@@ -8465,5 +8547,42 @@ EOF
                 "heredoc body leaked as comment: {text:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_posix_dialect_rejects_double_bracket_conditionals() {
+        let error = Parser::with_dialect("[[ foo == bar ]]\n", ShellDialect::Posix)
+            .parse()
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::Parse { message, .. } if message.contains("[[ ]] conditionals")
+        ));
+    }
+
+    #[test]
+    fn test_bash_and_mksh_dialects_accept_double_bracket_conditionals() {
+        Parser::with_dialect("[[ foo == bar ]]\n", ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        Parser::with_dialect("[[ foo == bar ]]\n", ShellDialect::Mksh)
+            .parse()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_non_bash_dialects_reject_c_style_for_loops() {
+        let error = Parser::with_dialect(
+            "for ((i=0; i<2; i++)); do echo hi; done\n",
+            ShellDialect::Mksh,
+        )
+        .parse()
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::Parse { message, .. } if message.contains("c-style for loops")
+        ));
     }
 }
