@@ -20,8 +20,11 @@ pub use context::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use facts::{
-    CommandFact, CommandOptionFacts, ExitCommandFacts, FactSpan, FindCommandFacts, LinterFacts,
-    PrintfCommandFacts, ReadCommandFacts, SudoFamilyCommandFacts, SudoFamilyInvoker,
+    CommandFact, CommandOptionFacts, ConditionalBareWordFact, ConditionalBinaryFact,
+    ConditionalFact, ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
+    ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts, LinterFacts,
+    PrintfCommandFacts, ReadCommandFacts, SimpleTestFact, SimpleTestOperatorFamily,
+    SimpleTestShape, SimpleTestSyntax, SudoFamilyCommandFacts, SudoFamilyInvoker,
     UnsetCommandFacts, XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};

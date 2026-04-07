@@ -285,23 +285,23 @@ The test fact family should precompute:
 
 Action items:
 
-- [ ] Add a `SimpleTestFact` that captures `test` and `[ ... ]` operands without
+- [x] Add a `SimpleTestFact` that captures `test` and `[ ... ]` operands without
       each rule re-deriving them.
-- [ ] Add a `ConditionalFact` for `[[ ... ]]` that records unary, binary,
+- [x] Add a `ConditionalFact` for `[[ ... ]]` that records unary, binary,
       regex, pattern, and bare-word shapes.
-- [ ] Cache operand classification for each operand in its effective context.
-- [ ] Carry file-context gates needed by `C022`, including ShellSpec parameter
+- [x] Cache operand classification for each operand in its effective context.
+- [x] Carry file-context gates needed by `C022`, including ShellSpec parameter
       block suppression.
-- [ ] Convert rules that currently call `simple_test_operands()` and then do
+- [x] Convert rules that currently call `simple_test_operands()` and then do
       more local operand analysis.
 
 Rules to migrate onto test and conditional facts:
 
-- [ ] `C009` `QuotedBashRegex`
-- [ ] `C017` `ConstantComparisonTest`
-- [ ] `C019` `LiteralUnaryStringTest`
-- [ ] `C020` `TruthyLiteralTest`
-- [ ] `C022` `EmptyTest`
+- [x] `C009` `QuotedBashRegex`
+- [x] `C017` `ConstantComparisonTest`
+- [x] `C019` `LiteralUnaryStringTest`
+- [x] `C020` `TruthyLiteralTest`
+- [x] `C022` `EmptyTest`
 
 ### Initiative 5: Loop, List, And Pipeline Facts
 
@@ -455,17 +455,17 @@ Needs migration to `LinterFacts`:
 - [ ] `S010` `ExportCommandSubstitution`
 - [ ] `C005` `SingleQuotedLiteral`
 - [ ] `C008` `TrapStringExpansion`
-- [ ] `C009` `QuotedBashRegex`
+- [x] `C009` `QuotedBashRegex`
 - [ ] `C010` `ChainedTestBranches`
 - [ ] `C011` `LineOrientedInput`
 - [ ] `C013` `FindOutputLoop`
 - [ ] `C015` `SudoRedirectionOrder`
-- [ ] `C017` `ConstantComparisonTest`
+- [x] `C017` `ConstantComparisonTest`
 - [ ] `C018` `LoopControlOutsideLoop`
-- [ ] `C019` `LiteralUnaryStringTest`
-- [ ] `C020` `TruthyLiteralTest`
+- [x] `C019` `LiteralUnaryStringTest`
+- [x] `C020` `TruthyLiteralTest`
 - [ ] `C021` `ConstantCaseSubject`
-- [ ] `C022` `EmptyTest`
+- [x] `C022` `EmptyTest`
 - [ ] `C025` `PositionalTenBraces`
 - [ ] `C046` `PipeToKill`
 - [ ] `C047` `InvalidExitStatus`

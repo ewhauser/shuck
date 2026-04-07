@@ -1,14 +1,7 @@
-use shuck_ast::{
-    Command, CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, Word,
+use crate::{
+    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, SimpleTestOperatorFamily,
+    SimpleTestShape, Violation,
 };
-
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::word::{
-    classify_conditional_operand, classify_test_operand, static_word_text,
-};
-use crate::{Checker, Rule, Violation};
-
-use super::syntax::simple_test_operands;
 
 pub struct ConstantComparisonTest;
 
@@ -23,101 +16,53 @@ impl Violation for ConstantComparisonTest {
 }
 
 pub fn constant_comparison_test(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| match visit.command {
-            Command::Simple(command) => {
-                if simple_test_operands(command, source)
-                    .is_some_and(|operands| is_constant_simple_test(operands, source))
-                {
-                    spans.push(command.span);
-                }
-            }
-            Command::Compound(CompoundCommand::Conditional(command))
-                if is_constant_conditional_test(&command.expression, source) =>
-            {
-                spans.push(command.span);
-            }
-            _ => {}
-        },
-    );
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| {
+            fact.simple_test().is_some_and(simple_test_is_constant)
+                || fact.conditional().is_some_and(conditional_is_constant)
+        })
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(ConstantComparisonTest, span);
     }
 }
 
-fn is_constant_simple_test(operands: &[Word], source: &str) -> bool {
-    match operands {
-        [operator, operand] => static_word_text(operator, source).is_some_and(|operator| {
-            is_unary_test_operator(&operator)
-                && classify_test_operand(operand, source).is_fixed_literal()
-        }),
-        [left, operator, right] => static_word_text(operator, source).is_some_and(|operator| {
-            is_string_binary_test_operator(&operator)
-                && classify_test_operand(left, source).is_fixed_literal()
-                && classify_test_operand(right, source).is_fixed_literal()
-        }),
-        _ => false,
+fn simple_test_is_constant(fact: &crate::SimpleTestFact<'_>) -> bool {
+    match fact.shape() {
+        SimpleTestShape::Unary => {
+            fact.operator_family() == SimpleTestOperatorFamily::StringUnary
+                && fact
+                    .unary_operand_class()
+                    .is_some_and(|class| class.is_fixed_literal())
+        }
+        SimpleTestShape::Binary => {
+            fact.operator_family() == SimpleTestOperatorFamily::StringBinary
+                && fact.binary_operand_classes().is_some_and(|(left, right)| {
+                    left.is_fixed_literal() && right.is_fixed_literal()
+                })
+        }
+        SimpleTestShape::Empty | SimpleTestShape::Truthy | SimpleTestShape::Other => false,
     }
 }
 
-fn is_constant_conditional_test(expression: &ConditionalExpr, source: &str) -> bool {
-    match expression {
-        ConditionalExpr::Binary(expression) => {
-            is_string_comparison_binary_op(expression.op)
-                && classify_conditional_operand(expression.left.as_ref(), source).is_fixed_literal()
-                && classify_conditional_operand(expression.right.as_ref(), source)
-                    .is_fixed_literal()
+fn conditional_is_constant(fact: &crate::ConditionalFact<'_>) -> bool {
+    match fact.root() {
+        ConditionalNodeFact::Binary(binary) => {
+            binary.operator_family() == ConditionalOperatorFamily::StringBinary
+                && binary.left().class().is_fixed_literal()
+                && binary.right().class().is_fixed_literal()
         }
-        ConditionalExpr::Unary(expression) => {
-            is_unary_string_test_operator(expression.op)
-                && classify_conditional_operand(expression.expr.as_ref(), source).is_fixed_literal()
+        ConditionalNodeFact::Unary(unary) => {
+            unary.operator_family() == ConditionalOperatorFamily::StringUnary
+                && unary.operand().class().is_fixed_literal()
         }
-        ConditionalExpr::Parenthesized(expression) => {
-            is_constant_conditional_test(&expression.expr, source)
-        }
-        _ => false,
+        ConditionalNodeFact::BareWord(_) | ConditionalNodeFact::Other(_) => false,
     }
-}
-
-fn is_unary_test_operator(operator: &str) -> bool {
-    matches!(operator, "-n" | "-z")
-}
-
-fn is_string_binary_test_operator(operator: &str) -> bool {
-    matches!(operator, "=" | "==" | "!=" | "<" | ">")
-}
-
-fn is_string_comparison_binary_op(operator: ConditionalBinaryOp) -> bool {
-    !matches!(
-        operator,
-        ConditionalBinaryOp::And
-            | ConditionalBinaryOp::Or
-            | ConditionalBinaryOp::RegexMatch
-            | ConditionalBinaryOp::NewerThan
-            | ConditionalBinaryOp::OlderThan
-            | ConditionalBinaryOp::SameFile
-            | ConditionalBinaryOp::ArithmeticEq
-            | ConditionalBinaryOp::ArithmeticNe
-            | ConditionalBinaryOp::ArithmeticLe
-            | ConditionalBinaryOp::ArithmeticGe
-            | ConditionalBinaryOp::ArithmeticLt
-            | ConditionalBinaryOp::ArithmeticGt
-    )
-}
-
-fn is_unary_string_test_operator(operator: ConditionalUnaryOp) -> bool {
-    matches!(
-        operator,
-        ConditionalUnaryOp::EmptyString | ConditionalUnaryOp::NonEmptyString
-    )
 }
 
 #[cfg(test)]

@@ -1,10 +1,4 @@
-use crate::rules::common::word::{
-    TestOperandClass, WordQuote, classify_contextual_operand, classify_word, static_word_text,
-};
-use crate::rules::common::{
-    expansion::ExpansionContext,
-    query::{self, CommandWalkOptions},
-};
+use crate::rules::common::word::{TestOperandClass, WordQuote, static_word_text};
 use crate::{Checker, Rule, Violation};
 
 pub struct QuotedBashRegex;
@@ -21,39 +15,31 @@ impl Violation for QuotedBashRegex {
 
 pub fn quoted_bash_regex(checker: &mut Checker) {
     let source = checker.source();
-    let mut spans = Vec::new();
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|fact| fact.conditional())
+        .flat_map(|fact| fact.regex_nodes())
+        .filter_map(|regex| {
+            let right = regex.right();
+            let word = right.word()?;
+            if right.quote() == Some(WordQuote::Unquoted) {
+                return None;
+            }
 
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let _command = visit.command;
-            query::visit_expansion_words(visit, source, &mut |word, context| {
-                if context != ExpansionContext::RegexOperand {
-                    return;
-                }
+            let should_report = match right.class() {
+                TestOperandClass::RuntimeSensitive => true,
+                TestOperandClass::FixedLiteral => static_word_text(word, source)
+                    .is_some_and(|text| literal_uses_regex_significance(&text)),
+            };
 
-                if classify_word(word, source).quote != WordQuote::Unquoted
-                    && quoted_regex_requires_warning(word, source)
-                {
-                    spans.push(word.span);
-                }
-            });
-        },
-    );
+            should_report.then_some(word.span)
+        })
+        .collect::<Vec<_>>();
 
     for span in spans {
-        checker.report(QuotedBashRegex, span);
-    }
-}
-
-fn quoted_regex_requires_warning(word: &shuck_ast::Word, source: &str) -> bool {
-    match classify_contextual_operand(word, source, ExpansionContext::RegexOperand) {
-        TestOperandClass::RuntimeSensitive => true,
-        TestOperandClass::FixedLiteral => static_word_text(word, source)
-            .is_some_and(|text| literal_uses_regex_significance(&text)),
+        checker.report_dedup(QuotedBashRegex, span);
     }
 }
 
@@ -127,5 +113,23 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "^\"foo\"bar$");
+    }
+
+    #[test]
+    fn reports_nested_regex_matches_inside_logical_expressions() {
+        let source = "#!/bin/bash\n[[ \"$left\" = right && $value =~ \"$re\" ]]\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\"$re\"");
+    }
+
+    #[test]
+    fn reports_nested_regex_matches_inside_command_substitutions() {
+        let source = "#!/bin/bash\nprintf '%s\\n' \"$( [[ $value =~ \"$re\" ]] && echo ok )\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\"$re\"");
     }
 }

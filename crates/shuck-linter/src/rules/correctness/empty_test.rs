@@ -1,10 +1,4 @@
-use shuck_ast::Command;
-
-use crate::context::ContextRegionKind;
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::{Checker, Rule, Violation};
-
-use super::syntax::simple_test_operands;
+use crate::{Checker, Rule, SimpleTestShape, Violation};
 
 pub struct EmptyTest;
 
@@ -19,32 +13,17 @@ impl Violation for EmptyTest {
 }
 
 pub fn empty_test(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let Command::Simple(command) = command else {
-                return;
-            };
-
-            if checker
-                .file_context()
-                .span_intersects_kind(ContextRegionKind::ShellSpecParametersBlock, command.span)
-            {
-                return;
-            }
-
-            if simple_test_operands(command, source).is_some_and(|operands| operands.is_empty()) {
-                spans.push(command.span);
-            }
-        },
-    );
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|fact| {
+            fact.simple_test()
+                .map(|simple_test| (fact.span(), simple_test))
+        })
+        .filter(|(_, fact)| fact.shape() == SimpleTestShape::Empty && !fact.empty_test_suppressed())
+        .map(|(span, _)| span)
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(EmptyTest, span);

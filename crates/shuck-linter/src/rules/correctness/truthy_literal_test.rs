@@ -1,12 +1,4 @@
-use shuck_ast::{Command, CompoundCommand, ConditionalExpr};
-
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::word::{
-    ExpansionContext, classify_conditional_operand, classify_contextual_operand,
-};
-use crate::{Checker, Rule, Violation};
-
-use super::syntax::simple_test_operands;
+use crate::{Checker, ConditionalNodeFact, Rule, SimpleTestShape, Violation};
 
 pub struct TruthyLiteralTest;
 
@@ -21,52 +13,34 @@ impl Violation for TruthyLiteralTest {
 }
 
 pub fn truthy_literal_test(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| match visit.command {
-            Command::Simple(command) => {
-                if simple_test_operands(command, source).is_some_and(|operands| {
-                    operands.len() == 1
-                        && classify_contextual_operand(
-                            &operands[0],
-                            source,
-                            ExpansionContext::CommandArgument,
-                        )
-                        .is_fixed_literal()
-                }) {
-                    spans.push(command.span);
-                }
-            }
-            Command::Compound(CompoundCommand::Conditional(command))
-                if is_truthy_literal_conditional(&command.expression, source) =>
-            {
-                spans.push(command.span);
-            }
-            _ => {}
-        },
-    );
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| {
+            fact.simple_test().is_some_and(simple_test_matches)
+                || fact.conditional().is_some_and(conditional_matches)
+        })
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(TruthyLiteralTest, span);
     }
 }
 
-fn is_truthy_literal_conditional(expression: &ConditionalExpr, source: &str) -> bool {
-    match expression {
-        ConditionalExpr::Word(_) => {
-            classify_conditional_operand(expression, source).is_fixed_literal()
-        }
-        ConditionalExpr::Parenthesized(expression) => {
-            is_truthy_literal_conditional(&expression.expr, source)
-        }
-        _ => false,
-    }
+fn simple_test_matches(fact: &crate::SimpleTestFact<'_>) -> bool {
+    fact.shape() == SimpleTestShape::Truthy
+        && fact
+            .truthy_operand_class()
+            .is_some_and(|class| class.is_fixed_literal())
+}
+
+fn conditional_matches(fact: &crate::ConditionalFact<'_>) -> bool {
+    matches!(
+        fact.root(),
+        ConditionalNodeFact::BareWord(word) if word.operand().class().is_fixed_literal()
+    )
 }
 
 #[cfg(test)]
