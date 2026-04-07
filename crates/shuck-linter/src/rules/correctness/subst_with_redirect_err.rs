@@ -26,8 +26,7 @@ pub fn subst_with_redirect_err(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |visit| {
-            let command = visit.command;
-            visit_command_words(visit, &mut |word| {
+            visit_command_words(visit, source, &mut |word| {
                 for substitution in query::iter_word_command_substitutions(word) {
                     if substitution.kind != CommandSubstitutionKind::Command {
                         continue;
@@ -67,6 +66,8 @@ out=$(printf hi 1>/dev/null)
 out=$(printf hi > \"$target\")
 out=$(printf hi > ${targets[@]})
 out=$(printf hi 2>&\"$fd\")
+declare arr[$(printf hi >/dev/null)]=1
+declare -A map=([$(printf bye 1>/dev/null)]=1)
 ";
         let diagnostics = test_snippet(
             source,
@@ -78,7 +79,7 @@ out=$(printf hi 2>&\"$fd\")
                 .iter()
                 .map(|diagnostic| diagnostic.span.start.line)
                 .collect::<Vec<_>>(),
-            vec![8, 9]
+            vec![8, 9, 13, 14]
         );
     }
 }

@@ -1,9 +1,8 @@
 use crate::rules::common::{command, query};
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, ParameterOp,
-    Pattern, PatternPart, Redirect, SimpleCommand, Span, Stmt, StmtSeq, Word, WordPart,
-    WordPartNode,
+    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
+    ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, ParameterOp, Pattern, PatternPart,
+    Redirect, SimpleCommand, Span, Stmt, StmtSeq, Word, WordPart, WordPartNode,
 };
 
 use super::syntax::{assignment_target_name, simple_test_operands, static_word_text};

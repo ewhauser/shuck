@@ -44,7 +44,10 @@ fn mixed_short_circuit_operator_span(command: &Command) -> Option<shuck_ast::Spa
     None
 }
 
-fn collect_short_circuit_operators(command: &Command, operators: &mut Vec<(BinaryOp, shuck_ast::Span)>) {
+fn collect_short_circuit_operators(
+    command: &Command,
+    operators: &mut Vec<(BinaryOp, shuck_ast::Span)>,
+) {
     let Command::Binary(command) = command else {
         return;
     };

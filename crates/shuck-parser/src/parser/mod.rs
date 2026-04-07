@@ -23,21 +23,19 @@ pub use lexer::{
 use shuck_ast::{
     ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
-    AssignmentValue, BinaryCommand, BinaryOp, CaseCommand, CaseItem, CaseTerminator,
-    BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
-    Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
-    ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
-    ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand,
-    DeclClause as AstDeclClause, DeclOperand, ExitCommand as AstExitCommand, File, ForCommand,
-    FunctionDef, FunctionSurface, Heredoc, HeredocDelimiter, IfCommand, LiteralText, Name,
-    ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode, Position,
-    PrefixMatchKind, Redirect, RedirectKind, RedirectTarget, SelectCommand,
-    SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator,
-    Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize,
-    TimeCommand, TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
-    BuiltinCommand as AstBuiltinCommand,
-    BreakCommand as AstBreakCommand, ContinueCommand as AstContinueCommand,
-    ReturnCommand as AstReturnCommand,
+    AssignmentValue, BinaryCommand, BinaryOp, BraceExpansionKind, BraceQuoteContext, BraceSyntax,
+    BraceSyntaxKind, BreakCommand as AstBreakCommand, BuiltinCommand as AstBuiltinCommand,
+    CaseCommand, CaseItem, CaseTerminator, Command as AstCommand, CommandSubstitutionSyntax,
+    Comment, CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
+    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
+    ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,
+    ExitCommand as AstExitCommand, File, ForCommand, FunctionDef, FunctionSurface, Heredoc,
+    HeredocDelimiter, IfCommand, LiteralText, Name, ParameterOp, Pattern, PatternGroupKind,
+    PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect, RedirectKind,
+    RedirectTarget, ReturnCommand as AstReturnCommand, SelectCommand,
+    SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
+    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
+    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
 };
 
 use crate::error::{Error, Result};
@@ -140,7 +138,6 @@ struct Pipeline {
 struct CommandList {
     first: Box<Command>,
     rest: Vec<CommandListItem>,
-    span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -165,7 +162,7 @@ enum Command {
     Decl(DeclClause),
     Pipeline(Pipeline),
     List(CommandList),
-    Compound(CompoundCommand, Vec<Redirect>),
+    Compound(Box<CompoundCommand>, Vec<Redirect>),
     Function(FunctionDef),
 }
 
@@ -1543,11 +1540,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn nested_stmt_seq_from_current_input(
-        &mut self,
-        start: Position,
-        end: Position,
-    ) -> StmtSeq {
+    fn nested_stmt_seq_from_current_input(&mut self, start: Position, end: Position) -> StmtSeq {
         if start.offset > end.offset || end.offset > self.input.len() {
             return StmtSeq {
                 leading_comments: Vec::new(),
@@ -1642,12 +1635,6 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn rebase_commands(commands: &mut [Command], base: Position) {
-        for command in commands {
-            Self::rebase_command(command, base);
-        }
-    }
-
     fn rebase_file(file: &mut File, base: Position) {
         file.span = file.span.rebased(base);
         Self::rebase_stmt_seq(&mut file.body, base);
@@ -1679,46 +1666,6 @@ impl<'a> Parser<'a> {
         }
         Self::rebase_redirects(&mut stmt.redirects, base);
         Self::rebase_ast_command(&mut stmt.command, base);
-    }
-
-    fn rebase_command(command: &mut Command, base: Position) {
-        match command {
-            Command::Simple(simple) => {
-                simple.span = simple.span.rebased(base);
-                Self::rebase_word(&mut simple.name, base);
-                Self::rebase_words(&mut simple.args, base);
-                Self::rebase_redirects(&mut simple.redirects, base);
-                Self::rebase_assignments(&mut simple.assignments, base);
-            }
-            Command::Builtin(builtin) => {
-                Self::rebase_builtin(builtin, base);
-            }
-            Command::Decl(decl) => {
-                Self::rebase_decl(decl, base);
-            }
-            Command::Pipeline(pipeline) => {
-                pipeline.span = pipeline.span.rebased(base);
-                Self::rebase_commands(&mut pipeline.commands, base);
-            }
-            Command::List(list) => {
-                list.span = list.span.rebased(base);
-                Self::rebase_command(&mut list.first, base);
-                for item in &mut list.rest {
-                    item.operator_span = item.operator_span.rebased(base);
-                    Self::rebase_command(&mut item.command, base);
-                }
-            }
-            Command::Compound(compound, redirects) => {
-                Self::rebase_compound(compound, base);
-                Self::rebase_redirects(redirects, base);
-            }
-            Command::Function(function) => {
-                function.span = function.span.rebased(base);
-                function.name_span = function.name_span.rebased(base);
-                function.surface.rebased(base);
-                Self::rebase_stmt(function.body.as_mut(), base);
-            }
-        }
     }
 
     fn rebase_ast_command(command: &mut AstCommand, base: Position) {
@@ -1790,65 +1737,6 @@ impl<'a> Parser<'a> {
                 function.span = function.span.rebased(base);
                 function.name_span = function.name_span.rebased(base);
                 Self::rebase_stmt(function.body.as_mut(), base);
-            }
-        }
-    }
-
-    fn rebase_builtin(builtin: &mut BuiltinCommand, base: Position) {
-        match builtin {
-            BuiltinCommand::Break(command) => {
-                command.span = command.span.rebased(base);
-                if let Some(depth) = &mut command.depth {
-                    Self::rebase_word(depth, base);
-                }
-                Self::rebase_words(&mut command.extra_args, base);
-                Self::rebase_redirects(&mut command.redirects, base);
-                Self::rebase_assignments(&mut command.assignments, base);
-            }
-            BuiltinCommand::Continue(command) => {
-                command.span = command.span.rebased(base);
-                if let Some(depth) = &mut command.depth {
-                    Self::rebase_word(depth, base);
-                }
-                Self::rebase_words(&mut command.extra_args, base);
-                Self::rebase_redirects(&mut command.redirects, base);
-                Self::rebase_assignments(&mut command.assignments, base);
-            }
-            BuiltinCommand::Return(command) => {
-                command.span = command.span.rebased(base);
-                if let Some(code) = &mut command.code {
-                    Self::rebase_word(code, base);
-                }
-                Self::rebase_words(&mut command.extra_args, base);
-                Self::rebase_redirects(&mut command.redirects, base);
-                Self::rebase_assignments(&mut command.assignments, base);
-            }
-            BuiltinCommand::Exit(command) => {
-                command.span = command.span.rebased(base);
-                if let Some(code) = &mut command.code {
-                    Self::rebase_word(code, base);
-                }
-                Self::rebase_words(&mut command.extra_args, base);
-                Self::rebase_redirects(&mut command.redirects, base);
-                Self::rebase_assignments(&mut command.assignments, base);
-            }
-        }
-    }
-
-    fn rebase_decl(decl: &mut DeclClause, base: Position) {
-        decl.span = decl.span.rebased(base);
-        decl.variant_span = decl.variant_span.rebased(base);
-        Self::rebase_redirects(&mut decl.redirects, base);
-        Self::rebase_assignments(&mut decl.assignments, base);
-        for operand in &mut decl.operands {
-            match operand {
-                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                    Self::rebase_word(word, base);
-                }
-                DeclOperand::Name(name) => Self::rebase_var_ref(name, base),
-                DeclOperand::Assignment(assignment) => {
-                    Self::rebase_assignments(std::slice::from_mut(assignment), base);
-                }
             }
         }
     }
@@ -2117,9 +2005,7 @@ impl<'a> Parser<'a> {
                 }
             }
             WordPart::CommandSubstitution { body, .. }
-            | WordPart::ProcessSubstitution { body, .. } => {
-                Self::rebase_stmt_seq(body, base)
-            }
+            | WordPart::ProcessSubstitution { body, .. } => Self::rebase_stmt_seq(body, base),
             WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
         }
     }
@@ -3140,7 +3026,7 @@ impl<'a> Parser<'a> {
                 let span = Self::compound_span(&compound);
                 Stmt {
                     leading_comments: Vec::new(),
-                    command: AstCommand::Compound(compound),
+                    command: AstCommand::Compound(*compound),
                     negated: false,
                     redirects,
                     terminator: None,
@@ -3216,7 +3102,10 @@ impl<'a> Parser<'a> {
         if sequence.stmts.is_empty() {
             sequence
                 .trailing_comments
-                .extend(Self::take_comments_before(comments, sequence.span.end.offset));
+                .extend(Self::take_comments_before(
+                    comments,
+                    sequence.span.end.offset,
+                ));
             return;
         }
 
@@ -3245,7 +3134,10 @@ impl<'a> Parser<'a> {
 
         sequence
             .trailing_comments
-            .extend(Self::take_comments_before(comments, sequence.span.end.offset));
+            .extend(Self::take_comments_before(
+                comments,
+                sequence.span.end.offset,
+            ));
     }
 
     fn attach_comments_to_stmt_with_source(
@@ -3331,11 +3223,7 @@ impl<'a> Parser<'a> {
 
                     let mut elif_body =
                         Self::take_comments_before(comments, body_seq.span.end.offset);
-                    Self::attach_comments_to_stmt_seq_with_source(
-                        source,
-                        body_seq,
-                        &mut elif_body,
-                    );
+                    Self::attach_comments_to_stmt_seq_with_source(source, body_seq, &mut elif_body);
                     body_seq.trailing_comments.extend(elif_body);
                 }
 
@@ -3453,8 +3341,7 @@ impl<'a> Parser<'a> {
                     command.body.leading_comments.extend(body_comments);
                 }
             }
-            CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Conditional(_) => {}
+            CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
         }
     }
 
@@ -3519,7 +3406,8 @@ impl<'a> Parser<'a> {
         // Check if the very first token is an error
         self.check_error_token()?;
 
-        let file_span = Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
+        let file_span =
+            Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
         let mut commands = Vec::new();
 
         while self.current_token.is_some() {
@@ -3544,7 +3432,8 @@ impl<'a> Parser<'a> {
 
     /// Parse the input while recovering at top-level command boundaries.
     pub fn parse_recovered(mut self) -> RecoveredParse {
-        let file_span = Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
+        let file_span =
+            Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
         let mut commands = Vec::new();
         let mut diagnostics = Vec::new();
 
@@ -3590,10 +3479,7 @@ impl<'a> Parser<'a> {
             span: file_span,
         };
         self.attach_comments_to_file(&mut file);
-        RecoveredParse {
-            file,
-            diagnostics,
-        }
+        RecoveredParse { file, diagnostics }
     }
 
     fn advance_raw(&mut self) {
@@ -3718,7 +3604,6 @@ impl<'a> Parser<'a> {
     /// Parse a command list (commands connected by && or ||)
     fn parse_command_list(&mut self) -> Result<Option<Command>> {
         self.tick()?;
-        let start_span = self.current_span;
         let first = match self.parse_pipeline()? {
             Some(cmd) => cmd,
             None => return Ok(None),
@@ -3783,7 +3668,6 @@ impl<'a> Parser<'a> {
             Ok(Some(Command::List(CommandList {
                 first: Box::new(first),
                 rest,
-                span: start_span.merge(self.current_span),
             })))
         }
     }
@@ -4285,7 +4169,7 @@ impl<'a> Parser<'a> {
     ) -> Result<Option<Command>> {
         let compound = parser(self)?;
         let redirects = self.parse_trailing_redirects();
-        Ok(Some(Command::Compound(compound, redirects)))
+        Ok(Some(Command::Compound(Box::new(compound), redirects)))
     }
 
     fn classify_flow_control_name(&self, word: &Word) -> Option<FlowControlBuiltinKind> {
@@ -4558,7 +4442,7 @@ impl<'a> Parser<'a> {
             if let Ok(compound) = arithmetic_probe.parse_arithmetic_command() {
                 let redirects = arithmetic_probe.parse_trailing_redirects();
                 *self = arithmetic_probe;
-                return Ok(Some(Command::Compound(compound, redirects)));
+                return Ok(Some(Command::Compound(Box::new(compound), redirects)));
             }
 
             self.split_current_double_left_paren();
@@ -4619,7 +4503,8 @@ impl<'a> Parser<'a> {
 
             let elif_condition_start = self.current_span.start;
             let elif_condition = self.parse_compound_list(Keyword::Then)?;
-            let elif_condition_span = Span::from_positions(elif_condition_start, self.current_span.start);
+            let elif_condition_span =
+                Span::from_positions(elif_condition_start, self.current_span.start);
             self.expect_keyword(Keyword::Then)?;
             self.skip_newlines()?;
 
@@ -4948,7 +4833,10 @@ impl<'a> Parser<'a> {
             let body = self.parse_brace_group()?;
             let span = Self::compound_span(&body);
             (
-                Self::lower_commands_to_stmt_seq(vec![Command::Compound(body, Vec::new())], span),
+                Self::lower_commands_to_stmt_seq(
+                    vec![Command::Compound(Box::new(body), Vec::new())],
+                    span,
+                ),
                 self.current_span,
             )
         } else {
@@ -5335,10 +5223,12 @@ impl<'a> Parser<'a> {
         self.advance(); // consume '}'
 
         self.pop_depth();
-        Ok(CompoundCommand::BraceGroup(Self::lower_commands_to_stmt_seq(
-            commands,
-            Span::from_positions(body_start, self.current_span.start),
-        )))
+        Ok(CompoundCommand::BraceGroup(
+            Self::lower_commands_to_stmt_seq(
+                commands,
+                Span::from_positions(body_start, self.current_span.start),
+            ),
+        ))
     }
 
     /// Parse arithmetic command ((expression))
@@ -5920,7 +5810,7 @@ impl<'a> Parser<'a> {
             },
         };
         let redirects = self.parse_trailing_redirects();
-        Ok(Command::Compound(compound, redirects))
+        Ok(Command::Compound(Box::new(compound), redirects))
     }
 
     /// Parse function definition with 'function' keyword: function name { body }
@@ -7689,8 +7579,7 @@ impl<'a> Parser<'a> {
                 };
 
                 let inner_start = process_span.end;
-                let body =
-                    self.nested_stmt_seq_from_current_input(inner_start, close_span.start);
+                let body = self.nested_stmt_seq_from_current_input(inner_start, close_span.start);
 
                 Ok(self.word_with_parts(
                     vec![WordPartNode::new(
@@ -9134,8 +9023,8 @@ mod tests {
     use shuck_ast::{
         ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp,
         BinaryCommand, BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
-        CompoundCommand as AstCompoundCommand, DeclClause as AstDeclClause,
-        FunctionDef as AstFunctionDef, SimpleCommand as AstSimpleCommand,
+        CompoundCommand as AstCompoundCommand, FunctionDef as AstFunctionDef,
+        SimpleCommand as AstSimpleCommand,
     };
 
     fn is_fully_quoted(word: &Word) -> bool {
@@ -9204,9 +9093,7 @@ mod tests {
             }
             AstCommand::Compound(command) => collect_compound_comments(command, comments),
             AstCommand::Function(function) => collect_stmt_comments(&function.body, comments),
-            AstCommand::Simple(_)
-            | AstCommand::Builtin(_)
-            | AstCommand::Decl(_) => {}
+            AstCommand::Simple(_) | AstCommand::Builtin(_) | AstCommand::Decl(_) => {}
         }
     }
 
@@ -9327,13 +9214,6 @@ mod tests {
         command
     }
 
-    fn expect_decl(stmt: &Stmt) -> &AstDeclClause {
-        let AstCommand::Decl(command) = &stmt.command else {
-            panic!("expected declaration clause");
-        };
-        command
-    }
-
     fn expect_binary(stmt: &Stmt) -> &BinaryCommand {
         let AstCommand::Binary(command) = &stmt.command else {
             panic!("expected binary command");
@@ -9408,7 +9288,8 @@ mod tests {
         let parser = Parser::new(input);
         let script = parser.parse().unwrap().file;
 
-        let AstCommand::Builtin(AstBuiltinCommand::Continue(command)) = &script.body[0].command else {
+        let AstCommand::Builtin(AstBuiltinCommand::Continue(command)) = &script.body[0].command
+        else {
             panic!("expected continue builtin");
         };
 
@@ -9423,7 +9304,8 @@ mod tests {
         let parser = Parser::new(input);
         let script = parser.parse().unwrap().file;
 
-        let AstCommand::Builtin(AstBuiltinCommand::Return(command)) = &script.body[0].command else {
+        let AstCommand::Builtin(AstBuiltinCommand::Return(command)) = &script.body[0].command
+        else {
             panic!("expected return builtin");
         };
 
@@ -9582,8 +9464,18 @@ mod tests {
         assert_eq!(script.body.len(), 1);
         let pipeline = expect_binary(&script.body[0]);
         assert_eq!(pipeline.op, BinaryOp::Pipe);
-        assert_eq!(expect_simple(&pipeline.left).name.render("echo hello | cat"), "echo");
-        assert_eq!(expect_simple(&pipeline.right).name.render("echo hello | cat"), "cat");
+        assert_eq!(
+            expect_simple(&pipeline.left)
+                .name
+                .render("echo hello | cat"),
+            "echo"
+        );
+        assert_eq!(
+            expect_simple(&pipeline.right)
+                .name
+                .render("echo hello | cat"),
+            "cat"
+        );
     }
 
     #[test]
@@ -9639,7 +9531,10 @@ mod tests {
         let script = parser.parse().unwrap().file;
         let stmt = &script.body[0];
 
-        assert_eq!(expect_simple(stmt).name.render("echo hello >> /tmp/out"), "echo");
+        assert_eq!(
+            expect_simple(stmt).name.render("echo hello >> /tmp/out"),
+            "echo"
+        );
         assert_eq!(stmt.redirects.len(), 1);
         assert_eq!(stmt.redirects[0].kind, RedirectKind::Append);
     }
@@ -10707,10 +10602,7 @@ mod tests {
 
     #[test]
     fn test_leaf_spans_track_words_assignments_and_redirects() {
-        let script = Parser::new("foo=bar echo hi > out\n")
-            .parse()
-            .unwrap()
-            .file;
+        let script = Parser::new("foo=bar echo hi > out\n").parse().unwrap().file;
 
         let AstCommand::Simple(command) = &script.body[0].command else {
             panic!("expected simple command");
@@ -10862,7 +10754,11 @@ mod tests {
         let slices: Vec<&str> = parts.iter().map(|part| part.span.slice(input)).collect();
         assert_eq!(slices, vec!["pre ", "`printf hi`", " post"]);
 
-        let WordPart::CommandSubstitution { body: commands, syntax } = &parts[1].kind else {
+        let WordPart::CommandSubstitution {
+            body: commands,
+            syntax,
+        } = &parts[1].kind
+        else {
             panic!("expected command substitution");
         };
         assert_eq!(*syntax, CommandSubstitutionSyntax::Backtick);
@@ -12114,7 +12010,10 @@ coproc worker { true; }
 
         let _command = expect_simple(&script.body[4]);
         assert_eq!(
-            script.body[4].redirects[0].fd_var_span.unwrap().slice(input),
+            script.body[4].redirects[0]
+                .fd_var_span
+                .unwrap()
+                .slice(input),
             "myfd"
         );
 
@@ -12187,10 +12086,7 @@ coproc worker { true; }
 
     #[test]
     fn test_parse_conditional_builds_structured_logical_ast() {
-        let script = Parser::new("[[ ! (foo && bar) ]]\n")
-            .parse()
-            .unwrap()
-            .file;
+        let script = Parser::new("[[ ! (foo && bar) ]]\n").parse().unwrap().file;
 
         let (compound, _) = expect_compound(&script.body[0]);
         let AstCompoundCommand::Conditional(command) = compound else {
@@ -12612,7 +12508,11 @@ echo "${var-"}"}"
         let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
             panic!("expected scalar assignment");
         };
-        let WordPart::CommandSubstitution { body: commands, syntax } = &word.parts[0].kind else {
+        let WordPart::CommandSubstitution {
+            body: commands,
+            syntax,
+        } = &word.parts[0].kind
+        else {
             panic!("expected command substitution");
         };
         assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
@@ -12645,7 +12545,10 @@ echo "${var-"}"}"
         let AstCommand::Simple(command) = &script.body[0].command else {
             panic!("expected simple command");
         };
-        let WordPart::ProcessSubstitution { body: commands, is_input } = &command.args[0].parts[0].kind
+        let WordPart::ProcessSubstitution {
+            body: commands,
+            is_input,
+        } = &command.args[0].parts[0].kind
         else {
             panic!("expected process substitution");
         };

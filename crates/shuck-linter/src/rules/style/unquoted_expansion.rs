@@ -22,11 +22,7 @@ impl Violation for UnquotedExpansion {
 
 pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
-    let mut safe_values = SafeValueIndex::build(
-        checker.semantic(),
-        &checker.ast().body,
-        source,
-    );
+    let mut safe_values = SafeValueIndex::build(checker.semantic(), &checker.ast().body, source);
 
     query::walk_commands(
         &checker.ast().body,
@@ -34,7 +30,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |visit| {
-            let command = visit.command;
+            let _command = visit.command;
             query::visit_expansion_words(visit, source, &mut |word, context| {
                 if !should_check_context(context, checker.shell()) {
                     return;

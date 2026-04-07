@@ -25,7 +25,7 @@ pub fn pattern_with_variable(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |visit| {
-            let command = visit.command;
+            let _command = visit.command;
             query::visit_expansion_words(visit, source, &mut |word, context| {
                 if context == ExpansionContext::ParameterPattern
                     && classify_word(word, source).is_expanded()

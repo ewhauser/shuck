@@ -1,8 +1,8 @@
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
     ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, Pattern, PatternPart,
-    PatternPartNode, Redirect, RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize,
-    VarRef, Word, WordPart, WordPartNode,
+    PatternPartNode, Redirect, RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize, VarRef,
+    Word, WordPart, WordPartNode,
 };
 use shuck_parser::parser::Parser;
 

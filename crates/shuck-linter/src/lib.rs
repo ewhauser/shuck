@@ -236,14 +236,7 @@ mod tests {
         let source = fs::read_to_string(path).unwrap();
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
-        lint_file_at_path(
-            &output.file,
-            &source,
-            &indexer,
-            settings,
-            None,
-            Some(path),
-        )
+        lint_file_at_path(&output.file, &source, &indexer, settings, None, Some(path))
     }
 
     fn lint_for_rule(source: &str, rule: Rule) -> Vec<Diagnostic> {

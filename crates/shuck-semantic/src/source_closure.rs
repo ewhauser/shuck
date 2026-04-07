@@ -5,8 +5,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
     BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef,
-    Name, Pattern, PatternPart, PatternPartNode, Redirect, SourceText, Span, Stmt, StmtSeq,
-    VarRef, Word, WordPart, WordPartNode,
+    Name, Pattern, PatternPart, PatternPartNode, Redirect, SourceText, Span, Stmt, StmtSeq, VarRef,
+    Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;

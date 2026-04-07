@@ -1005,7 +1005,8 @@ done
         let indexer = Indexer::new(source, &output);
         let model = SemanticModel::build(&output.file, source, &indexer);
 
-        let Command::Compound(CompoundCommand::If(if_command)) = &output.file.body[0].command else {
+        let Command::Compound(CompoundCommand::If(if_command)) = &output.file.body[0].command
+        else {
             panic!("expected if command");
         };
         let condition_span = match &if_command.condition[0].command {
@@ -1015,7 +1016,8 @@ done
         let condition_context = model.flow_context_at(&condition_span).unwrap();
         assert!(condition_context.exit_status_checked);
 
-        let Command::Compound(CompoundCommand::For(for_command)) = &output.file.body[1].command else {
+        let Command::Compound(CompoundCommand::For(for_command)) = &output.file.body[1].command
+        else {
             panic!("expected for command");
         };
         let break_span = match &for_command.body[0].command {

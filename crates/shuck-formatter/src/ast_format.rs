@@ -72,7 +72,9 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
             }
         }
         CompoundCommand::For(command) => collect_stmt_seq_comments(&command.body, comments),
-        CompoundCommand::ArithmeticFor(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::ArithmeticFor(command) => {
+            collect_stmt_seq_comments(&command.body, comments)
+        }
         CompoundCommand::While(command) => {
             collect_stmt_seq_comments(&command.condition, comments);
             collect_stmt_seq_comments(&command.body, comments);
@@ -123,7 +125,12 @@ impl<'a> Renderer<'a> {
     }
 
     fn render_file(&self, file: &File) -> String {
-        self.render_stmt_seq(file.body.as_slice(), &file.body.leading_comments, &file.body.trailing_comments, 0)
+        self.render_stmt_seq(
+            file.body.as_slice(),
+            &file.body.leading_comments,
+            &file.body.trailing_comments,
+            0,
+        )
     }
 
     fn indent(&self, level: usize) -> String {
@@ -217,15 +224,10 @@ impl<'a> Renderer<'a> {
 
         for stmt in stmts {
             if !self.options.minify() {
-                for comment in stmt
-                    .leading_comments
-                    .iter()
-                    .copied()
-                    .filter(|comment| {
-                        self.comment_line(*comment) != stmt.span.start.line
-                            && Some(*comment) != self.group_wrapper_comment(stmt)
-                    })
-                {
+                for comment in stmt.leading_comments.iter().copied().filter(|comment| {
+                    self.comment_line(*comment) != stmt.span.start.line
+                        && Some(*comment) != self.group_wrapper_comment(stmt)
+                }) {
                     let line = self.comment_line(comment);
                     self.push_rendered_item(
                         &mut rendered,
@@ -329,11 +331,17 @@ impl<'a> Renderer<'a> {
             && self.renders_stmt_inline_comment(stmt)
             && let Some(comment) = self.inline_comment_for_stmt(stmt)
         {
-            rendered.push_str(if stmt.redirects.iter().any(|redirect| redirect.heredoc().is_some()) {
-                " "
-            } else {
-                "  "
-            });
+            rendered.push_str(
+                if stmt
+                    .redirects
+                    .iter()
+                    .any(|redirect| redirect.heredoc().is_some())
+                {
+                    " "
+                } else {
+                    "  "
+                },
+            );
             rendered.push_str(self.comment_text(comment));
         }
         let heredocs = self.render_heredocs(&stmt.redirects);
@@ -347,10 +355,18 @@ impl<'a> Renderer<'a> {
     fn render_command(&self, command: &Command, level: usize, stmt: &Stmt) -> String {
         match command {
             Command::Simple(command) => self.render_simple_like(
-                command.assignments.iter().map(|assignment| self.render_assignment(assignment)),
+                command
+                    .assignments
+                    .iter()
+                    .map(|assignment| self.render_assignment(assignment)),
                 std::iter::once(command.name.render_syntax(self.source))
                     .filter(|name| !name.is_empty())
-                    .chain(command.args.iter().map(|word| word.render_syntax(self.source))),
+                    .chain(
+                        command
+                            .args
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    ),
             ),
             Command::Builtin(command) => self.render_builtin(command),
             Command::Decl(command) => {
@@ -362,7 +378,10 @@ impl<'a> Renderer<'a> {
                     DeclOperand::Assignment(assignment) => self.render_assignment(assignment),
                 });
                 self.render_simple_like(
-                    command.assignments.iter().map(|assignment| self.render_assignment(assignment)),
+                    command
+                        .assignments
+                        .iter()
+                        .map(|assignment| self.render_assignment(assignment)),
                     std::iter::once(command.variant.to_string()).chain(operands),
                 )
             }
@@ -404,28 +423,80 @@ impl<'a> Renderer<'a> {
     fn render_builtin(&self, command: &BuiltinCommand) -> String {
         match command {
             BuiltinCommand::Break(command) => self.render_simple_like(
-                command.assignments.iter().map(|assignment| self.render_assignment(assignment)),
+                command
+                    .assignments
+                    .iter()
+                    .map(|assignment| self.render_assignment(assignment)),
                 std::iter::once("break".to_string())
-                    .chain(command.depth.iter().map(|word| word.render_syntax(self.source)))
-                    .chain(command.extra_args.iter().map(|word| word.render_syntax(self.source))),
+                    .chain(
+                        command
+                            .depth
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    )
+                    .chain(
+                        command
+                            .extra_args
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    ),
             ),
             BuiltinCommand::Continue(command) => self.render_simple_like(
-                command.assignments.iter().map(|assignment| self.render_assignment(assignment)),
+                command
+                    .assignments
+                    .iter()
+                    .map(|assignment| self.render_assignment(assignment)),
                 std::iter::once("continue".to_string())
-                    .chain(command.depth.iter().map(|word| word.render_syntax(self.source)))
-                    .chain(command.extra_args.iter().map(|word| word.render_syntax(self.source))),
+                    .chain(
+                        command
+                            .depth
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    )
+                    .chain(
+                        command
+                            .extra_args
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    ),
             ),
             BuiltinCommand::Return(command) => self.render_simple_like(
-                command.assignments.iter().map(|assignment| self.render_assignment(assignment)),
+                command
+                    .assignments
+                    .iter()
+                    .map(|assignment| self.render_assignment(assignment)),
                 std::iter::once("return".to_string())
-                    .chain(command.code.iter().map(|word| word.render_syntax(self.source)))
-                    .chain(command.extra_args.iter().map(|word| word.render_syntax(self.source))),
+                    .chain(
+                        command
+                            .code
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    )
+                    .chain(
+                        command
+                            .extra_args
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    ),
             ),
             BuiltinCommand::Exit(command) => self.render_simple_like(
-                command.assignments.iter().map(|assignment| self.render_assignment(assignment)),
+                command
+                    .assignments
+                    .iter()
+                    .map(|assignment| self.render_assignment(assignment)),
                 std::iter::once("exit".to_string())
-                    .chain(command.code.iter().map(|word| word.render_syntax(self.source)))
-                    .chain(command.extra_args.iter().map(|word| word.render_syntax(self.source))),
+                    .chain(
+                        command
+                            .code
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    )
+                    .chain(
+                        command
+                            .extra_args
+                            .iter()
+                            .map(|word| word.render_syntax(self.source)),
+                    ),
             ),
         }
     }
@@ -455,7 +526,8 @@ impl<'a> Renderer<'a> {
     fn render_compound(&self, command: &CompoundCommand, level: usize, stmt: &Stmt) -> String {
         match command {
             CompoundCommand::If(command) => {
-                if self.options.never_split() && self.can_render_stmt_seq_inline(&command.then_branch)
+                if self.options.never_split()
+                    && self.can_render_stmt_seq_inline(&command.then_branch)
                 {
                     let mut rendered = format!(
                         "if {}; then {}",
@@ -656,7 +728,10 @@ impl<'a> Renderer<'a> {
         body: &StmtSeq,
         level: usize,
     ) -> String {
-        let mut rendered = format!("{keyword} {}; do", self.render_stmt_seq_inline(condition, level));
+        let mut rendered = format!(
+            "{keyword} {}; do",
+            self.render_stmt_seq_inline(condition, level)
+        );
         let body_text = self.render_stmt_seq(
             body.as_slice(),
             &body.leading_comments,
@@ -841,7 +916,9 @@ impl<'a> Renderer<'a> {
 
         match (redirect.word_target(), redirect.heredoc()) {
             (Some(word), None) => rendered.push_str(&word.render_syntax(self.source)),
-            (None, Some(heredoc)) => rendered.push_str(&heredoc.delimiter.raw.render_syntax(self.source)),
+            (None, Some(heredoc)) => {
+                rendered.push_str(&heredoc.delimiter.raw.render_syntax(self.source))
+            }
             (None, None) => {}
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
         }
@@ -897,7 +974,11 @@ impl<'a> Renderer<'a> {
         match element {
             ArrayElem::Sequential(word) => word.render_syntax(self.source),
             ArrayElem::Keyed { key, value } => {
-                format!("[{}]={}", self.render_subscript(key), value.render_syntax(self.source))
+                format!(
+                    "[{}]={}",
+                    self.render_subscript(key),
+                    value.render_syntax(self.source)
+                )
             }
             ArrayElem::KeyedAppend { key, value } => format!(
                 "[{}]+={}",
@@ -1021,7 +1102,10 @@ impl<'a> Renderer<'a> {
             .iter()
             .all(|comment| self.comment_line(*comment) == stmt.span.start.line)
             && stmt.inline_comment.is_none()
-            && stmt.redirects.iter().all(|redirect| redirect.heredoc().is_none())
+            && stmt
+                .redirects
+                .iter()
+                .all(|redirect| redirect.heredoc().is_none())
             && match &stmt.command {
                 Command::Binary(command) => {
                     !self.options.binary_next_line()
@@ -1059,8 +1143,7 @@ fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
             break;
         }
 
-        let backslash_count = text[..whitespace_start]
-            .as_bytes()
+        let backslash_count = text.as_bytes()[..whitespace_start]
             .iter()
             .rev()
             .take_while(|byte| **byte == b'\\')

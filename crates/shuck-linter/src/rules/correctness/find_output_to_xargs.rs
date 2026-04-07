@@ -90,7 +90,10 @@ fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
     Some(segments)
 }
 
-fn collect_pipeline_segments<'a>(command: &'a shuck_ast::BinaryCommand, segments: &mut Vec<&'a Stmt>) {
+fn collect_pipeline_segments<'a>(
+    command: &'a shuck_ast::BinaryCommand,
+    segments: &mut Vec<&'a Stmt>,
+) {
     match &command.left.command {
         Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
             collect_pipeline_segments(left, segments);

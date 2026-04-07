@@ -382,14 +382,14 @@ pub fn analyze_redirect_target(
 }
 
 pub fn classify_substitution(
-    substitution: NestedCommandSubstitution<'_>,
+    substitution: NestedCommandSubstitution,
     source: &str,
 ) -> SubstitutionClassification {
     let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
     let mut has_stdout_redirect = false;
 
     query::walk_commands(
-        substitution.commands,
+        &substitution.commands,
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
@@ -919,8 +919,9 @@ mod tests {
         let Command::Simple(_) = &static_dup_file.body[0].command else {
             panic!("expected simple command");
         };
-        let static_dup = analyze_redirect_target(&static_dup_file.body[0].redirects[0], static_dup_source)
-            .expect("expected redirect analysis");
+        let static_dup =
+            analyze_redirect_target(&static_dup_file.body[0].redirects[0], static_dup_source)
+                .expect("expected redirect analysis");
         assert!(static_dup.is_descriptor_dup());
         assert_eq!(static_dup.numeric_descriptor_target, Some(3));
         assert!(!static_dup.is_runtime_sensitive());

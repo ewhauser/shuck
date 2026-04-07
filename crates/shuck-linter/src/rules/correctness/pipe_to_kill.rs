@@ -1,7 +1,7 @@
 use shuck_ast::{
-    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, Command,
-    CompoundCommand, ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect,
-    Span, Stmt, StmtSeq, Word, WordPart, WordPartNode,
+    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, Command, CompoundCommand,
+    ConditionalExpr, DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, Span, Stmt, StmtSeq,
+    Word, WordPart, WordPartNode,
 };
 
 use crate::rules::common::{query, word::static_word_text};
@@ -54,7 +54,7 @@ fn collect_command(command: &Stmt, source: &str, spans: &mut Vec<Span>) {
                             reference,
                             source,
                             &mut |word| {
-                            collect_word(word, source, spans);
+                                collect_word(word, source, spans);
                             },
                         );
                     }

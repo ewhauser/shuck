@@ -61,8 +61,7 @@ fn part_contains_find_substitution(part: &WordPart, source: &str) -> bool {
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
             .any(|part| part_contains_find_substitution(&part.kind, source)),
-        WordPart::CommandSubstitution { body, .. }
-        | WordPart::ProcessSubstitution { body, .. } => {
+        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
             commands_start_with_find(body, source)
         }
         _ => false,
@@ -84,7 +83,10 @@ fn command_starts_with_find(command: &Command, source: &str) -> bool {
     }
 }
 
-fn collect_pipeline_segments<'a>(command: &'a shuck_ast::BinaryCommand, commands: &mut Vec<&'a shuck_ast::Stmt>) {
+fn collect_pipeline_segments<'a>(
+    command: &'a shuck_ast::BinaryCommand,
+    commands: &mut Vec<&'a shuck_ast::Stmt>,
+) {
     match &command.left.command {
         Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
             collect_pipeline_segments(left, commands);

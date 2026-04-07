@@ -24,7 +24,7 @@ pub fn case_pattern_var(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |visit| {
-            let command = visit.command;
+            let _command = visit.command;
             query::visit_expansion_words(visit, checker.source(), &mut |word, context| {
                 if context == ExpansionContext::CasePattern
                     && classify_word(word, checker.source()).is_expanded()

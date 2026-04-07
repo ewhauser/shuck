@@ -41,8 +41,7 @@ impl SuppressionIndex {
                     {
                         if directive.line < first_stmt_line {
                             index.whole_file = true;
-                        } else if let Some(range) =
-                            next_command_range(file, directive.range.end())
+                        } else if let Some(range) = next_command_range(file, directive.range.end())
                         {
                             index.ranges.push(range);
                         }
@@ -79,8 +78,7 @@ impl SuppressionIndex {
 
 /// First command line in the file, if any.
 pub fn first_statement_line(file: &File) -> Option<u32> {
-    file
-        .body
+    file.body
         .iter()
         .filter_map(|command| u32::try_from(command.span.start.line).ok())
         .min()
@@ -441,46 +439,6 @@ where
                 walk_word(word, visit);
             });
         }
-    }
-}
-
-fn command_span(command: &Stmt) -> Span {
-    command.span
-}
-
-fn command_span_from_command(command: &Command) -> Span {
-    match command {
-        Command::Simple(command) => command.span,
-        Command::Builtin(BuiltinCommand::Break(command)) => command.span,
-        Command::Builtin(BuiltinCommand::Continue(command)) => command.span,
-        Command::Builtin(BuiltinCommand::Return(command)) => command.span,
-        Command::Builtin(BuiltinCommand::Exit(command)) => command.span,
-        Command::Decl(command) => command.span,
-        Command::Binary(command) => command.span,
-        Command::Compound(command) => command_span_from_compound(command),
-        Command::Function(command) => command.span,
-    }
-}
-
-fn command_span_from_compound(command: &CompoundCommand) -> Span {
-    match command {
-        CompoundCommand::If(command) => command.span,
-        CompoundCommand::For(command) => command.span,
-        CompoundCommand::ArithmeticFor(command) => command.span,
-        CompoundCommand::While(command) => command.span,
-        CompoundCommand::Until(command) => command.span,
-        CompoundCommand::Case(command) => command.span,
-        CompoundCommand::Select(command) => command.span,
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
-            .first()
-            .map(command_span)
-            .zip(commands.last().map(command_span))
-            .map(|(start, end)| start.merge(end))
-            .unwrap_or_default(),
-        CompoundCommand::Arithmetic(command) => command.span,
-        CompoundCommand::Time(command) => command.span,
-        CompoundCommand::Conditional(command) => command.span,
-        CompoundCommand::Coproc(command) => command.span,
     }
 }
 

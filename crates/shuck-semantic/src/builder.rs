@@ -185,7 +185,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn visit_stmt_seq(&mut self, commands: &StmtSeq, flow: FlowState) -> Vec<RecordedCommand> {
-        commands.iter().map(|stmt| self.visit_stmt(stmt, flow)).collect()
+        commands
+            .iter()
+            .map(|stmt| self.visit_stmt(stmt, flow))
+            .collect()
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt, flow: FlowState) -> RecordedCommand {
@@ -349,11 +352,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions
     }
 
-    fn visit_decl(
-        &mut self,
-        command: &shuck_ast::DeclClause,
-        flow: FlowState,
-    ) -> RecordedCommand {
+    fn visit_decl(&mut self, command: &shuck_ast::DeclClause, flow: FlowState) -> RecordedCommand {
         let mut nested_regions = Vec::new();
         for assignment in &command.assignments {
             nested_regions.extend(self.visit_assignment(
@@ -481,11 +480,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_compound(
-        &mut self,
-        command: &CompoundCommand,
-        flow: FlowState,
-    ) -> RecordedCommand {
+    fn visit_compound(&mut self, command: &CompoundCommand, flow: FlowState) -> RecordedCommand {
         match command {
             CompoundCommand::If(command) => RecordedCommand {
                 span: command.span,
@@ -647,7 +642,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
             CompoundCommand::Select(command) => {
-                let nested_regions = self.visit_words(&command.words, WordVisitKind::Expansion, flow);
+                let nested_regions =
+                    self.visit_words(&command.words, WordVisitKind::Expansion, flow);
                 self.add_binding(
                     command.variable.clone(),
                     BindingKind::LoopVariable,
@@ -877,12 +873,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_word_into(word, kind, flow, nested_regions)
                 }
                 ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                    self.visit_var_ref_subscript_words(
-                        Some(key),
-                        kind,
-                        flow,
-                        nested_regions,
-                    );
+                    self.visit_var_ref_subscript_words(Some(key), kind, flow, nested_regions);
                     self.visit_word_into(value, kind, flow, nested_regions);
                 }
             }
@@ -2320,7 +2311,9 @@ fn command_span_from_compound(command: &CompoundCommand) -> Span {
         CompoundCommand::Until(command) => command.span,
         CompoundCommand::Case(command) => command.span,
         CompoundCommand::Select(command) => command.span,
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands.span,
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            commands.span
+        }
         CompoundCommand::Arithmetic(command) => command.span,
         CompoundCommand::Time(command) => command.span,
         CompoundCommand::Conditional(command) => command.span,

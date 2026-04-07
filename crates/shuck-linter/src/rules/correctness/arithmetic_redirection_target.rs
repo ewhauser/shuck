@@ -23,7 +23,7 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |visit| {
-            let command = visit.command;
+            let _command = visit.command;
             visit_command_redirects(visit, &mut |redirect| {
                 let Some(target) = redirect.word_target() else {
                     return;

@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment, CompoundCommand,
-    ConditionalExpr, DeclOperand, File, Pattern, PatternPart, Redirect, Stmt,
-    StmtSeq, TextRange, TextSize, Word, WordPart, WordPartNode,
+    ConditionalExpr, DeclOperand, File, Pattern, PatternPart, Redirect, Stmt, StmtSeq, TextRange,
+    TextSize, Word, WordPart, WordPartNode,
 };
 
 use crate::LineIndex;
@@ -208,7 +208,9 @@ fn collect_compound_comments(command: &CompoundCommand, comments: &mut Vec<Comme
             }
             collect_stmt_seq_comments(&command.body, comments);
         }
-        CompoundCommand::ArithmeticFor(command) => collect_stmt_seq_comments(&command.body, comments),
+        CompoundCommand::ArithmeticFor(command) => {
+            collect_stmt_seq_comments(&command.body, comments)
+        }
         CompoundCommand::While(command) => {
             collect_stmt_seq_comments(&command.condition, comments);
             collect_stmt_seq_comments(&command.body, comments);

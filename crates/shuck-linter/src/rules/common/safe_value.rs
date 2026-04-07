@@ -468,10 +468,7 @@ esac
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
 
-        let words = query::iter_commands(
-            &output.file.body,
-            query::CommandWalkOptions::default(),
-        )
+        let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())
             .flat_map(|visit| query::iter_expansion_words(visit, source))
             .collect::<Vec<_>>();
 
@@ -526,10 +523,7 @@ printf '%s\\n' $fallback $trimmed $replaced $unsafe
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &output.file.body, source);
 
-        let words = query::iter_commands(
-            &output.file.body,
-            query::CommandWalkOptions::default(),
-        )
+        let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())
             .flat_map(|visit| query::iter_expansion_words(visit, source))
             .collect::<Vec<_>>();
 

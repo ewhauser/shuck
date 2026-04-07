@@ -25,8 +25,7 @@ pub fn positional_ten_braces(checker: &mut Checker) {
             descend_nested_word_commands: true,
         },
         &mut |visit| {
-            let command = visit.command;
-            visit_command_words(visit, &mut |word| {
+            visit_command_words(visit, source, &mut |word| {
                 collect_positional_parameter_spans(word, source, &mut spans);
             });
         },
@@ -72,5 +71,26 @@ fn collect_positional_parameter_spans_in_parts(
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_positional_ten_in_assignment_subscripts() {
+        let source = "#!/bin/bash\ndeclare arr[$10]=1\n";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PositionalTenBraces));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$10"]
+        );
     }
 }

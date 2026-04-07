@@ -18,13 +18,8 @@ fn format_file_ast_bytes(
     parsed: &shuck_parser::parser::ParseOutput,
     options: &ShellFormatOptions,
 ) -> usize {
-    let formatted = format_file_ast(
-        black_box(source),
-        black_box(&parsed.file),
-        None,
-        options,
-    )
-    .expect("formatter AST benchmark inputs should format");
+    let formatted = format_file_ast(black_box(source), black_box(&parsed.file), None, options)
+        .expect("formatter AST benchmark inputs should format");
 
     output_bytes(source, formatted)
 }
