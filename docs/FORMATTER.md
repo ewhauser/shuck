@@ -51,6 +51,7 @@
 
 - [x] Grow the `shfmt` oracle fixture set across dialects and option combinations.
 - [x] Reuse the benchmark corpus scripts as an in-memory `shfmt` oracle so large real-world deltas stay visible during formatter work.
+- [x] Add macro wall-time benchmark targets that compare `shuck format` against `shfmt` on the shared benchmark corpus.
 - [ ] Add fixtures that compare default output and option-specific output separately.
 - [ ] Add more CLI tests for config precedence across nested project roots.
 - [ ] Add formatter regressions for stdin plus `--stdin-filename` inference for `.sh`, `.bash`, `.ksh`, `.dash`, and `.mksh`.
@@ -66,3 +67,4 @@
 ## Notes
 
 - The opt-in `shfmt` oracle now compares both targeted fixtures and the five benchmark scripts entirely in memory, with unified diffs truncated to stay readable on large failures.
+- Use `make bench-macro-format` for the full formatter corpus and `make bench-macro-format-single BENCH_FILE=/absolute/path/to/script.sh` for a one-off file comparison.
