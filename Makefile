@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-linter flame-cli
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-linter bench-macro bench-macro-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -48,6 +48,16 @@ test-large-corpus: ensure-cache
 	SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored --nocapture
+
+test-oracle-shfmt: test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark
+
+test-oracle-shfmt-fixtures:
+	SHUCK_RUN_SHFMT_ORACLE=1 \
+	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt selected_fixtures_match_shfmt -- --ignored --exact --nocapture
+
+test-oracle-shfmt-benchmark:
+	SHUCK_RUN_SHFMT_ORACLE=1 \
+	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt benchmark_corpus_matches_shfmt -- --ignored --exact --nocapture
 
 run:
 	cargo run -p shuck -- $(ARGS)

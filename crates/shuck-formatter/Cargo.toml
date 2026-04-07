@@ -11,3 +11,7 @@ description = "Shell formatter library for shuck"
 shuck-ast = { path = "../shuck-ast" }
 shuck-format = { path = "../shuck-format" }
 shuck-parser = { path = "../shuck-parser" }
+
+[dev-dependencies]
+shuck-benchmark = { path = "../shuck-benchmark" }
+similar = { workspace = true }

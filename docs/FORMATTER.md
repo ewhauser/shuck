@@ -9,7 +9,7 @@
 - [x] Wire `shuck format` to the new formatter pipeline.
 - [x] Add `[format]` config support in `shuck.toml`.
 - [x] Include formatter options in the cache key.
-- [x] Add focused formatter, parser-dialect, CLI integration, and local `shfmt` oracle tests.
+- [x] Add focused formatter, parser-dialect, CLI integration, and opt-in `shfmt` oracle tests.
 
 ## Current Shape
 
@@ -17,7 +17,7 @@
 - [x] Support `--dialect`, `--indent-style`, `--indent-width`, `--binary-next-line`, `--switch-case-indent`, `--space-redirects`, `--keep-padding`, `--function-next-line`, `--never-split`, `--simplify`, and `--minify`.
 - [x] Preserve input line endings where possible and ensure a single trailing newline.
 - [x] Preserve comments by default and drop them in `--minify`.
-- [x] Keep an opt-in local oracle suite against `/Users/ewhauser/working/shfmt`.
+- [x] Keep an opt-in oracle suite that runs `shfmt` from the repo's Nix dev shell.
 
 ## Next Milestone
 
@@ -49,7 +49,8 @@
 
 ## Validation
 
-- [ ] Grow the local `shfmt` oracle fixture set across dialects and option combinations.
+- [x] Grow the `shfmt` oracle fixture set across dialects and option combinations.
+- [x] Reuse the benchmark corpus scripts as an in-memory `shfmt` oracle so large real-world deltas stay visible during formatter work.
 - [ ] Add fixtures that compare default output and option-specific output separately.
 - [ ] Add more CLI tests for config precedence across nested project roots.
 - [ ] Add formatter regressions for stdin plus `--stdin-filename` inference for `.sh`, `.bash`, `.ksh`, `.dash`, and `.mksh`.
@@ -61,3 +62,7 @@
 - [ ] Revisit whether some formatter decisions should move into parser or AST metadata to avoid source-slice fallbacks.
 - [ ] Consider a dedicated formatter fixture corpus under `crates/shuck-formatter/tests/fixtures/`.
 - [ ] Document intentional divergences from `shfmt` when Shuck chooses safety over normalization.
+
+## Notes
+
+- The opt-in `shfmt` oracle now compares both targeted fixtures and the five benchmark scripts entirely in memory, with unified diffs truncated to stay readable on large failures.

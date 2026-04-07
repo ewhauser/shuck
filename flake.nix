@@ -17,6 +17,7 @@
             pkgs.hyperfine
             pkgs.samply
             pkgs.shellcheck
+            pkgs.shfmt
             pkgs.cargo-udeps
             pkgs.yq
           ];
