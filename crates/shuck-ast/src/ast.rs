@@ -94,6 +94,10 @@ impl LiteralText {
         }
     }
 
+    pub fn eq_str(&self, source: &str, span: Span, other: &str) -> bool {
+        self.as_str(source, span) == other
+    }
+
     pub fn is_source_backed(&self) -> bool {
         matches!(self, Self::Source)
     }
@@ -2876,6 +2880,32 @@ mod tests {
     fn word_literal_empty_string() {
         let w = Word::literal("");
         assert!(matches!(w.part(0), Some(WordPart::Literal(s)) if s.is_empty()));
+    }
+
+    #[test]
+    fn literal_text_owned_compares_equal_to_str() {
+        let text = LiteralText::owned("hello");
+
+        assert!(text == "hello");
+        assert!(text != "world");
+    }
+
+    #[test]
+    fn literal_text_source_does_not_compare_equal_to_str_without_source() {
+        let text = LiteralText::source();
+
+        assert!(text != "");
+        assert!(text != "hello");
+    }
+
+    #[test]
+    fn literal_text_eq_str_uses_source_for_source_backed_literals() {
+        let source = "hello";
+        let span = span_for_source(source);
+        let text = LiteralText::source();
+
+        assert!(text.eq_str(source, span, "hello"));
+        assert!(!text.eq_str(source, span, "world"));
     }
 
     #[test]
