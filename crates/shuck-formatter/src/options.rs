@@ -276,6 +276,11 @@ impl ResolvedShellFormatOptions {
     pub fn compact_layout(&self) -> bool {
         self.minify || self.never_split
     }
+
+    #[must_use]
+    pub fn line_ending(&self) -> LineEnding {
+        self.line_ending
+    }
 }
 
 impl FormatOptions for ResolvedShellFormatOptions {

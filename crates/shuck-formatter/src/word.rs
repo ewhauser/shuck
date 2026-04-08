@@ -35,33 +35,38 @@ pub(crate) fn render_word_syntax(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
-    if let Some(rendered) = render_special_word_syntax(word, source, options) {
-        return rendered;
-    }
+    let mut rendered = String::new();
+    render_word_syntax_to_buf(word, source, options, &mut rendered);
+    rendered
+}
 
-    let rendered = word.render_syntax(source);
+pub(crate) fn render_word_syntax_to_buf(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    rendered: &mut String,
+) {
+    if word_needs_special_rendering(word) {
+        render_word_parts(word.parts.as_slice(), source, options, rendered)
+            .expect("writing into a String should not fail");
+        return;
+    }
 
     if !options.simplify()
         && !options.minify()
         && let Some(slice) = raw_word_source_slice(word, source)
-        && should_preserve_raw_syntax(slice, &rendered)
+        && could_need_preserve_raw_syntax(slice)
     {
-        return slice.to_string();
+        let start = rendered.len();
+        word.render_syntax_to_buf(source, rendered);
+        if should_preserve_raw_syntax(slice, &rendered[start..]) {
+            rendered.truncate(start);
+            rendered.push_str(slice);
+        }
+        return;
     }
 
-    rendered
-}
-
-fn render_special_word_syntax(
-    word: &Word,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-) -> Option<String> {
-    if !word_needs_special_rendering(word) {
-        return None;
-    }
-
-    render_word_parts(word.parts.as_slice(), source, options).ok()
+    word.render_syntax_to_buf(source, rendered);
 }
 
 fn word_needs_special_rendering(word: &Word) -> bool {
@@ -105,12 +110,12 @@ fn render_word_parts(
     parts: &[shuck_ast::WordPartNode],
     source: &str,
     options: &ResolvedShellFormatOptions,
-) -> Result<String, std::fmt::Error> {
-    let mut rendered = String::new();
+    rendered: &mut String,
+) -> Result<(), std::fmt::Error> {
     for part in parts {
-        render_word_part(&mut rendered, &part.kind, part.span, source, options)?;
+        render_word_part(rendered, &part.kind, part.span, source, options)?;
     }
-    Ok(rendered)
+    Ok(())
 }
 
 fn render_word_part(
@@ -178,12 +183,24 @@ fn render_word_part(
                 match syntax {
                     ArithmeticExpansionSyntax::DollarParenParen => {
                         rendered.push_str("$((");
-                        rendered.push_str(&render_arithmetic_expr(expression_ast, source, options));
+                        push_arithmetic_expr(
+                            rendered,
+                            expression_ast,
+                            ArithmeticContext::TopLevel,
+                            source,
+                            options,
+                        );
                         rendered.push_str("))");
                     }
                     ArithmeticExpansionSyntax::LegacyBracket => {
                         rendered.push_str("$[");
-                        rendered.push_str(&render_arithmetic_expr(expression_ast, source, options));
+                        push_arithmetic_expr(
+                            rendered,
+                            expression_ast,
+                            ArithmeticContext::TopLevel,
+                            source,
+                            options,
+                        );
                         rendered.push(']');
                     }
                 }
@@ -199,7 +216,7 @@ fn render_word_part(
             }
         }
         WordPart::Parameter(parameter) => {
-            rendered.push_str(&render_parameter_word(parameter, source, options));
+            push_parameter_word(rendered, parameter, source, options)?;
         }
         WordPart::ParameterExpansion {
             reference,
@@ -216,34 +233,23 @@ fn render_word_part(
             options,
         )?,
         WordPart::Length(reference) => {
-            std::write!(
-                rendered,
-                "${{#{}",
-                render_var_ref(reference, source, options)
-            )?;
+            rendered.push_str("${#");
+            push_var_ref(rendered, reference, source, options);
             rendered.push('}');
         }
         WordPart::ArrayAccess(reference) => {
-            std::write!(
-                rendered,
-                "${{{}}}",
-                render_var_ref(reference, source, options)
-            )?;
+            rendered.push_str("${");
+            push_var_ref(rendered, reference, source, options);
+            rendered.push('}');
         }
         WordPart::ArrayLength(reference) => {
-            std::write!(
-                rendered,
-                "${{#{}",
-                render_var_ref(reference, source, options)
-            )?;
+            rendered.push_str("${#");
+            push_var_ref(rendered, reference, source, options);
             rendered.push('}');
         }
         WordPart::ArrayIndices(reference) => {
-            std::write!(
-                rendered,
-                "${{!{}",
-                render_var_ref(reference, source, options)
-            )?;
+            rendered.push_str("${!");
+            push_var_ref(rendered, reference, source, options);
             rendered.push('}');
         }
         WordPart::Substring {
@@ -260,26 +266,19 @@ fn render_word_part(
             length,
             length_ast,
         } => {
-            std::write!(
-                rendered,
-                "${{{}",
-                render_var_ref(reference, source, options)
-            )?;
+            rendered.push_str("${");
+            push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            rendered.push_str(&render_arithmetic_source_text(
-                offset,
-                offset_ast.as_ref(),
-                source,
-                options,
-            ));
+            push_arithmetic_source_text(rendered, offset, offset_ast.as_ref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
-                rendered.push_str(&render_arithmetic_source_text(
+                push_arithmetic_source_text(
+                    rendered,
                     length,
                     length_ast.as_ref(),
                     source,
                     options,
-                ));
+                );
             }
             rendered.push('}');
         }
@@ -381,20 +380,19 @@ fn render_double_quoted_literal(rendered: &mut String, text: &str) {
     }
 }
 
-fn render_arithmetic_expr(
+fn render_arithmetic_expr_to_buf(
+    rendered: &mut String,
     expr: &ArithmeticExprNode,
     source: &str,
     options: &ResolvedShellFormatOptions,
-) -> String {
-    let mut rendered = String::new();
+) {
     push_arithmetic_expr(
-        &mut rendered,
+        rendered,
         expr,
         ArithmeticContext::TopLevel,
         source,
         options,
     );
-    rendered
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -702,22 +700,27 @@ fn push_arithmetic_lvalue(
     }
 }
 
-fn render_arithmetic_source_text(
+fn push_arithmetic_source_text(
+    rendered: &mut String,
     text: &shuck_ast::SourceText,
     ast: Option<&ArithmeticExprNode>,
     source: &str,
     options: &ResolvedShellFormatOptions,
-) -> String {
-    ast.map(|ast| render_arithmetic_expr(ast, source, options))
-        .unwrap_or_else(|| text.slice(source).to_string())
+) {
+    if let Some(ast) = ast {
+        render_arithmetic_expr_to_buf(rendered, ast, source, options);
+    } else {
+        rendered.push_str(text.slice(source));
+    }
 }
 
-fn render_var_ref(
+fn push_var_ref(
+    rendered: &mut String,
     reference: &VarRef,
     source: &str,
     options: &ResolvedShellFormatOptions,
-) -> String {
-    let mut rendered = reference.name.to_string();
+) {
+    rendered.push_str(reference.name.as_ref());
     if let Some(subscript) = &reference.subscript {
         rendered.push('[');
         if let Some(selector) = subscript.selector() {
@@ -726,53 +729,43 @@ fn render_var_ref(
                 SubscriptSelector::Star => '*',
             });
         } else if let Some(ast) = subscript.arithmetic_ast.as_ref() {
-            rendered.push_str(&render_arithmetic_expr(ast, source, options));
+            render_arithmetic_expr_to_buf(rendered, ast, source, options);
         } else {
             rendered.push_str(subscript.syntax_text(source));
         }
         rendered.push(']');
     }
-    rendered
 }
 
-fn render_parameter_word(
+fn push_parameter_word(
+    rendered: &mut String,
     parameter: &shuck_ast::ParameterExpansion,
     source: &str,
     options: &ResolvedShellFormatOptions,
-) -> String {
+) -> Result<(), std::fmt::Error> {
     let Some(syntax) = parameter.bourne() else {
         let raw = parameter.raw_body.slice(source);
-        let mut rendered = String::with_capacity(raw.len() + 3);
         rendered.push_str("${");
         rendered.push_str(raw);
         rendered.push('}');
-        return rendered;
+        return Ok(());
     };
 
     match syntax {
         BourneParameterExpansion::Access { reference } => {
-            let rendered_reference = render_var_ref(reference, source, options);
-            let mut rendered = String::with_capacity(rendered_reference.len() + 3);
             rendered.push_str("${");
-            rendered.push_str(&rendered_reference);
+            push_var_ref(rendered, reference, source, options);
             rendered.push('}');
-            rendered
         }
         BourneParameterExpansion::Length { reference } => {
-            let rendered_reference = render_var_ref(reference, source, options);
-            let mut rendered = String::with_capacity(rendered_reference.len() + 4);
             rendered.push_str("${#");
-            rendered.push_str(&rendered_reference);
+            push_var_ref(rendered, reference, source, options);
             rendered.push('}');
-            rendered
         }
         BourneParameterExpansion::Indices { reference } => {
-            let rendered_reference = render_var_ref(reference, source, options);
-            let mut rendered = String::with_capacity(rendered_reference.len() + 4);
             rendered.push_str("${!");
-            rendered.push_str(&rendered_reference);
+            push_var_ref(rendered, reference, source, options);
             rendered.push('}');
-            rendered
         }
         BourneParameterExpansion::Indirect {
             name,
@@ -780,7 +773,6 @@ fn render_parameter_word(
             operand,
             colon_variant,
         } => {
-            let mut rendered = String::with_capacity(name.len() + 8);
             rendered.push_str("${!");
             rendered.push_str(name);
             if let Some(operator) = operator {
@@ -793,15 +785,12 @@ fn render_parameter_word(
                 }
             }
             rendered.push('}');
-            rendered
         }
         BourneParameterExpansion::PrefixMatch { prefix, kind } => {
-            let mut rendered = String::with_capacity(prefix.len() + 5);
             rendered.push_str("${!");
             rendered.push_str(prefix);
             rendered.push(kind.as_char());
             rendered.push('}');
-            rendered
         }
         BourneParameterExpansion::Slice {
             reference,
@@ -810,28 +799,21 @@ fn render_parameter_word(
             length,
             length_ast,
         } => {
-            let rendered_reference = render_var_ref(reference, source, options);
-            let mut rendered = String::with_capacity(rendered_reference.len() + 8);
             rendered.push_str("${");
-            rendered.push_str(&rendered_reference);
+            push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            rendered.push_str(&render_arithmetic_source_text(
-                offset,
-                offset_ast.as_ref(),
-                source,
-                options,
-            ));
+            push_arithmetic_source_text(rendered, offset, offset_ast.as_ref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
-                rendered.push_str(&render_arithmetic_source_text(
+                push_arithmetic_source_text(
+                    rendered,
                     length,
                     length_ast.as_ref(),
                     source,
                     options,
-                ));
+                );
             }
             rendered.push('}');
-            rendered
         }
         BourneParameterExpansion::Operation {
             reference,
@@ -839,33 +821,29 @@ fn render_parameter_word(
             operand,
             colon_variant,
         } => {
-            let mut rendered = String::new();
             render_parameter_expansion(
-                &mut rendered,
+                rendered,
                 reference,
                 operator.clone(),
                 operand.as_ref(),
                 *colon_variant,
                 source,
                 options,
-            )
-            .expect("writing into a String should not fail");
-            rendered
+            )?;
         }
         BourneParameterExpansion::Transformation {
             reference,
             operator,
         } => {
-            let rendered_reference = render_var_ref(reference, source, options);
-            let mut rendered = String::with_capacity(rendered_reference.len() + 6);
             rendered.push_str("${");
-            rendered.push_str(&rendered_reference);
+            push_var_ref(rendered, reference, source, options);
             rendered.push('@');
-            std::write!(rendered, "{operator}").expect("writing into a String should not fail");
+            std::write!(rendered, "{operator}")?;
             rendered.push('}');
-            rendered
         }
     }
+
+    Ok(())
 }
 
 fn render_parameter_expansion(
@@ -878,7 +856,7 @@ fn render_parameter_expansion(
     options: &ResolvedShellFormatOptions,
 ) -> Result<(), std::fmt::Error> {
     rendered.push_str("${");
-    rendered.push_str(&render_var_ref(reference, source, options));
+    push_var_ref(rendered, reference, source, options);
     match operator {
         ParameterOp::UseDefault
         | ParameterOp::AssignDefault
@@ -894,26 +872,26 @@ fn render_parameter_expansion(
         }
         ParameterOp::RemovePrefixShort { pattern } => {
             rendered.push('#');
-            rendered.push_str(&render_pattern_syntax(&pattern, source, options));
+            render_pattern_syntax_to_buf(&pattern, source, options, rendered);
         }
         ParameterOp::RemovePrefixLong { pattern } => {
             rendered.push_str("##");
-            rendered.push_str(&render_pattern_syntax(&pattern, source, options));
+            render_pattern_syntax_to_buf(&pattern, source, options, rendered);
         }
         ParameterOp::RemoveSuffixShort { pattern } => {
             rendered.push('%');
-            rendered.push_str(&render_pattern_syntax(&pattern, source, options));
+            render_pattern_syntax_to_buf(&pattern, source, options, rendered);
         }
         ParameterOp::RemoveSuffixLong { pattern } => {
             rendered.push_str("%%");
-            rendered.push_str(&render_pattern_syntax(&pattern, source, options));
+            render_pattern_syntax_to_buf(&pattern, source, options, rendered);
         }
         ParameterOp::ReplaceFirst {
             pattern,
             replacement,
         } => {
             rendered.push('/');
-            rendered.push_str(&render_pattern_syntax(&pattern, source, options));
+            render_pattern_syntax_to_buf(&pattern, source, options, rendered);
             rendered.push('/');
             rendered.push_str(replacement.slice(source));
         }
@@ -922,7 +900,7 @@ fn render_parameter_expansion(
             replacement,
         } => {
             rendered.push_str("//");
-            rendered.push_str(&render_pattern_syntax(&pattern, source, options));
+            render_pattern_syntax_to_buf(&pattern, source, options, rendered);
             rendered.push('/');
             rendered.push_str(replacement.slice(source));
         }
@@ -950,17 +928,32 @@ pub(crate) fn render_pattern_syntax(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
-    let rendered = pattern.render_syntax(source);
+    let mut rendered = String::new();
+    render_pattern_syntax_to_buf(pattern, source, options, &mut rendered);
+    rendered
+}
 
+pub(crate) fn render_pattern_syntax_to_buf(
+    pattern: &Pattern,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    rendered: &mut String,
+) {
     if !options.simplify()
         && !options.minify()
         && let Some(slice) = raw_pattern_source_slice(pattern, source)
-        && should_preserve_raw_syntax(slice, &rendered)
+        && could_need_preserve_raw_syntax(slice)
     {
-        return slice.to_string();
+        let start = rendered.len();
+        pattern.render_syntax_to_buf(source, rendered);
+        if should_preserve_raw_syntax(slice, &rendered[start..]) {
+            rendered.truncate(start);
+            rendered.push_str(slice);
+        }
+        return;
     }
 
-    rendered
+    pattern.render_syntax_to_buf(source, rendered);
 }
 
 fn raw_word_source_slice<'a>(word: &Word, source: &'a str) -> Option<&'a str> {
@@ -986,13 +979,17 @@ fn raw_source_slice(span: shuck_ast::Span, source: &str) -> Option<&str> {
 
 fn should_preserve_raw_syntax(raw: &str, rendered: &str) -> bool {
     raw != rendered
-        && (raw.starts_with('\\')
-            || raw.starts_with('&')
-            || raw.starts_with("$'")
-            || raw.contains("\\\"")
-            || raw.contains("\\`")
-            || raw.contains("\\\\")
-            || raw.contains("[^ ]"))
+        && could_need_preserve_raw_syntax(raw)
+}
+
+fn could_need_preserve_raw_syntax(raw: &str) -> bool {
+    raw.starts_with('\\')
+        || raw.starts_with('&')
+        || raw.starts_with("$'")
+        || raw.contains("\\\"")
+        || raw.contains("\\`")
+        || raw.contains("\\\\")
+        || raw.contains("[^ ]")
 }
 
 fn trim_unescaped_trailing_whitespace(text: &str) -> &str {

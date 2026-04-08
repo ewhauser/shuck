@@ -9,16 +9,17 @@ mod redirect;
 mod script;
 mod shared_traits;
 mod simplify;
+mod streaming;
 mod word;
 
 use std::path::Path;
 
 use shuck_ast::File;
-use shuck_format::{FormatResult, format};
+use shuck_format::FormatResult;
 use shuck_parser::{Error as ParseError, parser::Parser};
 
+#[cfg(feature = "benchmarking")]
 use crate::ast_format::flatten_comments;
-use crate::shared_traits::AsFormat;
 
 pub use crate::options::{ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions};
 pub use shuck_format::IndentStyle;
@@ -114,8 +115,11 @@ fn format_file(
         return Ok(FormattedSource::Unchanged);
     }
 
-    let formatted = build_formatted(source, &mut file, resolved)?;
-    let mut output = formatted.print()?.into_code();
+    if resolved.simplify() || resolved.minify() {
+        simplify::simplify_file(&mut file, source);
+    }
+
+    let mut output = streaming::format_file_streaming(source, &mut file, resolved)?;
     ensure_single_trailing_newline(&mut output);
 
     if output == source {
@@ -125,66 +129,12 @@ fn format_file(
     }
 }
 
-fn build_formatted<'source>(
-    source: &'source str,
-    file: &mut File,
-    resolved: ResolvedShellFormatOptions,
-) -> Result<shuck_format::Formatted<context::ShellFormatContext<'source>>> {
-    if resolved.keep_padding() {
-        let comments = comments::Comments::from_ast(source, &[]);
-        let context = context::ShellFormatContext::new(resolved, source, comments);
-        return Ok(format!(context, [])?);
-    }
-
-    if resolved.simplify() || resolved.minify() {
-        simplify::simplify_file(file, source);
-    }
-
-    let comments = flatten_comments(file);
-    let comments = comments::Comments::from_ast(source, &comments);
-    let context = context::ShellFormatContext::new(resolved, source, comments);
-    Ok(format!(context, [file.format()])?)
-}
-
-#[cfg(feature = "benchmarking")]
-#[derive(Clone)]
-pub struct BenchmarkFormatted<'source> {
-    formatted: shuck_format::Formatted<context::ShellFormatContext<'source>>,
-}
-
-#[cfg(feature = "benchmarking")]
-impl BenchmarkFormatted<'_> {
-    #[must_use]
-    pub fn document_elements(&self) -> usize {
-        self.formatted.document().as_slice().len()
-    }
-
-    pub fn print_bytes(&self) -> Result<usize> {
-        let mut output = self.formatted.print()?.into_code();
-        ensure_single_trailing_newline(&mut output);
-        Ok(output.len())
-    }
-}
-
 #[cfg(feature = "benchmarking")]
 #[doc(hidden)]
 #[must_use]
 pub fn build_comment_index(source: &str, file: &File) -> usize {
     let comments = flatten_comments(file);
     comments::Comments::from_ast(source, &comments).len()
-}
-
-#[cfg(feature = "benchmarking")]
-#[doc(hidden)]
-pub fn build_benchmark_document<'source>(
-    source: &'source str,
-    mut file: File,
-    path: Option<&Path>,
-    options: &ShellFormatOptions,
-) -> Result<BenchmarkFormatted<'source>> {
-    let resolved = options.resolve(source, path);
-    let formatted = build_formatted(source, &mut file, resolved)?;
-    Ok(BenchmarkFormatted { formatted })
 }
 
 fn ensure_single_trailing_newline(output: &mut String) {

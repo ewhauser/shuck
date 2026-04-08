@@ -418,7 +418,7 @@ fn format_decl_clause(
     write_command_pieces(&pieces, formatter)
 }
 
-fn render_decl_operand(
+pub(crate) fn render_decl_operand(
     operand: &DeclOperand,
     source: &str,
     options: &crate::options::ResolvedShellFormatOptions,
@@ -1496,7 +1496,7 @@ fn render_heredoc_tail(body_span: Span, delimiter: &str, source: &str) -> String
     rendered
 }
 
-fn render_assignment(
+pub(crate) fn render_assignment(
     assignment: &Assignment,
     source: &str,
     options: &crate::options::ResolvedShellFormatOptions,
@@ -1553,7 +1553,7 @@ fn render_keyed_array_elem(
     rendered
 }
 
-fn render_assignment_head(assignment: &Assignment, source: &str) -> String {
+pub(crate) fn render_assignment_head(assignment: &Assignment, source: &str) -> String {
     let mut rendered = assignment.target.name.to_string();
     if let Some(index) = &assignment.target.subscript {
         rendered.push('[');
@@ -1611,7 +1611,7 @@ fn format_standalone_multiline_compound_assignment(
     )
 }
 
-fn multiline_compound_assignment_lines(
+pub(crate) fn multiline_compound_assignment_lines(
     assignment: &Assignment,
     source: &str,
 ) -> Option<Vec<String>> {
@@ -1640,7 +1640,7 @@ fn multiline_compound_assignment_lines(
     (!lines.is_empty()).then_some(lines)
 }
 
-fn render_var_ref(reference: &VarRef, source: &str) -> String {
+pub(crate) fn render_var_ref(reference: &VarRef, source: &str) -> String {
     let mut rendered = reference.name.to_string();
     if let Some(subscript) = &reference.subscript {
         rendered.push('[');
@@ -1650,7 +1650,7 @@ fn render_var_ref(reference: &VarRef, source: &str) -> String {
     rendered
 }
 
-fn render_subscript(subscript: &Subscript, source: &str) -> String {
+pub(crate) fn render_subscript(subscript: &Subscript, source: &str) -> String {
     if let Some(selector) = subscript.selector() {
         return selector.as_char().to_string();
     }
@@ -1683,7 +1683,7 @@ fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
     &text[..end]
 }
 
-fn render_source_text(text: &SourceText, source: &str) -> String {
+pub(crate) fn render_source_text(text: &SourceText, source: &str) -> String {
     if text.is_source_backed() && text.span().end.offset > source.len() {
         String::new()
     } else {
@@ -1691,7 +1691,7 @@ fn render_source_text(text: &SourceText, source: &str) -> String {
     }
 }
 
-fn has_heredoc(stmt: &Stmt) -> bool {
+pub(crate) fn has_heredoc(stmt: &Stmt) -> bool {
     stmt.redirects.iter().any(is_heredoc)
         || match &stmt.command {
             Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
@@ -1742,7 +1742,7 @@ fn compound_has_heredoc(command: &CompoundCommand) -> bool {
     }
 }
 
-fn stmt_seq_has_heredoc(commands: &StmtSeq) -> bool {
+pub(crate) fn stmt_seq_has_heredoc(commands: &StmtSeq) -> bool {
     commands.iter().any(has_heredoc)
 }
 
@@ -1766,7 +1766,7 @@ fn verbatim_stmts(statements: &[Stmt], source: &str) -> Option<FormatElement> {
     (span.end.offset <= source.len()).then(|| verbatim(span.slice(source)))
 }
 
-fn stmt_verbatim_span(stmt: &Stmt, source: &str) -> Span {
+pub(crate) fn stmt_verbatim_span(stmt: &Stmt, source: &str) -> Span {
     let mut span = merge_redirect_heredoc_spans(
         command_verbatim_span(&stmt.command, source),
         &stmt.redirects,
@@ -1819,7 +1819,7 @@ fn merge_redirect_heredoc_spans(mut span: Span, redirects: &[Redirect], source: 
     span
 }
 
-fn stmt_span(stmt: &Stmt) -> Span {
+pub(crate) fn stmt_span(stmt: &Stmt) -> Span {
     let mut span = stmt.span;
     for redirect in &stmt.redirects {
         span = merge_non_empty_span(span, redirect.span);
@@ -1985,7 +1985,7 @@ fn format_group_with_upper_bound(
     finish_block(close, formatter)
 }
 
-fn group_open_suffix<'a>(
+pub(crate) fn group_open_suffix<'a>(
     commands: &[Stmt],
     source_map: &'a crate::comments::SourceMap<'a>,
     open: char,
@@ -2005,7 +2005,7 @@ fn group_open_suffix<'a>(
         .then(|| (source_map.span_for_offsets(suffix_start, line_end), suffix))
 }
 
-fn group_attachment_span(
+pub(crate) fn group_attachment_span(
     commands: &[Stmt],
     source_map: &crate::comments::SourceMap<'_>,
     open: char,
@@ -2023,7 +2023,7 @@ fn group_attachment_span(
     Some(source_map.span_for_offsets(open_offset, end))
 }
 
-fn group_was_inline_in_source(
+pub(crate) fn group_was_inline_in_source(
     commands: &[Stmt],
     source_map: &crate::comments::SourceMap<'_>,
     open: char,
@@ -2034,7 +2034,7 @@ fn group_was_inline_in_source(
         .unwrap_or(false)
 }
 
-fn command_format_span(command: &Command) -> Span {
+pub(crate) fn command_format_span(command: &Command) -> Span {
     match command {
         Command::Simple(command) => simple_command_format_span(command),
         Command::Builtin(command) => match command {
@@ -2131,21 +2131,21 @@ fn decl_clause_format_span(command: &DeclClause) -> Span {
     span
 }
 
-fn function_attachment_span(command: &FunctionDef) -> Span {
+pub(crate) fn function_attachment_span(command: &FunctionDef) -> Span {
     function_header_span(command).merge(stmt_span(&command.body))
 }
 
-fn anonymous_function_attachment_span(command: &AnonymousFunctionCommand) -> Span {
+pub(crate) fn anonymous_function_attachment_span(command: &AnonymousFunctionCommand) -> Span {
     anonymous_function_header_span(command)
         .merge(stmt_span(&command.body))
         .merge(words_span(&command.args))
 }
 
-fn function_header_span(command: &FunctionDef) -> Span {
+pub(crate) fn function_header_span(command: &FunctionDef) -> Span {
     command.header.span()
 }
 
-fn anonymous_function_header_span(command: &AnonymousFunctionCommand) -> Span {
+pub(crate) fn anonymous_function_header_span(command: &AnonymousFunctionCommand) -> Span {
     match command.surface {
         shuck_ast::AnonymousFunctionSurface::FunctionKeyword {
             function_keyword_span,
@@ -2154,13 +2154,13 @@ fn anonymous_function_header_span(command: &AnonymousFunctionCommand) -> Span {
     }
 }
 
-fn words_span(words: &[shuck_ast::Word]) -> Span {
+pub(crate) fn words_span(words: &[shuck_ast::Word]) -> Span {
     words.iter().fold(Span::new(), |span, word| {
         merge_non_empty_span(span, word.span)
     })
 }
 
-fn compound_format_span(command: &CompoundCommand) -> Span {
+pub(crate) fn compound_format_span(command: &CompoundCommand) -> Span {
     match command {
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => commands
             .iter()
@@ -2171,7 +2171,7 @@ fn compound_format_span(command: &CompoundCommand) -> Span {
     }
 }
 
-fn stmt_format_span(stmt: &Stmt) -> Span {
+pub(crate) fn stmt_format_span(stmt: &Stmt) -> Span {
     let mut span = if stmt.negated {
         stmt.span
     } else {
@@ -2192,7 +2192,7 @@ fn stmt_format_span(stmt: &Stmt) -> Span {
     }
 }
 
-fn merge_non_empty_span(current: Span, next: Span) -> Span {
+pub(crate) fn merge_non_empty_span(current: Span, next: Span) -> Span {
     if current == Span::new() {
         next
     } else if next == Span::new() {
@@ -2248,11 +2248,11 @@ fn emit_dangling_comments(
     Ok(())
 }
 
-fn line_gap_break_count(current_line: usize, next_line: usize) -> usize {
+pub(crate) fn line_gap_break_count(current_line: usize, next_line: usize) -> usize {
     next_line.saturating_sub(current_line).max(1)
 }
 
-fn rendered_stmt_end_line(
+pub(crate) fn rendered_stmt_end_line(
     stmt: &Stmt,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
@@ -2265,7 +2265,7 @@ fn rendered_stmt_end_line(
     span_render_end_line(span, source, source_map)
 }
 
-fn span_render_end_line(
+pub(crate) fn span_render_end_line(
     span: Span,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
@@ -2359,14 +2359,17 @@ fn can_inline_stmt(stmt: &Stmt, formatter: &ShellFormatter<'_, '_>) -> bool {
     )
 }
 
-fn stmt_has_trailing_comment(stmt: &Stmt, source_map: &crate::comments::SourceMap<'_>) -> bool {
+pub(crate) fn stmt_has_trailing_comment(
+    stmt: &Stmt,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> bool {
     let raw = stmt_span(stmt);
     let formatted = stmt_format_span(stmt);
     raw.end.offset > formatted.end.offset
         && source_map.contains_comment_between(formatted.end.offset, raw.end.offset)
 }
 
-fn should_render_verbatim(
+pub(crate) fn should_render_verbatim(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
     options: &crate::options::ResolvedShellFormatOptions,
@@ -2375,7 +2378,7 @@ fn should_render_verbatim(
         || (has_heredoc(stmt) && stmt_has_trailing_comment(stmt, source_map))
 }
 
-fn stmt_attachment_span(
+pub(crate) fn stmt_attachment_span(
     stmt: &Stmt,
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
@@ -2422,7 +2425,7 @@ fn stmt_has_alignment_sensitive_padding(
     })
 }
 
-fn case_item_was_inline_in_source(item: &CaseItem) -> bool {
+pub(crate) fn case_item_was_inline_in_source(item: &CaseItem) -> bool {
     let Some(stmt) = item.body.first() else {
         return false;
     };
@@ -2545,7 +2548,7 @@ fn stmt_token_spans(stmt: &Stmt) -> Vec<Span> {
     spans
 }
 
-fn render_background_operator(operator: BackgroundOperator) -> &'static str {
+pub(crate) fn render_background_operator(operator: BackgroundOperator) -> &'static str {
     match operator {
         BackgroundOperator::Plain => "&",
         BackgroundOperator::Pipe => "&|",
@@ -2648,7 +2651,7 @@ fn indent_levels(mut document: Document, levels: usize) -> Document {
     document
 }
 
-fn case_terminator(terminator: CaseTerminator) -> &'static str {
+pub(crate) fn case_terminator(terminator: CaseTerminator) -> &'static str {
     match terminator {
         CaseTerminator::Break => ";;",
         CaseTerminator::FallThrough => ";&",
@@ -2657,7 +2660,7 @@ fn case_terminator(terminator: CaseTerminator) -> &'static str {
     }
 }
 
-fn binary_operator(operator: &shuck_ast::BinaryOp) -> &'static str {
+pub(crate) fn binary_operator(operator: &shuck_ast::BinaryOp) -> &'static str {
     match operator {
         shuck_ast::BinaryOp::And => "&&",
         shuck_ast::BinaryOp::Or => "||",
@@ -2666,7 +2669,7 @@ fn binary_operator(operator: &shuck_ast::BinaryOp) -> &'static str {
     }
 }
 
-fn slice_span(source: &str, span: Option<Span>) -> &str {
+pub(crate) fn slice_span(source: &str, span: Option<Span>) -> &str {
     span.and_then(|span| source.get(span.start.offset..span.end.offset))
         .unwrap_or("")
 }
@@ -2685,7 +2688,7 @@ fn write_case_prefix(levels: usize, formatter: &mut ShellFormatter<'_, '_>) -> F
     write!(formatter, [text(prefix)])
 }
 
-fn extend_heredoc_body_span(span: Span, source: &str) -> Span {
+pub(crate) fn extend_heredoc_body_span(span: Span, source: &str) -> Span {
     let mut end = span.end.offset;
     while end < source.len() {
         let byte = source.as_bytes()[end];
