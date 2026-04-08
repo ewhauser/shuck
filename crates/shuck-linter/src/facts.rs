@@ -1211,7 +1211,8 @@ fn collect_word_substitution_occurrences<'a>(
             | WordPart::ArraySlice { .. }
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. } => {}
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
         }
     }
 }
@@ -1451,7 +1452,9 @@ fn visit_command_words_for_substitutions(
             | CompoundCommand::Always(_)
             | CompoundCommand::Arithmetic(_)
             | CompoundCommand::Time(_)
-            | CompoundCommand::Coproc(_) => {}
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_) => {}
         },
     }
 
@@ -1908,10 +1911,10 @@ fn build_list_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<ListFact<'a>> {
 }
 
 fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
-    if let Command::Binary(left) = &command.left.command {
-        if matches!(left.op, BinaryOp::And | BinaryOp::Or) {
-            collect_short_circuit_operators(left, operators);
-        }
+    if let Command::Binary(left) = &command.left.command
+        && matches!(left.op, BinaryOp::And | BinaryOp::Or)
+    {
+        collect_short_circuit_operators(left, operators);
     }
 
     if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
@@ -1921,10 +1924,10 @@ fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<
         });
     }
 
-    if let Command::Binary(right) = &command.right.command {
-        if matches!(right.op, BinaryOp::And | BinaryOp::Or) {
-            collect_short_circuit_operators(right, operators);
-        }
+    if let Command::Binary(right) = &command.right.command
+        && matches!(right.op, BinaryOp::And | BinaryOp::Or)
+    {
+        collect_short_circuit_operators(right, operators);
     }
 }
 

@@ -86,6 +86,7 @@ impl<'a> SafeValueIndex<'a> {
 
     pub fn part_is_safe(&mut self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
         match part {
+            WordPart::ZshQualifiedGlob(_) => query == SafeValueQuery::Quoted,
             WordPart::Parameter(parameter) => self.parameter_part_is_safe(parameter, span, query),
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
                 self.literal_part_is_safe(part, span, query)

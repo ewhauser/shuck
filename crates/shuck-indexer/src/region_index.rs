@@ -474,6 +474,7 @@ impl<'a> RegionCollector<'a> {
         for part in parts {
             let range = part.span.to_range();
             match &part.kind {
+                WordPart::ZshQualifiedGlob(glob) => self.visit_pattern(&glob.pattern),
                 WordPart::SingleQuoted { .. } => {
                     push_range(&mut self.single_quoted, range);
                 }

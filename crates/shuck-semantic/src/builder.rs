@@ -1098,6 +1098,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         match part {
+            WordPart::ZshQualifiedGlob(glob) => {
+                self.visit_pattern_into(&glob.pattern, kind, flow, nested_regions);
+            }
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
                 self.visit_word_part_nodes(parts, kind, flow, nested_regions);

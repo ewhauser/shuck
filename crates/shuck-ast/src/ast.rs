@@ -1284,6 +1284,43 @@ pub enum ZshReplacementOp {
     ReplaceSuffix,
 }
 
+/// A zsh glob word with one trailing classic qualifier group.
+#[derive(Debug, Clone)]
+pub struct ZshQualifiedGlob {
+    pub span: Span,
+    pub pattern: Pattern,
+    pub qualifiers: ZshGlobQualifierGroup,
+}
+
+/// One trailing `(...)` qualifier suffix for a zsh glob word.
+#[derive(Debug, Clone)]
+pub struct ZshGlobQualifierGroup {
+    pub span: Span,
+    pub fragments: Vec<ZshGlobQualifier>,
+}
+
+/// Lightweight, surface-preserving fragments inside a trailing zsh glob
+/// qualifier group.
+#[derive(Debug, Clone)]
+pub enum ZshGlobQualifier {
+    Negation {
+        span: Span,
+    },
+    Flag {
+        name: char,
+        span: Span,
+    },
+    LetterSequence {
+        text: SourceText,
+        span: Span,
+    },
+    NumericArgument {
+        span: Span,
+        start: SourceText,
+        end: Option<SourceText>,
+    },
+}
+
 /// Brace expansion surface form recognized inside a word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BraceExpansionKind {
@@ -1746,6 +1783,8 @@ fn fmt_var_ref_with_source(
 pub enum WordPart {
     /// Literal text
     Literal(LiteralText),
+    /// Zsh glob with one classic trailing qualifier group such as `*(.)`.
+    ZshQualifiedGlob(ZshQualifiedGlob),
     /// Single-quoted literal content, including `$'...'` ANSI-C quoting.
     SingleQuoted { value: SourceText, dollar: bool },
     /// Double-quoted content with nested expansions.
@@ -1941,6 +1980,18 @@ fn fmt_word_part_with_source_mode(
             }
             _ => fmt_literal_text(f, text, span, source)?,
         },
+        WordPart::ZshQualifiedGlob(glob) => {
+            if let Some(source) = source
+                && zsh_qualified_glob_is_source_backed(glob)
+                && glob.span.end.offset <= source.len()
+            {
+                f.write_str(trim_unescaped_trailing_whitespace(glob.span.slice(source)))?;
+            } else {
+                glob.pattern
+                    .fmt_with_source_mode(f, source, RenderMode::Syntax)?;
+                fmt_zsh_glob_qualifier_group_with_source(f, &glob.qualifiers, source)?;
+            }
+        }
         WordPart::SingleQuoted { value, dollar } => match mode {
             RenderMode::Decoded => f.write_str(display_source_text(Some(value), source))?,
             RenderMode::Syntax => match source {
@@ -2246,6 +2297,7 @@ fn part_prefers_source_slice_in_syntax(part: &WordPart) -> bool {
     matches!(
         part,
         WordPart::Variable(_)
+            | WordPart::ZshQualifiedGlob(_)
             | WordPart::CommandSubstitution { .. }
             | WordPart::ArithmeticExpansion { .. }
             | WordPart::Parameter(_)
@@ -2291,6 +2343,7 @@ fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
 fn part_is_source_backed(part: &WordPart) -> bool {
     match part {
         WordPart::Literal(text) => text.is_source_backed(),
+        WordPart::ZshQualifiedGlob(glob) => zsh_qualified_glob_is_source_backed(glob),
         WordPart::SingleQuoted { value, .. } => value.is_source_backed(),
         WordPart::DoubleQuoted { parts, .. } => {
             parts.iter().all(|part| part_is_source_backed(&part.kind))
@@ -2343,6 +2396,54 @@ fn pattern_part_is_source_backed(part: &PatternPart) -> bool {
             .iter()
             .all(|part| part_is_source_backed(&part.kind)),
     }
+}
+
+fn zsh_qualified_glob_is_source_backed(glob: &ZshQualifiedGlob) -> bool {
+    glob.pattern.is_source_backed() && zsh_glob_qualifier_group_is_source_backed(&glob.qualifiers)
+}
+
+fn zsh_glob_qualifier_group_is_source_backed(group: &ZshGlobQualifierGroup) -> bool {
+    group
+        .fragments
+        .iter()
+        .all(zsh_glob_qualifier_is_source_backed)
+}
+
+fn zsh_glob_qualifier_is_source_backed(fragment: &ZshGlobQualifier) -> bool {
+    match fragment {
+        ZshGlobQualifier::Negation { .. } | ZshGlobQualifier::Flag { .. } => true,
+        ZshGlobQualifier::LetterSequence { text, .. } => text.is_source_backed(),
+        ZshGlobQualifier::NumericArgument { start, end, .. } => {
+            start.is_source_backed() && end.as_ref().is_none_or(SourceText::is_source_backed)
+        }
+    }
+}
+
+fn fmt_zsh_glob_qualifier_group_with_source(
+    f: &mut impl fmt::Write,
+    group: &ZshGlobQualifierGroup,
+    source: Option<&str>,
+) -> fmt::Result {
+    f.write_str("(")?;
+    for fragment in &group.fragments {
+        match fragment {
+            ZshGlobQualifier::Negation { .. } => f.write_str("^")?,
+            ZshGlobQualifier::Flag { name, .. } => write!(f, "{name}")?,
+            ZshGlobQualifier::LetterSequence { text, .. } => {
+                f.write_str(display_source_text(Some(text), source))?;
+            }
+            ZshGlobQualifier::NumericArgument { start, end, .. } => {
+                f.write_str("[")?;
+                f.write_str(display_source_text(Some(start), source))?;
+                if let Some(end) = end {
+                    f.write_str(",")?;
+                    f.write_str(display_source_text(Some(end), source))?;
+                }
+                f.write_str("]")?;
+            }
+        }
+    }
+    f.write_str(")")
 }
 
 fn operator_is_source_backed(operator: &ParameterOp) -> bool {

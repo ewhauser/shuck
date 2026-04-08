@@ -624,6 +624,11 @@ fn collect_word_part_parameter_patterns(
 ) {
     for part in parts {
         match &part.kind {
+            WordPart::ZshQualifiedGlob(glob) => collect_pattern_context_words(
+                &glob.pattern,
+                ExpansionContext::ParameterPattern,
+                words,
+            ),
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_word_part_parameter_patterns(parts, words)
             }
@@ -1020,6 +1025,9 @@ fn collect_word_part_visits<'a>(
 ) {
     for part in parts {
         match &part.kind {
+            WordPart::ZshQualifiedGlob(glob) => {
+                collect_pattern_visits(&glob.pattern, options, context, visits);
+            }
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_word_part_visits(parts, options, context, visits);
             }
@@ -1361,6 +1369,7 @@ impl<F: FnMut(CommandVisit<'_>)> CommandWalker<'_, F> {
     fn walk_word_parts(&mut self, parts: &[WordPartNode], context: WalkContext) {
         for part in parts {
             match &part.kind {
+                WordPart::ZshQualifiedGlob(glob) => self.walk_pattern(&glob.pattern, context),
                 WordPart::DoubleQuoted { parts, .. } => self.walk_word_parts(parts, context),
                 WordPart::ArithmeticExpansion { expression_ast, .. } => {
                     visit_optional_arithmetic_words(expression_ast.as_ref(), &mut |word| {
@@ -1608,6 +1617,7 @@ impl<F: FnMut(&Word)> WordWalker<'_, F> {
     fn walk_word_parts(&mut self, parts: &[WordPartNode]) {
         for part in parts {
             match &part.kind {
+                WordPart::ZshQualifiedGlob(glob) => self.walk_pattern(&glob.pattern),
                 WordPart::DoubleQuoted { parts, .. } => self.walk_word_parts(parts),
                 WordPart::ArithmeticExpansion { expression_ast, .. } => {
                     visit_optional_arithmetic_words(expression_ast.as_ref(), &mut |word| {
@@ -1773,6 +1783,9 @@ fn collect_word_command_substitutions(
 ) {
     for part in parts {
         match &part.kind {
+            WordPart::ZshQualifiedGlob(glob) => {
+                collect_pattern_command_substitutions(&glob.pattern, substitutions);
+            }
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_word_command_substitutions(parts, substitutions);
             }
@@ -1802,6 +1815,28 @@ fn collect_word_command_substitutions(
                 });
             }
             _ => {}
+        }
+    }
+}
+
+fn collect_pattern_command_substitutions(
+    pattern: &Pattern,
+    substitutions: &mut Vec<NestedCommandSubstitution>,
+) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_pattern_command_substitutions(pattern, substitutions);
+                }
+            }
+            PatternPart::Word(word) => {
+                collect_word_command_substitutions(&word.parts, substitutions)
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
         }
     }
 }

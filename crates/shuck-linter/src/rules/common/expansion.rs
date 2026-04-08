@@ -659,6 +659,17 @@ fn analyze_parts(parts: &[WordPartNode], in_double_quotes: bool, summary: &mut A
 
 fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
     match part {
+        WordPart::ZshQualifiedGlob(_) => PartAnalysis {
+            value_shape: PartValueShape::Unknown,
+            array_valued: false,
+            can_expand_to_multiple_fields: !in_double_quotes,
+            hazards: ExpansionHazards {
+                pathname_matching: !in_double_quotes,
+                ..ExpansionHazards::default()
+            },
+            command_substitution: false,
+            process_substitution: false,
+        },
         WordPart::Parameter(parameter) => analyze_parameter_part(parameter, in_double_quotes),
         WordPart::CommandSubstitution { .. } => scalar_part(
             !in_double_quotes,
@@ -1074,6 +1085,19 @@ mod tests {
                 .iter()
                 .all(|analysis| analysis.value_shape == ExpansionValueShape::Unknown)
         );
+    }
+
+    #[test]
+    fn analyze_word_treats_zsh_trailing_glob_qualifiers_as_non_literal_pathname_hazards() {
+        let analyses =
+            analyze_argument_words_with_dialect("print **/*(.om[1,3])\n", ShellDialect::Zsh);
+
+        assert_eq!(analyses[0].literalness, WordLiteralness::Expanded);
+        assert!(!analyses[0].is_fixed_literal());
+        assert_eq!(analyses[0].value_shape, ExpansionValueShape::Unknown);
+        assert!(analyses[0].hazards.pathname_matching);
+        assert!(analyses[0].can_expand_to_multiple_fields);
+        assert!(!analyses[0].array_valued);
     }
 
     #[test]

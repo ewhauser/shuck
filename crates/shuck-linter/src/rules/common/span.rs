@@ -150,6 +150,7 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => collect_expansion_spans(parts, spans),
             WordPart::Variable(_)
+            | WordPart::ZshQualifiedGlob(_)
             | WordPart::CommandSubstitution { .. }
             | WordPart::ArithmeticExpansion { .. }
             | WordPart::Parameter(_)
@@ -173,6 +174,7 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>)
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => collect_scalar_expansion_spans(parts, spans),
+            WordPart::ZshQualifiedGlob(_) => {}
             WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
             WordPart::Parameter(parameter) => {
                 if parameter_is_scalar_like(parameter) {

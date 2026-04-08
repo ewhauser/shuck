@@ -12,6 +12,7 @@ pub struct SimplifyReport {
     applied: Vec<RewriteApplication>,
 }
 
+#[allow(dead_code)]
 impl SimplifyReport {
     #[must_use]
     pub fn applied(&self) -> &[RewriteApplication] {
@@ -703,6 +704,7 @@ fn walk_word(
 
 fn walk_word_part(part: &mut WordPartNode) -> usize {
     match &mut part.kind {
+        WordPart::ZshQualifiedGlob(_) => 0,
         WordPart::DoubleQuoted { parts, .. } => {
             let mut count = 0;
             for part in parts {
@@ -1105,6 +1107,14 @@ fn rewrite_word_part_source_texts(
 ) -> usize {
     match &mut part.kind {
         WordPart::Literal(_) | WordPart::Variable(_) => 0,
+        WordPart::ZshQualifiedGlob(glob) => {
+            rewrite_pattern_source_texts(&mut glob.pattern, source, visitor)
+                + rewrite_zsh_glob_qualifier_group_source_texts(
+                    &mut glob.qualifiers,
+                    source,
+                    visitor,
+                )
+        }
         WordPart::SingleQuoted { value, .. } => visitor(value, source),
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter_mut()
@@ -1162,6 +1172,25 @@ fn rewrite_word_part_source_texts(
         }
         WordPart::PrefixMatch { .. } => 0,
     }
+}
+
+fn rewrite_zsh_glob_qualifier_group_source_texts(
+    group: &mut shuck_ast::ZshGlobQualifierGroup,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    group
+        .fragments
+        .iter_mut()
+        .map(|fragment| match fragment {
+            shuck_ast::ZshGlobQualifier::Negation { .. }
+            | shuck_ast::ZshGlobQualifier::Flag { .. } => 0,
+            shuck_ast::ZshGlobQualifier::LetterSequence { text, .. } => visitor(text, source),
+            shuck_ast::ZshGlobQualifier::NumericArgument { start, end, .. } => {
+                visitor(start, source) + end.as_mut().map_or(0, |end| visitor(end, source))
+            }
+        })
+        .sum()
 }
 
 fn rewrite_parameter_source_texts(

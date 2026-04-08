@@ -398,6 +398,9 @@ fn walk_word_parts(
 ) {
     for part in parts {
         match &part.kind {
+            WordPart::ZshQualifiedGlob(glob) => {
+                walk_pattern(&glob.pattern, model, source, facts);
+            }
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, model, source, facts),
             WordPart::CommandSubstitution { body, .. }

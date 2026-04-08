@@ -416,6 +416,7 @@ fn collect_word_comments(word: &Word, comments: &mut Vec<Comment>) {
 fn collect_word_part_comments(parts: &[WordPartNode], comments: &mut Vec<Comment>) {
     for part in parts {
         match &part.kind {
+            WordPart::ZshQualifiedGlob(glob) => collect_pattern_comments(&glob.pattern, comments),
             WordPart::DoubleQuoted { parts, .. } => collect_word_part_comments(parts, comments),
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => {

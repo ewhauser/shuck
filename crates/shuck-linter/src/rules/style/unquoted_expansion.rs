@@ -47,6 +47,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
 fn matches_scalar_expansion_part(part: &WordPart) -> bool {
     match part {
         WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
         | WordPart::SingleQuoted { .. }
         | WordPart::DoubleQuoted { .. }
         | WordPart::CommandSubstitution { .. }
