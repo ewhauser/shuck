@@ -1,4 +1,4 @@
-use shuck_ast::Span;
+use shuck_ast::{Span, Word, WordPart, WordPartNode};
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, SimpleTestOperatorFamily,
@@ -42,9 +42,10 @@ fn simple_test_is_constant(fact: &crate::SimpleTestFact<'_>) -> bool {
     match fact.shape() {
         SimpleTestShape::Unary => {
             fact.operator_family() == SimpleTestOperatorFamily::StringUnary
-                && fact
+                && (fact
                     .unary_operand_class()
                     .is_some_and(|class| class.is_fixed_literal())
+                    || simple_test_unary_affix_span(fact).is_some())
         }
         SimpleTestShape::Binary => {
             fact.operator_family() == SimpleTestOperatorFamily::StringBinary
@@ -56,10 +57,92 @@ fn simple_test_is_constant(fact: &crate::SimpleTestFact<'_>) -> bool {
     }
 }
 
+fn simple_test_unary_affix_span(fact: &crate::SimpleTestFact<'_>) -> Option<Span> {
+    let Some(operand) = fact.operands().get(1) else {
+        return None;
+    };
+
+    word_scalar_affix_span(operand)
+}
+
+fn word_scalar_affix_span(word: &Word) -> Option<Span> {
+    if !word.is_fully_double_quoted() {
+        return None;
+    }
+
+    let mut saw_literal = false;
+    let mut saw_scalar_expansion = false;
+    let mut literal_span = None;
+    if !word_scalar_affix_span_parts(
+        &word.parts,
+        &mut saw_literal,
+        &mut saw_scalar_expansion,
+        &mut literal_span,
+    ) {
+        return None;
+    }
+
+    (saw_literal && saw_scalar_expansion)
+        .then_some(literal_span)
+        .flatten()
+}
+
+fn word_scalar_affix_span_parts(
+    parts: &[WordPartNode],
+    saw_literal: &mut bool,
+    saw_scalar_expansion: &mut bool,
+    literal_span: &mut Option<Span>,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
+                *saw_literal = true;
+                if literal_span.is_none() {
+                    *literal_span = Some(part.span);
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !word_scalar_affix_span_parts(
+                    parts,
+                    saw_literal,
+                    saw_scalar_expansion,
+                    literal_span,
+                ) {
+                    return false;
+                }
+            }
+            WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::Substring { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::Transformation { .. } => {
+                *saw_scalar_expansion = true;
+            }
+            WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::ArraySlice { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ZshQualifiedGlob(_) => {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
 fn simple_test_report_span(fact: &crate::SimpleTestFact<'_>, fallback: Span) -> Span {
     match fact.shape() {
         SimpleTestShape::Unary if fact.operator_family() == SimpleTestOperatorFamily::StringUnary => {
-            fact.operands().get(1).map(|word| word.span).unwrap_or(fallback)
+            simple_test_unary_affix_span(fact)
+                .or_else(|| fact.operands().get(1).map(|word| word.span))
+                .unwrap_or(fallback)
         }
         _ => fallback,
     }
@@ -139,5 +222,27 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "TEMP_NVM_COLORS");
+    }
+
+    #[test]
+    fn reports_affixed_quoted_unary_tests_but_not_plain_variables() {
+        let source = "\
+#!/bin/bash
+[ -z \"${rootfs_path}_path\" ]
+[ -n \"prefix${rootfs_path}\" ]
+[ -n \"$rootfs_path\" ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ConstantComparisonTest),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["_path", "prefix"]
+        );
     }
 }
