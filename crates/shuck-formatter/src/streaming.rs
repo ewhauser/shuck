@@ -24,7 +24,7 @@ use crate::command::{
 };
 use crate::comments::{Comments, SourceComment, SourceMap};
 use crate::options::ResolvedShellFormatOptions;
-use crate::word::{render_pattern_syntax_to_buf, render_word_syntax_to_buf};
+use crate::word::{render_pattern_syntax_to_buf, render_word_syntax_with_source_map_to_buf};
 
 pub(crate) fn format_file_streaming(
     source: &str,
@@ -45,6 +45,24 @@ pub(crate) fn format_file_streaming(
     }
 
     Ok(formatter.finish())
+}
+
+pub(crate) fn format_stmt_sequence_streaming_to_buf(
+    source: &str,
+    statements: &StmtSeq,
+    options: &ResolvedShellFormatOptions,
+    source_map: &SourceMap<'_>,
+    output: &mut String,
+) -> Result<()> {
+    let mut nested_output = mem::take(output);
+    nested_output.clear();
+
+    let comments = Comments::empty_from_source_map(source_map.clone());
+    let mut formatter =
+        ShellStreamFormatter::with_output_buffer(source, options.clone(), comments, nested_output);
+    formatter.format_stmt_sequence(statements, None)?;
+    *output = formatter.finish();
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -78,12 +96,26 @@ impl<'source> ShellStreamFormatter<'source> {
         options: ResolvedShellFormatOptions,
         comments: Comments<'source>,
     ) -> Self {
+        Self::with_output_buffer(
+            source,
+            options,
+            comments,
+            String::with_capacity(source.len()),
+        )
+    }
+
+    fn with_output_buffer(
+        source: &'source str,
+        options: ResolvedShellFormatOptions,
+        comments: Comments<'source>,
+        output: String,
+    ) -> Self {
         Self {
             source,
             options,
             source_map: comments.source_map().clone(),
             comments,
-            output: String::with_capacity(source.len()),
+            output,
             scratch: String::new(),
             indent_level: 0,
             line_start: true,
@@ -267,8 +299,9 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn write_word(&mut self, word: &Word) {
+        let source_map = self.source_map().clone();
         self.write_rendered(|scratch, source, options| {
-            render_word_syntax_to_buf(word, source, options, scratch);
+            render_word_syntax_with_source_map_to_buf(word, source, options, &source_map, scratch);
         });
     }
 
@@ -565,8 +598,15 @@ impl<'source> ShellStreamFormatter<'source> {
 
     fn format_simple_command(&mut self, command: &SimpleCommand) -> Result<()> {
         let source = self.source();
+        let source_map = self.source_map().clone();
         let mut rendered_name = self.take_scratch_buffer();
-        render_word_syntax_to_buf(&command.name, source, self.options(), &mut rendered_name);
+        render_word_syntax_with_source_map_to_buf(
+            &command.name,
+            source,
+            self.options(),
+            &source_map,
+            &mut rendered_name,
+        );
         if command.args.is_empty()
             && command.assignments.len() == 1
             && rendered_name.is_empty()
@@ -1267,11 +1307,13 @@ impl<'source> ShellStreamFormatter<'source> {
         if function.header.entries.len() == 1
             && let Some(name) = function.header.entries[0].static_name.as_ref()
         {
+            let source_map = self.source_map().clone();
             let mut rendered_entry = self.take_scratch_buffer();
-            render_word_syntax_to_buf(
+            render_word_syntax_with_source_map_to_buf(
                 &function.header.entries[0].word,
                 self.source(),
                 self.options(),
+                &source_map,
                 &mut rendered_entry,
             );
             let classic_single_name = name.as_str() == rendered_entry;
@@ -1472,11 +1514,22 @@ impl<'source> ShellStreamFormatter<'source> {
         });
 
         let mut target = self.take_scratch_buffer();
+        let source_map = self.source_map().clone();
         match (redirect.word_target(), redirect.heredoc()) {
-            (Some(word), None) => render_word_syntax_to_buf(word, source, &options, &mut target),
-            (None, Some(heredoc)) => {
-                render_word_syntax_to_buf(&heredoc.delimiter.raw, source, &options, &mut target)
-            }
+            (Some(word), None) => render_word_syntax_with_source_map_to_buf(
+                word,
+                source,
+                &options,
+                &source_map,
+                &mut target,
+            ),
+            (None, Some(heredoc)) => render_word_syntax_with_source_map_to_buf(
+                &heredoc.delimiter.raw,
+                source,
+                &options,
+                &source_map,
+                &mut target,
+            ),
             (None, None) => {}
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
         }

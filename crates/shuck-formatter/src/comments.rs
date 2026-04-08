@@ -257,6 +257,16 @@ impl<'a> CommentAttachmentIndex<'a> {
     }
 
     #[must_use]
+    pub(crate) fn empty_from_source_map(source_map: SourceMap<'a>) -> Self {
+        Self {
+            source_map,
+            items: Arc::from([]),
+            claimed: Vec::new(),
+            next_unclaimed: 0,
+        }
+    }
+
+    #[must_use]
     pub fn source_map(&self) -> &SourceMap<'a> {
         &self.source_map
     }

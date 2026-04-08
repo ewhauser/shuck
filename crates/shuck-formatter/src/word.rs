@@ -10,11 +10,11 @@ use shuck_format::IndentStyle;
 use shuck_format::{FormatResult, text, write};
 
 use crate::FormatNodeRule;
-use crate::command::format_stmt_sequence;
-use crate::comments::Comments;
-use crate::context::ShellFormatContext;
+use crate::command::stmt_seq_has_heredoc;
+use crate::comments::SourceMap;
 use crate::options::ResolvedShellFormatOptions;
 use crate::prelude::ShellFormatter;
+use crate::streaming::format_stmt_sequence_streaming_to_buf;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FormatWord;
@@ -46,8 +46,28 @@ pub(crate) fn render_word_syntax_to_buf(
     options: &ResolvedShellFormatOptions,
     rendered: &mut String,
 ) {
+    render_word_syntax_internal(word, source, options, None, rendered);
+}
+
+pub(crate) fn render_word_syntax_with_source_map_to_buf(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    source_map: &SourceMap<'_>,
+    rendered: &mut String,
+) {
+    render_word_syntax_internal(word, source, options, Some(source_map), rendered);
+}
+
+fn render_word_syntax_internal(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    rendered: &mut String,
+) {
     if word_needs_special_rendering(word) {
-        render_word_parts(word.parts.as_slice(), source, options, rendered)
+        render_word_parts(word.parts.as_slice(), source, options, source_map, rendered)
             .expect("writing into a String should not fail");
         return;
     }
@@ -110,10 +130,11 @@ fn render_word_parts(
     parts: &[shuck_ast::WordPartNode],
     source: &str,
     options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
     rendered: &mut String,
 ) -> Result<(), std::fmt::Error> {
     for part in parts {
-        render_word_part(rendered, &part.kind, part.span, source, options)?;
+        render_word_part(rendered, &part.kind, part.span, source, options, source_map)?;
     }
     Ok(())
 }
@@ -124,6 +145,7 @@ fn render_word_part(
     span: shuck_ast::Span,
     source: &str,
     options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
 ) -> Result<(), std::fmt::Error> {
     match part {
         WordPart::Literal(text) => rendered.push_str(text.as_str(source, span)),
@@ -145,7 +167,9 @@ fn render_word_part(
                     WordPart::Literal(text) => {
                         render_double_quoted_literal(rendered, text.as_str(source, part.span))
                     }
-                    other => render_word_part(rendered, other, part.span, source, options)?,
+                    other => {
+                        render_word_part(rendered, other, part.span, source, options, source_map)?
+                    }
                 }
             }
             rendered.push('"');
@@ -159,17 +183,22 @@ fn render_word_part(
             } else if let Some(raw) = raw_source_slice(span, source) {
                 if raw.contains('#') {
                     rendered.push_str(raw);
-                } else if let Some(command_substitution) =
-                    render_command_substitution(body, source, options, raw.contains('\n'))
+                } else if render_command_substitution(
+                    rendered,
+                    body,
+                    source,
+                    options,
+                    raw.contains('\n'),
+                    source_map,
+                )
+                .is_some()
                 {
-                    rendered.push_str(&command_substitution);
                 } else {
                     rendered.push_str(raw);
                 }
-            } else if let Some(command_substitution) =
-                render_command_substitution(body, source, options, true)
+            } else if render_command_substitution(rendered, body, source, options, true, source_map)
+                .is_some()
             {
-                rendered.push_str(&command_substitution);
             } else {
                 std::write!(rendered, "$({body:?})")?;
             }
@@ -309,58 +338,72 @@ fn render_word_part(
 }
 
 fn render_command_substitution(
+    rendered: &mut String,
     body: &shuck_ast::StmtSeq,
     source: &str,
     options: &ResolvedShellFormatOptions,
     multiline: bool,
-) -> Option<String> {
-    let context = ShellFormatContext::new(options.clone(), source, Comments::from_ast(source, &[]));
-    let mut formatter = shuck_format::Formatter::new(context);
-    format_stmt_sequence(body, &mut formatter).ok()?;
-    let rendered = formatter.finish().print().ok()?.into_code();
-    let trimmed = rendered.trim_end_matches('\n');
+    source_map: Option<&SourceMap<'_>>,
+) -> Option<()> {
+    if stmt_seq_has_heredoc(body) {
+        return None;
+    }
+
+    let owned_source_map;
+    let source_map = match source_map {
+        Some(source_map) => source_map,
+        None => {
+            owned_source_map = SourceMap::new(source);
+            &owned_source_map
+        }
+    };
+
+    let mut nested = String::new();
+    format_stmt_sequence_streaming_to_buf(source, body, options, source_map, &mut nested).ok()?;
+
+    let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
-        return Some("$()".to_string());
+        rendered.push_str("$()");
+        return Some(());
     }
 
     if multiline {
-        let indented = indent_rendered_block(trimmed, options, 1);
-        let mut result = String::with_capacity(indented.len() + 5);
-        result.push_str("$(\n");
-        result.push_str(&indented);
-        result.push_str("\n)");
-        Some(result)
+        rendered.push_str("$(\n");
+        push_indented_rendered_block(rendered, trimmed, options, 1);
+        rendered.push_str("\n)");
     } else {
-        let mut result = String::with_capacity(trimmed.len() + 3);
-        result.push_str("$(");
-        result.push_str(trimmed);
-        result.push(')');
-        Some(result)
+        rendered.push_str("$(");
+        rendered.push_str(trimmed);
+        rendered.push(')');
     }
+
+    Some(())
 }
 
-fn indent_rendered_block(
+fn trim_trailing_line_endings(rendered: &str) -> &str {
+    rendered.trim_end_matches(&['\r', '\n'][..])
+}
+
+fn push_indented_rendered_block(
+    target: &mut String,
     rendered: &str,
     options: &ResolvedShellFormatOptions,
     levels: usize,
-) -> String {
+) {
     let prefix = match options.indent_style() {
         IndentStyle::Tab => "\t".repeat(levels),
         IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
     };
 
-    let mut indented =
-        String::with_capacity(rendered.len() + prefix.len() * rendered.lines().count());
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
-            indented.push('\n');
+            target.push('\n');
         }
         if !line.is_empty() {
-            indented.push_str(&prefix);
-            indented.push_str(line);
+            target.push_str(&prefix);
+            target.push_str(line);
         }
     }
-    indented
 }
 
 fn render_double_quoted_literal(rendered: &mut String, text: &str) {

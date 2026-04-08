@@ -433,7 +433,8 @@ mod tests {
     #[test]
     fn preserves_default_redirect_spacing_without_space_redirects() {
         let source = "archi=$(uname -smo 2> /dev/null || uname -sm)\n";
-        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+        let options = ShellFormatOptions::default();
+        let formatted = format_source(source, None, &options).unwrap();
 
         assert_eq!(
             formatted,
@@ -441,6 +442,70 @@ mod tests {
                 "archi=$(uname -smo 2>/dev/null || uname -sm)\n".to_string()
             )
         );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn preserves_empty_command_substitutions() {
+        let source = "result=$()\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn formats_multiline_command_substitutions() {
+        let source = "result=$(\necho foo\necho bar\n)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted("result=$(\n\techo foo\n\techo bar\n)\n".to_string())
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn formats_multiline_command_substitutions_with_compound_commands() {
+        let source = "result=$(\nif foo; then\necho hi\nelse\necho bye\nfi\n)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Formatted(
+                "result=$(\n\tif foo; then\n\t\techo hi\n\telse\n\t\techo bye\n\tfi\n)\n"
+                    .to_string()
+            )
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn command_substitutions_with_comments_fall_back_to_raw_source() {
+        let source = "result=$(echo foo # keep comment\necho bar)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn command_substitutions_with_heredocs_fall_back_to_raw_source() {
+        let source = "result=$(cat <<EOF\nhello\nEOF\n)\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
     }
 
     #[test]
