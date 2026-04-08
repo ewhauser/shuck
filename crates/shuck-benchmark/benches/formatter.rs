@@ -1,4 +1,6 @@
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{
+    BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
+};
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_formatter::{
     FormattedSource, ShellFormatOptions, build_comment_index, format_file_ast, format_source,
@@ -15,10 +17,10 @@ fn format_source_bytes(source: &str, options: &ShellFormatOptions) -> usize {
 
 fn format_file_ast_bytes(
     source: &str,
-    parsed: &shuck_parser::parser::ParseOutput,
+    parsed: shuck_parser::parser::ParseOutput,
     options: &ShellFormatOptions,
 ) -> usize {
-    let formatted = format_file_ast(black_box(source), black_box(&parsed.file), None, options)
+    let formatted = format_file_ast(black_box(source), black_box(parsed.file), None, options)
         .expect("formatter AST benchmark inputs should format");
 
     output_bytes(source, formatted)
@@ -69,15 +71,19 @@ fn bench_formatter(c: &mut Criterion) {
         ast_group.sample_size(case.speed.sample_size());
         ast_group.throughput(Throughput::Bytes(case.total_bytes()));
         ast_group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, case| {
-            b.iter(|| {
-                let output_bytes: usize = case
-                    .files
-                    .iter()
-                    .zip(parsed_files.iter())
-                    .map(|(file, parsed)| format_file_ast_bytes(file.source, parsed, &options))
-                    .sum();
-                black_box(output_bytes);
-            });
+            b.iter_batched(
+                || parsed_files.clone(),
+                |parsed_files| {
+                    let output_bytes: usize = case
+                        .files
+                        .iter()
+                        .zip(parsed_files)
+                        .map(|(file, parsed)| format_file_ast_bytes(file.source, parsed, &options))
+                        .sum();
+                    black_box(output_bytes);
+                },
+                BatchSize::LargeInput,
+            );
         });
     }
     ast_group.finish();

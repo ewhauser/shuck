@@ -86,12 +86,12 @@ pub fn format_source(
         .parse()
         .map_err(map_parse_error)?;
 
-    format_file_ast(source, &parsed.file, path, options)
+    format_file_ast(source, parsed.file, path, options)
 }
 
 pub fn format_file_ast(
     source: &str,
-    file: &File,
+    file: File,
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
@@ -101,14 +101,13 @@ pub fn format_file_ast(
 
 fn format_file(
     source: &str,
-    file: &File,
+    mut file: File,
     resolved: ResolvedShellFormatOptions,
 ) -> Result<FormattedSource> {
     if resolved.keep_padding() {
         return Ok(FormattedSource::Unchanged);
     }
 
-    let mut file = file.clone();
     if resolved.simplify() || resolved.minify() {
         simplify::simplify_file(&mut file, source);
     }
@@ -188,8 +187,22 @@ mod tests {
     ) {
         let parsed = parse_for_ast_format(source, path, options);
         let from_source = format_source(source, path, options).unwrap();
-        let from_ast = format_file_ast(source, &parsed.file, path, options).unwrap();
+        let from_ast = format_file_ast(source, parsed.file, path, options).unwrap();
         assert_eq!(from_source, from_ast);
+    }
+
+    #[test]
+    fn format_file_ast_requires_explicit_clone_for_ast_reuse() {
+        let source = "echo $(( $a + ${b} ))\n";
+        let path = Some(Path::new("reuse.bash"));
+        let options = ShellFormatOptions::default().with_simplify(true);
+        let parsed = parse_for_ast_format(source, path, &options);
+
+        let first = format_file_ast(source, parsed.file.clone(), path, &options).unwrap();
+        let second = format_file_ast(source, parsed.file, path, &options).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first, format_source(source, path, &options).unwrap());
     }
 
     #[test]
@@ -766,7 +779,7 @@ print hidden &!
     }
 
     #[test]
-    fn format_script_ast_matches_format_source_for_benchmark_corpus() {
+    fn format_file_ast_matches_format_source_for_benchmark_corpus() {
         let options = ShellFormatOptions::default();
 
         for file in TEST_FILES {
@@ -776,7 +789,7 @@ print hidden &!
     }
 
     #[test]
-    fn format_script_ast_matches_format_source_for_formatter_fixtures() {
+    fn format_file_ast_matches_format_source_for_formatter_fixtures() {
         let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle-fixtures");
         let cases = vec![
             (

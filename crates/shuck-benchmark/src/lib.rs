@@ -239,7 +239,7 @@ mod tests {
 
         for file in TEST_FILES {
             let output = parse_fixture(file.source);
-            match format_file_ast(file.source, &output.file, None, &options) {
+            match format_file_ast(file.source, output.file, None, &options) {
                 Ok(FormattedSource::Unchanged) | Ok(FormattedSource::Formatted(_)) => {}
                 Err(error) => panic!("{} should format from AST successfully: {error}", file.name),
             }

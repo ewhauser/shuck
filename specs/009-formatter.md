@@ -32,7 +32,7 @@ The formatter is organized into three layers:
     v
   +----------------------------------------------+
   | shuck-formatter                               |
-  |  format_source() / format_script_ast()        |
+  |  format_source() / format_file_ast()          |
   |                                               |
   |  +-----------------------------------------+  |
   |  | Simplify Pass (simplify.rs)             |  |
@@ -135,10 +135,9 @@ pub fn format_source(
 
 /// Format an already-parsed AST. Used when the caller has a parse
 /// result from another pipeline (e.g., lint-then-format).
-pub fn format_script_ast(
+pub fn format_file_ast(
     source: &str,
-    script: &Script,
-    comments: &[Comment],
+    file: File,
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource>;
@@ -205,11 +204,11 @@ When a node formatter cannot yet produce correct structured output for a constru
 ```
 format_source(source, path, options)
   1. Resolve options (dialect inference, line ending detection)
-  2. Parse source → Script + Comments
-  3. If simplify or minify: clone AST, run simplify rewrites
-  4. Build comment index from Comments
+  2. Parse source → File
+  3. If simplify or minify: rewrite the owned AST in place
+  4. Build comment index from the AST
   5. Create ShellFormatContext (resolved options + source + comments)
-  6. Format Script → Document IR via node formatters
+  6. Format File → Document IR via node formatters
   7. Print Document → raw output string
   8. Ensure single trailing newline
   9. Compare output to input → Unchanged or Formatted
@@ -306,7 +305,7 @@ For each file:
         v
       format_source(source, path, options)
         → Parse (dialect-aware)
-        → Optional simplify (clone AST, rewrite)
+        → Optional simplify (owned AST rewrite)
         → Build comment index
         → Format AST → Document IR
         → Print IR → String
@@ -341,13 +340,13 @@ Rejected because direct string building cannot implement line-width-aware layout
 ## Verification
 
 - **Idempotence**: formatting an already-formatted file returns `Unchanged`. The test suite verifies this for all fixture files and benchmark corpus scripts.
-- **Source/AST path equivalence**: `format_source()` and `format_script_ast()` produce identical output for the same input. The test `format_script_ast_matches_format_source_for_benchmark_corpus` verifies this.
+- **Source/AST path equivalence**: `format_source()` and `format_file_ast()` produce identical output for the same input. The test `format_file_ast_matches_format_source_for_benchmark_corpus` verifies this.
 - **Option effects**: each formatting option has dedicated tests showing its effect (e.g., `switch_case_indent_indents_patterns_and_bodies`, `space_redirects_insert_spaces_between_operator_and_target`).
 - **Dialect enforcement**: formatting with an explicit POSIX dialect rejects Bash-only constructs at parse time (`posix_dialect_propagates_parse_errors`).
 - **Comment preservation**: inline and own-line comments survive formatting and appear at the correct positions. Minify mode drops them (`minify_drops_comments`).
 - **Simplify safety**: each rewrite is independently tested and verified idempotent.
 - **Oracle suite**: opt-in tests (`SHUCK_RUN_SHFMT_ORACLE=1`) compare formatter output against a reference formatter across targeted fixtures and the benchmark corpus, producing unified diffs on mismatch.
-- **Benchmarks**: Criterion benchmarks in `shuck-benchmark` measure both `format_source()` (full pipeline) and `format_script_ast()` (already-parsed) throughput, plus comment indexing overhead.
+- **Benchmarks**: Criterion benchmarks in `shuck-benchmark` measure both `format_source()` (full pipeline) and `format_file_ast()` (already-parsed) throughput, plus comment indexing overhead.
 
 ```bash
 # Run formatter tests
