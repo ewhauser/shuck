@@ -1301,19 +1301,7 @@ pub(crate) fn summarize_scope_provided_bindings(
         bindings.len(),
         &reaching_definitions.reaching_out,
     );
-    let component = &scope_components[scope.index()];
-    let exit_blocks = if let Some(scope_exits) = cfg.scope_exits(scope) {
-        scope_exits.to_vec()
-    } else {
-        component
-            .blocks
-            .iter_ones()
-            .filter_map(|block_index| {
-                let block_id = BlockId(block_index as u32);
-                block_exits_component(cfg, &component.blocks, block_id).then_some(block_id)
-            })
-            .collect::<Vec<_>>()
-    };
+    let exit_blocks = exit_blocks_for_scope(cfg, &scope_components, scope);
     if exit_blocks.is_empty() {
         return Vec::new();
     }
@@ -1373,6 +1361,120 @@ pub(crate) fn summarize_scope_provided_bindings(
             .then_with(|| (left.kind as u8).cmp(&(right.kind as u8)))
     });
     provided
+}
+
+pub(crate) fn summarize_scope_provided_functions(
+    cfg: &ControlFlowGraph,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    entry_bindings: &[BindingId],
+    scope: ScopeId,
+) -> Vec<ProvidedBinding> {
+    let mut names = NameTable::default();
+    for binding in bindings {
+        names.intern(&binding.name);
+    }
+    let binding_data = build_dense_binding_data(bindings, scopes, &names);
+    let reaching_definitions =
+        compute_reaching_definitions_dense(cfg, bindings, &binding_data, entry_bindings);
+    let scope_components = compute_scope_components_dense(
+        cfg,
+        scopes.len(),
+        cfg.blocks().len(),
+        bindings.len(),
+        &reaching_definitions.reaching_out,
+    );
+    let exit_blocks = exit_blocks_for_scope(cfg, &scope_components, scope);
+    if exit_blocks.is_empty() {
+        return Vec::new();
+    }
+
+    let eligible_names = bindings
+        .iter()
+        .filter(|binding| binding.scope == scope && function_binding_certainty(binding).is_some())
+        .map(|binding| binding.name.clone())
+        .collect::<FxHashSet<_>>();
+
+    let mut maybe_counts = FxHashMap::<Name, usize>::default();
+    let mut definite_counts = FxHashMap::<Name, usize>::default();
+
+    for exit_block in &exit_blocks {
+        let reaching = &reaching_definitions.reaching_out[exit_block.index()];
+
+        for name in &eligible_names {
+            let Some(name_id) = names.get(name) else {
+                continue;
+            };
+            let mut maybe_present = false;
+            let mut definite_present = false;
+            for binding_index in binding_data.bindings_for_name[name_id.index()].iter_ones() {
+                if !reaching.contains(binding_index) {
+                    continue;
+                }
+                let binding = &bindings[binding_index];
+                if binding.scope != scope {
+                    continue;
+                }
+                let Some(certainty) = function_binding_certainty(binding) else {
+                    continue;
+                };
+                maybe_present = true;
+                definite_present |= certainty == ContractCertainty::Definite;
+            }
+            if maybe_present {
+                *maybe_counts.entry(name.clone()).or_default() += 1;
+            }
+            if definite_present {
+                *definite_counts.entry(name.clone()).or_default() += 1;
+            }
+        }
+    }
+
+    let exit_count = exit_blocks.len();
+    let mut provided = Vec::new();
+    for (name, maybe_count) in maybe_counts {
+        let definite_count = definite_counts.get(&name).copied().unwrap_or_default();
+        let certainty = if definite_count == exit_count {
+            ContractCertainty::Definite
+        } else if maybe_count > 0 {
+            ContractCertainty::Possible
+        } else {
+            continue;
+        };
+        provided.push(ProvidedBinding::new(
+            name,
+            ProvidedBindingKind::Function,
+            certainty,
+        ));
+    }
+
+    provided.sort_by(|left, right| {
+        left.name
+            .as_str()
+            .cmp(right.name.as_str())
+            .then_with(|| (left.kind as u8).cmp(&(right.kind as u8)))
+    });
+    provided
+}
+
+fn exit_blocks_for_scope(
+    cfg: &ControlFlowGraph,
+    scope_components: &[ExactScopeComponent],
+    scope: ScopeId,
+) -> Vec<BlockId> {
+    let component = &scope_components[scope.index()];
+    if let Some(scope_exits) = cfg.scope_exits(scope) {
+        return scope_exits.to_vec();
+    }
+
+    component
+        .blocks
+        .iter_ones()
+        .filter_map(|block_index| {
+            let block_id = BlockId(block_index as u32);
+            block_exits_component(cfg, &component.blocks, block_id).then_some(block_id)
+        })
+        .collect()
 }
 
 fn reachable_blocks_dense(
@@ -1701,6 +1803,27 @@ fn binding_initializes_name(binding: &Binding) -> Option<ContractCertainty> {
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => Some(ContractCertainty::Definite),
+    }
+}
+
+fn function_binding_certainty(binding: &Binding) -> Option<ContractCertainty> {
+    match binding.kind {
+        BindingKind::FunctionDefinition => Some(ContractCertainty::Definite),
+        BindingKind::Imported
+            if binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_FUNCTION) =>
+        {
+            if binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_POSSIBLE)
+            {
+                Some(ContractCertainty::Possible)
+            } else {
+                Some(ContractCertainty::Definite)
+            }
+        }
+        _ => None,
     }
 }
 

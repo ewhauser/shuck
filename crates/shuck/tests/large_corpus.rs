@@ -111,17 +111,27 @@ impl shuck_semantic::SourcePathResolver for LargeCorpusPathResolver {
         let Some(source_cache_rel_path) = self.cache_rel_by_path.get(source_path) else {
             return Vec::new();
         };
-        let Some(candidate_cache_rel_path) =
-            resolve_large_corpus_candidate_cache_rel_path(source_cache_rel_path, candidate)
-        else {
-            return Vec::new();
-        };
+        let mut resolved = Vec::new();
+        let mut seen = HashSet::new();
 
-        self.path_by_cache_rel
-            .get(&candidate_cache_rel_path)
-            .cloned()
-            .into_iter()
-            .collect()
+        for candidate_cache_rel_path in [
+            resolve_large_corpus_candidate_cache_rel_path(source_cache_rel_path, candidate),
+            resolve_large_corpus_repo_relative_candidate_cache_rel_path(
+                source_cache_rel_path,
+                candidate,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(path) = self.path_by_cache_rel.get(&candidate_cache_rel_path)
+                && seen.insert(path.clone())
+            {
+                resolved.push(path.clone());
+            }
+        }
+
+        resolved
     }
 }
 
@@ -162,6 +172,40 @@ fn resolve_large_corpus_candidate_cache_rel_path(
     }
 
     saw_component.then_some(resolved)
+}
+
+fn resolve_large_corpus_repo_relative_candidate_cache_rel_path(
+    source_cache_rel_path: &Path,
+    candidate: &str,
+) -> Option<PathBuf> {
+    if source_cache_rel_path.components().count() != 1 {
+        return None;
+    }
+
+    let source_name = source_cache_rel_path.file_name()?.to_str()?;
+    let mut source_parts = source_name.split("__");
+    let owner = source_parts.next()?;
+    let repo = source_parts.next()?;
+
+    let candidate_path = Path::new(candidate);
+    if candidate_path.is_absolute() {
+        return None;
+    }
+
+    let mut flattened = Vec::new();
+    for component in candidate_path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => return None,
+            std::path::Component::Normal(part) => {
+                flattened.push(part.to_string_lossy().into_owned());
+            }
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => return None,
+        }
+    }
+
+    (!flattened.is_empty())
+        .then(|| PathBuf::from(format!("{owner}__{repo}__{}", flattened.join("__"))))
 }
 
 // ---------------------------------------------------------------------------
@@ -3622,6 +3666,38 @@ demo() {
         );
 
         assert_eq!(resolved, vec![canonicalize_for_resolver(&local.path)]);
+    }
+
+    #[test]
+    fn large_corpus_path_resolver_can_resolve_repo_relative_static_tails() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let scripts_dir = tempdir.path().join("scripts");
+        fs::create_dir_all(&scripts_dir).unwrap();
+
+        let source = fixture_at(
+            &scripts_dir.join("rvm__rvm__tests__fast__sample.sh"),
+            Path::new("rvm__rvm__tests__fast__sample.sh"),
+        );
+        let helper = fixture_at(
+            &scripts_dir.join("rvm__rvm__scripts__rvm"),
+            Path::new("rvm__rvm__scripts__rvm"),
+        );
+
+        fs::write(
+            &source.path,
+            "#!/bin/sh\nsource \"$rvm_path/scripts/rvm\"\n",
+        )
+        .unwrap();
+        fs::write(&helper.path, "echo helper\n").unwrap();
+
+        let resolver = LargeCorpusPathResolver::new(&[&source, &helper]);
+        let resolved = shuck_semantic::SourcePathResolver::resolve_candidate_paths(
+            &resolver,
+            &source.path,
+            "scripts/rvm",
+        );
+
+        assert_eq!(resolved, vec![canonicalize_for_resolver(&helper.path)]);
     }
 
     #[test]

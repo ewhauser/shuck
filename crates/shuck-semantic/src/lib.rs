@@ -15,7 +15,8 @@ pub use binding::{Binding, BindingAttributes, BindingId, BindingKind};
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext};
 pub use contract::{
-    ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind, SemanticBuildOptions,
+    ContractCertainty, FileContract, FunctionContract, ProvidedBinding, ProvidedBindingKind,
+    SemanticBuildOptions,
 };
 pub use dataflow::{
     DeadCode, ReachingDefinitions, UninitializedCertainty, UninitializedReference,
@@ -508,7 +509,10 @@ impl SemanticModel {
     }
 
     pub(crate) fn apply_file_entry_contract(&mut self, contract: FileContract, file: &File) {
-        if contract.required_reads.is_empty() && contract.provided_bindings.is_empty() {
+        if contract.required_reads.is_empty()
+            && contract.provided_bindings.is_empty()
+            && contract.provided_functions.is_empty()
+        {
             return;
         }
 
@@ -523,7 +527,19 @@ impl SemanticModel {
 
         let entry_span = Span::from_positions(file.span.start, file.span.start);
         let mut entry_bindings = self.entry_bindings.clone();
-        for binding in &contract.provided_bindings {
+        let mut provided_bindings = contract.provided_bindings;
+        for function in contract.provided_functions {
+            if !provided_bindings.iter().any(|binding| {
+                binding.kind == ProvidedBindingKind::Function && binding.name == function.name
+            }) {
+                provided_bindings.push(ProvidedBinding::new(
+                    function.name,
+                    ProvidedBindingKind::Function,
+                    ContractCertainty::Definite,
+                ));
+            }
+        }
+        for binding in &provided_bindings {
             let id = self.add_imported_binding(binding, ScopeId(0), entry_span, None);
             entry_bindings.push(id);
         }
@@ -715,6 +731,20 @@ impl SemanticModel {
     ) -> Vec<ProvidedBinding> {
         let cfg = self.cfg().clone();
         dataflow::summarize_scope_provided_bindings(
+            &cfg,
+            &self.scopes,
+            &self.bindings,
+            &self.entry_bindings,
+            scope,
+        )
+    }
+
+    pub(crate) fn summarize_scope_provided_functions(
+        &mut self,
+        scope: ScopeId,
+    ) -> Vec<ProvidedBinding> {
+        let cfg = self.cfg().clone();
+        dataflow::summarize_scope_provided_functions(
             &cfg,
             &self.scopes,
             &self.bindings,
@@ -2211,7 +2241,6 @@ check_status
         let resolved = model.resolved_binding(reference.id).unwrap();
         assert_eq!(resolved.id, local_binding.id);
         let reference_id = reference.id;
-
         let uninitialized = model.precompute_uninitialized_references();
         assert_eq!(uninitialized.len(), 1);
         assert_eq!(uninitialized[0].reference, reference_id);
@@ -3162,6 +3191,59 @@ flag=1
     }
 
     #[test]
+    fn source_path_resolver_can_use_single_variable_static_tails() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("tests/main.sh");
+        let helper = temp.path().join("scripts/rvm");
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+flag=1
+source \"$rvm_path/scripts/rvm\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let mut without_resolver = model_at_path(&main);
+        let unused_without_resolver = reportable_unused_names(&mut without_resolver);
+        assert!(
+            unused_without_resolver.contains(&Name::from("flag")),
+            "unused without resolver: {:?}",
+            unused_without_resolver
+        );
+
+        let main_path = main.clone();
+        let helper_path = helper.clone();
+        let resolver = move |source_path: &Path, candidate: &str| {
+            if source_path == main_path.as_path() && candidate == "scripts/rvm" {
+                vec![helper_path.clone()]
+            } else {
+                Vec::new()
+            }
+        };
+
+        let mut with_resolver = model_at_path_with_resolver(&main, Some(&resolver));
+        assert!(
+            with_resolver
+                .synthetic_reads
+                .iter()
+                .any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            with_resolver.synthetic_reads
+        );
+        let unused_with_resolver = reportable_unused_names(&mut with_resolver);
+        assert!(
+            !unused_with_resolver.contains(&Name::from("flag")),
+            "unused with resolver: {:?}",
+            unused_with_resolver
+        );
+    }
+
+    #[test]
     fn sourced_helper_exports_definite_imported_binding() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
@@ -3233,6 +3315,213 @@ fi
             details,
             vec![("flag".to_owned(), UninitializedCertainty::Possible)]
         );
+    }
+
+    #[test]
+    fn sourced_helper_function_reads_do_not_keep_assignments_live_until_called() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+flag=1
+. ./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+use_flag() {
+  printf '%s\\n' \"$flag\"
+}
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        let unused = reportable_unused_names(&mut model);
+        assert!(unused.contains(&Name::from("flag")), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn quoted_heredoc_body_does_not_report_uninitialized_reads() {
+        let source = "\
+build=\"$(command cat <<\\END
+printf '%s\\n' \"$workdir\"
+END
+)\"
+";
+        let mut model = model(source);
+        assert!(model.precompute_uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn escaped_dollar_heredoc_body_does_not_report_uninitialized_reads() {
+        let source = "\
+#!/bin/sh
+cat <<EOF
+\\${devtype} \\${devnum}
+EOF
+";
+        let mut model = model(source);
+        assert!(model.precompute_uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn quoted_heredoc_source_text_does_not_keep_assignments_live() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+outdir=/tmp
+build=\"$(command cat <<\\END
+. \\\"$outdir\\\"/build.info
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        let unused = reportable_unused_names(&mut model);
+        assert!(
+            unused.contains(&Name::from("outdir")),
+            "unused: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn sourced_helper_function_reads_keep_assignments_live_when_called() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+flag=1
+. ./helper.sh
+use_flag
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+use_flag() {
+  printf '%s\\n' \"$flag\"
+}
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        let unused = reportable_unused_names(&mut model);
+        assert!(
+            !unused.contains(&Name::from("flag")),
+            "unused: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn sourced_helper_function_exports_definite_imported_binding_when_called() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./helper.sh
+set_flag
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+set_flag() {
+  flag=1
+}
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        assert!(model.precompute_uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn sourced_helper_function_exports_possible_imported_binding_when_called() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./helper.sh
+set_flag
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+set_flag() {
+  if cond; then
+    flag=1
+  fi
+}
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        assert_eq!(
+            uninitialized_details(&mut model),
+            vec![("flag".to_owned(), UninitializedCertainty::Possible)]
+        );
+    }
+
+    #[test]
+    fn layered_source_closure_imports_function_contracts_transitively() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let loader = temp.path().join("loader.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./loader.sh
+set_flag
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(&loader, ". ./helper.sh\n").unwrap();
+        fs::write(
+            &helper,
+            "\
+set_flag() {
+  flag=1
+}
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        assert!(model.precompute_uninitialized_references().is_empty());
     }
 
     #[test]
@@ -3312,6 +3601,7 @@ printf '%s\\n' \"$flag\"
                         ProvidedBindingKind::Variable,
                         ContractCertainty::Definite,
                     )],
+                    provided_functions: Vec::new(),
                 }),
                 ..SemanticBuildOptions::default()
             },

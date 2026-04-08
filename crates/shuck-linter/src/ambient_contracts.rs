@@ -30,6 +30,9 @@ pub(crate) fn file_entry_contract(
             for binding in contract.provided_bindings {
                 merged.add_provided_binding(binding);
             }
+            for function in contract.provided_functions {
+                merged.add_provided_function(function);
+            }
         }
     }
 

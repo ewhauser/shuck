@@ -19,15 +19,23 @@ not to grow more one-off suppressions in the rule itself.
 The current implementation already has the basic contract seam in place:
 
 - [`crates/shuck-semantic/src/contract.rs`](../crates/shuck-semantic/src/contract.rs)
-  defines `FileContract`, `ProvidedBinding`, `ProvidedBindingKind`, and
-  `ContractCertainty`.
+  defines `FileContract`, `FunctionContract`, `ProvidedBinding`,
+  `ProvidedBindingKind`, and `ContractCertainty`.
 - [`crates/shuck-semantic/src/source_closure.rs`](../crates/shuck-semantic/src/source_closure.rs)
-  now summarizes helpers as contracts, not just synthetic reads.
+  now summarizes helpers as contracts, not just synthetic reads, and applies
+  imported helper-function contracts at later call sites.
 - [`crates/shuck-semantic/src/lib.rs`](../crates/shuck-semantic/src/lib.rs)
   imports helper-provided bindings as real `BindingKind::Imported` state and can
   seed file-entry contracts.
 - [`crates/shuck-semantic/src/dataflow.rs`](../crates/shuck-semantic/src/dataflow.rs)
   treats imported bindings as definite or possible initialization inputs.
+- [`crates/shuck-semantic/src/source_closure.rs`](../crates/shuck-semantic/src/source_closure.rs)
+  now renders resolver-backed static-tail candidates such as
+  `"${rvm_path}/scripts/rvm"` through `SourcePathResolver`.
+- [`crates/shuck-semantic/src/builder.rs`](../crates/shuck-semantic/src/builder.rs)
+  and [`crates/shuck-semantic/src/source_closure.rs`](../crates/shuck-semantic/src/source_closure.rs)
+  now keep quoted heredoc bodies and backslash-escaped `$` placeholders out of
+  semantic/source-closure traversal.
 - [`crates/shuck-semantic/src/cfg.rs`](../crates/shuck-semantic/src/cfg.rs)
   preserves per-scope exit blocks so helper export certainty can be summarized
   correctly.
@@ -71,51 +79,81 @@ Those are semantic questions, not `C006` policy questions.
 
 - [x] Add a first-class contract model for helper summaries.
 - [x] Let sourced helpers contribute both required reads and provided bindings.
+- [x] Let sourced helpers export callable helper-function contracts.
 - [x] Keep executed local helpers read-only from the caller's point of view.
 - [x] Materialize imported bindings as real semantic bindings.
 - [x] Feed imported bindings into reaching-definitions and uninitialized analysis.
 - [x] Distinguish `Definite` and `Possible` helper-provided initialization.
 - [x] Use scope exit blocks when summarizing helper certainty.
+- [x] Apply imported helper-function reads and writes only when the imported
+  helper is actually called.
+- [x] Broaden resolver-backed source candidates to cover single-variable static
+  tails such as `"${rvm_path}/scripts/rvm"`.
+- [x] Keep generated shell text inside quoted heredocs and escaped-dollar
+  heredoc placeholders out of semantic traversal.
 
 ### What Still Needs To Be Fixed
 
-- [ ] Expand helper coverage for real-world project closure paths that are still
-  missed by current source resolution.
-- [ ] Audit directive-heavy source paths and templated source commands that still
-  fall back to unresolved reads.
-- [ ] Improve helper summarization for helper-library and test-harness families
-  that rely on layered bootstrap files rather than one direct `source`.
+- [ ] Finish the remaining `powerlevel10k` `gitstatus/build` generated-bootstrap
+  tail, which still dominates the exact `project-closure` bucket.
+- [ ] Audit directive-heavy helper/generator cases such as the remaining
+  `pyenv`, `pi-hole`, `acme.sh`, and `bats` residuals to separate real semantic
+  misses from parser/directive-handling issues.
 - [ ] Investigate recurring `directive-handling` residuals to determine whether
   they are really source-closure misses, directive parsing misses, or corpus-only
   noise.
 - [ ] Review remaining unlabeled `(none)` residuals and sort them into
   project-closure, shell-collapse, or genuine rule-policy gaps.
-- [ ] Add more semantic regressions for transitive helper chains, cyclic helper
-  graphs, mixed sourced/executed helper graphs, and generated helper wrappers.
-- [ ] Check whether any remaining helper families need imported function
-  contracts, not just imported variable contracts.
-- [ ] Verify that expanding helper contracts does not increase the
-  ShellCheck-only side by over-importing names that are only conditionally or
-  locally visible.
+- [ ] Move the remaining `rvm` library globals plus the `xbps-src` framework
+  families that only make sense as file-entry/bootstrap state into Problem 2
+  ambient contracts rather than adding more helper-side guessing.
 
 ### Families To Target Next
 
-- [ ] `rvm` helper chains such as `manage__base_install`, `manage__base_fetch`,
-  `pkg`, and `mount`
 - [ ] `powerlevel10k` `gitstatus` build/bootstrap helpers
-- [ ] `pyenv` helper-library state
-- [ ] helper-library and test-harness scripts where the harness supplies globals
-  outside the current file
-- [ ] generated helper/state pipelines such as configure-like outputs where the
-  helper relation is real and reusable, not a one-off script exception
+- [ ] `pyenv` helper-library state and generated PowerShell helper stubs
+- [ ] directive-heavy helper/generator chains in `pi-hole`, `acme.sh`, and
+  `bats`
+- [ ] remaining `rvm` helper-library globals such as
+  `manage__base_install`, `mount`, `selector`, and related library files
+  after they are reclassified under Problem 2
+- [ ] remaining build-style/framework files that are really ambient contracts,
+  not source edges
 
 ### Done Criteria
 
-- [ ] `project-closure` is materially smaller in the targeted large-corpus run.
-- [ ] `project-closure,test-harness` also drops, not just the plain
+- [x] `project-closure` is materially smaller in the targeted large-corpus run.
+- [x] `project-closure,test-harness` also drops, not just the plain
   `project-closure` bucket.
-- [ ] The imported-binding machinery remains reusable through
+- [x] The imported-binding machinery remains reusable through
   `semantic().uninitialized_references()` without new rule-local exemptions.
+
+### 2026-04-08 Follow-Up
+
+Re-ran `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C006` on April 8, 2026
+after landing sourced-helper function contracts, resolver-backed static-tail
+source resolution, and generated-shell traversal guards.
+
+- Fixed in Problem 1:
+  imported helper-function contracts now affect caller globals only at actual
+  call sites; resolver-backed static tails now collapse the `rvm`
+  bootstrap/test-harness chain from `66` exact `project-closure,test-harness`
+  locations to `16`; generated shell output with escaped-dollar placeholders no
+  longer feeds `C006`.
+- Moved to Problem 2:
+  the remaining large `rvm` library globals (`manage__base_install`, `mount`,
+  `selector`, `manage__rubinius`, `cli`, `info`, `list`, `manage__base`) and
+  the reusable `xbps-src` framework files still behave like file-entry/bootstrap
+  contracts, not helper-import edges.
+- Current acceptance snapshot:
+  `shuck-only=1740`, `shellcheck-only=53`, `project-closure=640`,
+  `project-closure,test-harness=16`, `project-closure,shell-collapse=48`,
+  `shell-collapse=318`.
+- Remaining exact `project-closure` leaders:
+  `powerlevel10k` `gitstatus/build` (`129`) plus the `rvm` library cluster above.
+- No new semantic allowlists were added for reviewed divergence; any later
+  reviewed oracle differences should stay in corpus metadata rather than in
+  semantics.
 
 ## Problem 2: Ambient Framework And File-Context Contracts
 
@@ -217,13 +255,13 @@ an explicit helper edge.
 
 ## Verification Checklist
 
-- [ ] `cargo test -p shuck-semantic`
+- [x] `cargo test -p shuck-semantic`
 - [ ] targeted semantic regressions for helper export certainty and file-entry
   contracts
-- [ ] targeted linter regressions for explicit ambient providers
-- [ ] `cargo test -p shuck-linter rule_undefinedvariable_path_new_c006_sh_expects -- --nocapture`
-- [ ] `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C006`
-- [ ] compare new bucket counts against the most recent baseline in
+- [x] targeted linter regressions for explicit ambient providers
+- [x] `cargo test -p shuck-linter rule_undefinedvariable_path_new_c006_sh_expects -- --nocapture`
+- [x] `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C006`
+- [x] compare new bucket counts against the most recent baseline in
   [`docs/bugs/C006.md`](./bugs/C006.md)
 
 ## Near-Term Outcome We Want

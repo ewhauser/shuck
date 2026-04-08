@@ -13,10 +13,25 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 
 use crate::{
-    Binding, BindingId, FileContract, FunctionScopeKind, ProvidedBinding, ScopeId, ScopeKind,
-    SemanticModel, SourcePathResolver, SourceRefKind, SpanKey, SyntheticRead,
-    build_semantic_model_base,
+    Binding, BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract,
+    FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
+    SourcePathResolver, SourceRefKind, SpanKey, SyntheticRead, build_semantic_model_base,
 };
+
+#[derive(Debug, Clone)]
+struct SourceClosureContracts {
+    synthetic_reads: Vec<SyntheticRead>,
+    imported_bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
+    imported_functions: Vec<ImportedFunctionContractSite>,
+}
+
+#[derive(Debug, Clone)]
+struct ImportedFunctionContractSite {
+    scope: ScopeId,
+    span: Span,
+    certainty: ContractCertainty,
+    contract: FunctionContract,
+}
 
 pub(crate) fn collect_source_closure_contracts(
     model: &SemanticModel,
@@ -27,7 +42,7 @@ pub(crate) fn collect_source_closure_contracts(
 ) -> (Vec<SyntheticRead>, Vec<(ScopeId, Span, ProvidedBinding)>) {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
-    collect_source_closure_contracts_with_cache(
+    let contracts = collect_source_closure_contracts_with_cache(
         model,
         file,
         source,
@@ -35,7 +50,8 @@ pub(crate) fn collect_source_closure_contracts(
         &mut summaries,
         &mut active,
         source_path_resolver,
-    )
+    );
+    (contracts.synthetic_reads, contracts.imported_bindings)
 }
 
 fn collect_source_closure_contracts_with_cache(
@@ -46,11 +62,12 @@ fn collect_source_closure_contracts_with_cache(
     summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> (Vec<SyntheticRead>, Vec<(ScopeId, Span, ProvidedBinding)>) {
+) -> SourceClosureContracts {
     let facts = collect_ast_facts(file, model, source);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
     let mut synthetic_reads = Vec::new();
     let mut imported_bindings = Vec::new();
+    let mut imported_functions = Vec::new();
 
     for source_ref in model.source_refs() {
         let scope = model.scope_at(source_ref.span.start.offset);
@@ -68,9 +85,14 @@ fn collect_source_closure_contracts_with_cache(
             active,
             source_path_resolver,
         );
-        for provided in contract.provided_bindings {
+        for provided in contract.provided_bindings.iter().cloned() {
             imported_bindings.push((scope, source_ref.span, provided));
         }
+        imported_functions.extend(imported_function_sites_for_contract(
+            scope,
+            source_ref.span,
+            &contract,
+        ));
         for name in contract.required_reads {
             synthetic_reads.push(SyntheticRead {
                 scope,
@@ -81,6 +103,29 @@ fn collect_source_closure_contracts_with_cache(
     }
 
     for call in &facts.calls {
+        if let Some(function_site) = visible_imported_function_contract(
+            model,
+            &imported_functions,
+            &call.name,
+            call.scope,
+            call.span.start.offset,
+        ) {
+            for name in &function_site.contract.required_reads {
+                synthetic_reads.push(SyntheticRead {
+                    scope: call.scope,
+                    span: call.span,
+                    name: name.clone(),
+                });
+            }
+            for binding in &function_site.contract.provided_bindings {
+                imported_bindings.push((
+                    call.scope,
+                    call.span,
+                    binding_for_imported_function_call(binding, function_site.certainty),
+                ));
+            }
+        }
+
         let Some(candidate) = local_helper_command_candidate(&call.name) else {
             continue;
         };
@@ -100,10 +145,11 @@ fn collect_source_closure_contracts_with_cache(
         }
     }
 
-    (
-        dedup_synthetic_reads(synthetic_reads),
-        dedup_imported_bindings(imported_bindings),
-    )
+    SourceClosureContracts {
+        synthetic_reads: dedup_synthetic_reads(synthetic_reads),
+        imported_bindings: dedup_imported_bindings(imported_bindings),
+        imported_functions,
+    }
 }
 
 fn merge_contracts_for_candidates(
@@ -153,6 +199,130 @@ fn dedup_imported_bindings(
         deduped.push((scope, span, ProvidedBinding::new(name, kind, certainty)));
     }
     deduped
+}
+
+fn imported_function_sites_for_contract(
+    scope: ScopeId,
+    span: Span,
+    contract: &FileContract,
+) -> Vec<ImportedFunctionContractSite> {
+    contract
+        .provided_functions
+        .iter()
+        .cloned()
+        .map(|function| ImportedFunctionContractSite {
+            scope,
+            span,
+            certainty: function_contract_certainty(contract, &function.name),
+            contract: function,
+        })
+        .collect()
+}
+
+fn function_contract_certainty(contract: &FileContract, name: &Name) -> ContractCertainty {
+    contract
+        .provided_bindings
+        .iter()
+        .find(|binding| binding.kind == ProvidedBindingKind::Function && binding.name == *name)
+        .map(|binding| binding.certainty)
+        .unwrap_or(ContractCertainty::Definite)
+}
+
+fn binding_for_imported_function_call(
+    binding: &ProvidedBinding,
+    function_certainty: ContractCertainty,
+) -> ProvidedBinding {
+    let certainty = match (binding.certainty, function_certainty) {
+        (ContractCertainty::Definite, ContractCertainty::Definite) => ContractCertainty::Definite,
+        _ => ContractCertainty::Possible,
+    };
+    ProvidedBinding::new(binding.name.clone(), binding.kind, certainty)
+}
+
+enum VisibleFunctionTarget<'a> {
+    Local,
+    Imported(&'a ImportedFunctionContractSite),
+}
+
+fn visible_imported_function_contract<'a>(
+    model: &SemanticModel,
+    imported_functions: &'a [ImportedFunctionContractSite],
+    name: &Name,
+    scope: ScopeId,
+    offset: usize,
+) -> Option<&'a ImportedFunctionContractSite> {
+    for scope_id in model.ancestor_scopes(scope) {
+        let local = visible_local_function_binding_in_scope(model, name, scope_id, scope, offset)
+            .map(|binding| {
+                (
+                    VisibleFunctionTarget::Local,
+                    model.binding(binding).span.start.offset,
+                )
+            });
+        let imported =
+            visible_imported_function_in_scope(imported_functions, name, scope_id, scope, offset)
+                .map(|site| {
+                    (
+                        VisibleFunctionTarget::Imported(site),
+                        site.span.start.offset,
+                    )
+                });
+
+        let visible = match (local, imported) {
+            (Some((target, local_offset)), Some((imported_target, imported_offset))) => {
+                (imported_offset > local_offset)
+                    .then_some((imported_target, imported_offset))
+                    .unwrap_or((target, local_offset))
+            }
+            (Some(candidate), None) | (None, Some(candidate)) => candidate,
+            (None, None) => continue,
+        };
+
+        return match visible.0 {
+            VisibleFunctionTarget::Local => None,
+            VisibleFunctionTarget::Imported(site) => Some(site),
+        };
+    }
+
+    None
+}
+
+fn visible_local_function_binding_in_scope(
+    model: &SemanticModel,
+    name: &Name,
+    target_scope: ScopeId,
+    call_scope: ScopeId,
+    offset: usize,
+) -> Option<BindingId> {
+    let candidates = model.scopes()[target_scope.index()].bindings.get(name)?;
+    if target_scope != call_scope {
+        return candidates.iter().rev().copied().find(|binding| {
+            matches!(
+                model.binding(*binding).kind,
+                BindingKind::FunctionDefinition
+            )
+        });
+    }
+
+    candidates.iter().rev().copied().find(|binding| {
+        let candidate = model.binding(*binding);
+        matches!(candidate.kind, BindingKind::FunctionDefinition)
+            && candidate.span.start.offset <= offset
+    })
+}
+
+fn visible_imported_function_in_scope<'a>(
+    imported_functions: &'a [ImportedFunctionContractSite],
+    name: &Name,
+    target_scope: ScopeId,
+    call_scope: ScopeId,
+    offset: usize,
+) -> Option<&'a ImportedFunctionContractSite> {
+    imported_functions
+        .iter()
+        .filter(|site| site.scope == target_scope && site.contract.name == *name)
+        .filter(|site| target_scope != call_scope || site.span.start.offset <= offset)
+        .max_by_key(|site| site.span.start.offset)
 }
 
 #[derive(Debug, Clone)]
@@ -444,6 +614,11 @@ fn walk_word_parts(
     facts: &mut AstFacts,
 ) {
     for part in parts {
+        if word_part_starts_with_shell_expansion(&part.kind)
+            && span_is_backslash_escaped(source, part.span)
+        {
+            continue;
+        }
         match &part.kind {
             WordPart::ZshQualifiedGlob(glob) => {
                 for segment in &glob.segments {
@@ -725,11 +900,15 @@ fn walk_redirects(
     facts: &mut AstFacts,
 ) {
     for redirect in redirects {
-        let word = match redirect.word_target() {
-            Some(word) => word,
-            None => &redirect.heredoc().expect("expected heredoc redirect").body,
-        };
-        walk_word(word, model, source, facts);
+        match redirect.word_target() {
+            Some(word) => walk_word(word, model, source, facts),
+            None => {
+                let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                if heredoc.delimiter.expands_body {
+                    walk_word(&heredoc.body, model, source, facts);
+                }
+            }
+        }
     }
 }
 
@@ -821,6 +1000,11 @@ fn collect_source_template_parts(
     saw_dynamic: &mut bool,
 ) -> bool {
     for part in word_parts {
+        if word_part_starts_with_shell_expansion(&part.kind)
+            && span_is_backslash_escaped(source, part.span)
+        {
+            continue;
+        }
         match &part.kind {
             WordPart::Literal(text) => {
                 let text = text.as_str(source, part.span);
@@ -1163,6 +1347,35 @@ fn render_template_candidate(
     (!normalized.is_empty()).then_some(normalized)
 }
 
+fn word_part_starts_with_shell_expansion(part: &WordPart) -> bool {
+    matches!(
+        part,
+        WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+    )
+}
+
+fn span_is_backslash_escaped(source: &str, span: Span) -> bool {
+    let offset = span.start.offset;
+    let bytes = source.as_bytes();
+    if offset == 0 || offset > bytes.len() {
+        return false;
+    }
+
+    let mut backslashes = 0usize;
+    let mut index = offset;
+    while index > 0 && bytes[index - 1] == b'\\' {
+        backslashes += 1;
+        index -= 1;
+    }
+
+    backslashes % 2 == 1
+}
+
 fn resolve_literal_call_args_by_scope(
     model: &SemanticModel,
     calls: &[CallInfo],
@@ -1324,7 +1537,7 @@ fn summarize_helper_uncached(
     let mut observer = crate::NoopTraversalObserver;
     let mut semantic =
         build_semantic_model_base(&output.file, &source, &indexer, &mut observer, Some(path));
-    let (synthetic_reads, imported_bindings) = collect_source_closure_contracts_with_cache(
+    let collected = collect_source_closure_contracts_with_cache(
         &semantic,
         &output.file,
         &source,
@@ -1333,23 +1546,133 @@ fn summarize_helper_uncached(
         active,
         source_path_resolver,
     );
-    let transitive_read_names = synthetic_reads
-        .iter()
-        .map(|read| read.name.clone())
-        .collect::<Vec<_>>();
-    semantic.apply_source_contracts(synthetic_reads, imported_bindings);
+    semantic.apply_source_contracts(
+        collected.synthetic_reads.clone(),
+        collected.imported_bindings.clone(),
+    );
 
+    let mut contract =
+        summarize_scope_body_contract(&mut semantic, ScopeId(0), &collected.synthetic_reads);
+    let provided_functions = semantic.summarize_scope_provided_functions(ScopeId(0));
+    for binding in &provided_functions {
+        contract.add_provided_binding(binding.clone());
+    }
+    for function in build_scope_function_contracts(
+        &mut semantic,
+        ScopeId(0),
+        &collected.synthetic_reads,
+        &collected.imported_functions,
+        &provided_functions,
+    ) {
+        contract.add_provided_function(function);
+    }
+    contract
+}
+
+fn summarize_scope_body_contract(
+    semantic: &mut SemanticModel,
+    scope: ScopeId,
+    synthetic_reads: &[SyntheticRead],
+) -> FileContract {
+    let scope_members = scope_members_excluding_functions(semantic.scopes(), scope);
     let mut contract = FileContract::default();
     for reference in semantic.unresolved_references() {
-        contract.add_required_read(semantic.reference(*reference).name.clone());
+        let reference = semantic.reference(*reference);
+        if scope_members.contains(&reference.scope) {
+            contract.add_required_read(reference.name.clone());
+        }
     }
-    for name in transitive_read_names {
-        contract.add_required_read(name);
+    for read in synthetic_reads {
+        if scope_members.contains(&read.scope) {
+            contract.add_required_read(read.name.clone());
+        }
     }
-    for binding in semantic.summarize_scope_provided_bindings(ScopeId(0)) {
+    for binding in semantic.summarize_scope_provided_bindings(scope) {
         contract.add_provided_binding(binding);
     }
     contract
+}
+
+fn build_scope_function_contracts(
+    semantic: &mut SemanticModel,
+    scope: ScopeId,
+    synthetic_reads: &[SyntheticRead],
+    imported_functions: &[ImportedFunctionContractSite],
+    provided_functions: &[ProvidedBinding],
+) -> Vec<FunctionContract> {
+    let function_scopes = semantic
+        .scopes()
+        .iter()
+        .filter_map(|candidate| {
+            (candidate.parent == Some(scope))
+                .then_some(candidate)
+                .and_then(|candidate| match &candidate.kind {
+                    ScopeKind::Function(FunctionScopeKind::Named(names)) => {
+                        Some((candidate.id, names.clone()))
+                    }
+                    _ => None,
+                })
+        })
+        .collect::<Vec<_>>();
+
+    let mut local_contracts_by_scope = FxHashMap::default();
+    let mut contracts_by_name: FxHashMap<Name, Vec<FunctionContract>> = FxHashMap::default();
+
+    for (function_scope, names) in function_scopes {
+        let body_contract = local_contracts_by_scope
+            .entry(function_scope)
+            .or_insert_with(|| {
+                summarize_scope_body_contract(semantic, function_scope, synthetic_reads)
+            })
+            .clone();
+        for name in names {
+            let mut function_contract = FunctionContract::new(name.clone());
+            for read in &body_contract.required_reads {
+                function_contract.add_required_read(read.clone());
+            }
+            for binding in &body_contract.provided_bindings {
+                function_contract.add_provided_binding(binding.clone());
+            }
+            contracts_by_name
+                .entry(name)
+                .or_default()
+                .push(function_contract);
+        }
+    }
+
+    for imported in imported_functions.iter().filter(|site| site.scope == scope) {
+        contracts_by_name
+            .entry(imported.contract.name.clone())
+            .or_default()
+            .push(imported.contract.clone());
+    }
+
+    let mut functions = Vec::new();
+    for binding in provided_functions {
+        if let Some(contracts) = contracts_by_name.get(&binding.name)
+            && let Some(function) = FunctionContract::merge_candidate_contracts(contracts)
+        {
+            functions.push(function);
+        }
+    }
+    functions.sort_by(|left, right| left.name.as_str().cmp(right.name.as_str()));
+    functions
+}
+
+fn scope_members_excluding_functions(scopes: &[crate::Scope], root: ScopeId) -> FxHashSet<ScopeId> {
+    let mut members = FxHashSet::default();
+    let mut stack = vec![root];
+    while let Some(scope_id) = stack.pop() {
+        if !members.insert(scope_id) {
+            continue;
+        }
+        for scope in scopes {
+            if scope.parent == Some(scope_id) && !matches!(scope.kind, ScopeKind::Function(_)) {
+                stack.push(scope.id);
+            }
+        }
+    }
+    members
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {

@@ -1064,11 +1064,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         for redirect in redirects {
-            let word = match redirect.word_target() {
-                Some(word) => word,
-                None => &redirect.heredoc().expect("expected heredoc redirect").body,
-            };
-            self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+            match redirect.word_target() {
+                Some(word) => {
+                    self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions)
+                }
+                None => {
+                    let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                    if heredoc.delimiter.expands_body {
+                        self.visit_word_into(
+                            &heredoc.body,
+                            WordVisitKind::Expansion,
+                            flow,
+                            nested_regions,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1196,6 +1207,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
+        if part_starts_with_shell_expansion(part) && span_is_backslash_escaped(self.source, span) {
+            return;
+        }
         match part {
             WordPart::ZshQualifiedGlob(glob) => {
                 for segment in &glob.segments {
@@ -2647,6 +2661,35 @@ fn simple_command_has_name(command: &shuck_ast::SimpleCommand, source: &str) -> 
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     let text = static_word_text(word, source)?;
     is_name(&text).then_some((Name::from(text), word.span))
+}
+
+fn part_starts_with_shell_expansion(part: &WordPart) -> bool {
+    matches!(
+        part,
+        WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+    )
+}
+
+fn span_is_backslash_escaped(source: &str, span: Span) -> bool {
+    let offset = span.start.offset;
+    let bytes = source.as_bytes();
+    if offset == 0 || offset > bytes.len() {
+        return false;
+    }
+
+    let mut backslashes = 0usize;
+    let mut index = offset;
+    while index > 0 && bytes[index - 1] == b'\\' {
+        backslashes += 1;
+        index -= 1;
+    }
+
+    backslashes % 2 == 1
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {

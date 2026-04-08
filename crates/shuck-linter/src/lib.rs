@@ -387,6 +387,99 @@ printf '%s\\n' \"$pkgname\"
     }
 
     #[test]
+    fn project_closure_function_contract_suppresses_c006_when_called() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./helper.sh
+set_flag
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+set_flag() {
+  flag=1
+}
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn quoted_heredoc_generated_shell_text_does_not_report_c006() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+printf '%s\\n' \"$workdir\"
+END
+)\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn escaped_dollar_heredoc_generated_text_does_not_report_c006() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+cat <<EOF
+\\${devtype} \\${devnum}
+EOF
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn helper_library_functions_still_report_c006_without_calls() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/lib/helper.sh"),
+            "\
+helper() {
+  printf '%s\\n' \"$flag\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+    }
+
+    #[test]
+    fn helper_library_functions_still_report_c006_when_called() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/lib/helper.sh"),
+            "\
+helper() {
+  printf '%s\\n' \"$flag\"
+}
+helper
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+    }
+
+    #[test]
     fn post_hoc_filtering_removes_only_suppressed_diagnostics() {
         let source = "\
 echo ok
@@ -1292,6 +1385,64 @@ flag=1
         )
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn sourced_helper_function_reads_do_not_keep_top_level_assignment_live_until_called() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "\
+#!/bin/sh
+flag=1
+. ./helper.sh
+";
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &helper,
+            "\
+use_flag() {
+  printf '%s\\n' \"$flag\"
+}
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "flag");
+    }
+
+    #[test]
+    fn sourced_helper_function_reads_keep_top_level_assignment_live_when_called() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+flag=1
+. ./helper.sh
+use_flag
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+use_flag() {
+  printf '%s\\n' \"$flag\"
+}
+",
+        )
+        .unwrap();
 
         let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
