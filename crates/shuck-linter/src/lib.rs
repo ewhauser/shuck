@@ -1028,8 +1028,13 @@ printf '%s %s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
 #!/bin/bash
 [ -z \"$guarded\" ] && echo nope
 [ \"$truthy\" ] && echo maybe
+[ -z \"$chain_left\" -a -z \"$chain_right\" ] && echo both
+[ \"$or_left\" -o \"$or_right\" ] && echo either
 if [[ -n \"${nonempty:-}\" && \"$also_truthy\" ]]; then
   echo yes
+fi
+if [ \"$eq_mix\" = x -a -z \"$guard_after_eq\" ]; then
+  echo no
 fi
 if [[ \"$eq_only\" = x ]]; then
   echo no
@@ -1037,7 +1042,7 @@ fi
 if [[ -s \"$file_only\" ]]; then
   echo no
 fi
-echo \"$guarded\" \"$truthy\" \"$nonempty\" \"$also_truthy\" \"$eq_only\" \"$file_only\" \"$still_missing\"
+echo \"$guarded\" \"$truthy\" \"$chain_left\" \"$chain_right\" \"$or_left\" \"$or_right\" \"$nonempty\" \"$also_truthy\" \"$eq_mix\" \"$guard_after_eq\" \"$eq_only\" \"$file_only\" \"$still_missing\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
@@ -1054,12 +1059,42 @@ echo \"$guarded\" \"$truthy\" \"$nonempty\" \"$also_truthy\" \"$eq_only\" \"$fil
         assert!(
             diagnostics
                 .iter()
+                .all(|diagnostic| !diagnostic.message.contains("chain_left"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("chain_right"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("or_left"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("or_right"))
+        );
+        assert!(
+            diagnostics
+                .iter()
                 .all(|diagnostic| !diagnostic.message.contains("nonempty"))
         );
         assert!(
             diagnostics
                 .iter()
                 .all(|diagnostic| !diagnostic.message.contains("also_truthy"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("guard_after_eq"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("eq_mix"))
         );
         assert!(
             diagnostics

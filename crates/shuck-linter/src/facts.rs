@@ -1300,7 +1300,7 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.substitution_facts = substitutions;
         }
 
-        let presence_tested_names = build_presence_tested_names(&commands);
+        let presence_tested_names = build_presence_tested_names(&commands, self.source);
         let for_headers = build_for_header_facts(&commands, &command_index, self.source);
         let select_headers = build_select_header_facts(&commands, &command_index, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_index);
@@ -1344,26 +1344,16 @@ fn build_redirect_facts<'a>(redirects: &'a [Redirect], source: &str) -> Box<[Red
         .into_boxed_slice()
 }
 
-fn build_presence_tested_names(commands: &[CommandFact<'_>]) -> FxHashSet<Name> {
+fn build_presence_tested_names(commands: &[CommandFact<'_>], source: &str) -> FxHashSet<Name> {
     let mut names = FxHashSet::default();
 
     for command in commands {
         if let Some(simple_test) = command.simple_test() {
-            match simple_test.shape() {
-                SimpleTestShape::Truthy => {
-                    if let Some(word) = simple_test.operands().first().copied() {
-                        collect_presence_tested_names_from_word(word, &mut names);
-                    }
-                }
-                SimpleTestShape::Unary
-                    if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary =>
-                {
-                    if let Some(word) = simple_test.operands().get(1).copied() {
-                        collect_presence_tested_names_from_word(word, &mut names);
-                    }
-                }
-                _ => {}
-            }
+            collect_presence_tested_names_from_simple_test_operands(
+                simple_test.operands(),
+                source,
+                &mut names,
+            );
         }
 
         if let Some(conditional) = command.conditional() {
@@ -1375,6 +1365,78 @@ fn build_presence_tested_names(commands: &[CommandFact<'_>]) -> FxHashSet<Name> 
     }
 
     names
+}
+
+fn collect_presence_tested_names_from_simple_test_operands(
+    operands: &[&Word],
+    source: &str,
+    names: &mut FxHashSet<Name>,
+) {
+    let mut index = 0;
+    while index < operands.len() {
+        if is_simple_test_logical_operator(operands[index], source) {
+            index += 1;
+            continue;
+        }
+
+        let consumed =
+            collect_presence_tested_names_from_simple_test_leaf(&operands[index..], source, names);
+        if consumed == 0 {
+            break;
+        }
+        index += consumed;
+    }
+}
+
+fn collect_presence_tested_names_from_simple_test_leaf(
+    operands: &[&Word],
+    source: &str,
+    names: &mut FxHashSet<Name>,
+) -> usize {
+    let Some(first) = operands.first().copied() else {
+        return 0;
+    };
+
+    if static_word_text(first, source).as_deref() == Some("!") {
+        return 1 + collect_presence_tested_names_from_simple_test_leaf(
+            &operands[1..],
+            source,
+            names,
+        );
+    }
+
+    if static_word_text(first, source)
+        .as_deref()
+        .is_some_and(|operator| {
+            simple_test_unary_operator_family(operator) == SimpleTestOperatorFamily::StringUnary
+        })
+    {
+        if let Some(word) = operands.get(1).copied() {
+            collect_presence_tested_names_from_word(word, names);
+            return 2;
+        }
+        return 1;
+    }
+
+    if operands.len() == 1
+        || operands
+            .get(1)
+            .copied()
+            .is_some_and(|word| is_simple_test_logical_operator(word, source))
+    {
+        collect_presence_tested_names_from_word(first, names);
+        return 1;
+    }
+
+    operands
+        .iter()
+        .skip(1)
+        .position(|word| is_simple_test_logical_operator(word, source))
+        .map_or(operands.len(), |offset| offset + 1)
+}
+
+fn is_simple_test_logical_operator(word: &Word, source: &str) -> bool {
+    matches!(static_word_text(word, source).as_deref(), Some("-a" | "-o"))
 }
 
 fn collect_presence_tested_names_from_conditional_expr(
