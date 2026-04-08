@@ -3316,6 +3316,84 @@ fn test_zsh_parameter_word_target_preserves_non_reference_target_text() {
 }
 
 #[test]
+fn test_parse_zsh_array_assignment_with_word_target_and_glob_qualifier() {
+    let source = "dirs=( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.span.slice(source), "( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )");
+}
+
+#[test]
+fn test_parse_zsh_assignment_with_nested_subscript_pattern_range() {
+    let source = "in_alias=($in_alias[$in_alias[(i)<1->],-1])\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.span.slice(source), "($in_alias[$in_alias[(i)<1->],-1])");
+}
+
+#[test]
+fn test_parse_zsh_nested_join_modifier_inside_replacement_word() {
+    let source =
+        "_p9k__parent_dirs=(${(@)${:-{$#parts..1}}/(#m)*/$parent${(pj./.)parts[1,MATCH]}})\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(
+        array.span.slice(source),
+        "(${(@)${:-{$#parts..1}}/(#m)*/$parent${(pj./.)parts[1,MATCH]}})"
+    );
+}
+
+#[test]
+fn test_parse_zsh_compound_array_ignores_trailing_comments() {
+    let source = "opts=(\n  'grc' :se # grc - a \"generic colouriser\" (that\\'s their spelling, not mine)\n  'cpulimit' elp:ivz # cpulimit 0.2\n)\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_associative_array_literal_with_blank_lines_and_comments() {
+    let source = "local -A precommand_options\nprecommand_options=(\n  # Precommand modifiers as of zsh 5.6.2 cf. zshmisc(1).\n  '-' ''\n  'builtin' ''\n  'command' :pvV\n  'exec' a:cl\n  'noglob' ''\n  # 'time' and 'nocorrect' shouldn't be added here; they're reserved words, not precommands.\n\n  # miscellaneous commands\n  'doas' aCu:Lns # as of OpenBSD's doas(1) dated September 4, 2016\n  'nice' n: # as of current POSIX spec\n  'pkexec' '' # doesn't take short options; immune to #121 because it's usually not passed --option flags\n  # Not listed: -h, which has two different meanings.\n  'sudo' Cgprtu:AEHPSbilns:eKkVv # as of sudo 1.8.21p2\n  'stdbuf' ioe:\n  'eatmydata' ''\n  'catchsegv' ''\n  'nohup' ''\n  'setsid' :wc\n  'env' u:i\n  'ionice' cn:t:pPu # util-linux 2.33.1-0.1\n  'strace' IbeaosXPpEuOS:ACdfhikqrtTvVxyDc # strace 4.26-0.2\n  'proxychains' f:q # proxychains 4.4.0\n  'torsocks' idq:upaP # Torsocks 2.3.0\n  'torify' idq:upaP # Torsocks 2.3.0\n  'ssh-agent' aEPt:csDd:k # As of OpenSSH 8.1p1\n  'tabbed' gnprtTuU:cdfhs:v # suckless-tools v44\n  'chronic' :ev # moreutils 0.62-1\n  'ifne' :n # moreutils 0.62-1\n  'grc' :se # grc - a \"generic colouriser\" (that's their spelling, not mine)\n  'cpulimit' elp:ivz # cpulimit 0.2\n  'ktrace' fgpt:aBCcdiT\n  'caffeinate' tw:dimsu # as of macOS's caffeinate(8) dated November 9, 2012\n)\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_compound_array_with_nested_groups_and_qualifiers() {
+    let source = "local -a bats=( /sys/class/power_supply/(CMB*|BAT*|*battery)/(FN) )\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_arithmetic_shell_word_lookup_with_nested_modifier() {
+    let source = "(( e = ${tokens[(i)${(Q)token}]} ))\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
 fn test_zsh_nested_parameter_modifier_records_nested_target_and_pattern_operation() {
     let source = "print ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)

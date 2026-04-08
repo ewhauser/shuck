@@ -937,6 +937,7 @@ impl<'a> Parser<'a> {
     ) -> Option<Word> {
         if !self.dialect.features().zsh_glob_qualifiers
             || text.is_empty()
+            || text.contains('=')
             || text.contains(['\x00', '\\', '\'', '"', '$', '`'])
             || text.chars().any(char::is_whitespace)
         {

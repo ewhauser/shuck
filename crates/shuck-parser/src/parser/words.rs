@@ -846,10 +846,30 @@ impl<'a> Parser<'a> {
         let mut in_double = false;
         let mut in_backtick = false;
         let mut escaped = false;
+        let mut index = 0usize;
 
-        for (index, ch) in inner.char_indices() {
+        while index < inner.len() {
+            let ch = inner[index..]
+                .chars()
+                .next()
+                .expect("index is within bounds while scanning array elements");
+            let next_index = index + ch.len_utf8();
             if start.is_none() {
                 if ch.is_whitespace() {
+                    index = next_index;
+                    continue;
+                }
+                if ch == '#' {
+                    while index < inner.len() {
+                        let comment_ch = inner[index..]
+                            .chars()
+                            .next()
+                            .expect("index is within bounds while skipping array comment");
+                        index += comment_ch.len_utf8();
+                        if comment_ch == '\n' {
+                            break;
+                        }
+                    }
                     continue;
                 }
                 start = Some(index);
@@ -857,6 +877,7 @@ impl<'a> Parser<'a> {
 
             if escaped {
                 escaped = false;
+                index = next_index;
                 continue;
             }
 
@@ -871,6 +892,27 @@ impl<'a> Parser<'a> {
                 '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
                 '(' if !in_single && !in_double => paren_depth += 1,
                 ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                '#' if start == Some(index)
+                    && !in_single
+                    && !in_double
+                    && !in_backtick
+                    && bracket_depth == 0
+                    && brace_depth == 0
+                    && paren_depth == 0 =>
+                {
+                    start = None;
+                    while index < inner.len() {
+                        let comment_ch = inner[index..]
+                            .chars()
+                            .next()
+                            .expect("index is within bounds while skipping array comment");
+                        index += comment_ch.len_utf8();
+                        if comment_ch == '\n' {
+                            break;
+                        }
+                    }
+                    continue;
+                }
                 ch if ch.is_whitespace()
                     && !in_single
                     && !in_double
@@ -885,6 +927,8 @@ impl<'a> Parser<'a> {
                 }
                 _ => {}
             }
+
+            index = next_index;
         }
 
         if let Some(start) = start {
@@ -892,6 +936,13 @@ impl<'a> Parser<'a> {
         }
 
         ranges
+    }
+
+    fn raw_source_hash_starts_comment(source: &str, index: usize) -> bool {
+        source[..index]
+            .chars()
+            .next_back()
+            .is_none_or(char::is_whitespace)
     }
 
     pub(super) fn split_compound_array_key_value<'b>(
@@ -1029,12 +1080,99 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn scan_compound_array_close(&self, open_paren_span: Span) -> Option<Span> {
+        let mut cursor = open_paren_span.end;
+        let mut paren_depth = 0_i32;
+        let mut bracket_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+
+        while cursor.offset < self.input.len() {
+            let rest = &self.input[cursor.offset..];
+            let ch = rest.chars().next()?;
+            let ch_start = cursor;
+            cursor.advance(ch);
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '#' if !in_single
+                    && !in_double
+                    && !in_backtick
+                    && bracket_depth == 0
+                    && brace_depth == 0
+                    && paren_depth == 0
+                    && Self::raw_source_hash_starts_comment(self.input, ch_start.offset) =>
+                {
+                    while cursor.offset < self.input.len() {
+                        let comment_ch = self.input[cursor.offset..]
+                            .chars()
+                            .next()
+                            .expect("cursor is within bounds while skipping array comment");
+                        cursor.advance(comment_ch);
+                        if comment_ch == '\n' {
+                            break;
+                        }
+                    }
+                }
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double && !in_backtick => in_single = !in_single,
+                '"' if !in_single && !in_backtick => in_double = !in_double,
+                '`' if !in_single && !in_double => in_backtick = !in_backtick,
+                '[' if !in_single && !in_double && !in_backtick => bracket_depth += 1,
+                ']' if !in_single
+                    && !in_double
+                    && !in_backtick
+                    && bracket_depth > 0 =>
+                {
+                    bracket_depth -= 1;
+                }
+                '{' if !in_single && !in_double && !in_backtick => brace_depth += 1,
+                '}' if !in_single && !in_double && !in_backtick && brace_depth > 0 => {
+                    brace_depth -= 1;
+                }
+                '(' if !in_single && !in_double && !in_backtick => paren_depth += 1,
+                ')' if !in_single && !in_double && !in_backtick => {
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                        return Some(Span::from_positions(ch_start, cursor));
+                    }
+                    if paren_depth > 0 {
+                        paren_depth -= 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
     /// Parse a simple command with redirections.
     pub(super) fn collect_compound_array(
         &mut self,
         open_paren_span: Span,
         explicit_kind: Option<ArrayKind>,
     ) -> (ArrayExpr, Span) {
+        if let Some(closing_span) = self.scan_compound_array_close(open_paren_span) {
+            let inner = self.input[open_paren_span.end.offset..closing_span.start.offset].to_string();
+            while self.current_token.is_some()
+                && self.current_span.start.offset < closing_span.end.offset
+            {
+                self.advance();
+            }
+
+            let mut array =
+                self.parse_array_expr_from_text(&inner, open_paren_span.end, explicit_kind);
+            array.span = open_paren_span.merge(closing_span);
+            return (array, closing_span);
+        }
+
         let inner_start = open_paren_span.end;
         let mut closing_span = Span::new();
         let mut fallback = String::new();
@@ -2056,6 +2194,20 @@ impl<'a> Parser<'a> {
     ) -> Option<Word> {
         if !self.at(TokenKind::LeftParen) {
             return None;
+        }
+
+        let open_paren_span = self.current_span;
+        if let Some(closing_span) = self.scan_compound_array_close(open_paren_span) {
+            let paren_text = &self.input[open_paren_span.start.offset..closing_span.end.offset];
+            let mut compound = saved_w;
+            compound.push_str(paren_text);
+            while self.current_token.is_some()
+                && self.current_span.start.offset < closing_span.end.offset
+            {
+                self.advance();
+            }
+            let span = saved_span.merge(closing_span);
+            return Some(self.word_from_raw_text(&compound, span));
         }
 
         self.advance(); // consume '('

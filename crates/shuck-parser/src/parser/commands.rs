@@ -299,6 +299,12 @@ impl<'a> Parser<'a> {
                     command: cmd,
                 });
             } else if allow_empty_tail {
+                if self
+                    .current_keyword()
+                    .is_some_and(Self::is_non_command_keyword)
+                {
+                    break;
+                }
                 rest.push(CommandListItem {
                     operator: op,
                     operator_span,
@@ -827,6 +833,7 @@ impl<'a> Parser<'a> {
         // Parse else branch
         let else_branch = if self.is_keyword(Keyword::Else) {
             self.advance(); // consume 'else'
+            let else_region_start = self.current_span.start;
             self.skip_newlines()?;
             if brace_style {
                 if !self.at(TokenKind::LeftBrace) {
@@ -846,11 +853,23 @@ impl<'a> Parser<'a> {
                 let else_span = Span::from_positions(else_start, self.current_span.start);
 
                 if branch.is_empty() {
-                    self.pop_depth();
-                    return Err(self.error("syntax error: empty else clause"));
+                    if self.dialect == ShellDialect::Zsh
+                        && self.has_recorded_comment_between(
+                            else_region_start.offset,
+                            self.current_span.start.offset,
+                        )
+                    {
+                        Some(Self::stmt_seq_with_span(
+                            Span::from_positions(else_region_start, self.current_span.start),
+                            Vec::new(),
+                        ))
+                    } else {
+                        self.pop_depth();
+                        return Err(self.error("syntax error: empty else clause"));
+                    }
+                } else {
+                    Some(Self::lower_commands_to_stmt_seq(branch, else_span))
                 }
-
-                Some(Self::lower_commands_to_stmt_seq(branch, else_span))
             }
         } else {
             None
@@ -899,6 +918,10 @@ impl<'a> Parser<'a> {
                 return Err(error);
             }
         };
+
+        if allow_zsh_targets {
+            self.skip_newlines()?;
+        }
 
         let (words, header) = if allow_zsh_targets && self.at(TokenKind::LeftParen) {
             let left_paren_span = self.current_span;
@@ -1014,19 +1037,19 @@ impl<'a> Parser<'a> {
                 let body_start = self.current_span.start;
                 let body = self.parse_compound_list(Keyword::Done)?;
                 let body_span = Span::from_positions(body_start, self.current_span.start);
-
-                if body.is_empty() {
-                    self.pop_depth();
-                    return Err(self.error("syntax error: empty for loop body"));
-                }
                 if !self.is_keyword(Keyword::Done) {
                     self.pop_depth();
                     return Err(self.error("expected 'done'"));
                 }
                 let done_span = self.current_span;
                 self.advance();
+                let body = if body.is_empty() {
+                    Self::stmt_seq_with_span(body_span, Vec::new())
+                } else {
+                    Self::lower_commands_to_stmt_seq(body, body_span)
+                };
                 (
-                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    body,
                     ForSyntax::InDoDone {
                         in_span,
                         do_span,
@@ -1051,19 +1074,19 @@ impl<'a> Parser<'a> {
                 let body_start = self.current_span.start;
                 let body = self.parse_compound_list(Keyword::Done)?;
                 let body_span = Span::from_positions(body_start, self.current_span.start);
-
-                if body.is_empty() {
-                    self.pop_depth();
-                    return Err(self.error("syntax error: empty for loop body"));
-                }
                 if !self.is_keyword(Keyword::Done) {
                     self.pop_depth();
                     return Err(self.error("expected 'done'"));
                 }
                 let done_span = self.current_span;
                 self.advance();
+                let body = if body.is_empty() {
+                    Self::stmt_seq_with_span(body_span, Vec::new())
+                } else {
+                    Self::lower_commands_to_stmt_seq(body, body_span)
+                };
                 (
-                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    body,
                     ForSyntax::ParenDoDone {
                         left_paren_span,
                         right_paren_span,
@@ -1137,7 +1160,27 @@ impl<'a> Parser<'a> {
         let mut words = Vec::new();
         loop {
             match self.current_token_kind {
-                Some(kind) if kind.is_word_like() => {
+                Some(kind)
+                    if kind.is_word_like()
+                        || (self.dialect == ShellDialect::Zsh
+                            && matches!(kind, TokenKind::LeftParen)) =>
+                {
+                    if self.dialect == ShellDialect::Zsh
+                        && self
+                            .current_token
+                            .as_ref()
+                            .is_some_and(|token| !token.flags.is_synthetic())
+                    {
+                        let start = self.current_span.start;
+                        if let Some((text, end)) = self.scan_source_word(start) {
+                            let span = Span::from_positions(start, end);
+                            let word = self.parse_word_with_context(&text, span, start, true);
+                            self.advance_past_word(&word);
+                            words.push(word);
+                            continue;
+                        }
+                    }
+
                     let word = self
                         .current_word()
                         .ok_or_else(|| self.error("expected for word"))?;
@@ -1867,9 +1910,10 @@ impl<'a> Parser<'a> {
     }
 
     fn case_wrapper_close_is_arm_delimiter(&self, close_span: Span) -> bool {
-        let rest = &self.input[close_span.end.offset..];
-        let same_line = rest.find('\n').map_or(rest, |index| &rest[..index]);
-        same_line.trim().is_empty()
+        self.input[close_span.end.offset..]
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace)
     }
 
     fn split_zsh_case_pattern_alternatives(&self, span: Span) -> Option<Vec<Span>> {
@@ -2751,8 +2795,15 @@ impl<'a> Parser<'a> {
         }
 
         let starts_with_paren = matches!(self.current_token_kind, Some(TokenKind::LeftParen));
+        let starts_with_zsh_pattern_punct = matches!(
+            self.current_token_kind,
+            Some(TokenKind::RedirectIn | TokenKind::RedirectOut | TokenKind::RedirectReadWrite)
+        ) && self.dialect == ShellDialect::Zsh;
 
-        if !starts_with_paren && !self.current_token_kind.is_some_and(TokenKind::is_word_like) {
+        if !starts_with_paren
+            && !starts_with_zsh_pattern_punct
+            && !self.current_token_kind.is_some_and(TokenKind::is_word_like)
+        {
             return None;
         }
 
@@ -2788,6 +2839,7 @@ impl<'a> Parser<'a> {
             if !in_single
                 && !in_double
                 && !in_backtick
+                && !escaped
                 && paren_depth == 0
                 && brace_depth == 0
                 && bracket_depth == 0

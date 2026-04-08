@@ -1401,6 +1401,25 @@ fn test_zsh_case_accepts_start_group_with_suffix() {
 }
 
 #[test]
+fn test_zsh_case_accepts_wrapper_quoted_pattern_with_same_line_body() {
+    let input = concat!("case $arg in\n", "  ($'\\n') print ok ;;\n", "esac\n",);
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(
+        command.cases[0].patterns[0].render_syntax(input),
+        concat!("$'", "\n", "'")
+    );
+}
+
+#[test]
 fn test_zsh_case_preserves_semipipe_terminator() {
     let input = concat!(
         "case $2 in\n",
@@ -1664,6 +1683,143 @@ fn test_parse_zsh_conditional_pattern_rhs_accepts_bare_alternation_groups() {
     };
     assert_eq!(pattern.render(input), "(|+|-)<->(|.<->)(|[eE](|-|+)<->)");
     assert!(!pattern.parts.is_empty());
+}
+
+#[test]
+fn test_parse_zsh_if_with_pattern_capture_rhs() {
+    let input = "if [[ \"$buf\" == (#b)(*)(${~pat})* ]]; then\n  print ok\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_if_else_with_inline_anchor_pattern_rhs() {
+    let input =
+        "if [[ $buffer != (#s)[$'\\t -~']#(#e) ]]; then\n  print ok\nelse\n  print alt\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_conditional_pattern_with_hash_repetition_after_char_class() {
+    let input = "[[ $_p9k__ret == (#b)Python\\ ([[:digit:].]##)* ]]\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_conditional_pattern_with_numeric_range_prefix_and_and_rhs() {
+    let input = "[[ $load == <->(|.<->) && $load != $_p9k__load_value ]]\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_if_with_defaulting_subscript_and_or_condition() {
+    let input = "if [[ $zsyh_user_options[ignorebraces] == on || ${zsyh_user_options[ignoreclosebraces]:-off} == on ]]; then\n  print ok\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_command_substitution_with_comments_containing_apostrophes() {
+    let input = "eval $(\n  exec 3>&1 >/dev/null\n  {\n    # won't break the command substitution scanner\n    print ok\n  } always {\n    :\n  }\n)\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_while_body_with_arithmetic_command_and_and_list() {
+    let input = "while true; do\n  sysread -s1 c || return\n  (( #c < 256 / $1 * $1 )) && break\n done\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_while_with_char_literal_arithmetic_and_following_command() {
+    let input = "while true; do\n  sysread -s1 c || return\n  (( #c < 256 / $1 * $1 )) && break\n done\n typeset -g REPLY=$((#c % $1 + 1))\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_repeat_body_with_bitwise_or_char_literal() {
+    let input = "repeat 4; do\n  sysread -s1 c || return\n  (( rnd = (~(1 << 23) & rnd) << 8 | #c ))\n done\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_function_with_char_literal_arithmetic_commands() {
+    let input = "function -$0-rand() {\n  local c\n  while true; do\n    sysread -s1 c || return\n    (( #c < 256 / $1 * $1 )) && break\n  done\n  typeset -g REPLY=$((#c % $1 + 1))\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_nested_repeat_with_bitwise_or_char_literal() {
+    let input = "while true; do\n  local -i rnd=0\n  repeat 4; do\n    sysread -s1 c || return\n    (( rnd = (~(1 << 23) & rnd) << 8 | #c ))\n  done\n  break\ndone\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_array_slice_assignment_to_empty_array() {
+    let input = "if true; then\n  tokens[1,e]=()\nelse\n  tokens[1,e]=()\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_split_indexed_assignment_to_empty_array() {
+    let input = "tokens[1,e]=()\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_for_loop_with_empty_body_and_expansion_word_list() {
+    let input = "for foo bar baz in \"${(@)resp[3,29]}\"; do\n done\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_for_loop_with_newline_before_in_clause() {
+    let input = "for foo bar baz\nin \"${(@0)1}\"; do done\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_for_loop_with_glob_qualified_word_list_item() {
+    let input = "for plugin in $root/plugins/[^[:space:]]##(/N); do\n  print -r -- $plugin\n done\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_if_with_comment_only_else_clause() {
+    let input = "if [[ $this_word != *':start_of_pipeline:'* ]]; then\n  style=unknown-token\nelse\n  # '!' reserved word at start of pipeline; style already set above\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
 }
 
 #[test]

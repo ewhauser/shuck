@@ -836,6 +836,18 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn should_treat_hash_as_word_char(&self) -> bool {
+        self.reinject_buf.is_empty()
+            && (self
+                .input
+                .get(..self.offset)
+                .and_then(|prefix| prefix.chars().next_back())
+                .is_some_and(|prev| {
+                    !prev.is_whitespace() && !matches!(prev, ';' | '|' | '&' | '<' | '>')
+                })
+                || self.is_inside_unclosed_double_paren_on_line())
+    }
+
     fn current_word_text<'b>(&'b self, start: Position, capture: &'b Option<String>) -> &'b str {
         capture
             .as_deref()
@@ -1042,6 +1054,10 @@ impl<'a> Lexer<'a> {
             '\'' => self.read_single_quoted_string(),
             '"' => self.read_double_quoted_string(),
             '#' => {
+                if self.should_treat_hash_as_word_char() {
+                    let start = self.current_position();
+                    return self.read_word_starting_with("#", start);
+                }
                 if preserve_comments {
                     self.read_comment();
                     Some(LexedToken::comment())
@@ -1122,6 +1138,33 @@ impl<'a> Lexer<'a> {
             }
             self.advance();
         }
+    }
+
+    fn is_inside_unclosed_double_paren_on_line(&self) -> bool {
+        if !self.reinject_buf.is_empty() || self.offset > self.input.len() {
+            return false;
+        }
+
+        let line_start = self.input[..self.offset]
+            .rfind('\n')
+            .map_or(0, |index| index + 1);
+        let prefix = &self.input[line_start..self.offset];
+        let mut chars = prefix.chars().peekable();
+        let mut depth = 0usize;
+
+        while let Some(ch) = chars.next() {
+            if ch == '(' && chars.peek() == Some(&'(') {
+                chars.next();
+                depth += 1;
+                continue;
+            }
+            if ch == ')' && chars.peek() == Some(&')') {
+                chars.next();
+                depth = depth.saturating_sub(1);
+            }
+        }
+
+        depth > 0
     }
 
     /// Check if this is a file descriptor redirect (e.g., 2>, 2>>, 2>&1)
@@ -2240,6 +2283,22 @@ impl<'a> Lexer<'a> {
         let mut current_word = String::with_capacity(16);
         while let Some(c) = self.peek_char() {
             match c {
+                '#' if !self.should_treat_hash_as_word_char() => {
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
+                    Self::push_capture_char(content, '#');
+                    self.advance();
+                    while let Some(comment_ch) = self.peek_char() {
+                        Self::push_capture_char(content, comment_ch);
+                        self.advance();
+                        if comment_ch == '\n' {
+                            break;
+                        }
+                    }
+                }
                 '(' => {
                     Self::flush_command_subst_keyword(
                         &mut current_word,
@@ -3314,6 +3373,42 @@ EOF
         assert_next_token_with_comments(&mut lexer, TokenKind::QuotedWord, Some("# nope"));
         assert_next_token_with_comments(&mut lexer, TokenKind::Comment, Some(" yep"));
         assert!(lexer.next_lexed_token_with_comments().is_none());
+    }
+
+    #[test]
+    fn test_zsh_inline_glob_control_after_left_paren_is_not_comment() {
+        let mut lexer = Lexer::new("if [[ \"$buf\" == (#b)(*)(${~pat})* ]]; then\n");
+
+        let mut saw_comment = false;
+        while let Some(token) = lexer.next_lexed_token_with_comments() {
+            if token.kind == TokenKind::Comment {
+                saw_comment = true;
+                break;
+            }
+        }
+
+        assert!(
+            !saw_comment,
+            "zsh inline glob controls inside [[ ]] should not lex as comments"
+        );
+    }
+
+    #[test]
+    fn test_zsh_arithmetic_char_literal_inside_double_parens_is_not_comment() {
+        let mut lexer = Lexer::new("(( #c < 256 / $1 * $1 )) && break\n");
+
+        let mut saw_comment = false;
+        while let Some(token) = lexer.next_lexed_token_with_comments() {
+            if token.kind == TokenKind::Comment {
+                saw_comment = true;
+                break;
+            }
+        }
+
+        assert!(
+            !saw_comment,
+            "zsh arithmetic char literals inside (( )) should not lex as comments"
+        );
     }
 
     #[test]
