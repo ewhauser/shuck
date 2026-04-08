@@ -62,26 +62,55 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def require_section(text: str, start_title: str, end_title: str, start_at: int = 0) -> str:
-    start = text.find(f"{start_title}:\n", start_at)
-    if start == -1:
-        raise ValueError(f"could not find section {start_title!r}")
-    start += len(start_title) + 2
-    end = text.find(f"\n\n{end_title}:\n", start)
-    if end == -1:
-        raise ValueError(f"could not find section terminator {end_title!r}")
-    return text[start:end]
+# Ordered section titles as emitted by the Rust test harness.  Any section
+# may be absent when it contains zero items.
+_SECTION_ORDER = [
+    "Implementation Diffs",
+    "Mapping Issues",
+    "Reviewed Divergence",
+    "Corpus Noise",
+    "Harness Failures",
+]
 
 
-def require_main_harness_section(text: str, start_at: int = 0) -> str:
+def extract_sections(text: str) -> dict[str, str]:
+    """Find all present sections and return a {title: body} mapping.
+
+    The Rust harness only emits sections that have content, so we locate each
+    section header that actually appears and slice between consecutive headers.
+    """
+    # Build list of (position, title) for headers that exist.
+    found: list[tuple[int, str]] = []
+    for title in _SECTION_ORDER:
+        pos = text.find(f"{title}:\n")
+        if pos != -1:
+            found.append((pos, title))
+    found.sort()
+
+    result: dict[str, str] = {}
+    for idx, (pos, title) in enumerate(found):
+        body_start = pos + len(title) + 2  # skip "Title:\n"
+        if idx + 1 < len(found):
+            body_end = text.rfind("\n", body_start, found[idx + 1][0])
+            if body_end == -1:
+                body_end = found[idx + 1][0]
+        else:
+            # Last section — end at the next blank-line-separated block or EOF.
+            end_match = text.find("\n\ntest ", body_start)
+            body_end = end_match if end_match != -1 else len(text)
+        result[title] = text[body_start:body_end].rstrip("\n")
+    return result
+
+
+def require_main_harness_section(text: str, start_at: int = 0) -> str | None:
     start = text.find("Harness Failures:\n", start_at)
     if start == -1:
-        raise ValueError("could not find main Harness Failures section")
+        return None
     start += len("Harness Failures:\n")
     end_marker = "\ntest large_corpus_conforms_with_shellcheck ... FAILED"
     end = text.find(end_marker, start)
     if end == -1:
-        raise ValueError("could not find end of main Harness Failures section")
+        return None
     return text[start:end]
 
 
@@ -128,7 +157,9 @@ def parse_labels(message: str) -> tuple[str, tuple[str, ...]]:
     return body, labels
 
 
-def parse_rule_summaries(section: str, repo_root: Path) -> list[RuleSummary]:
+def parse_rule_summaries(section: str | None, repo_root: Path) -> list[RuleSummary]:
+    if not section:
+        return []
     summaries: dict[str, RuleSummary] = {}
     current_fixture: str | None = None
 
@@ -160,7 +191,9 @@ def parse_rule_summaries(section: str, repo_root: Path) -> list[RuleSummary]:
     return sorted(summaries.values(), key=lambda summary: summary.mismatches, reverse=True)
 
 
-def count_diagnostic_records(section: str) -> int:
+def count_diagnostic_records(section: str | None) -> int:
+    if not section:
+        return 0
     return sum(1 for line in section.splitlines() if DIAGNOSTIC_LINE_RE.match(line))
 
 
@@ -779,10 +812,11 @@ def main() -> int:
         raise SystemExit(f"log file not found: {log_path}")
 
     text = log_path.read_text(encoding="utf-8")
-    implementation_section = require_section(text, "Implementation Diffs", "Mapping Issues")
-    mapping_section = require_section(text, "Mapping Issues", "Reviewed Divergence")
-    reviewed_section = require_section(text, "Reviewed Divergence", "Corpus Noise")
-    corpus_noise_section = require_section(text, "Corpus Noise", "Harness Failures")
+    sections = extract_sections(text)
+    implementation_section = sections.get("Implementation Diffs")
+    mapping_section = sections.get("Mapping Issues")
+    reviewed_section = sections.get("Reviewed Divergence")
+    corpus_noise_section = sections.get("Corpus Noise")
     main_harness_section = require_main_harness_section(
         text, start_at=text.find("Implementation Diffs:\n")
     )
