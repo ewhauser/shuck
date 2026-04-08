@@ -3,10 +3,10 @@ use shuck_ast::{
     Assignment, AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand,
     CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
     ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand,
-    DeclClause, DeclOperand, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand,
-    IfSyntax, Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
-    WhileCommand,
+    DeclClause, DeclOperand, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef,
+    IfCommand, IfSyntax, Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand,
+    SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand,
+    UntilCommand, VarRef, WhileCommand,
 };
 use shuck_format::{
     Document, Format, FormatElement, FormatResult, hard_line_break, indent, space, text, verbatim,
@@ -736,13 +736,22 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
                 write!(formatter, [text("; done")])
             } else {
                 write!(formatter, [text("; do")])?;
-                format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
+                format_body_with_upper_bound(
+                    &command.body,
+                    formatter,
+                    Some(command.span.end.offset),
+                )?;
                 finish_block("done", formatter)
             }
         }
         ForSyntax::ParenDoDone { .. } => {
             write!(formatter, [text(" (")])?;
-            for (index, word) in command.words.iter().flat_map(|words| words.iter()).enumerate() {
+            for (index, word) in command
+                .words
+                .iter()
+                .flat_map(|words| words.iter())
+                .enumerate()
+            {
                 if index > 0 {
                     write!(formatter, [space()])?;
                 }
@@ -754,7 +763,11 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
                 write!(formatter, [text("; done")])
             } else {
                 write!(formatter, [text("); do")])?;
-                format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
+                format_body_with_upper_bound(
+                    &command.body,
+                    formatter,
+                    Some(command.span.end.offset),
+                )?;
                 finish_block("done", formatter)
             }
         }
@@ -771,7 +784,12 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
         }
         ForSyntax::ParenBrace { .. } => {
             write!(formatter, [text(" (")])?;
-            for (index, word) in command.words.iter().flat_map(|words| words.iter()).enumerate() {
+            for (index, word) in command
+                .words
+                .iter()
+                .flat_map(|words| words.iter())
+                .enumerate()
+            {
                 if index > 0 {
                     write!(formatter, [space()])?;
                 }

@@ -1171,7 +1171,12 @@ done
             .bindings()
             .iter()
             .filter(|binding| binding.kind == BindingKind::LoopVariable)
-            .map(|binding| (binding.name.to_string(), binding.span.slice(source).to_string()))
+            .map(|binding| {
+                (
+                    binding.name.to_string(),
+                    binding.span.slice(source).to_string(),
+                )
+            })
             .collect::<Vec<_>>();
         assert_eq!(
             loop_bindings,
@@ -1188,7 +1193,9 @@ done
             let reference = model
                 .references()
                 .iter()
-                .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == name)
+                .find(|reference| {
+                    reference.kind == ReferenceKind::Expansion && reference.name == name
+                })
                 .unwrap_or_else(|| panic!("expected expansion reference for {name}"));
             let binding = model
                 .resolved_binding(reference.id)

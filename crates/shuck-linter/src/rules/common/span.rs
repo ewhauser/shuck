@@ -141,9 +141,7 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => collect_expansion_spans(parts, spans),
-            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {
-                spans.push(part.span)
-            }
+            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => spans.push(part.span),
             WordPart::Variable(_)
             | WordPart::ZshQualifiedGlob(_)
             | WordPart::CommandSubstitution { .. }

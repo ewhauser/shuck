@@ -139,7 +139,9 @@ fn word_scalar_affix_span_parts(
 
 fn simple_test_report_span(fact: &crate::SimpleTestFact<'_>, fallback: Span) -> Span {
     match fact.shape() {
-        SimpleTestShape::Unary if fact.operator_family() == SimpleTestOperatorFamily::StringUnary => {
+        SimpleTestShape::Unary
+            if fact.operator_family() == SimpleTestOperatorFamily::StringUnary =>
+        {
             simple_test_unary_affix_span(fact)
                 .or_else(|| fact.operands().get(1).map(|word| word.span))
                 .unwrap_or(fallback)

@@ -20,9 +20,7 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
     ]
     .into_iter()
     .flat_map(|context| checker.facts().expansion_word_facts(context))
-    .filter(|fact| {
-        fact.analysis().array_valued && fact.analysis().can_expand_to_multiple_fields
-    })
+    .filter(|fact| fact.analysis().array_valued && fact.analysis().can_expand_to_multiple_fields)
     .flat_map(|fact| fact.unquoted_array_expansion_spans().iter().copied())
     .collect::<Vec<_>>();
 

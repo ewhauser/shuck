@@ -150,5 +150,4 @@ readonly n_version=\"$(./bin/n --version)\"
             vec!["archive_dir_create", "n_version"]
         );
     }
-
 }

@@ -3032,9 +3032,11 @@ mod tests {
     fn mapped_only_enables_all_mapped_rules_in_linter_settings() {
         let settings = build_large_corpus_linter_settings(None, true);
         // Style rules like S003 (LoopFromCommandOutput) should be included
-        assert!(settings
-            .rules
-            .contains(shuck_linter::Rule::LoopFromCommandOutput));
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::LoopFromCommandOutput)
+        );
         // All mapped rules should be present
         let map = shuck_linter::ShellCheckCodeMap::default();
         for (_, rule) in map.mappings() {

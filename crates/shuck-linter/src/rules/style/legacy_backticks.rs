@@ -46,8 +46,7 @@ mod tests {
 
     #[test]
     fn ignores_escaped_backticks_inside_double_quotes() {
-        let source =
-            "echo \"\\`run\\`'s command \\`%s\\` exited with code 127, indicating 'Command not found'.\"\n";
+        let source = "echo \"\\`run\\`'s command \\`%s\\` exited with code 127, indicating 'Command not found'.\"\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
 
         assert!(diagnostics.is_empty());

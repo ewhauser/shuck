@@ -2,7 +2,9 @@ use super::*;
 
 #[derive(Debug, Clone, Copy)]
 enum ForHeaderSurface {
-    In { in_span: Option<Span> },
+    In {
+        in_span: Option<Span>,
+    },
     Paren {
         left_paren_span: Span,
         right_paren_span: Span,
@@ -935,10 +937,11 @@ impl<'a> Parser<'a> {
             ForHeaderSurface::In { in_span }
                 if allow_zsh_targets && self.at(TokenKind::LeftBrace) =>
             {
-                let (body, left_brace_span, right_brace_span) = self.parse_brace_enclosed_stmt_seq(
-                    "syntax error: empty for loop body",
-                    BraceBodyContext::Ordinary,
-                )?;
+                let (body, left_brace_span, right_brace_span) = self
+                    .parse_brace_enclosed_stmt_seq(
+                        "syntax error: empty for loop body",
+                        BraceBodyContext::Ordinary,
+                    )?;
                 (
                     body,
                     ForSyntax::InBrace {
@@ -953,10 +956,11 @@ impl<'a> Parser<'a> {
                 left_paren_span,
                 right_paren_span,
             } if allow_zsh_targets && self.at(TokenKind::LeftBrace) => {
-                let (body, left_brace_span, right_brace_span) = self.parse_brace_enclosed_stmt_seq(
-                    "syntax error: empty for loop body",
-                    BraceBodyContext::Ordinary,
-                )?;
+                let (body, left_brace_span, right_brace_span) = self
+                    .parse_brace_enclosed_stmt_seq(
+                        "syntax error: empty for loop body",
+                        BraceBodyContext::Ordinary,
+                    )?;
                 (
                     body,
                     ForSyntax::ParenBrace {

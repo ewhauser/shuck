@@ -2231,10 +2231,7 @@ fn test_zsh_for_loop_preserves_digit_targets() {
     assert!(command.words.is_none());
     assert!(matches!(
         command.syntax,
-        ForSyntax::InDoDone {
-            in_span: None,
-            ..
-        }
+        ForSyntax::InDoDone { in_span: None, .. }
     ));
 }
 

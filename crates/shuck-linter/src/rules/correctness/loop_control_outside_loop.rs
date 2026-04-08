@@ -25,9 +25,11 @@ pub fn loop_control_outside_loop(checker: &mut Checker) {
             Command::Builtin(BuiltinCommand::Break(command)) => {
                 Some((command.span, keyword_span(command.span, "break"), "break"))
             }
-            Command::Builtin(BuiltinCommand::Continue(command)) => {
-                Some((command.span, keyword_span(command.span, "continue"), "continue"))
-            }
+            Command::Builtin(BuiltinCommand::Continue(command)) => Some((
+                command.span,
+                keyword_span(command.span, "continue"),
+                "continue",
+            )),
             _ => None,
         })
         .filter(|(command_span, _, _)| {
@@ -61,7 +63,10 @@ termux_step_make() {
 \tcontinue 2
 }
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LoopControlOutsideLoop));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LoopControlOutsideLoop),
+        );
 
         assert_eq!(
             diagnostics
@@ -80,7 +85,10 @@ while true; do
 \tbreak
 done
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LoopControlOutsideLoop));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LoopControlOutsideLoop),
+        );
 
         assert!(diagnostics.is_empty());
     }
