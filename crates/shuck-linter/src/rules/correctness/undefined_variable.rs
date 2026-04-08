@@ -68,6 +68,9 @@ pub fn undefined_variable(checker: &mut Checker) {
         {
             continue;
         }
+        if checker.facts().is_subscript_index_reference(reference.span) {
+            continue;
+        }
         if !reported_names.insert(reference.name.clone()) {
             continue;
         }

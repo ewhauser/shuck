@@ -1310,9 +1310,46 @@ printf '%s %s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn undefined_variable_ignores_names_used_only_in_subscript_indices() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+declare -a args
+declare -A tools
+printf '%s\\n' \"${args[$__array_start]}\"
+args[$__array_start]=ok
+unset args[$unset_index]
+printf '%s\\n' \"${tools[$target]}\"
+tools[$target]=ok
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn undefined_variable_still_reports_plain_uses_after_subscript_only_uses() {
+        let source = "\
+#!/bin/bash
+declare -a args
+declare -A tools
+printf '%s %s\\n' \"${args[$idx]}\" \"${tools[$target]}\"
+printf '%s %s\\n' \"$idx\" \"$target\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
-        assert!(diagnostics[0].message.contains("dynamic_key"));
+        assert!(diagnostics[0].message.contains("idx"));
+        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[1].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[1].message.contains("target"));
+        assert_eq!(diagnostics[1].span.start.line, 5);
     }
 
     #[test]

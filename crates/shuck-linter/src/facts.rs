@@ -14,7 +14,8 @@ use shuck_ast::{
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, Name, ParameterExpansionSyntax,
     ParameterOp, Pattern, PatternPart, Redirect, RedirectKind, SelectCommand, SimpleCommand, Span,
-    Stmt, StmtSeq, Word, WordPart, WordPartNode, ZshGlobSegment, ZshQualifiedGlob,
+    Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget,
+    ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
@@ -1090,6 +1091,7 @@ pub struct LinterFacts<'a> {
     command_index: FxHashMap<*const Command, usize>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
     presence_tested_names: FxHashSet<Name>,
+    subscript_index_reference_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
     word_index: FxHashMap<FactSpan, Vec<usize>>,
     for_headers: Vec<ForHeaderFact<'a>>,
@@ -1147,6 +1149,11 @@ impl<'a> LinterFacts<'a> {
 
     pub fn presence_tested_names(&self) -> &FxHashSet<Name> {
         &self.presence_tested_names
+    }
+
+    pub fn is_subscript_index_reference(&self, span: Span) -> bool {
+        self.subscript_index_reference_spans
+            .contains(&FactSpan::new(span))
     }
 
     pub fn word_facts(&self) -> &[WordFact<'a>] {
@@ -1308,6 +1315,10 @@ impl<'a> LinterFactsBuilder<'a> {
         let lists = build_list_facts(&commands);
         let surface_fragments =
             build_surface_fragment_facts(self.file, &commands, &command_index, self.source);
+        let subscript_index_reference_spans = build_subscript_index_reference_spans(
+            self._semantic,
+            &surface_fragments.subscript_spans,
+        );
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -1319,6 +1330,7 @@ impl<'a> LinterFactsBuilder<'a> {
             command_index,
             scalar_bindings,
             presence_tested_names,
+            subscript_index_reference_spans,
             words,
             word_index,
             for_headers,
@@ -3246,6 +3258,7 @@ struct SurfaceFragmentFacts {
     backticks: Vec<BacktickFragmentFact>,
     legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
     positional_parameters: Vec<PositionalParameterFragmentFact>,
+    subscript_spans: Vec<Span>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -3343,6 +3356,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
         self.collect_assignments(&command.assignments, context);
         self.collect_word(&command.name, context);
 
+        if context.command_name == Some("unset") {
+            for word in &command.args {
+                if word_looks_like_unset_array_target(word, self.source) {
+                    self.facts.subscript_spans.push(word.span);
+                }
+            }
+        }
+
         let variable_set_operand = simple_command_variable_set_operand(command, self.source);
         for word in &command.args {
             let word_context =
@@ -3398,6 +3419,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     self.collect_word(word, context);
                 }
                 DeclOperand::Name(reference) => {
+                    self.record_var_ref_subscript(reference);
                     query::visit_var_ref_subscript_words_with_source(
                         reference,
                         self.source,
@@ -3484,6 +3506,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
 
     fn collect_assignment(&mut self, assignment: &Assignment, context: SurfaceScanContext<'_>) {
         let context = context.with_assignment_target(assignment.target.name.as_str());
+        self.record_var_ref_subscript(&assignment.target);
         query::visit_var_ref_subscript_words_with_source(
             &assignment.target,
             self.source,
@@ -3496,6 +3519,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     match element {
                         ArrayElem::Sequential(word) => self.collect_word(word, context),
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                            self.record_subscript(Some(key));
                             query::visit_subscript_words(Some(key), self.source, &mut |word| {
                                 self.collect_word(word, context);
                             });
@@ -3594,6 +3618,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::CommandSubstitution { body, .. }
                 | WordPart::ProcessSubstitution { body, .. } => self.collect_commands(body),
                 WordPart::Parameter(parameter) => {
+                    self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
                         operator,
                         ..
@@ -3603,7 +3628,20 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     }
                 }
                 WordPart::ParameterExpansion { operator, .. } => {
+                    if let WordPart::ParameterExpansion { reference, .. } = &part.kind {
+                        self.record_var_ref_subscript(reference);
+                    }
                     self.collect_parameter_operator_patterns(operator, context);
+                }
+                WordPart::Length(reference)
+                | WordPart::ArrayAccess(reference)
+                | WordPart::ArrayLength(reference)
+                | WordPart::ArrayIndices(reference)
+                | WordPart::Transformation { reference, .. } => {
+                    self.record_var_ref_subscript(reference);
+                }
+                WordPart::Substring { reference, .. } | WordPart::ArraySlice { reference, .. } => {
+                    self.record_var_ref_subscript(reference);
                 }
                 WordPart::IndirectExpansion {
                     operator: Some(operator),
@@ -3611,15 +3649,8 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 } => self.collect_parameter_operator_patterns(operator, context),
                 WordPart::Literal(_)
                 | WordPart::Variable(_)
-                | WordPart::Length(_)
-                | WordPart::ArrayAccess(_)
-                | WordPart::ArrayLength(_)
-                | WordPart::ArrayIndices(_)
-                | WordPart::Substring { .. }
-                | WordPart::ArraySlice { .. }
                 | WordPart::IndirectExpansion { operator: None, .. }
-                | WordPart::PrefixMatch { .. }
-                | WordPart::Transformation { .. } => {}
+                | WordPart::PrefixMatch { .. } => {}
             }
         }
     }
@@ -3689,6 +3720,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
             }
             ConditionalExpr::Pattern(pattern) => self.collect_pattern(pattern, context),
             ConditionalExpr::VarRef(reference) => {
+                self.record_var_ref_subscript(reference);
                 query::visit_var_ref_subscript_words_with_source(
                     reference,
                     self.source,
@@ -3721,6 +3753,46 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
     }
 
+    fn record_parameter_subscripts(&mut self, parameter: &shuck_ast::ParameterExpansion) {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+                BourneParameterExpansion::Access { reference }
+                | BourneParameterExpansion::Length { reference }
+                | BourneParameterExpansion::Indices { reference }
+                | BourneParameterExpansion::Slice { reference, .. }
+                | BourneParameterExpansion::Operation { reference, .. }
+                | BourneParameterExpansion::Transformation { reference, .. } => {
+                    self.record_var_ref_subscript(reference);
+                }
+                BourneParameterExpansion::Indirect { .. }
+                | BourneParameterExpansion::PrefixMatch { .. } => {}
+            },
+            ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    self.record_var_ref_subscript(reference)
+                }
+                ZshExpansionTarget::Nested(parameter) => {
+                    self.record_parameter_subscripts(parameter)
+                }
+                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => {}
+            },
+        }
+    }
+
+    fn record_var_ref_subscript(&mut self, reference: &VarRef) {
+        self.record_subscript(reference.subscript.as_ref());
+    }
+
+    fn record_subscript(&mut self, subscript: Option<&Subscript>) {
+        let Some(subscript) = subscript else {
+            return;
+        };
+        if subscript.selector().is_some() {
+            return;
+        }
+        self.facts.subscript_spans.push(subscript.span());
+    }
+
     fn command_fact_for_command(&self, command: &Command) -> Option<&CommandFact<'a>> {
         self.command_index
             .get(&command_ptr(command))
@@ -3737,6 +3809,47 @@ fn build_surface_fragment_facts<'a>(
     let mut collector = SurfaceFragmentCollector::new(commands, command_index, source);
     collector.collect_commands(&file.body);
     collector.finish()
+}
+
+fn build_subscript_index_reference_spans(
+    semantic: &SemanticModel,
+    subscript_spans: &[Span],
+) -> FxHashSet<FactSpan> {
+    if subscript_spans.is_empty() {
+        return FxHashSet::default();
+    }
+
+    semantic
+        .references()
+        .iter()
+        .filter(|reference| {
+            subscript_spans
+                .iter()
+                .any(|subscript| span_contains(*subscript, reference.span))
+        })
+        .map(|reference| FactSpan::new(reference.span))
+        .collect()
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn word_looks_like_unset_array_target(word: &Word, source: &str) -> bool {
+    let text = word.span.slice(source);
+    let Some((name, _)) = text.split_once('[') else {
+        return false;
+    };
+    text.ends_with(']') && is_shell_name(name)
+}
+
+fn is_shell_name(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
 }
 
 fn simple_command_variable_set_operand<'a>(
