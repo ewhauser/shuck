@@ -933,7 +933,10 @@ fn format_foreach(
     command: &ForeachCommand,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
-    write!(formatter, [token("foreach "), text(command.variable.to_string())])?;
+    write!(
+        formatter,
+        [token("foreach "), text(command.variable.to_string())]
+    )?;
     match command.syntax {
         ForeachSyntax::ParenBrace { .. } => {
             write!(formatter, [token(" (")])?;
@@ -977,7 +980,11 @@ fn format_select(
 ) -> FormatResult<()> {
     write!(
         formatter,
-        [token("select "), text(command.variable.to_string()), token(" in ")]
+        [
+            token("select "),
+            text(command.variable.to_string()),
+            token(" in ")
+        ]
     )?;
     for (index, word) in command.words.iter().enumerate() {
         if index > 0 {
@@ -1099,7 +1106,10 @@ fn format_case_item(
         if base_indent == 0 && item.body.len() == 1 && case_item_was_inline_in_source(item) {
             write!(formatter, [space()])?;
             item.body[0].format().fmt(formatter)?;
-            write!(formatter, [space(), token(case_terminator(item.terminator))])?;
+            write!(
+                formatter,
+                [space(), token(case_terminator(item.terminator))]
+            )?;
             return Ok(());
         }
 
@@ -1531,7 +1541,9 @@ fn render_array_elem(
 ) -> String {
     match element {
         ArrayElem::Sequential(word) => render_word_syntax(word, source, options),
-        ArrayElem::Keyed { key, value } => render_keyed_array_elem(key, value, source, options, "="),
+        ArrayElem::Keyed { key, value } => {
+            render_keyed_array_elem(key, value, source, options, "=")
+        }
         ArrayElem::KeyedAppend { key, value } => {
             render_keyed_array_elem(key, value, source, options, "+=")
         }
@@ -1590,10 +1602,7 @@ fn format_standalone_multiline_compound_assignment(
 
     write!(
         formatter,
-        [
-            text(render_assignment_head(assignment, source)),
-            token("(")
-        ]
+        [text(render_assignment_head(assignment, source)), token("(")]
     )?;
 
     let mut body = Document::new();

@@ -270,9 +270,11 @@ fn visible_imported_function_contract<'a>(
 
         let visible = match (local, imported) {
             (Some((target, local_offset)), Some((imported_target, imported_offset))) => {
-                (imported_offset > local_offset)
-                    .then_some((imported_target, imported_offset))
-                    .unwrap_or((target, local_offset))
+                if imported_offset > local_offset {
+                    (imported_target, imported_offset)
+                } else {
+                    (target, local_offset)
+                }
             }
             (Some(candidate), None) | (None, Some(candidate)) => candidate,
             (None, None) => continue,

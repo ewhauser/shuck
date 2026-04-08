@@ -21,7 +21,10 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         }
 
         if let Some(name) = &redirect.fd_var {
-            write!(formatter, [token("{"), text(name.as_str().to_string()), token("}")])?;
+            write!(
+                formatter,
+                [token("{"), text(name.as_str().to_string()), token("}")]
+            )?;
         } else if let Some(fd) = redirect
             .fd
             .filter(|fd| should_render_explicit_fd(*fd, redirect.kind))
@@ -32,18 +35,18 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
         write!(
             formatter,
             [token(match redirect.kind {
-            RedirectKind::Output => ">",
-            RedirectKind::Clobber => ">|",
-            RedirectKind::Append => ">>",
-            RedirectKind::Input => "<",
-            RedirectKind::ReadWrite => "<>",
-            RedirectKind::HereDoc => "<<",
-            RedirectKind::HereDocStrip => "<<-",
-            RedirectKind::HereString => "<<<",
-            RedirectKind::DupOutput => ">&",
-            RedirectKind::DupInput => "<&",
-            RedirectKind::OutputBoth => "&>",
-        })]
+                RedirectKind::Output => ">",
+                RedirectKind::Clobber => ">|",
+                RedirectKind::Append => ">>",
+                RedirectKind::Input => "<",
+                RedirectKind::ReadWrite => "<>",
+                RedirectKind::HereDoc => "<<",
+                RedirectKind::HereDocStrip => "<<-",
+                RedirectKind::HereString => "<<<",
+                RedirectKind::DupOutput => ">&",
+                RedirectKind::DupInput => "<&",
+                RedirectKind::OutputBoth => "&>",
+            })]
         )?;
 
         let target = match (redirect.word_target(), redirect.heredoc()) {

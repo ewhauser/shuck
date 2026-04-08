@@ -131,7 +131,13 @@ impl Printer {
                     } else {
                         PrintMode::Expanded
                     };
-                    queue.push(document.as_slice(), Some(mode), 0, &mut state, &mut mode_stack);
+                    queue.push(
+                        document.as_slice(),
+                        Some(mode),
+                        0,
+                        &mut state,
+                        &mut mode_stack,
+                    );
                 }
                 FormatElement::BestFit { flat, expanded } => {
                     let (variant, mode) =
@@ -306,7 +312,11 @@ impl<'a> MeasureQueue<'a> {
             if frame.index < frame.elements.len() {
                 let element = &frame.elements[frame.index];
                 frame.index += 1;
-                let mode = self.mode_stack.last().copied().unwrap_or(PrintMode::Expanded);
+                let mode = self
+                    .mode_stack
+                    .last()
+                    .copied()
+                    .unwrap_or(PrintMode::Expanded);
                 return Some((element, mode));
             }
 

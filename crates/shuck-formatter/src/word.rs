@@ -272,13 +272,7 @@ fn render_word_part(
             push_arithmetic_source_text(rendered, offset, offset_ast.as_ref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(
-                    rendered,
-                    length,
-                    length_ast.as_ref(),
-                    source,
-                    options,
-                );
+                push_arithmetic_source_text(rendered, length, length_ast.as_ref(), source, options);
             }
             rendered.push('}');
         }
@@ -355,7 +349,8 @@ fn indent_rendered_block(
         IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
     };
 
-    let mut indented = String::with_capacity(rendered.len() + prefix.len() * rendered.lines().count());
+    let mut indented =
+        String::with_capacity(rendered.len() + prefix.len() * rendered.lines().count());
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             indented.push('\n');
@@ -386,13 +381,7 @@ fn render_arithmetic_expr_to_buf(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) {
-    push_arithmetic_expr(
-        rendered,
-        expr,
-        ArithmeticContext::TopLevel,
-        source,
-        options,
-    );
+    push_arithmetic_expr(rendered, expr, ArithmeticContext::TopLevel, source, options);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -805,13 +794,7 @@ fn push_parameter_word(
             push_arithmetic_source_text(rendered, offset, offset_ast.as_ref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(
-                    rendered,
-                    length,
-                    length_ast.as_ref(),
-                    source,
-                    options,
-                );
+                push_arithmetic_source_text(rendered, length, length_ast.as_ref(), source, options);
             }
             rendered.push('}');
         }
@@ -978,8 +961,7 @@ fn raw_source_slice(span: shuck_ast::Span, source: &str) -> Option<&str> {
 }
 
 fn should_preserve_raw_syntax(raw: &str, rendered: &str) -> bool {
-    raw != rendered
-        && could_need_preserve_raw_syntax(raw)
+    raw != rendered && could_need_preserve_raw_syntax(raw)
 }
 
 fn could_need_preserve_raw_syntax(raw: &str) -> bool {

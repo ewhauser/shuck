@@ -3741,6 +3741,34 @@ fn test_parse_zsh_compact_function_body_with_background_pipe_and_trailing_semico
 }
 
 #[test]
+fn test_parse_zsh_git_extras_style_quoted_continuations_inside_assignment() {
+    let source = "tag_names=(${${(f)\"$(_call_program tags git for-each-ref --format='\"%(refname)\"' refs/tags 2>/dev/null)\"}#refs/tags/})\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    assert!(command.args.is_empty());
+
+    let assignment = &command.assignments[0];
+    assert_eq!(assignment.target.name, "tag_names");
+
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.elements.len(), 1);
+
+    let ArrayElem::Sequential(value) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+    assert_eq!(
+        value.span.slice(source),
+        "${${(f)\"$(_call_program tags git for-each-ref --format='\"%(refname)\"' refs/tags 2>/dev/null)\"}#refs/tags/}"
+    );
+}
+
+#[test]
 fn test_parse_zsh_parameter_default_with_prompt_escape_text() {
     let source = "color_green=${BATTERY_COLOR_GREEN:-%F{green}}\n";
     Parser::with_dialect(source, ShellDialect::Zsh)

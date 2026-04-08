@@ -841,6 +841,7 @@ mod tests {
 print ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}
 print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}} ${(m)foo:^other}
 print (#i)*.jpg (#b)(*) *.log(#qN) **/*(#q.om[1,3])
+repeat 3 print hi
 for version ($versions); do print $version; done
 for key value in a b c d; { print -r -- \"$key:$value\"; }
 for 1 2 3; do print -r -- \"$1|$2|$3\"; done

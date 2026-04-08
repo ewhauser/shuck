@@ -444,8 +444,8 @@ fn compute_sequence_attachment<'a>(
             let run_end = collect_comment_run(items, claimed, index, limit_end, |comment| {
                 comment.span.end.offset <= first_child_start
             });
-            for run_index in index..run_end {
-                attachment.leading[0].push(items[run_index]);
+            for (run_index, item) in items.iter().enumerate().take(run_end).skip(index) {
+                attachment.leading[0].push(*item);
                 claimed_indices.push(run_index);
             }
             index = run_end;
@@ -460,8 +460,8 @@ fn compute_sequence_attachment<'a>(
                 );
                 candidate_prev == target_prev && candidate_next == target_next
             });
-            for run_index in index..run_end {
-                attachment.leading[next_idx].push(items[run_index]);
+            for (run_index, item) in items.iter().enumerate().take(run_end).skip(index) {
+                attachment.leading[next_idx].push(*item);
                 claimed_indices.push(run_index);
             }
             index = run_end;
@@ -469,8 +469,8 @@ fn compute_sequence_attachment<'a>(
             let run_end = collect_comment_run(items, claimed, index, limit_end, |comment| {
                 comment.span.start.offset >= last_child_end
             });
-            for run_index in index..run_end {
-                attachment.dangling.push(items[run_index]);
+            for (run_index, item) in items.iter().enumerate().take(run_end).skip(index) {
+                attachment.dangling.push(*item);
                 claimed_indices.push(run_index);
             }
             index = run_end;

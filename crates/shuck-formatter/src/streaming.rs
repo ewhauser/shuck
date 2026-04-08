@@ -6,11 +6,12 @@ use shuck_ast::{
     ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
     ConditionalUnaryExpr, CoprocCommand, DeclClause, DeclOperand, File, ForCommand, ForSyntax,
     ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, Redirect, RedirectKind,
-    RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, WhileCommand, Word,
+    RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq, StmtTerminator,
+    TimeCommand, UntilCommand, WhileCommand, Word,
 };
 use shuck_format::{IndentStyle, LineEnding};
 
+use crate::Result;
 use crate::ast_format::flatten_comments;
 use crate::command::{
     binary_operator, case_item_was_inline_in_source, case_terminator, command_format_span,
@@ -22,7 +23,6 @@ use crate::command::{
 use crate::comments::{Comments, SourceComment, SourceMap};
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{render_pattern_syntax, render_word_syntax};
-use crate::Result;
 
 pub(crate) fn format_file_streaming(
     source: &str,
@@ -70,7 +70,11 @@ struct ShellStreamFormatter<'source> {
 }
 
 impl<'source> ShellStreamFormatter<'source> {
-    fn new(source: &'source str, options: ResolvedShellFormatOptions, comments: Comments<'source>) -> Self {
+    fn new(
+        source: &'source str,
+        options: ResolvedShellFormatOptions,
+        comments: Comments<'source>,
+    ) -> Self {
         Self {
             source,
             options,
@@ -225,11 +229,7 @@ impl<'source> ShellStreamFormatter<'source> {
         }
     }
 
-    fn emit_leading_comments(
-        &mut self,
-        comments: &[SourceComment<'_>],
-        next_line: usize,
-    ) {
+    fn emit_leading_comments(&mut self, comments: &[SourceComment<'_>], next_line: usize) {
         for (index, comment) in comments.iter().enumerate() {
             self.write_comment(comment);
             let target_line = comments
@@ -257,7 +257,11 @@ impl<'source> ShellStreamFormatter<'source> {
         }
     }
 
-    fn format_stmt_sequence(&mut self, statements: &StmtSeq, upper_bound: Option<usize>) -> Result<()> {
+    fn format_stmt_sequence(
+        &mut self,
+        statements: &StmtSeq,
+        upper_bound: Option<usize>,
+    ) -> Result<()> {
         if statements.is_empty() {
             return Ok(());
         }
@@ -343,8 +347,7 @@ impl<'source> ShellStreamFormatter<'source> {
                             .and_then(|spans| spans.get(index + 1))
                             .copied(),
                     ) {
-                        let current_end =
-                            rendered_stmt_end_line(stmt, source, self.source_map());
+                        let current_end = rendered_stmt_end_line(stmt, source, self.source_map());
                         let next_start = attachments
                             .as_ref()
                             .and_then(|attachment| attachment.leading_for(index + 1).first())
@@ -567,7 +570,7 @@ impl<'source> ShellStreamFormatter<'source> {
             previous_end = Some(assignment.span.end.offset);
         }
         self.write_command_gap(previous_end, command.variant_span.start.offset);
-        self.write_text(&command.variant.to_string());
+        self.write_text(command.variant.as_ref());
         previous_end = Some(command.variant_span.end.offset);
         for operand in &command.operands {
             let span = decl_operand_span(operand);
@@ -605,7 +608,11 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn write_assignment(&mut self, assignment: &Assignment) {
-        self.write_text(&render_assignment(assignment, self.source(), self.options()));
+        self.write_text(&render_assignment(
+            assignment,
+            self.source(),
+            self.options(),
+        ));
     }
 
     fn format_binary_command(&mut self, command: &BinaryCommand) -> Result<()> {
@@ -663,7 +670,8 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn format_list_item(&mut self, item: &BinaryListItem<'_>) -> Result<()> {
-        if list_item_has_explicit_line_break(item, self.source(), self.options(), self.source_map()) {
+        if list_item_has_explicit_line_break(item, self.source(), self.options(), self.source_map())
+        {
             self.write_text(list_item_multiline_separator(item.operator));
             self.newline();
             self.with_indent(|formatter| formatter.format_stmt(item.stmt))?;
@@ -739,12 +747,18 @@ impl<'source> ShellStreamFormatter<'source> {
         self.write_text("if ");
         self.format_inline_stmts(&command.condition)?;
         self.write_space();
-        self.format_brace_group(&command.then_branch, Some(if_branch_upper_bound(command, 0, source)))?;
+        self.format_brace_group(
+            &command.then_branch,
+            Some(if_branch_upper_bound(command, 0, source)),
+        )?;
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
             self.write_text(" elif ");
             self.format_inline_stmts(condition)?;
             self.write_space();
-            self.format_brace_group(body, Some(if_branch_upper_bound(command, index + 1, source)))?;
+            self.format_brace_group(
+                body,
+                Some(if_branch_upper_bound(command, index + 1, source)),
+            )?;
         }
         if let Some(body) = &command.else_branch {
             self.write_text(" else ");
@@ -759,7 +773,7 @@ impl<'source> ShellStreamFormatter<'source> {
             if index > 0 {
                 self.write_space();
             }
-            self.write_text(&target.name.to_string());
+            self.write_text(target.name.as_ref());
         }
 
         match command.syntax {
@@ -777,13 +791,21 @@ impl<'source> ShellStreamFormatter<'source> {
                     self.write_text("; done");
                 } else {
                     self.write_text("; do");
-                    self.format_body_with_upper_bound(&command.body, Some(command.span.end.offset))?;
+                    self.format_body_with_upper_bound(
+                        &command.body,
+                        Some(command.span.end.offset),
+                    )?;
                     self.finish_block("done");
                 }
             }
             ForSyntax::ParenDoDone { .. } => {
                 self.write_text(" (");
-                for (index, word) in command.words.iter().flat_map(|words| words.iter()).enumerate() {
+                for (index, word) in command
+                    .words
+                    .iter()
+                    .flat_map(|words| words.iter())
+                    .enumerate()
+                {
                     if index > 0 {
                         self.write_space();
                     }
@@ -795,7 +817,10 @@ impl<'source> ShellStreamFormatter<'source> {
                     self.write_text("; done");
                 } else {
                     self.write_text("); do");
-                    self.format_body_with_upper_bound(&command.body, Some(command.span.end.offset))?;
+                    self.format_body_with_upper_bound(
+                        &command.body,
+                        Some(command.span.end.offset),
+                    )?;
                     self.finish_block("done");
                 }
             }
@@ -812,7 +837,12 @@ impl<'source> ShellStreamFormatter<'source> {
             }
             ForSyntax::ParenBrace { .. } => {
                 self.write_text(" (");
-                for (index, word) in command.words.iter().flat_map(|words| words.iter()).enumerate() {
+                for (index, word) in command
+                    .words
+                    .iter()
+                    .flat_map(|words| words.iter())
+                    .enumerate()
+                {
                     if index > 0 {
                         self.write_space();
                     }
@@ -836,9 +866,16 @@ impl<'source> ShellStreamFormatter<'source> {
                     self.write_text("; done");
                 } else {
                     self.write_text("; do");
-                    self.format_body_with_upper_bound(&command.body, Some(command.span.end.offset))?;
+                    self.format_body_with_upper_bound(
+                        &command.body,
+                        Some(command.span.end.offset),
+                    )?;
                     self.finish_block("done");
                 }
+            }
+            RepeatSyntax::Direct => {
+                self.write_space();
+                self.format_inline_stmts(&command.body)?;
             }
             RepeatSyntax::Brace { .. } => {
                 self.write_space();
@@ -850,7 +887,7 @@ impl<'source> ShellStreamFormatter<'source> {
 
     fn format_foreach(&mut self, command: &ForeachCommand) -> Result<()> {
         self.write_text("foreach ");
-        self.write_text(&command.variable.to_string());
+        self.write_text(command.variable.as_ref());
         match command.syntax {
             ForeachSyntax::ParenBrace { .. } => {
                 self.write_text(" (");
@@ -877,7 +914,10 @@ impl<'source> ShellStreamFormatter<'source> {
                     self.write_text("; done");
                 } else {
                     self.write_text("; do");
-                    self.format_body_with_upper_bound(&command.body, Some(command.span.end.offset))?;
+                    self.format_body_with_upper_bound(
+                        &command.body,
+                        Some(command.span.end.offset),
+                    )?;
                     self.finish_block("done");
                 }
             }
@@ -887,7 +927,7 @@ impl<'source> ShellStreamFormatter<'source> {
 
     fn format_select(&mut self, command: &SelectCommand) -> Result<()> {
         self.write_text("select ");
-        self.write_text(&command.variable.to_string());
+        self.write_text(command.variable.as_ref());
         self.write_text(" in ");
         for (index, word) in command.words.iter().enumerate() {
             if index > 0 {
@@ -960,9 +1000,8 @@ impl<'source> ShellStreamFormatter<'source> {
 
     fn format_case_item(&mut self, item: &CaseItem, upper_bound: Option<usize>) -> Result<()> {
         let source = self.source();
-        let base_indent = usize::from(
-            !self.options().compact_layout() && self.options().switch_case_indent(),
-        );
+        let base_indent =
+            usize::from(!self.options().compact_layout() && self.options().switch_case_indent());
         let mut pattern = String::new();
         for (index, word) in item.patterns.iter().enumerate() {
             if index > 0 {
@@ -1061,7 +1100,10 @@ impl<'source> ShellStreamFormatter<'source> {
             .condition_span
             .map(|span| span.slice(source))
             .unwrap_or("");
-        let step = command.step_span.map(|span| span.slice(source)).unwrap_or("");
+        let step = command
+            .step_span
+            .map(|span| span.slice(source))
+            .unwrap_or("");
         let mut header = String::with_capacity(init.len() + condition.len() + step.len() + 14);
         header.push_str("for ((");
         header.push_str(init);
@@ -1168,7 +1210,7 @@ impl<'source> ShellStreamFormatter<'source> {
                 .static_name
                 .as_ref()
                 .expect("classic function header should have a static name");
-            self.write_text(&name.to_string());
+            self.write_text(name.as_ref());
             if function.has_trailing_parens() {
                 self.write_text("()");
             }
@@ -1418,7 +1460,9 @@ impl<'source> ShellStreamFormatter<'source> {
         let [command] = commands.as_slice() else {
             return false;
         };
-        if matches!(command.terminator, Some(StmtTerminator::Background(_))) || !self.can_inline_stmt(command) {
+        if matches!(command.terminator, Some(StmtTerminator::Background(_)))
+            || !self.can_inline_stmt(command)
+        {
             return false;
         }
 
@@ -1479,7 +1523,11 @@ impl<'source> ShellStreamFormatter<'source> {
                 Ok(())
             }
             ConditionalExpr::Pattern(pattern) => {
-                self.write_text(&render_pattern_syntax(pattern, self.source(), self.options()));
+                self.write_text(&render_pattern_syntax(
+                    pattern,
+                    self.source(),
+                    self.options(),
+                ));
                 Ok(())
             }
             ConditionalExpr::VarRef(reference) => {
@@ -1533,7 +1581,8 @@ fn continuation_indent_prefix(options: &ResolvedShellFormatOptions) -> String {
 
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
     let span = redirect.span;
-    (span.start.offset < span.end.offset && span.end.offset <= source.len()).then(|| span.slice(source))
+    (span.start.offset < span.end.offset && span.end.offset <= source.len())
+        .then(|| span.slice(source))
 }
 
 fn should_preserve_raw_redirect(raw: &str) -> bool {
@@ -1707,8 +1756,13 @@ fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str)
     };
 
     if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        branch_keyword_offset(source, current_branch_end, condition.span.start.offset, "elif")
-            .unwrap_or(condition.span.start.offset)
+        branch_keyword_offset(
+            source,
+            current_branch_end,
+            condition.span.start.offset,
+            "elif",
+        )
+        .unwrap_or(condition.span.start.offset)
     } else if let Some(body) = &command.else_branch {
         branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
             .unwrap_or(body.span.start.offset)
@@ -1720,7 +1774,9 @@ fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str)
 fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {
     let start = start.min(end).min(source.len());
     let end = end.min(source.len());
-    source[start..end].rfind(keyword).map(|offset| start + offset)
+    source[start..end]
+        .rfind(keyword)
+        .map(|offset| start + offset)
 }
 
 fn background_has_explicit_line_break(
