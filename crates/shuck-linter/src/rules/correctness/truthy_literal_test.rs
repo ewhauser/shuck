@@ -1,3 +1,5 @@
+use shuck_ast::Span;
+
 use crate::{Checker, ConditionalNodeFact, Rule, SimpleTestShape, Violation};
 
 pub struct TruthyLiteralTest;
@@ -17,11 +19,15 @@ pub fn truthy_literal_test(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter(|fact| {
-            fact.simple_test().is_some_and(simple_test_matches)
-                || fact.conditional().is_some_and(conditional_matches)
+        .filter_map(|fact| {
+            if let Some(simple_test) = fact.simple_test()
+                && simple_test_matches(simple_test)
+            {
+                return simple_test_report_span(simple_test);
+            }
+
+            fact.conditional().and_then(conditional_report_span)
         })
-        .map(|fact| fact.span())
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || TruthyLiteralTest);
@@ -34,11 +40,19 @@ fn simple_test_matches(fact: &crate::SimpleTestFact<'_>) -> bool {
             .is_some_and(|class| class.is_fixed_literal())
 }
 
-fn conditional_matches(fact: &crate::ConditionalFact<'_>) -> bool {
-    matches!(
-        fact.root(),
-        ConditionalNodeFact::BareWord(word) if word.operand().class().is_fixed_literal()
-    )
+fn simple_test_report_span(fact: &crate::SimpleTestFact<'_>) -> Option<Span> {
+    (fact.shape() == SimpleTestShape::Truthy)
+        .then(|| fact.operands().first().map(|word| word.span))
+        .flatten()
+}
+
+fn conditional_report_span(fact: &crate::ConditionalFact<'_>) -> Option<Span> {
+    match fact.root() {
+        ConditionalNodeFact::BareWord(word) if word.operand().class().is_fixed_literal() => {
+            word.operand().word().map(|word| word.span)
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -86,5 +100,17 @@ test foo
                 .collect::<Vec<_>>(),
             vec![2, 3, 4]
         );
+    }
+
+    #[test]
+    fn anchors_truthy_simple_tests_on_the_operand() {
+        let source = "\
+#!/bin/bash
+[ \"\" ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\"\"");
     }
 }
