@@ -305,6 +305,8 @@ pub struct Parser<'a> {
     /// Whether the next fetched word is eligible for alias expansion because
     /// the previous alias expansion ended with trailing whitespace.
     expand_next_word: bool,
+    /// Nesting depth of active brace-delimited statement sequences.
+    brace_group_depth: usize,
     dialect: ShellDialect,
 }
 
@@ -999,6 +1001,7 @@ impl<'a> Parser<'a> {
             aliases: HashMap::new(),
             expand_aliases: false,
             expand_next_word: false,
+            brace_group_depth: 0,
             dialect,
         }
     }
@@ -5035,6 +5038,14 @@ impl<'a> Parser<'a> {
         self.current_token_kind == Some(kind)
     }
 
+    fn current_token_has_leading_whitespace(&self) -> bool {
+        self.current_span.start.offset > 0
+            && self.input[..self.current_span.start.offset]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| matches!(ch, ' ' | '\t' | '\n'))
+    }
+
     fn at_in_set(&self, set: TokenSet) -> bool {
         self.current_token_kind
             .is_some_and(|kind| set.contains(kind))
@@ -7128,6 +7139,7 @@ impl<'a> Parser<'a> {
     ) -> Result<(StmtSeq, Span, Span)> {
         let left_brace_span = self.current_span;
         self.advance();
+        self.brace_group_depth += 1;
         self.skip_newlines()?;
 
         let body_start = self.current_span.start;
@@ -7141,17 +7153,20 @@ impl<'a> Parser<'a> {
         }
 
         if !self.at(TokenKind::RightBrace) {
+            self.brace_group_depth -= 1;
             return Err(Error::parse(
                 "expected '}' to close brace group".to_string(),
             ));
         }
 
         if commands.is_empty() {
+            self.brace_group_depth -= 1;
             return Err(self.error(empty_error));
         }
 
         let right_brace_span = self.current_span;
         self.advance();
+        self.brace_group_depth -= 1;
         Ok((
             Self::lower_commands_to_stmt_seq(
                 commands,
@@ -9434,6 +9449,11 @@ impl<'a> Parser<'a> {
 
         loop {
             self.check_error_token()?;
+            let next_kind_after_right_brace = if self.at(TokenKind::RightBrace) {
+                self.peek_next_kind()
+            } else {
+                None
+            };
             match self.current_token_kind {
                 Some(kind) if kind.is_word_like() => {
                     let is_literal = kind == TokenKind::LiteralWord;
@@ -9529,14 +9549,23 @@ impl<'a> Parser<'a> {
                     let word = self.expect_word()?;
                     words.push(word);
                 }
-                // { and } as arguments (not in command position) are literal words
-                Some(TokenKind::LeftBrace) | Some(TokenKind::RightBrace) if !words.is_empty() => {
-                    let sym = if self.at(TokenKind::LeftBrace) {
-                        "{"
-                    } else {
-                        "}"
-                    };
-                    words.push(Word::literal_with_span(sym, self.current_span));
+                // `{` can appear as a literal argument outside command position.
+                Some(TokenKind::LeftBrace) if !words.is_empty() => {
+                    words.push(Word::literal_with_span("{", self.current_span));
+                    self.advance();
+                }
+                // Inside brace groups, a bare `}` can still be a literal
+                // argument like `echo }`, but only when it's separated from the
+                // preceding token by whitespace and isn't introducing an outer
+                // redirect on the brace group itself.
+                Some(TokenKind::RightBrace)
+                    if !words.is_empty()
+                        && (self.brace_group_depth == 0
+                            || (self.current_token_has_leading_whitespace()
+                                && !next_kind_after_right_brace
+                                    .is_some_and(Self::is_redirect_kind))) =>
+                {
+                    words.push(Word::literal_with_span("}", self.current_span));
                     self.advance();
                 }
                 Some(TokenKind::Newline)
@@ -14618,7 +14647,7 @@ coproc worker { true; }
         let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
             panic!("expected regex rhs");
         };
-        assert_eq!(word.render(input), "^\"-1[[:blank:]]((?[luds])+).*");
+        assert_eq!(word.render(input), "^\"-1[[:blank:]]((\\?[luds])+).*");
     }
 
     #[test]
@@ -15432,6 +15461,90 @@ EOF
     }
 
     #[test]
+    fn test_zsh_trailing_glob_qualifier_after_quoted_prefix_stays_single_argument() {
+        let source = "print \"$plugin_dir\"/*(:t)\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].span.slice(source), "\"$plugin_dir\"/*(:t)");
+    }
+
+    #[test]
+    fn test_zsh_trailing_glob_qualifier_inside_compound_array_stays_single_element() {
+        let source = "plugins=( \"$plugin_dir\"/*(:t) )\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(command.assignments.len(), 1);
+        let assignment = &command.assignments[0];
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound array assignment");
+        };
+        assert_eq!(array.elements.len(), 1);
+        let ArrayElem::Sequential(first) = &array.elements[0] else {
+            panic!("expected sequential array element");
+        };
+        assert_eq!(first.span.slice(source), "\"$plugin_dir\"/*(:t)");
+    }
+
+    #[test]
+    fn test_zsh_quoted_variable_qualifier_inside_compound_array_stays_single_element() {
+        let source = "__GREP_ALIAS_CACHES=( \"$__GREP_CACHE_FILE\"(Nm-1) )\nif true; then :; fi\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(command.assignments.len(), 1);
+        let assignment = &command.assignments[0];
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound array assignment");
+        };
+        assert_eq!(array.elements.len(), 1);
+        let ArrayElem::Sequential(first) = &array.elements[0] else {
+            panic!("expected sequential array element");
+        };
+        assert_eq!(first.span.slice(source), "\"$__GREP_CACHE_FILE\"(Nm-1)");
+        assert!(matches!(
+            output.file.body[1].command,
+            AstCommand::Compound(_)
+        ));
+    }
+
+    #[test]
+    fn test_zsh_parameter_expansion_qualifier_inside_compound_array_stays_single_element() {
+        let source = "files=( $dir/${~pats}(N) )\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(command.assignments.len(), 1);
+        let assignment = &command.assignments[0];
+        let AssignmentValue::Compound(array) = &assignment.value else {
+            panic!("expected compound array assignment");
+        };
+        assert_eq!(array.elements.len(), 1);
+        let ArrayElem::Sequential(first) = &array.elements[0] else {
+            panic!("expected sequential array element");
+        };
+        assert_eq!(first.span.slice(source), "$dir/${~pats}(N)");
+    }
+
+    #[test]
     fn test_zsh_trailing_glob_qualifier_parses_recursive_pattern_with_letter_sequence_and_range() {
         let source = "print **/*(.om[1,3])\n";
         let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -16134,6 +16247,75 @@ EOF
         ));
         assert_eq!(command.elif_branches.len(), 1);
         assert!(command.else_branch.is_some());
+    }
+
+    #[test]
+    fn test_zsh_if_condition_brace_group_keeps_closing_brace_out_of_arguments() {
+        let source =
+            "if (( fd != -1 && pid != -1 )) && { true <&$fd } 2>/dev/null; then\n  echo ok\nfi\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+
+        let (compound, redirects) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::If(command) = compound else {
+            panic!("expected if command");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.condition.len(), 1);
+
+        let condition = expect_binary(&command.condition[0]);
+        assert_eq!(condition.op, BinaryOp::And);
+
+        let (body_compound, body_redirects) = expect_compound(&condition.right);
+        let AstCompoundCommand::BraceGroup(body) = body_compound else {
+            panic!("expected brace group on right-hand side of &&");
+        };
+
+        assert_eq!(body.len(), 1);
+        let inner = expect_simple(&body[0]);
+        assert_eq!(inner.name.render(source), "true");
+        assert!(inner.args.is_empty());
+        assert_eq!(body[0].redirects.len(), 1);
+        assert_eq!(body[0].redirects[0].kind, RedirectKind::DupInput);
+        assert_eq!(
+            redirect_word_target(&body[0].redirects[0]).render(source),
+            "$fd"
+        );
+
+        assert_eq!(body_redirects.len(), 1);
+        assert_eq!(body_redirects[0].fd, Some(2));
+        assert_eq!(body_redirects[0].kind, RedirectKind::Output);
+        assert_eq!(
+            redirect_word_target(&body_redirects[0]).render(source),
+            "/dev/null"
+        );
+
+        assert_eq!(command.then_branch.len(), 1);
+        assert_eq!(
+            expect_simple(&command.then_branch[0]).name.render(source),
+            "echo"
+        );
+    }
+
+    #[test]
+    fn test_brace_group_command_can_use_right_brace_as_literal_argument() {
+        let source = "rbrace() { echo }; }; rbrace\n";
+        let output = Parser::new(source).parse().unwrap();
+
+        let function = expect_function(&output.file.body[0]);
+        let (compound, redirects) = expect_compound(function.body.as_ref());
+        let AstCompoundCommand::BraceGroup(body) = compound else {
+            panic!("expected brace-group function body");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(body.len(), 1);
+        let command = expect_simple(&body[0]);
+        assert_eq!(command.name.render(source), "echo");
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].render(source), "}");
     }
 
     #[test]
