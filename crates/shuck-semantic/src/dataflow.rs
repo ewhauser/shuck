@@ -4,9 +4,9 @@ use shuck_ast::Span;
 
 use crate::runtime::RuntimePrelude;
 use crate::{
-    Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ControlFlowGraph,
-    FunctionScopeKind, Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey,
-    SyntheticRead,
+    Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
+    ControlFlowGraph, FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, Reference,
+    ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +72,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) call_sites: &'a FxHashMap<Name, Vec<CallSite>>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
     pub(crate) synthetic_reads: &'a [SyntheticRead],
+    pub(crate) entry_bindings: &'a [BindingId],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,19 +104,17 @@ pub(crate) fn analyze_uninitialized_references(
             .unwrap_or(0),
         &names,
     );
-    let reaching_definitions =
-        compute_reaching_definitions_dense(context.cfg, context.bindings, &binding_data);
     analyze_uninitialized_references_dense(
         context.cfg,
         context.bindings,
         context.references,
+        context.entry_bindings,
         context.predefined_runtime_refs,
         context.guarded_parameter_refs,
         context.resolved,
         context.indirect_targets_by_reference,
         &names,
         &binding_data,
-        &reaching_definitions,
     )
 }
 
@@ -130,6 +129,7 @@ pub(crate) fn analyze(context: &DataflowContext<'_>) -> DataflowResult {
         context.cfg,
         context.bindings,
         &binding_name_data.bindings_by_name,
+        context.entry_bindings,
     );
     let names = build_name_table(
         context.bindings,
@@ -137,20 +137,18 @@ pub(crate) fn analyze(context: &DataflowContext<'_>) -> DataflowResult {
         context.synthetic_reads,
     );
     let dense_binding_data = build_dense_binding_data(context.bindings, context.scopes, &names);
-    let dense_reaching_definitions =
-        compute_reaching_definitions_dense(context.cfg, context.bindings, &dense_binding_data);
     let unused_assignments = analyze_unused_assignments_exact(context);
     let uninitialized_references = analyze_uninitialized_references_dense(
         context.cfg,
         context.bindings,
         context.references,
+        context.entry_bindings,
         context.predefined_runtime_refs,
         context.guarded_parameter_refs,
         context.resolved,
         context.indirect_targets_by_reference,
         &names,
         &dense_binding_data,
-        &dense_reaching_definitions,
     );
     let dead_code = build_dead_code(context.cfg);
 
@@ -168,43 +166,20 @@ fn analyze_uninitialized_references_dense(
     cfg: &ControlFlowGraph,
     bindings: &[Binding],
     references: &[Reference],
+    entry_bindings: &[BindingId],
     predefined_runtime_refs: &FxHashSet<ReferenceId>,
     guarded_parameter_refs: &FxHashSet<ReferenceId>,
     resolved: &FxHashMap<ReferenceId, BindingId>,
     indirect_targets_by_reference: &FxHashMap<ReferenceId, Vec<BindingId>>,
     names: &NameTable,
     binding_data: &DenseBindingData,
-    reaching_definitions: &DenseReachingDefinitions,
 ) -> Vec<UninitializedReference> {
     let reference_blocks = build_reference_block_index(cfg, references.len());
     let unreachable = build_unreachable_block_set(cfg);
-    let name_count = names.len();
-    let initializing_name_ids = build_initializing_name_ids(bindings, binding_data);
-    let maybe_defined = reaching_definitions
-        .reaching_in
-        .iter()
-        .map(|incoming| initialized_names_from_dense(incoming, &initializing_name_ids, name_count))
-        .collect::<Vec<_>>();
-    let maybe_defined_out = reaching_definitions
-        .reaching_out
-        .iter()
-        .map(|outgoing| initialized_names_from_dense(outgoing, &initializing_name_ids, name_count))
-        .collect::<Vec<_>>();
-    let definitely_defined = cfg
-        .blocks()
-        .iter()
-        .map(|block| {
-            let predecessors = cfg.predecessors(block.id);
-            if predecessors.is_empty() {
-                return DenseBitSet::new(name_count);
-            }
-            let mut intersection = maybe_defined_out[predecessors[0].index()].clone();
-            for predecessor in predecessors.iter().skip(1) {
-                intersection.intersect_with(&maybe_defined_out[predecessor.index()]);
-            }
-            intersection
-        })
-        .collect::<Vec<_>>();
+    let initialized_states =
+        compute_initialized_name_states_dense(cfg, bindings, binding_data, entry_bindings);
+    let maybe_defined = &initialized_states.maybe_in;
+    let definitely_defined = &initialized_states.definite_in;
 
     let mut uninitialized_references = Vec::new();
     for reference in references {
@@ -288,6 +263,7 @@ fn compute_reaching_definitions(
     cfg: &ControlFlowGraph,
     bindings: &[Binding],
     bindings_by_name: &FxHashMap<Name, Vec<BindingId>>,
+    entry_bindings: &[BindingId],
 ) -> ReachingDefinitions {
     let block_ids = cfg
         .blocks()
@@ -315,13 +291,16 @@ fn compute_reaching_definitions(
     while changed {
         changed = false;
         for block_id in &block_ids {
-            let incoming = cfg
+            let mut incoming = cfg
                 .predecessors(*block_id)
                 .iter()
                 .flat_map(|predecessor| {
                     reaching_out.get(predecessor).into_iter().flatten().copied()
                 })
                 .collect::<FxHashSet<_>>();
+            if *block_id == cfg.entry() {
+                incoming.extend(entry_bindings.iter().copied());
+            }
             let outgoing = gen_sets
                 .get(block_id)
                 .cloned()
@@ -371,8 +350,12 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
     let binding_blocks = build_binding_block_index(context.cfg, context.bindings.len());
     let reference_blocks = build_reference_block_index(context.cfg, context.references.len());
     let unreachable_blocks = build_unreachable_block_set(context.cfg);
-    let reaching_definitions =
-        compute_reaching_definitions_dense(context.cfg, context.bindings, &binding_data);
+    let reaching_definitions = compute_reaching_definitions_dense(
+        context.cfg,
+        context.bindings,
+        &binding_data,
+        context.entry_bindings,
+    );
     let scope_components = compute_scope_components_dense(
         context.cfg,
         context.scopes.len(),
@@ -846,6 +829,14 @@ struct DenseReachingDefinitions {
 }
 
 #[derive(Debug, Clone)]
+struct DenseInitializedNameStates {
+    maybe_in: Vec<DenseBitSet>,
+    maybe_out: Vec<DenseBitSet>,
+    definite_in: Vec<DenseBitSet>,
+    definite_out: Vec<DenseBitSet>,
+}
+
+#[derive(Debug, Clone)]
 struct ExactScopeComponent {
     blocks: DenseBitSet,
     exit_defs: DenseBitSet,
@@ -1036,6 +1027,7 @@ fn compute_reaching_definitions_dense(
     cfg: &ControlFlowGraph,
     bindings: &[Binding],
     binding_data: &DenseBindingData,
+    entry_bindings: &[BindingId],
 ) -> DenseReachingDefinitions {
     let block_count = cfg.blocks().len();
     let binding_count = bindings.len();
@@ -1106,6 +1098,11 @@ fn compute_reaching_definitions_dense(
             for predecessor in cfg.predecessors(block.id) {
                 incoming.union_with(&reaching_out[predecessor.index()]);
             }
+            if block.id == cfg.entry() {
+                for binding in entry_bindings {
+                    incoming.insert(binding.index());
+                }
+            }
 
             let mut carried = incoming.clone();
             carried.subtract_with(&kill_sets[block_index]);
@@ -1129,6 +1126,114 @@ fn compute_reaching_definitions_dense(
     }
 }
 
+fn compute_initialized_name_states_dense(
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    binding_data: &DenseBindingData,
+    entry_bindings: &[BindingId],
+) -> DenseInitializedNameStates {
+    let block_count = cfg.blocks().len();
+    let name_count = binding_data.bindings_for_name.len();
+    let mut maybe_gen = vec![DenseBitSet::new(name_count); block_count];
+    let mut definite_gen = vec![DenseBitSet::new(name_count); block_count];
+    let mut overwritten_names = vec![DenseBitSet::new(name_count); block_count];
+
+    for block in cfg.blocks() {
+        let block_index = block.id.index();
+        for binding in &block.bindings {
+            let name_id = binding_data.binding_name_ids[binding.index()];
+            overwritten_names[block_index].insert(name_id.index());
+            match binding_initializes_name(&bindings[binding.index()]) {
+                Some(ContractCertainty::Definite) => {
+                    maybe_gen[block_index].insert(name_id.index());
+                    definite_gen[block_index].insert(name_id.index());
+                }
+                Some(ContractCertainty::Possible) => {
+                    maybe_gen[block_index].insert(name_id.index());
+                }
+                None => {}
+            }
+        }
+    }
+
+    let mut entry_maybe = DenseBitSet::new(name_count);
+    let mut entry_definite = DenseBitSet::new(name_count);
+    for binding in entry_bindings {
+        let name_id = binding_data.binding_name_ids[binding.index()];
+        match binding_initializes_name(&bindings[binding.index()]) {
+            Some(ContractCertainty::Definite) => {
+                entry_maybe.insert(name_id.index());
+                entry_definite.insert(name_id.index());
+            }
+            Some(ContractCertainty::Possible) => {
+                entry_maybe.insert(name_id.index());
+            }
+            None => {}
+        }
+    }
+
+    let mut maybe_in = vec![DenseBitSet::new(name_count); block_count];
+    let mut maybe_out = vec![DenseBitSet::new(name_count); block_count];
+    let mut definite_in = vec![DenseBitSet::new(name_count); block_count];
+    let mut definite_out = vec![DenseBitSet::new(name_count); block_count];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in cfg.blocks() {
+            let block_index = block.id.index();
+
+            let mut incoming_maybe = DenseBitSet::new(name_count);
+            for predecessor in cfg.predecessors(block.id) {
+                incoming_maybe.union_with(&maybe_out[predecessor.index()]);
+            }
+            if block.id == cfg.entry() {
+                incoming_maybe.union_with(&entry_maybe);
+            }
+
+            let mut incoming_definite = if cfg.predecessors(block.id).is_empty() {
+                entry_definite.clone()
+            } else {
+                definite_out[cfg.predecessors(block.id)[0].index()].clone()
+            };
+            for predecessor in cfg.predecessors(block.id).iter().skip(1) {
+                incoming_definite.intersect_with(&definite_out[predecessor.index()]);
+            }
+
+            let mut outgoing_maybe = incoming_maybe.clone();
+            outgoing_maybe.subtract_with(&overwritten_names[block_index]);
+            outgoing_maybe.union_with(&maybe_gen[block_index]);
+
+            let mut outgoing_definite = incoming_definite.clone();
+            outgoing_definite.subtract_with(&overwritten_names[block_index]);
+            outgoing_definite.union_with(&definite_gen[block_index]);
+
+            if maybe_in[block_index] != incoming_maybe {
+                maybe_in[block_index] = incoming_maybe;
+                changed = true;
+            }
+            if maybe_out[block_index] != outgoing_maybe {
+                maybe_out[block_index] = outgoing_maybe;
+                changed = true;
+            }
+            if definite_in[block_index] != incoming_definite {
+                definite_in[block_index] = incoming_definite;
+                changed = true;
+            }
+            if definite_out[block_index] != outgoing_definite {
+                definite_out[block_index] = outgoing_definite;
+                changed = true;
+            }
+        }
+    }
+
+    DenseInitializedNameStates {
+        maybe_in,
+        maybe_out,
+        definite_in,
+        definite_out,
+    }
+}
+
 fn compute_scope_components_dense(
     cfg: &ControlFlowGraph,
     scope_count: usize,
@@ -1143,14 +1248,16 @@ fn compute_scope_components_dense(
     for (scope, entry) in &cfg.scope_entries {
         let blocks = reachable_blocks_dense(cfg, *entry, block_count);
         let mut exit_defs = DenseBitSet::new(binding_count);
-        for block_index in blocks.iter_ones() {
-            let block_id = BlockId(block_index as u32);
-            if cfg
-                .successors(block_id)
-                .iter()
-                .all(|(successor, _)| !blocks.contains(successor.index()))
-            {
-                exit_defs.union_with(&reaching_out[block_index]);
+        if let Some(scope_exits) = cfg.scope_exits(*scope) {
+            for exit in scope_exits {
+                exit_defs.union_with(&reaching_out[exit.index()]);
+            }
+        } else {
+            for block_index in blocks.iter_ones() {
+                let block_id = BlockId(block_index as u32);
+                if block_exits_component(cfg, &blocks, block_id) {
+                    exit_defs.union_with(&reaching_out[block_index]);
+                }
             }
         }
         components[scope.index()] = ExactScopeComponent { blocks, exit_defs };
@@ -1159,32 +1266,113 @@ fn compute_scope_components_dense(
     components
 }
 
-fn build_initializing_name_ids(
-    bindings: &[Binding],
-    binding_data: &DenseBindingData,
-) -> Vec<Option<NameId>> {
-    bindings
-        .iter()
-        .enumerate()
-        .map(|(binding_index, binding)| {
-            binding_initializes_name(binding)
-                .then_some(binding_data.binding_name_ids[binding_index])
-        })
-        .collect()
+fn block_exits_component(
+    cfg: &ControlFlowGraph,
+    component_blocks: &DenseBitSet,
+    block_id: BlockId,
+) -> bool {
+    let successors = cfg.successors(block_id);
+    successors.is_empty()
+        || successors
+            .iter()
+            .any(|(successor, _)| !component_blocks.contains(successor.index()))
 }
 
-fn initialized_names_from_dense(
-    reaching_definitions: &DenseBitSet,
-    initializing_name_ids: &[Option<NameId>],
-    name_count: usize,
-) -> DenseBitSet {
-    let mut initialized_names = DenseBitSet::new(name_count);
-    for binding_index in reaching_definitions.iter_ones() {
-        if let Some(name_id) = initializing_name_ids[binding_index] {
-            initialized_names.insert(name_id.index());
+pub(crate) fn summarize_scope_provided_bindings(
+    cfg: &ControlFlowGraph,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    entry_bindings: &[BindingId],
+    scope: ScopeId,
+) -> Vec<ProvidedBinding> {
+    let mut names = NameTable::default();
+    for binding in bindings {
+        names.intern(&binding.name);
+    }
+    let binding_data = build_dense_binding_data(bindings, scopes, &names);
+    let reaching_definitions =
+        compute_reaching_definitions_dense(cfg, bindings, &binding_data, entry_bindings);
+    let initialized_states =
+        compute_initialized_name_states_dense(cfg, bindings, &binding_data, entry_bindings);
+    let scope_components = compute_scope_components_dense(
+        cfg,
+        scopes.len(),
+        cfg.blocks().len(),
+        bindings.len(),
+        &reaching_definitions.reaching_out,
+    );
+    let component = &scope_components[scope.index()];
+    let exit_blocks = if let Some(scope_exits) = cfg.scope_exits(scope) {
+        scope_exits.to_vec()
+    } else {
+        component
+            .blocks
+            .iter_ones()
+            .filter_map(|block_index| {
+                let block_id = BlockId(block_index as u32);
+                block_exits_component(cfg, &component.blocks, block_id).then_some(block_id)
+            })
+            .collect::<Vec<_>>()
+    };
+    if exit_blocks.is_empty() {
+        return Vec::new();
+    }
+
+    let eligible_names = bindings
+        .iter()
+        .filter(|binding| {
+            binding.scope == scope
+                && !binding.attributes.contains(BindingAttributes::LOCAL)
+                && binding_initializes_name(binding).is_some()
+        })
+        .map(|binding| binding.name.clone())
+        .collect::<FxHashSet<_>>();
+
+    let mut maybe_counts = FxHashMap::<Name, usize>::default();
+    let mut definite_counts = FxHashMap::<Name, usize>::default();
+
+    for exit_block in &exit_blocks {
+        let maybe_names = &initialized_states.maybe_out[exit_block.index()];
+        let definite_names = &initialized_states.definite_out[exit_block.index()];
+
+        for name in &eligible_names {
+            let Some(name_id) = names.get(name) else {
+                continue;
+            };
+            if maybe_names.contains(name_id.index()) {
+                *maybe_counts.entry(name.clone()).or_default() += 1;
+            }
+            if definite_names.contains(name_id.index()) {
+                *definite_counts.entry(name.clone()).or_default() += 1;
+            }
         }
     }
-    initialized_names
+
+    let exit_count = exit_blocks.len();
+    let mut provided = Vec::new();
+    for (name, maybe_count) in maybe_counts {
+        let definite_count = definite_counts.get(&name).copied().unwrap_or_default();
+        let certainty = if definite_count == exit_count {
+            ContractCertainty::Definite
+        } else if maybe_count > 0 {
+            ContractCertainty::Possible
+        } else {
+            continue;
+        };
+        provided.push(ProvidedBinding::new(
+            name,
+            ProvidedBindingKind::Variable,
+            certainty,
+        ));
+    }
+
+    provided.sort_by(|left, right| {
+        left.name
+            .as_str()
+            .cmp(right.name.as_str())
+            .then_with(|| (left.kind as u8).cmp(&(right.kind as u8)))
+    });
+    provided
 }
 
 fn reachable_blocks_dense(
@@ -1481,12 +1669,28 @@ fn kill_set(
     killed
 }
 
-fn binding_initializes_name(binding: &Binding) -> bool {
+fn binding_initializes_name(binding: &Binding) -> Option<ContractCertainty> {
     match binding.kind {
         BindingKind::Declaration(_) | BindingKind::Nameref => binding
             .attributes
-            .contains(BindingAttributes::DECLARATION_INITIALIZED),
-        BindingKind::FunctionDefinition | BindingKind::Imported => false,
+            .contains(BindingAttributes::DECLARATION_INITIALIZED)
+            .then_some(ContractCertainty::Definite),
+        BindingKind::FunctionDefinition => None,
+        BindingKind::Imported => {
+            if binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_FUNCTION)
+            {
+                None
+            } else if binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_POSSIBLE)
+            {
+                Some(ContractCertainty::Possible)
+            } else {
+                Some(ContractCertainty::Definite)
+            }
+        }
         BindingKind::Assignment
         | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
@@ -1496,7 +1700,7 @@ fn binding_initializes_name(binding: &Binding) -> bool {
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
-        | BindingKind::ArithmeticAssignment => true,
+        | BindingKind::ArithmeticAssignment => Some(ContractCertainty::Definite),
     }
 }
 

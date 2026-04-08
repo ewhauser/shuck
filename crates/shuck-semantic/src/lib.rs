@@ -2,6 +2,7 @@ mod binding;
 mod builder;
 mod call_graph;
 mod cfg;
+mod contract;
 mod dataflow;
 mod declaration;
 mod reference;
@@ -13,6 +14,9 @@ mod source_ref;
 pub use binding::{Binding, BindingAttributes, BindingId, BindingKind};
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext};
+pub use contract::{
+    ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind, SemanticBuildOptions,
+};
 pub use dataflow::{
     DeadCode, ReachingDefinitions, UninitializedCertainty, UninitializedReference,
     UnusedAssignment, UnusedReason,
@@ -103,6 +107,95 @@ where
     }
 }
 
+fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
+    let mut seen = FxHashSet::default();
+    let mut deduped = Vec::new();
+    for read in reads {
+        if seen.insert((read.scope, read.span.start.offset, read.name.clone())) {
+            deduped.push(read);
+        }
+    }
+    deduped
+}
+
+fn build_call_graph(
+    scopes: &[Scope],
+    all_bindings: &[Binding],
+    functions: &FxHashMap<Name, Vec<BindingId>>,
+    call_sites: &FxHashMap<Name, Vec<CallSite>>,
+) -> CallGraph {
+    let mut reachable = FxHashSet::default();
+    let mut worklist = call_sites
+        .values()
+        .flat_map(|sites| sites.iter())
+        .filter(|site| !is_in_function_scope(scopes, site.scope))
+        .map(|site| site.callee.clone())
+        .collect::<Vec<_>>();
+
+    while let Some(name) = worklist.pop() {
+        if reachable.contains(name.as_str()) {
+            continue;
+        }
+        for sites in call_sites.values() {
+            for site in sites {
+                if is_in_named_function_scope(scopes, site.scope, &name) {
+                    worklist.push(site.callee.clone());
+                }
+            }
+        }
+        reachable.insert(name);
+    }
+
+    let uncalled = functions
+        .iter()
+        .filter(|(name, _)| !reachable.contains(*name))
+        .flat_map(|(_, bindings)| bindings.iter().copied())
+        .collect();
+
+    let overwritten = functions
+        .iter()
+        .flat_map(|(name, function_bindings)| {
+            function_bindings
+                .windows(2)
+                .map(move |pair| OverwrittenFunction {
+                    name: name.clone(),
+                    first: pair[0],
+                    second: pair[1],
+                    first_called: call_sites
+                        .get(name)
+                        .into_iter()
+                        .flat_map(|sites| sites.iter())
+                        .any(|site| {
+                            let first = all_bindings[pair[0].index()].span.start.offset;
+                            let second = all_bindings[pair[1].index()].span.start.offset;
+                            site.span.start.offset > first && site.span.start.offset < second
+                        }),
+                })
+        })
+        .collect();
+
+    CallGraph {
+        reachable,
+        uncalled,
+        overwritten,
+    }
+}
+
+fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
+    ancestor_scopes(scopes, scope)
+        .any(|scope| matches!(scopes[scope.index()].kind, ScopeKind::Function(_)))
+}
+
+fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> bool {
+    ancestor_scopes(scopes, scope)
+        .any(|scope| {
+            matches!(
+                &scopes[scope.index()].kind,
+                ScopeKind::Function(function) if function.contains_name(name)
+            )
+        })
+}
+
 #[derive(Debug)]
 pub struct SemanticModel {
     scopes: Vec<Scope>,
@@ -122,6 +215,7 @@ pub struct SemanticModel {
     indirect_targets_by_binding: FxHashMap<BindingId, Vec<BindingId>>,
     indirect_targets_by_reference: FxHashMap<ReferenceId, Vec<BindingId>>,
     synthetic_reads: Vec<SyntheticRead>,
+    entry_bindings: Vec<BindingId>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
@@ -141,8 +235,17 @@ pub struct SemanticModel {
 
 impl SemanticModel {
     pub fn build(file: &File, source: &str, indexer: &Indexer) -> Self {
+        Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
+    }
+
+    pub fn build_with_options(
+        file: &File,
+        source: &str,
+        indexer: &Indexer,
+        options: SemanticBuildOptions<'_>,
+    ) -> Self {
         let mut observer = NoopTraversalObserver;
-        build_with_observer(file, source, indexer, &mut observer)
+        build_with_observer_with_options(file, source, indexer, &mut observer, options)
     }
 
     fn from_build_output(built: builder::BuildOutput) -> Self {
@@ -172,6 +275,7 @@ impl SemanticModel {
             indirect_targets_by_binding,
             indirect_targets_by_reference,
             synthetic_reads: Vec::new(),
+            entry_bindings: Vec::new(),
             flow_contexts: built.flow_contexts,
             recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
@@ -298,7 +402,10 @@ impl SemanticModel {
             return false;
         }
 
-        if !self.synthetic_reads.is_empty() || !self.indirect_targets_by_reference.is_empty() {
+        if !self.synthetic_reads.is_empty()
+            || !self.entry_bindings.is_empty()
+            || !self.indirect_targets_by_reference.is_empty()
+        {
             return true;
         }
 
@@ -350,6 +457,145 @@ impl SemanticModel {
                         .then_some(context)
                 })
             })
+    }
+
+    fn add_imported_binding(
+        &mut self,
+        provided: &ProvidedBinding,
+        scope: ScopeId,
+        span: Span,
+        command_span: Option<Span>,
+    ) -> BindingId {
+        let mut attributes = BindingAttributes::empty();
+        if provided.certainty == ContractCertainty::Possible {
+            attributes |= BindingAttributes::IMPORTED_POSSIBLE;
+        }
+        if provided.kind == ProvidedBindingKind::Function {
+            attributes |= BindingAttributes::IMPORTED_FUNCTION;
+        }
+
+        let id = BindingId(self.bindings.len() as u32);
+        self.bindings.push(Binding {
+            id,
+            name: provided.name.clone(),
+            kind: BindingKind::Imported,
+            scope,
+            span,
+            references: Vec::new(),
+            attributes,
+        });
+        self.binding_index
+            .entry(provided.name.clone())
+            .or_default()
+            .push(id);
+        self.scopes[scope.index()]
+            .bindings
+            .entry(provided.name.clone())
+            .or_default()
+            .push(id);
+        if provided.kind == ProvidedBindingKind::Function {
+            self.functions
+                .entry(provided.name.clone())
+                .or_default()
+                .push(id);
+        }
+        if let Some(command_span) = command_span {
+            self.command_bindings
+                .entry(SpanKey::new(command_span))
+                .or_default()
+                .push(id);
+        }
+        id
+    }
+
+    pub(crate) fn apply_file_entry_contract(&mut self, contract: FileContract, file: &File) {
+        if contract.required_reads.is_empty() && contract.provided_bindings.is_empty() {
+            return;
+        }
+
+        let mut synthetic_reads = self.synthetic_reads.clone();
+        for name in contract.required_reads {
+            synthetic_reads.push(SyntheticRead {
+                scope: ScopeId(0),
+                span: file.span,
+                name,
+            });
+        }
+
+        let entry_span = Span::from_positions(file.span.start, file.span.start);
+        let mut entry_bindings = self.entry_bindings.clone();
+        for binding in &contract.provided_bindings {
+            let id = self.add_imported_binding(binding, ScopeId(0), entry_span, None);
+            entry_bindings.push(id);
+        }
+
+        self.set_synthetic_reads(dedup_synthetic_reads(synthetic_reads));
+        self.set_entry_bindings(entry_bindings);
+        self.resolve_unresolved_references();
+        self.call_graph = build_call_graph(
+            &self.scopes,
+            &self.bindings,
+            &self.functions,
+            &self.call_sites,
+        );
+    }
+
+    pub(crate) fn apply_source_contracts(
+        &mut self,
+        synthetic_reads: Vec<SyntheticRead>,
+        imported_bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
+    ) {
+        if synthetic_reads.is_empty() && imported_bindings.is_empty() {
+            return;
+        }
+
+        let mut merged_reads = self.synthetic_reads.clone();
+        merged_reads.extend(synthetic_reads);
+        self.set_synthetic_reads(dedup_synthetic_reads(merged_reads));
+
+        for (scope, span, binding) in imported_bindings {
+            self.add_imported_binding(&binding, scope, span, Some(span));
+        }
+        self.invalidate_analyses();
+        self.resolve_unresolved_references();
+        self.call_graph = build_call_graph(
+            &self.scopes,
+            &self.bindings,
+            &self.functions,
+            &self.call_sites,
+        );
+    }
+
+    fn resolve_unresolved_references(&mut self) {
+        let unresolved = std::mem::take(&mut self.unresolved);
+        for reference_id in unresolved {
+            let reference = &self.references[reference_id.index()];
+            let resolved =
+                self.resolve_binding_at(&reference.name, reference.scope, reference.span);
+            if let Some(binding_id) = resolved {
+                self.resolved.insert(reference_id, binding_id);
+                self.bindings[binding_id.index()]
+                    .references
+                    .push(reference_id);
+            } else {
+                self.unresolved.push(reference_id);
+            }
+        }
+    }
+
+    fn resolve_binding_at(&self, name: &Name, scope: ScopeId, span: Span) -> Option<BindingId> {
+        for scope in self.ancestor_scopes(scope) {
+            let Some(bindings) = self.scopes[scope.index()].bindings.get(name) else {
+                continue;
+            };
+
+            for binding in bindings.iter().rev().copied() {
+                if self.bindings[binding.index()].span.start.offset <= span.start.offset {
+                    return Some(binding);
+                }
+            }
+        }
+        None
     }
 
     pub fn function_definitions(&self, name: &Name) -> &[BindingId] {
@@ -464,6 +710,20 @@ impl SemanticModel {
         self.runtime.bash_enabled()
     }
 
+    pub(crate) fn summarize_scope_provided_bindings(
+        &mut self,
+        scope: ScopeId,
+    ) -> Vec<ProvidedBinding> {
+        let cfg = self.cfg().clone();
+        dataflow::summarize_scope_provided_bindings(
+            &cfg,
+            &self.scopes,
+            &self.bindings,
+            &self.entry_bindings,
+            scope,
+        )
+    }
+
     pub fn cfg(&mut self) -> &ControlFlowGraph {
         if self.cfg.is_none() {
             self.cfg = Some(build_control_flow_graph(
@@ -549,7 +809,17 @@ impl SemanticModel {
 
     pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {
         self.synthetic_reads = synthetic_reads;
+        self.invalidate_analyses();
+    }
+
+    fn set_entry_bindings(&mut self, entry_bindings: Vec<BindingId>) {
+        self.entry_bindings = entry_bindings;
+        self.invalidate_analyses();
+    }
+
+    fn invalidate_analyses(&mut self) {
         self.dataflow = None;
+        self.cfg = None;
         self.precise_unused_assignments = None;
         self.precise_uninitialized_references = None;
         self.precise_dead_code = None;
@@ -568,6 +838,7 @@ impl SemanticModel {
             call_sites: &self.call_sites,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
             synthetic_reads: &self.synthetic_reads,
+            entry_bindings: &self.entry_bindings,
         }
     }
 
@@ -594,7 +865,24 @@ pub fn build_with_observer(
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
 ) -> SemanticModel {
-    build_semantic_model(file, source, indexer, observer, None, false, None)
+    build_with_observer_with_options(
+        file,
+        source,
+        indexer,
+        observer,
+        SemanticBuildOptions::default(),
+    )
+}
+
+#[doc(hidden)]
+pub fn build_with_observer_with_options(
+    file: &File,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    options: SemanticBuildOptions<'_>,
+) -> SemanticModel {
+    build_semantic_model(file, source, indexer, observer, options)
 }
 
 #[doc(hidden)]
@@ -622,9 +910,11 @@ pub fn build_with_observer_at_path_with_resolver(
         source,
         indexer,
         observer,
-        source_path,
-        true,
-        source_path_resolver,
+        SemanticBuildOptions {
+            source_path,
+            source_path_resolver,
+            file_entry_contract: None,
+        },
     )
 }
 
@@ -633,9 +923,31 @@ fn build_semantic_model(
     source: &str,
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
+    options: SemanticBuildOptions<'_>,
+) -> SemanticModel {
+    let mut model = build_semantic_model_base(file, source, indexer, observer, options.source_path);
+    if let Some(contract) = options.file_entry_contract {
+        model.apply_file_entry_contract(contract, file);
+    }
+    if let Some(source_path) = options.source_path {
+        let (synthetic_reads, imported_bindings) = source_closure::collect_source_closure_contracts(
+            &model,
+            file,
+            source,
+            source_path,
+            options.source_path_resolver,
+        );
+        model.apply_source_contracts(synthetic_reads, imported_bindings);
+    }
+    model
+}
+
+pub(crate) fn build_semantic_model_base(
+    file: &File,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
     source_path: Option<&Path>,
-    include_source_closure: bool,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> SemanticModel {
     let built = SemanticModelBuilder::build(
         file,
@@ -644,18 +956,7 @@ fn build_semantic_model(
         observer,
         bash_runtime_vars_enabled(source, source_path),
     );
-    let mut model = SemanticModel::from_build_output(built);
-    if include_source_closure && let Some(source_path) = source_path {
-        let synthetic_reads = source_closure::collect_source_closure_reads(
-            &model,
-            file,
-            source,
-            source_path,
-            source_path_resolver,
-        );
-        model.set_synthetic_reads(synthetic_reads);
-    }
-    model
+    SemanticModel::from_build_output(built)
 }
 
 fn bash_runtime_vars_enabled(source: &str, path: Option<&Path>) -> bool {
@@ -686,6 +987,10 @@ fn contains_offset(span: Span, offset: usize) -> bool {
 
 fn contains_span(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+}
+
+fn ancestor_scopes(scopes: &[Scope], scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
+    std::iter::successors(Some(scope), move |scope| scopes[scope.index()].parent)
 }
 
 fn build_indirect_targets_by_binding(
@@ -925,6 +1230,19 @@ mod tests {
         references
             .iter()
             .map(|reference| model.reference(*reference).name.to_string())
+            .collect()
+    }
+
+    fn uninitialized_details(model: &mut SemanticModel) -> Vec<(String, UninitializedCertainty)> {
+        let references = model.precompute_uninitialized_references().to_vec();
+        references
+            .iter()
+            .map(|reference| {
+                (
+                    model.reference(reference.reference).name.to_string(),
+                    reference.certainty,
+                )
+            })
             .collect()
     }
 
@@ -2841,6 +3159,197 @@ flag=1
             !unused_with_resolver.contains(&Name::from("flag")),
             "unused with resolver: {:?}",
             unused_with_resolver
+        );
+    }
+
+    #[test]
+    fn sourced_helper_exports_definite_imported_binding() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./helper.sh
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "flag=1\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        let imported = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "flag" && binding.kind == BindingKind::Imported)
+            .unwrap();
+        assert!(
+            !imported
+                .attributes
+                .contains(BindingAttributes::IMPORTED_POSSIBLE)
+        );
+        assert!(model.precompute_uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn sourced_helper_exports_possible_imported_binding() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./helper.sh
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+if cond; then
+  flag=1
+fi
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        let imported_is_possible = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "flag" && binding.kind == BindingKind::Imported)
+            .map(|binding| {
+                binding
+                    .attributes
+                    .contains(BindingAttributes::IMPORTED_POSSIBLE)
+            })
+            .unwrap();
+        let details = uninitialized_details(&mut model);
+        assert!(imported_is_possible, "uninitialized: {:?}", details);
+        assert_eq!(
+            details,
+            vec![("flag".to_owned(), UninitializedCertainty::Possible)]
+        );
+    }
+
+    #[test]
+    fn executed_helper_does_not_import_bindings_back_to_the_caller() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+./helper.sh
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "flag=1\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model
+                .bindings()
+                .iter()
+                .all(|binding| !(binding.name == "flag" && binding.kind == BindingKind::Imported))
+        );
+        assert_eq!(
+            uninitialized_details(&mut model),
+            vec![("flag".to_owned(), UninitializedCertainty::Definite)]
+        );
+    }
+
+    #[test]
+    fn imported_bindings_do_not_resolve_reads_before_the_import_site() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+printf '%s\\n' \"$flag\"
+. ./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "flag=1\n").unwrap();
+
+        let mut model = model_at_path(&main);
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "flag")
+            .unwrap();
+
+        assert!(model.resolved_binding(reference.id).is_none());
+        assert_eq!(
+            uninitialized_details(&mut model),
+            vec![("flag".to_owned(), UninitializedCertainty::Definite)]
+        );
+    }
+
+    #[test]
+    fn file_entry_contracts_seed_first_command_reads() {
+        let source = "printf '%s\\n' \"$pkgname\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let mut model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: vec![ProvidedBinding::new(
+                        Name::from("pkgname"),
+                        ProvidedBindingKind::Variable,
+                        ContractCertainty::Definite,
+                    )],
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+
+        assert!(model.precompute_uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn cyclic_source_closure_does_not_invent_bindings() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let a = temp.path().join("a.sh");
+        let b = temp.path().join("b.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./a.sh
+printf '%s\\n' \"$flag\"
+",
+        )
+        .unwrap();
+        fs::write(&a, ". ./b.sh\n").unwrap();
+        fs::write(&b, ". ./a.sh\n").unwrap();
+
+        let mut model = model_at_path(&main);
+
+        assert!(
+            model
+                .bindings()
+                .iter()
+                .all(|binding| !(binding.name == "flag" && binding.kind == BindingKind::Imported))
+        );
+        assert_eq!(
+            uninitialized_details(&mut model),
+            vec![("flag".to_owned(), UninitializedCertainty::Definite)]
         );
     }
 

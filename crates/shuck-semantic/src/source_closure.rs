@@ -13,20 +13,21 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 
 use crate::{
-    Binding, BindingId, FunctionScopeKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
-    SourceRefKind, SpanKey, SyntheticRead,
+    Binding, BindingId, FileContract, FunctionScopeKind, ProvidedBinding, ScopeId, ScopeKind,
+    SemanticModel, SourcePathResolver, SourceRefKind, SpanKey, SyntheticRead,
+    build_semantic_model_base,
 };
 
-pub(crate) fn collect_source_closure_reads(
+pub(crate) fn collect_source_closure_contracts(
     model: &SemanticModel,
     file: &File,
     source: &str,
     source_path: &Path,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> Vec<SyntheticRead> {
+) -> (Vec<SyntheticRead>, Vec<(ScopeId, Span, ProvidedBinding)>) {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
-    collect_source_closure_reads_with_cache(
+    collect_source_closure_contracts_with_cache(
         model,
         file,
         source,
@@ -37,19 +38,19 @@ pub(crate) fn collect_source_closure_reads(
     )
 }
 
-fn collect_source_closure_reads_with_cache(
+fn collect_source_closure_contracts_with_cache(
     model: &SemanticModel,
     file: &File,
     source: &str,
     source_path: &Path,
-    summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
+    summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> Vec<SyntheticRead> {
+) -> (Vec<SyntheticRead>, Vec<(ScopeId, Span, ProvidedBinding)>) {
     let facts = collect_ast_facts(file, model, source);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
-    let mut seen = FxHashSet::default();
     let mut synthetic_reads = Vec::new();
+    let mut imported_bindings = Vec::new();
 
     for source_ref in model.source_refs() {
         let scope = model.scope_at(source_ref.span.start.offset);
@@ -60,61 +61,98 @@ fn collect_source_closure_reads_with_cache(
             source_path,
         );
 
-        extend_synthetic_reads_for_candidates(
-            &mut synthetic_reads,
-            &mut seen,
-            scope,
-            source_ref.span,
+        let contract = merge_contracts_for_candidates(
             source_path,
             candidates,
             summaries,
             active,
             source_path_resolver,
         );
+        for provided in contract.provided_bindings {
+            imported_bindings.push((scope, source_ref.span, provided));
+        }
+        for name in contract.required_reads {
+            synthetic_reads.push(SyntheticRead {
+                scope,
+                span: source_ref.span,
+                name,
+            });
+        }
     }
 
     for call in &facts.calls {
         let Some(candidate) = local_helper_command_candidate(&call.name) else {
             continue;
         };
-        extend_synthetic_reads_for_candidates(
-            &mut synthetic_reads,
-            &mut seen,
-            call.scope,
-            call.span,
+        let contract = merge_contracts_for_candidates(
             source_path,
             [candidate],
             summaries,
             active,
             source_path_resolver,
         );
-    }
-
-    synthetic_reads
-}
-
-#[allow(clippy::too_many_arguments)]
-fn extend_synthetic_reads_for_candidates(
-    synthetic_reads: &mut Vec<SyntheticRead>,
-    seen: &mut FxHashSet<(ScopeId, usize, Name)>,
-    scope: ScopeId,
-    span: Span,
-    source_path: &Path,
-    candidates: impl IntoIterator<Item = String>,
-    summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
-    active: &mut FxHashSet<PathBuf>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) {
-    for candidate in candidates {
-        for resolved_path in resolve_helper_paths(source_path, &candidate, source_path_resolver) {
-            let reads = summarize_helper(&resolved_path, summaries, active, source_path_resolver);
-            for name in reads {
-                if seen.insert((scope, span.start.offset, name.clone())) {
-                    synthetic_reads.push(SyntheticRead { scope, span, name });
-                }
-            }
+        for name in contract.required_reads {
+            synthetic_reads.push(SyntheticRead {
+                scope: call.scope,
+                span: call.span,
+                name,
+            });
         }
     }
+
+    (
+        dedup_synthetic_reads(synthetic_reads),
+        dedup_imported_bindings(imported_bindings),
+    )
+}
+
+fn merge_contracts_for_candidates(
+    source_path: &Path,
+    candidates: impl IntoIterator<Item = String>,
+    summaries: &mut FxHashMap<PathBuf, FileContract>,
+    active: &mut FxHashSet<PathBuf>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> FileContract {
+    let mut contracts = Vec::new();
+    for candidate in candidates {
+        for resolved_path in resolve_helper_paths(source_path, &candidate, source_path_resolver) {
+            contracts.push(summarize_helper(
+                &resolved_path,
+                summaries,
+                active,
+                source_path_resolver,
+            ));
+        }
+    }
+    FileContract::merge_candidate_contracts(&contracts)
+}
+
+fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
+    let mut seen = FxHashSet::default();
+    let mut deduped = Vec::new();
+    for read in reads {
+        if seen.insert((read.scope, read.span.start.offset, read.name.clone())) {
+            deduped.push(read);
+        }
+    }
+    deduped
+}
+
+fn dedup_imported_bindings(
+    bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
+) -> Vec<(ScopeId, Span, ProvidedBinding)> {
+    let mut merged = FxHashMap::default();
+    for (scope, span, binding) in bindings {
+        let key = (scope, span.start.offset, binding.name.clone(), binding.kind);
+        let entry = merged.entry(key).or_insert((span, binding.certainty));
+        entry.1 = entry.1.merge_same_site(binding.certainty);
+    }
+
+    let mut deduped = Vec::new();
+    for ((scope, _, name, kind), (span, certainty)) in merged {
+        deduped.push((scope, span, ProvidedBinding::new(name, kind, certainty)));
+    }
+    deduped
 }
 
 #[derive(Debug, Clone)]
@@ -1252,16 +1290,16 @@ fn resolve_helper_paths(
 
 fn summarize_helper(
     path: &Path,
-    summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
+    summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> FxHashSet<Name> {
+) -> FileContract {
     let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if let Some(summary) = summaries.get(&key) {
         return summary.clone();
     }
     if !active.insert(key.clone()) {
-        return FxHashSet::default();
+        return FileContract::default();
     }
 
     let summary = summarize_helper_uncached(&key, summaries, active, source_path_resolver);
@@ -1272,47 +1310,46 @@ fn summarize_helper(
 
 fn summarize_helper_uncached(
     path: &Path,
-    summaries: &mut FxHashMap<PathBuf, FxHashSet<Name>>,
+    summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> FxHashSet<Name> {
+) -> FileContract {
     let Ok(source) = fs::read_to_string(path) else {
-        return FxHashSet::default();
+        return FileContract::default();
     };
     let Ok(output) = Parser::new(&source).parse() else {
-        return FxHashSet::default();
+        return FileContract::default();
     };
     let indexer = Indexer::new(&source, &output);
     let mut observer = crate::NoopTraversalObserver;
-    let semantic = crate::build_semantic_model(
+    let mut semantic =
+        build_semantic_model_base(&output.file, &source, &indexer, &mut observer, Some(path));
+    let (synthetic_reads, imported_bindings) = collect_source_closure_contracts_with_cache(
+        &semantic,
         &output.file,
         &source,
-        &indexer,
-        &mut observer,
-        Some(path),
-        false,
+        path,
+        summaries,
+        active,
         source_path_resolver,
     );
-
-    let mut reads = semantic
-        .unresolved_references()
+    let transitive_read_names = synthetic_reads
         .iter()
-        .map(|reference| semantic.reference(*reference).name.clone())
-        .collect::<FxHashSet<_>>();
-    reads.extend(
-        collect_source_closure_reads_with_cache(
-            &semantic,
-            &output.file,
-            &source,
-            path,
-            summaries,
-            active,
-            source_path_resolver,
-        )
-        .into_iter()
-        .map(|read| read.name),
-    );
-    reads
+        .map(|read| read.name.clone())
+        .collect::<Vec<_>>();
+    semantic.apply_source_contracts(synthetic_reads, imported_bindings);
+
+    let mut contract = FileContract::default();
+    for reference in semantic.unresolved_references() {
+        contract.add_required_read(semantic.reference(*reference).name.clone());
+    }
+    for name in transitive_read_names {
+        contract.add_required_read(name);
+    }
+    for binding in semantic.summarize_scope_provided_bindings(ScopeId(0)) {
+        contract.add_provided_binding(binding);
+    }
+    contract
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {

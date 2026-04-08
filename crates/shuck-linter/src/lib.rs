@@ -1,3 +1,4 @@
+mod ambient_contracts;
 mod checker;
 pub mod context;
 mod diagnostic;
@@ -50,8 +51,8 @@ pub use violation::Violation;
 use shuck_ast::{File, TextSize};
 use shuck_indexer::Indexer;
 use shuck_semantic::{
-    SemanticModel, SourcePathResolver, TraversalObserver, build_with_observer,
-    build_with_observer_at_path_with_resolver,
+    SemanticBuildOptions, SemanticModel, SourcePathResolver, TraversalObserver,
+    build_with_observer_with_options,
 };
 use std::path::Path;
 
@@ -111,19 +112,27 @@ pub fn analyze_file_at_path_with_resolver(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> AnalysisResult {
+    let shell = if settings.shell == ShellDialect::Unknown {
+        ShellDialect::infer(source, source_path)
+    } else {
+        settings.shell
+    };
+    let file_context = classify_file_context(source, source_path, shell);
+    let file_entry_contract =
+        ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
+
     let mut observer = LintTraversalObserver::default();
-    let mut semantic = if source_path.is_some() {
-        build_with_observer_at_path_with_resolver(
-            file,
-            source,
-            indexer,
-            &mut observer,
+    let mut semantic = build_with_observer_with_options(
+        file,
+        source,
+        indexer,
+        &mut observer,
+        SemanticBuildOptions {
             source_path,
             source_path_resolver,
-        )
-    } else {
-        build_with_observer(file, source, indexer, &mut observer)
-    };
+            file_entry_contract,
+        },
+    );
     if settings.rules.contains(Rule::UnusedAssignment) {
         let _ = semantic.precompute_unused_assignments();
     }
@@ -133,12 +142,6 @@ pub fn analyze_file_at_path_with_resolver(
     if settings.rules.contains(Rule::UnreachableAfterExit) {
         let _ = semantic.precompute_dead_code();
     }
-    let shell = if settings.shell == ShellDialect::Unknown {
-        ShellDialect::infer(source, source_path)
-    } else {
-        settings.shell
-    };
-    let file_context = classify_file_context(source, source_path, shell);
     let checker = Checker::new(
         file,
         source,
@@ -354,6 +357,33 @@ End
         );
 
         assert!(context.has_tag(FileContextTag::HelperLibrary));
+    }
+
+    #[test]
+    fn ambient_file_entry_contract_suppresses_void_packages_c006_noise() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/void-packages/common/build-style/void-cross.sh"),
+            "printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$wrksrc\"\n",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn project_closure_context_without_a_provider_still_reports_c006() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/scripts/helper.sh"),
+            "\
+# shellcheck source=helpers.sh
+. ./helpers.sh
+printf '%s\\n' \"$pkgname\"
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
     }
 
     #[test]

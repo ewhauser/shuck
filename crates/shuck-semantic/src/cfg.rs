@@ -50,6 +50,7 @@ pub struct ControlFlowGraph {
     exits: Vec<BlockId>,
     unreachable: Vec<BlockId>,
     pub(crate) scope_entries: FxHashMap<ScopeId, BlockId>,
+    pub(crate) scope_exits: FxHashMap<ScopeId, Vec<BlockId>>,
     pub(crate) command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
     pub(crate) unreachable_causes: FxHashMap<BlockId, Span>,
 }
@@ -77,6 +78,10 @@ impl ControlFlowGraph {
 
     pub fn exits(&self) -> &[BlockId] {
         &self.exits
+    }
+
+    pub(crate) fn scope_exits(&self, scope: ScopeId) -> Option<&[BlockId]> {
+        self.scope_exits.get(&scope).map(Vec::as_slice)
     }
 
     pub fn unreachable(&self) -> &[BlockId] {
@@ -223,22 +228,27 @@ pub(crate) fn build_control_flow_graph(
     let file = builder.build_sequence(&program.file_commands, &[]);
     let entry = file.entry.unwrap_or_else(|| builder.empty_block());
     builder.scope_entries.insert(ScopeId(0), entry);
-
-    let mut exits = if file.exits.is_empty() {
+    let file_exits = if file.exits.is_empty() {
         vec![entry]
     } else {
-        file.exits
+        file.exits.clone()
     };
+    let mut scope_exits = FxHashMap::default();
+    scope_exits.insert(ScopeId(0), file_exits.clone());
+
+    let mut exits = file_exits;
 
     for (scope, commands) in &program.function_bodies {
         let function = builder.build_sequence(commands, &[]);
         let function_entry = function.entry.unwrap_or_else(|| builder.empty_block());
         builder.scope_entries.insert(*scope, function_entry);
-        if function.exits.is_empty() {
-            exits.push(function_entry);
+        let function_exits = if function.exits.is_empty() {
+            vec![function_entry]
         } else {
-            exits.extend(function.exits);
-        }
+            function.exits
+        };
+        scope_exits.insert(*scope, function_exits.clone());
+        exits.extend(function_exits);
     }
 
     let predecessors = derive_predecessors(&builder.successors);
@@ -253,6 +263,7 @@ pub(crate) fn build_control_flow_graph(
         exits,
         unreachable,
         scope_entries: builder.scope_entries,
+        scope_exits,
         command_blocks: builder.command_blocks,
         unreachable_causes: builder.unreachable_causes,
     }
