@@ -39,6 +39,15 @@ pub struct EmbeddedScript {
     pub dialect: ExtractedDialect,
     /// Human-readable label for diagnostic context, e.g. "jobs.test.steps[0].run".
     pub label: String,
+    /// Which embedded format this snippet was extracted from.
+    pub format: EmbeddedFormat,
+    /// Mapping from placeholder variables back to the original template expressions.
+    /// Empty when the format has no template expression syntax.
+    pub placeholders: Vec<PlaceholderMapping>,
+    /// Shell flags implied by the host environment (e.g., GHA's default bash template
+    /// sets errexit and pipefail). Rules use this to know what error-handling behavior
+    /// is active even when the script doesn't set it explicitly.
+    pub implicit_flags: ImplicitShellFlags,
 }
 
 pub enum ExtractedDialect {
@@ -47,6 +56,60 @@ pub enum ExtractedDialect {
     /// The snippet targets a shell we don't support (e.g. PowerShell, cmd).
     /// The pipeline should skip these.
     Unsupported,
+}
+
+/// Identifies which embedded format produced the snippet.
+/// Rules use this to enable format-specific checks.
+pub enum EmbeddedFormat {
+    GitHubActions,
+    // Future: GitLabCi, Dockerfile, Justfile, ...
+}
+
+/// Records the relationship between a synthetic placeholder variable and
+/// the original template expression it replaced.
+pub struct PlaceholderMapping {
+    /// The placeholder variable name, e.g. "_SHUCK_GHA_1".
+    pub name: String,
+    /// The full original expression including delimiters, e.g. "${{ github.ref }}".
+    pub original: String,
+    /// The inner expression text, e.g. "github.ref".
+    pub expression: String,
+    /// Taint classification for security rules.
+    pub taint: ExpressionTaint,
+    /// Byte range of the `$_SHUCK_GHA_N` reference in the substituted source.
+    pub substituted_span: Range<usize>,
+    /// Byte range of the original `${{ ... }}` in the host file.
+    pub host_span: Range<usize>,
+}
+
+/// Classifies how trustworthy a template expression's value is at runtime.
+pub enum ExpressionTaint {
+    /// Attacker can inject arbitrary content: PR titles, issue bodies, branch
+    /// names, commit messages, review comments, discussion bodies, etc.
+    /// Using these directly in shell code is a script injection vulnerability.
+    UserControlled,
+    /// Secret value — not attacker-controlled, but should not appear inline
+    /// in command arguments (visible via /proc or `ps`) or be echoed/logged.
+    Secret,
+    /// Repository/workflow scoped and not directly attacker-controlled:
+    /// github.repository, github.sha, github.run_id, runner.os, env.*, etc.
+    Trusted,
+    /// Expression we can't classify — inputs.*, custom contexts, format() calls
+    /// with mixed arguments, etc. Rules should treat as potentially tainted.
+    Unknown,
+}
+
+/// Shell flags that the host environment sets implicitly, independent of
+/// what the script itself contains.
+pub struct ImplicitShellFlags {
+    /// `set -e` / `set -o errexit` is active.
+    pub errexit: bool,
+    /// `set -o pipefail` is active.
+    pub pipefail: bool,
+    /// The raw shell template string, e.g. "bash --noprofile --norc -eo pipefail {0}".
+    /// Retained for diagnostics and for rules that need to reason about
+    /// non-standard templates.
+    pub template: Option<String>,
 }
 
 /// Trait for extracting embedded shell scripts from a host file.
@@ -110,6 +173,21 @@ Supported shell values and their dialect mapping:
 
 The extractor strips the custom template suffix (e.g., `-e {0}`) by taking only the first whitespace-delimited token and matching on that.
 
+#### Shell Template and Implicit Flags
+
+Beyond resolving the dialect, the extractor also determines the effective shell invocation template and derives `ImplicitShellFlags` from it. GHA's default templates inject error-handling flags that aren't visible in the `run:` script itself:
+
+| `shell:` value | Effective template | `errexit` | `pipefail` |
+|---|---|---|---|
+| `bash` (or absent on Unix) | `bash --noprofile --norc -eo pipefail {0}` | `true` | `true` |
+| `sh` | `sh -e {0}` | `true` | `false` |
+| `bash -e {0}` (custom) | `bash -e {0}` | `true` | `false` |
+| `bash {0}` (custom) | `bash {0}` | `false` | `false` |
+
+When the `shell:` value is a custom template (contains `{0}`), the extractor parses the flags from the template string directly. Otherwise it uses GHA's documented default templates.
+
+The `ImplicitShellFlags` are attached to each `EmbeddedScript` so that error-handling rules can reason about what's active without the script explicitly containing `set -e` or `set -o pipefail`.
+
 #### `${{ }}` Placeholder Substitution
 
 GitHub Actions interpolates `${{ expression }}` syntax into `run:` blocks before the shell sees them. These are not valid shell syntax and would cause parse errors.
@@ -121,6 +199,35 @@ The extractor replaces each `${{ ... }}` occurrence with a synthetic environment
 - Is deterministic — same input always produces same placeholders
 
 Nested expressions like `${{ format('refs/heads/{0}', matrix.branch) }}` are handled by matching the outermost `${{` ... `}}` pair. The regex pattern is `\$\{\{.*?\}\}` applied non-greedily.
+
+#### Placeholder Provenance
+
+Each substitution is recorded in a `PlaceholderMapping` that preserves the original expression text, its span in both the substituted source and the host file, and a taint classification. This metadata enables GHA-specific security and correctness rules (see [GHA-Specific Rules](#gha-specific-rules)) without requiring those rules to re-parse the YAML.
+
+#### Taint Classification
+
+The extractor classifies each `${{ }}` expression's taint based on the context prefix:
+
+| Expression pattern | Taint | Rationale |
+|---|---|---|
+| `github.event.issue.title`, `.body` | `UserControlled` | Issue author controls content |
+| `github.event.pull_request.title`, `.body`, `.head.ref` | `UserControlled` | PR author controls content |
+| `github.event.comment.body` | `UserControlled` | Comment author controls content |
+| `github.event.review.body` | `UserControlled` | Reviewer controls content |
+| `github.event.discussion.title`, `.body` | `UserControlled` | Discussion author controls content |
+| `github.event.pages.*.page_name` | `UserControlled` | Wiki editor controls content |
+| `github.event.commits.*.message`, `.author.name`, `.author.email` | `UserControlled` | Committer controls content |
+| `github.head_ref` | `UserControlled` | PR author controls branch name |
+| `secrets.*` | `Secret` | Should not appear in command args or logs |
+| `github.token` | `Secret` | The automatic GITHUB_TOKEN |
+| `github.repository`, `github.sha`, `github.ref`, `github.run_id`, `runner.os`, `runner.arch` | `Trusted` | Repo-scoped, not attacker-controlled |
+| `env.*`, `vars.*` | `Trusted` | Set by repo/org admins |
+| `matrix.*`, `needs.*`, `steps.*` | `Trusted` | Controlled by workflow definition |
+| `inputs.*` | `Unknown` | Depends on caller — could be attacker-controlled for `workflow_dispatch` with public repos |
+| `format(...)`, `toJSON(...)`, other function calls | `Unknown` | Taint depends on arguments; conservative default |
+| Anything else | `Unknown` | Conservative default for unrecognized expressions |
+
+The taint table is intentionally conservative: `Unknown` is "treat as potentially tainted", not "ignore". Rules that flag `UserControlled` expressions should also flag `Unknown` expressions at a lower severity or with a different message suggesting manual review.
 
 #### YAML Block Scalar Handling
 
@@ -239,7 +346,12 @@ The label appears between the rule code and the message.
 
 #### FileContext for Embedded Snippets
 
-A new `FileContextTag::EmbeddedScript` is added. The `classify_file_context` function sets this tag when the snippet originates from an extractor. Rules that are inherently file-level (shebang checks, file-level directive checks) check for this tag and skip silently when present.
+A new `FileContextTag::EmbeddedScript(EmbeddedFormat)` variant is added. The `classify_file_context` function sets this tag when the snippet originates from an extractor, using the format from the `EmbeddedScript`. This serves two purposes:
+
+1. Rules that are inherently file-level (shebang checks, file-level directive checks) check for the `EmbeddedScript` tag and skip silently when present.
+2. Format-specific rules (see [GHA-Specific Rules](#gha-specific-rules)) check the `EmbeddedFormat` payload to enable GHA-aware analysis.
+
+The `EmbeddedScript` struct's `placeholders` and `implicit_flags` are also made available to rules through the `Checker` — either via a new `EmbeddedContext` field on `Checker` or by extending `LinterFacts` with an `embedded` section. The exact plumbing is an implementation detail, but the contract is: any rule can query placeholder provenance, taint classification, and implicit shell flags for the current snippet.
 
 #### Caching
 
@@ -278,6 +390,130 @@ YAML comments (lines starting with `#` outside the `run:` scalar) are not visibl
 - **Extraction failure for a single snippet**: Report the error as a diagnostic at the `run:` key's location and continue extracting remaining snippets.
 - **Shell parse failure**: Handled identically to standalone files — report the parse error at the remapped location.
 
+### GHA-Specific Rules
+
+The metadata carried by `EmbeddedScript` — format identity, placeholder provenance, taint classification, and implicit shell flags — enables a class of rules that are only meaningful in a GitHub Actions context. These rules check for `EmbeddedFormat::GitHubActions` before activating. They are listed below in priority order; individual rule codes will be assigned during implementation.
+
+#### Script Injection via `${{ }}` (Security, Error)
+
+The highest-value GHA-specific rule. GitHub Actions interpolates `${{ }}` expressions *textually* into the `run:` script before bash sees it. If an attacker controls the expression's value, they get arbitrary code execution.
+
+```yaml
+# DANGEROUS — attacker controls PR title, injected raw into shell
+- run: echo "${{ github.event.pull_request.title }}"
+
+# DANGEROUS — quoting doesn't help, interpolation happens before bash
+- run: |
+    title="${{ github.event.pull_request.title }}"
+    echo "$title"
+
+# SAFE — use an environment variable
+- run: echo "$TITLE"
+  env:
+    TITLE: ${{ github.event.pull_request.title }}
+```
+
+The rule fires when any `${{ }}` placeholder with `taint == UserControlled` appears anywhere in the shell source. The fix is always the same: move the expression to `env:` and reference the environment variable instead.
+
+For `taint == Unknown` expressions, the rule fires at a lower severity (warning instead of error) with a message suggesting manual review.
+
+This rule is format-specific because the injection mechanism (`${{ }}` textual interpolation before shell execution) is a GHA-specific behavior. Other CI systems interpolate differently or not at all.
+
+#### Secrets in Command Arguments (Security, Warning)
+
+Secrets passed as inline `${{ }}` expressions in command arguments are visible in the process table (`ps`, `/proc/$pid/cmdline`) to other processes on the runner.
+
+```yaml
+# WARNING — secret visible in process table
+- run: curl -H "Authorization: Bearer ${{ secrets.TOKEN }}" https://api.example.com
+
+# OK — environment variable is not visible in process args
+- run: curl -H "Authorization: Bearer $TOKEN" https://api.example.com
+  env:
+    TOKEN: ${{ secrets.TOKEN }}
+```
+
+The rule fires when a placeholder with `taint == Secret` appears in a command argument position (as opposed to being assigned to a variable and used via the variable). This catches `secrets.*` and `github.token`.
+
+#### Injection via `GITHUB_ENV` / `GITHUB_OUTPUT` / `GITHUB_PATH` Writes (Security, Warning)
+
+Writing attacker-controlled expressions to GitHub's environment files enables indirect injection — an attacker can break out of a value boundary and set arbitrary environment variables or PATH entries for subsequent steps.
+
+```yaml
+# DANGEROUS — attacker can inject newline + arbitrary KEY=VALUE
+- run: echo "TITLE=${{ github.event.issue.title }}" >> "$GITHUB_ENV"
+
+# SAFER — use heredoc delimiter syntax for multiline-safe writes
+- run: |
+    echo "TITLE<<EOF" >> "$GITHUB_ENV"
+    echo "$TITLE" >> "$GITHUB_ENV"
+    echo "EOF" >> "$GITHUB_ENV"
+  env:
+    TITLE: ${{ github.event.issue.title }}
+```
+
+The rule fires when a `UserControlled` or `Unknown` placeholder appears in a string that is redirected/appended to `$GITHUB_ENV`, `$GITHUB_OUTPUT`, or `$GITHUB_PATH`.
+
+#### Deprecated Workflow Commands (Correctness, Warning)
+
+GitHub deprecated `::set-output` and `::save-state` workflow commands in October 2022 and `::add-path` earlier. These are disabled by default in new repositories.
+
+```yaml
+# DEPRECATED
+- run: echo "::set-output name=result::$value"
+
+# CURRENT
+- run: echo "result=$value" >> "$GITHUB_OUTPUT"
+```
+
+The rule scans for `echo "::set-output`, `echo "::save-state`, and `echo "::add-path` patterns in the shell source. This is a straightforward string/AST match that doesn't require placeholder metadata — but it only fires when `format == GitHubActions` since these commands are meaningless outside GHA.
+
+#### Redundant `set -e` / `set -o pipefail` (Style, Info)
+
+GHA's default bash template (`bash --noprofile --norc -eo pipefail {0}`) already enables `errexit` and `pipefail`. Explicitly adding `set -e`, `set -eo pipefail`, or `set -euo pipefail` at the top of a `run:` block is redundant noise.
+
+```yaml
+# REDUNDANT — already active from the default template
+- run: |
+    set -eo pipefail
+    make build
+```
+
+The rule checks `implicit_flags.errexit` and `implicit_flags.pipefail` before firing. If the script uses a custom template like `shell: bash {0}` (where implicit flags are both false), the rule stays silent.
+
+Conversely, `set +e` disabling the implicit `errexit` could be flagged as a companion informational diagnostic, since it silently changes the error-handling contract that GHA users expect.
+
+#### Commands That Fail Under Implicit `errexit` (Correctness, Warning)
+
+Several common commands return non-zero for non-error conditions. Under `set -e` (which is implicit in GHA's default bash template), these kill the step unexpectedly:
+
+```yaml
+# grep returns 1 when no matches — step fails
+- run: |
+    count=$(grep -c "pattern" file.txt)
+    echo "Found $count matches"
+
+# diff returns 1 when files differ — step fails
+- run: |
+    diff old.txt new.txt > changes.patch
+```
+
+This rule is not GHA-exclusive — it applies to any script with `set -e` — but `implicit_flags` lets it fire on GHA scripts that never explicitly set `set -e`. Without the implicit flags metadata, the rule would miss every GHA script that relies on the default template.
+
+#### Unquoted `$GITHUB_OUTPUT` / `$GITHUB_ENV` / `$GITHUB_PATH` (Correctness, Warning)
+
+These environment variables contain file paths that could theoretically contain spaces (and have done so on some runner images). Unquoted usage in redirections is a bug:
+
+```yaml
+# BUG — word splitting if path contains spaces
+- run: echo "foo=bar" >> $GITHUB_OUTPUT
+
+# OK
+- run: echo "foo=bar" >> "$GITHUB_OUTPUT"
+```
+
+This is a specialization of the general unquoted-variable rule (S001/SC2086), but with GHA context the diagnostic message can be more specific: it names the variable and explains that the file path is runner-dependent.
+
 ### Future Formats
 
 The `Extractor` trait is designed to support additional formats without pipeline changes. Likely candidates in priority order:
@@ -309,6 +545,10 @@ Simpler, but loses the ability to lint quoting around GHA expressions. `echo ${{
 
 Would catch cases like a variable exported in step 1 and used in step 2. Rejected for now because GHA steps run in separate shell invocations (unless `shell: bash` with explicit sourcing), making cross-step dataflow analysis unreliable. Each step is a logically separate script.
 
+### Classify taint at rule time instead of extraction time
+
+The taint classification could live in the rule rather than the extractor — the rule would inspect placeholder expressions and classify them on the fly. Rejected because (1) the taint table is a property of the GHA platform, not a lint policy, so it belongs with the extractor; (2) multiple rules need taint (injection, secrets-in-args, GITHUB_ENV writes), so classifying once avoids duplication and inconsistency; (3) keeping taint in `PlaceholderMapping` makes it testable independently of the rule engine.
+
 ### Default `embedded = false` (opt-in)
 
 Safer rollout, but reduces the value of the feature — most users wouldn't know to enable it. Since the probe step prevents false positives on non-GHA YAML files, and the extraction is read-only, defaulting to `true` is low-risk and matches the expected behavior of `shuck check .` scanning everything relevant.
@@ -320,10 +560,21 @@ Safer rollout, but reduces the value of the feature — most users wouldn't know
 - **Extractor trait**: Test `matches()`, `probe()`, and `extract()` independently for the GHA extractor.
 - **Shell resolution**: Verify the three-level hierarchy (workflow → job → step) resolves correctly with all combinations of `shell:` and `runs-on:`.
 - **Placeholder substitution**: Confirm `${{ expr }}` is replaced with `$_SHUCK_GHA_N`, including nested braces and multi-line expressions.
+- **Placeholder provenance**: Verify each `PlaceholderMapping` records the correct original expression text, inner expression, and spans in both the substituted source and host file.
+- **Taint classification**: Test that known attacker-controlled expressions (`github.event.pull_request.title`, `github.head_ref`, etc.) are classified as `UserControlled`, secrets as `Secret`, repo-scoped values as `Trusted`, and unrecognized expressions as `Unknown`.
+- **Implicit shell flags**: Verify that the default bash template produces `errexit: true, pipefail: true`, `shell: sh` produces `errexit: true, pipefail: false`, and custom templates like `bash {0}` produce `errexit: false, pipefail: false`.
 - **Block scalar handling**: Test literal (`|`), folded (`>`), strip (`|-`), and flow scalar extraction with correct offset computation.
 - **Line remapping**: Verify diagnostic positions map back to the correct YAML line/column.
 - **Unsupported shell skip**: Confirm PowerShell steps on Windows runners produce no diagnostics.
 - **Composite actions**: Test extraction from `action.yml` with `runs.using: composite`.
+
+### GHA-Specific Rule Tests
+
+- **Script injection**: Verify that `run: echo ${{ github.event.pull_request.title }}` produces a security error, that `run: echo ${{ github.sha }}` (trusted) does not, and that `run: echo ${{ inputs.name }}` (unknown) produces a lower-severity warning.
+- **Secrets in args**: Verify that `run: curl -H "${{ secrets.TOKEN }}" url` fires but `env: { TOKEN: "${{ secrets.TOKEN }}" }` with `run: curl -H "$TOKEN" url` does not.
+- **GITHUB_ENV injection**: Verify that writing a `UserControlled` placeholder to `>> "$GITHUB_ENV"` fires.
+- **Deprecated commands**: Verify that `echo "::set-output name=foo::bar"` fires only when `format == GitHubActions`.
+- **Redundant set -e**: Verify that `set -eo pipefail` fires when `implicit_flags.errexit && implicit_flags.pipefail`, but not when the step uses `shell: bash {0}`.
 
 ### Integration Tests
 
@@ -331,6 +582,7 @@ Safer rollout, but reduces the value of the feature — most users wouldn't know
 - **Mixed project**: Run `shuck check .` on a project with both `.sh` files and `.github/workflows/*.yml`. Verify both are discovered and linted.
 - **Config opt-out**: Set `embedded = false` in `.shuck.toml` and confirm YAML files are skipped.
 - **Suppression in embedded**: Verify `# shellcheck disable=SC2086` inside a `run: |` block suppresses the expected diagnostic.
+- **Security rules end-to-end**: Run `shuck check` on a workflow with script injection, secrets-in-args, and `GITHUB_ENV` injection patterns. Verify all security diagnostics appear with correct severity and remapped locations.
 
 ### Manual Verification
 
@@ -361,4 +613,45 @@ shuck check /tmp/test-workflow.yml
 # Verify no YAML files are checked when disabled
 echo -e '[check]\nembedded = false' > .shuck.toml
 shuck check .  # should skip .github/workflows/
+```
+
+```bash
+# Security-focused test workflow
+cat > /tmp/test-security.yml << 'EOF'
+on:
+  pull_request_target:
+    types: [opened, edited]
+jobs:
+  greet:
+    runs-on: ubuntu-latest
+    steps:
+      # Script injection — attacker controls PR title
+      - run: echo "PR: ${{ github.event.pull_request.title }}"
+
+      # Secret in command argument — visible via ps
+      - run: curl -H "Authorization: Bearer ${{ secrets.API_KEY }}" https://api.example.com
+
+      # GITHUB_ENV injection — attacker can inject arbitrary env vars
+      - run: echo "GREETING=Hello ${{ github.event.pull_request.title }}" >> "$GITHUB_ENV"
+
+      # Deprecated workflow command
+      - run: echo "::set-output name=result::done"
+
+      # Redundant set -e (default template already sets it)
+      - run: |
+          set -eo pipefail
+          make build
+
+      # Safe — uses env: instead of inline expression
+      - run: echo "PR: $TITLE"
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+
+      # Trusted expression — no injection risk
+      - run: echo "SHA: ${{ github.sha }}"
+EOF
+
+# Expect security diagnostics on the injection, secrets, GITHUB_ENV, and
+# deprecated command lines. The safe and trusted lines should be clean.
+shuck check /tmp/test-security.yml
 ```
