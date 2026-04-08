@@ -1,8 +1,7 @@
-use crate::rules::common::{
-    expansion::ExpansionContext,
-    safe_value::{SafeValueIndex, SafeValueQuery},
+use crate::{
+    Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
+    WordFact,
 };
-use crate::{Checker, Rule, ShellDialect, Violation, WordFact};
 
 pub struct UnquotedExpansion;
 

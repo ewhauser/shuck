@@ -1,5 +1,4 @@
-use crate::rules::common::word::{TestOperandClass, WordQuote, static_word_text};
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, TestOperandClass, Violation, WordQuote, static_word_text};
 
 pub struct QuotedBashRegex;
 

@@ -33,6 +33,12 @@ pub use facts::{
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;
+pub use rules::common::command::{DeclarationKind, WrapperKind};
+pub use rules::common::expansion::{ExpansionContext, WordQuote};
+pub use rules::common::query::CommandSubstitutionKind;
+pub use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
+pub use rules::common::span::assignment_name_span;
+pub use rules::common::word::{TestOperandClass, static_word_text};
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;
 pub use suppression::{

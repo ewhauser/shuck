@@ -425,9 +425,7 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
             );
         }
 
-        if let Some(candidates) = context
-            .indirect_targets_by_reference
-            .get(&reference.id)
+        if let Some(candidates) = context.indirect_targets_by_reference.get(&reference.id)
             && !candidates.is_empty()
         {
             mark_reaching_candidate_bindings_used(&mut used_bindings, incoming, candidates);

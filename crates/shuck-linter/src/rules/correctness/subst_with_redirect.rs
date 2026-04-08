@@ -1,5 +1,4 @@
-use crate::rules::common::query::CommandSubstitutionKind;
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, CommandSubstitutionKind, Rule, Violation};
 
 pub struct SubstWithRedirect;
 

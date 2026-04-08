@@ -1,5 +1,4 @@
-use crate::rules::common::expansion::ExpansionContext;
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, ExpansionContext, Rule, Violation};
 
 pub struct UnquotedArrayExpansion;
 

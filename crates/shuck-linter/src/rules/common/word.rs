@@ -61,7 +61,7 @@ pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
 }
 
-pub fn classify_word(word: &Word, source: &str) -> WordClassification {
+pub(crate) fn classify_word(word: &Word, source: &str) -> WordClassification {
     let analysis = super::expansion::analyze_word(word, source);
 
     WordClassification {
@@ -72,7 +72,7 @@ pub fn classify_word(word: &Word, source: &str) -> WordClassification {
     }
 }
 
-pub fn classify_contextual_operand(
+pub(crate) fn classify_contextual_operand(
     word: &Word,
     source: &str,
     context: ExpansionContext,
@@ -106,11 +106,11 @@ fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut Stri
     true
 }
 
-pub fn classify_test_operand(word: &Word, source: &str) -> TestOperandClass {
+pub(crate) fn classify_test_operand(word: &Word, source: &str) -> TestOperandClass {
     classify_contextual_operand(word, source, ExpansionContext::CommandArgument)
 }
 
-pub fn classify_conditional_operand(
+pub(crate) fn classify_conditional_operand(
     expression: &ConditionalExpr,
     source: &str,
 ) -> TestOperandClass {

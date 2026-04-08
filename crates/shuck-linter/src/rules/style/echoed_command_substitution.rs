@@ -1,5 +1,4 @@
-use crate::rules::common::expansion::ExpansionContext;
-use crate::{Checker, Rule, Violation, WordFactContext};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
 pub struct EchoedCommandSubstitution;
 
 impl Violation for EchoedCommandSubstitution {

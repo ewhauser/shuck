@@ -11,21 +11,21 @@ use super::expansion::ExpansionContext;
 use super::word::static_word_text;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct WalkContext {
-    pub loop_depth: usize,
+pub(crate) struct WalkContext {
+    pub(crate) loop_depth: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CommandWalkOptions {
-    pub descend_nested_word_commands: bool,
+pub(crate) struct CommandWalkOptions {
+    pub(crate) descend_nested_word_commands: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CommandVisit<'a> {
-    pub stmt: &'a Stmt,
-    pub command: &'a Command,
-    pub redirects: &'a [Redirect],
-    pub context: WalkContext,
+pub(crate) struct CommandVisit<'a> {
+    pub(crate) stmt: &'a Stmt,
+    pub(crate) command: &'a Command,
+    pub(crate) redirects: &'a [Redirect],
+    pub(crate) context: WalkContext,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,13 +36,16 @@ pub enum CommandSubstitutionKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct NestedCommandSubstitution {
-    pub commands: StmtSeq,
-    pub span: Span,
-    pub kind: CommandSubstitutionKind,
+pub(crate) struct NestedCommandSubstitution {
+    pub(crate) commands: StmtSeq,
+    pub(crate) span: Span,
+    pub(crate) kind: CommandSubstitutionKind,
 }
 
-pub fn walk_commands(
+// Structural traversal helpers stay crate-visible so `facts.rs` owns repeated
+// AST walks. Rule implementations should consume `Checker::facts()` instead of
+// calling these walkers directly.
+pub(crate) fn walk_commands(
     commands: &StmtSeq,
     options: CommandWalkOptions,
     visitor: &mut impl FnMut(CommandVisit<'_>),
@@ -50,7 +53,7 @@ pub fn walk_commands(
     CommandWalker { options, visitor }.walk_commands(commands, WalkContext::default());
 }
 
-pub fn iter_commands<'a>(
+pub(crate) fn iter_commands<'a>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
 ) -> impl Iterator<Item = CommandVisit<'a>> {
@@ -59,7 +62,7 @@ pub fn iter_commands<'a>(
     visits.into_iter()
 }
 
-pub fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
+pub(crate) fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
     let Command::Binary(command) = command else {
         return None;
     };
@@ -79,7 +82,7 @@ fn zsh_glob_patterns(glob: &shuck_ast::ZshQualifiedGlob) -> impl Iterator<Item =
     })
 }
 
-pub fn walk_words(
+pub(crate) fn walk_words(
     commands: &StmtSeq,
     options: CommandWalkOptions,
     visitor: &mut impl FnMut(&Word),
@@ -87,7 +90,7 @@ pub fn walk_words(
     WordWalker { options, visitor }.walk_commands(commands);
 }
 
-pub fn command_assignments(command: &Command) -> &[Assignment] {
+pub(crate) fn command_assignments(command: &Command) -> &[Assignment] {
     match command {
         Command::Simple(command) => &command.assignments,
         Command::Builtin(command) => builtin_assignments(command),
@@ -96,7 +99,7 @@ pub fn command_assignments(command: &Command) -> &[Assignment] {
     }
 }
 
-pub fn declaration_operands(command: &Command) -> &[DeclOperand] {
+pub(crate) fn declaration_operands(command: &Command) -> &[DeclOperand] {
     match command {
         Command::Decl(command) => &command.operands,
         Command::Simple(_)
@@ -107,17 +110,20 @@ pub fn declaration_operands(command: &Command) -> &[DeclOperand] {
     }
 }
 
-pub fn command_redirects(visit: CommandVisit<'_>) -> &[Redirect] {
+pub(crate) fn command_redirects(visit: CommandVisit<'_>) -> &[Redirect] {
     visit.redirects
 }
 
-pub fn iter_command_words(visit: CommandVisit<'_>, source: &str) -> impl Iterator<Item = Word> {
+pub(crate) fn iter_command_words(
+    visit: CommandVisit<'_>,
+    source: &str,
+) -> impl Iterator<Item = Word> {
     let mut words = Vec::new();
     collect_command_words(visit.command, visit.redirects, source, &mut words);
     words.into_iter()
 }
 
-pub fn iter_word_command_substitutions(
+pub(crate) fn iter_word_command_substitutions(
     word: &Word,
 ) -> impl Iterator<Item = NestedCommandSubstitution> + '_ {
     let mut substitutions = Vec::new();
@@ -125,7 +131,7 @@ pub fn iter_word_command_substitutions(
     substitutions.into_iter()
 }
 
-pub fn iter_command_substitutions(
+pub(crate) fn iter_command_substitutions(
     visit: CommandVisit<'_>,
     source: &str,
 ) -> impl Iterator<Item = NestedCommandSubstitution> {
@@ -136,7 +142,10 @@ pub fn iter_command_substitutions(
     substitutions.into_iter()
 }
 
-pub fn visit_arithmetic_words(expression: &ArithmeticExprNode, visitor: &mut impl FnMut(&Word)) {
+pub(crate) fn visit_arithmetic_words(
+    expression: &ArithmeticExprNode,
+    visitor: &mut impl FnMut(&Word),
+) {
     let mut words = Vec::new();
     collect_arithmetic_words(expression, &mut words);
     for word in words {
@@ -144,7 +153,7 @@ pub fn visit_arithmetic_words(expression: &ArithmeticExprNode, visitor: &mut imp
     }
 }
 
-pub fn visit_var_ref_subscript_words(reference: &VarRef, visitor: &mut impl FnMut(&Word)) {
+pub(crate) fn visit_var_ref_subscript_words(reference: &VarRef, visitor: &mut impl FnMut(&Word)) {
     let mut words = Vec::new();
     collect_var_ref_subscript_words(reference, &mut words);
     for word in words {
@@ -152,7 +161,7 @@ pub fn visit_var_ref_subscript_words(reference: &VarRef, visitor: &mut impl FnMu
     }
 }
 
-pub fn visit_var_ref_subscript_words_with_source(
+pub(crate) fn visit_var_ref_subscript_words_with_source(
     reference: &VarRef,
     source: &str,
     visitor: &mut impl FnMut(&Word),
@@ -160,7 +169,7 @@ pub fn visit_var_ref_subscript_words_with_source(
     visit_subscript_words(reference.subscript.as_ref(), source, visitor);
 }
 
-pub fn visit_subscript_words(
+pub(crate) fn visit_subscript_words(
     subscript: Option<&Subscript>,
     source: &str,
     visitor: &mut impl FnMut(&Word),
@@ -260,58 +269,7 @@ fn visit_optional_arithmetic_words(
     }
 }
 
-pub fn visit_command_words(visit: CommandVisit<'_>, source: &str, visitor: &mut impl FnMut(&Word)) {
-    for word in iter_command_words(visit, source) {
-        visitor(&word);
-    }
-}
-
-pub fn visit_argument_words(command: &Command, visitor: &mut impl FnMut(&Word)) {
-    match command {
-        Command::Simple(command) => {
-            for word in &command.args {
-                visitor(word);
-            }
-        }
-        Command::Builtin(command) => match command {
-            BuiltinCommand::Break(command) => {
-                if let Some(word) = &command.depth {
-                    visitor(word);
-                }
-                for word in &command.extra_args {
-                    visitor(word);
-                }
-            }
-            BuiltinCommand::Continue(command) => {
-                if let Some(word) = &command.depth {
-                    visitor(word);
-                }
-                for word in &command.extra_args {
-                    visitor(word);
-                }
-            }
-            BuiltinCommand::Return(command) => {
-                if let Some(word) = &command.code {
-                    visitor(word);
-                }
-                for word in &command.extra_args {
-                    visitor(word);
-                }
-            }
-            BuiltinCommand::Exit(command) => {
-                if let Some(word) = &command.code {
-                    visitor(word);
-                }
-                for word in &command.extra_args {
-                    visitor(word);
-                }
-            }
-        },
-        _ => {}
-    }
-}
-
-pub fn iter_expansion_words<'a>(
+pub(crate) fn iter_expansion_words<'a>(
     visit: CommandVisit<'a>,
     source: &str,
 ) -> impl Iterator<Item = (Word, ExpansionContext)> {
@@ -320,19 +278,13 @@ pub fn iter_expansion_words<'a>(
     words.into_iter()
 }
 
-pub fn visit_expansion_words(
+pub(crate) fn visit_expansion_words(
     visit: CommandVisit<'_>,
     source: &str,
     visitor: &mut impl FnMut(&Word, ExpansionContext),
 ) {
     for (word, context) in iter_expansion_words(visit, source) {
         visitor(&word, context);
-    }
-}
-
-pub fn visit_command_redirects(visit: CommandVisit<'_>, visitor: &mut impl FnMut(&Redirect)) {
-    for redirect in command_redirects(visit) {
-        visitor(redirect);
     }
 }
 

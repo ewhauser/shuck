@@ -125,3 +125,21 @@ The parser (`crates/shuck-parser/src/parser/`) is a recursive descent parser wit
 - Suppression codes: shuck uses `SH-NNN` format (e.g., `SH-001`), shellcheck uses `SCNNNN` format (e.g., `SC2086`). Both are supported as suppression directives.
 - Config files: `.shuck.toml` or `shuck.toml` at project root
 - Cache directory: `.shuck_cache/` (add to `.gitignore`)
+
+## Linter Rule Authoring
+
+When working on `crates/shuck-linter`, treat `facts.rs` and `Checker::facts()` as the
+required extension point for rule logic.
+
+- New rules in `crates/shuck-linter/src/rules/style/` and
+  `crates/shuck-linter/src/rules/correctness/` **must not** add direct AST walks.
+- Do not call traversal/query helpers from rule files. If a rule needs new structural data,
+  add it to `LinterFacts` in `crates/shuck-linter/src/facts.rs` and consume it from there.
+- Do not import from `crate::rules::common::*` inside rule files. Rule-facing shared types and
+  helpers should come from the crate root or from rule-local helper modules.
+- Keep repeated structural discovery in `facts.rs`, not in per-rule helper code.
+- Rule files should mostly be cheap filters over facts plus rule-specific policy and wording.
+
+If a rule feels like it needs `walk_commands`, `iter_commands`, command normalization, test
+operand reconstruction, or repeated word/redirect/substitution classification, stop and move
+that work into the fact builder instead.

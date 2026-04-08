@@ -77,7 +77,7 @@ impl<'a> NormalizedCommand<'a> {
     }
 }
 
-pub fn normalize_command<'a>(command: &'a Command, source: &str) -> NormalizedCommand<'a> {
+pub(crate) fn normalize_command<'a>(command: &'a Command, source: &str) -> NormalizedCommand<'a> {
     match command {
         Command::Simple(command) => normalize_simple_command(command, source),
         Command::Decl(command) => normalize_decl_command(command),

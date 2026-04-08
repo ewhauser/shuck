@@ -296,9 +296,7 @@ impl SemanticModel {
             return false;
         }
 
-        if !self.synthetic_reads.is_empty()
-            || !self.indirect_targets_by_reference.is_empty()
-        {
+        if !self.synthetic_reads.is_empty() || !self.indirect_targets_by_reference.is_empty() {
             return true;
         }
 

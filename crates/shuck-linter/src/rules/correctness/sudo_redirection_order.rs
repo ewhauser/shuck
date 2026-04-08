@@ -1,7 +1,6 @@
 use shuck_ast::RedirectKind;
 
-use crate::rules::common::command::WrapperKind;
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, Violation, WrapperKind};
 
 pub struct SudoRedirectionOrder;
 

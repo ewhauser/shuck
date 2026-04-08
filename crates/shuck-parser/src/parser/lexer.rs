@@ -2722,8 +2722,7 @@ impl<'a> Lexer<'a> {
 
     fn looks_like_zsh_glob_qualifier_base(text: &str) -> bool {
         text.contains(['*', '?'])
-            || text.ends_with('}')
-                && text.contains("${")
+            || text.ends_with('}') && text.contains("${")
             || text.ends_with(']')
                 && text
                     .rfind('[')

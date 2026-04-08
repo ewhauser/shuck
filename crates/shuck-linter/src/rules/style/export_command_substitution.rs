@@ -1,7 +1,9 @@
 use shuck_ast::AssignmentValue;
 
-use crate::rules::common::{command::DeclarationKind, expansion::ExpansionContext, span};
-use crate::{Checker, Rule, Violation, WordFactContext};
+use crate::{
+    Checker, DeclarationKind, ExpansionContext, Rule, Violation, WordFactContext,
+    assignment_name_span,
+};
 
 pub struct ExportCommandSubstitution {
     pub name: String,
@@ -47,7 +49,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
                 .map(|_| {
                     (
                         assignment.target.name.to_string(),
-                        span::assignment_name_span(assignment),
+                        assignment_name_span(assignment),
                     )
                 })
         })

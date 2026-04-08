@@ -983,7 +983,7 @@ impl<'a> CommandFact<'a> {
         self.key
     }
 
-    pub fn visit(&self) -> CommandVisit<'a> {
+    pub(crate) fn visit(&self) -> CommandVisit<'a> {
         self.visit
     }
 

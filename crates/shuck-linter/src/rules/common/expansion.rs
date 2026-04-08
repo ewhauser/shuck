@@ -226,7 +226,7 @@ impl SubstitutionOutputIntent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SubstitutionClassification {
+pub(crate) struct SubstitutionClassification {
     pub kind: CommandSubstitutionKind,
     pub span: Span,
     pub stdout_intent: SubstitutionOutputIntent,
@@ -276,7 +276,7 @@ struct AnalysisSummary {
     has_process_substitution: bool,
 }
 
-pub fn analyze_word(word: &Word, _source: &str) -> ExpansionAnalysis {
+pub(crate) fn analyze_word(word: &Word, _source: &str) -> ExpansionAnalysis {
     let mut summary = AnalysisSummary::default();
     analyze_parts(&word.parts, false, &mut summary);
 
@@ -317,7 +317,7 @@ pub fn analyze_word(word: &Word, _source: &str) -> ExpansionAnalysis {
     }
 }
 
-pub fn analyze_literal_runtime(
+pub(crate) fn analyze_literal_runtime(
     word: &Word,
     source: &str,
     context: ExpansionContext,
@@ -334,7 +334,7 @@ pub fn analyze_literal_runtime(
     analysis
 }
 
-pub fn analyze_redirect_target(
+pub(crate) fn analyze_redirect_target(
     redirect: &Redirect,
     source: &str,
 ) -> Option<RedirectTargetAnalysis> {
@@ -383,7 +383,7 @@ pub fn analyze_redirect_target(
     })
 }
 
-pub fn classify_substitution(
+pub(crate) fn classify_substitution(
     substitution: NestedCommandSubstitution,
     source: &str,
 ) -> SubstitutionClassification {
