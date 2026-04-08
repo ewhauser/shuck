@@ -392,11 +392,15 @@ const fn shell_dialect_key(dialect: ShellDialect) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use tempfile::tempdir;
 
     use super::*;
+
+    fn make_file_read_only(path: &Path) {
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(path, permissions).unwrap();
+    }
 
     fn format_args(no_cache: bool) -> FormatCommand {
         FormatCommand {
@@ -471,8 +475,8 @@ mod tests {
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
 
-        std::thread::sleep(Duration::from_millis(5));
         fs::write(&script, "#!/bin/bash\nif true\n").unwrap();
+        make_file_read_only(&script);
 
         let second =
             run_format_with_cwd(&format_args(false), tempdir.path(), FormatMode::Write).unwrap();
