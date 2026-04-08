@@ -84,7 +84,7 @@ if zstyle -t ':omz:alpha:lib:git' async-prompt \
 #### ohmyzsh__ohmyzsh__lib__prompt_info_functions.zsh
 
 # source: ohmyzsh__ohmyzsh__lib__prompt_info_functions.zsh
-# parser gap: parse error: expected compound command for function body
+# surface: line-continued multi-name function header into a brace body
 
 # Dummy implementations that return false to prevent command_not_found
 # errors with themes, that implement these functions
@@ -93,6 +93,9 @@ function chruby_prompt_info \
   rbenv_prompt_info \
   hg_prompt_info \
   pyenv_prompt_info \
+{
+  return 1
+}
 
 #### ohmyzsh__ohmyzsh__lib__termsupport.zsh
 
@@ -817,22 +820,23 @@ zle -N globalias
 #### ohmyzsh__ohmyzsh__plugins__keychain__keychain.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__keychain__keychain.plugin.zsh
-# parser gap: parse error at line 6, column 10: expected function name
+# surface: nameless function keyword command with a multiline body
 
 function {
 	local agents
 	local -a identities
-	local -a options
-	local _keychain_env_sh
-	local _keychain_env_sh_gpg
+	return 0
+}
 
 #### ohmyzsh__ohmyzsh__plugins__macos__music
 
 # source: ohmyzsh__ohmyzsh__plugins__macos__music
-# parser gap: parse error: expected compound command for function body
+# surface: multi-name function keyword header with trailing parens
 
 function music itunes() {
   local APP_NAME=Music sw_vers=$(sw_vers -productVersion 2>/dev/null)
+  print -- "$APP_NAME $sw_vers"
+}
 
 #### ohmyzsh__ohmyzsh__plugins__pj__pj.plugin.zsh
 

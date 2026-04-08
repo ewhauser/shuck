@@ -474,6 +474,52 @@ fn test_zsh_function_keyword_preserves_multi_name_header_with_trailing_parens() 
 }
 
 #[test]
+fn test_zsh_function_keyword_allows_line_continued_multi_name_brace_body() {
+    let input = "function chruby_prompt_info \\\n  rbenv_prompt_info \\\n  hg_prompt_info \\\n  pyenv_prompt_info \\\n{\n  return 1\n}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert!(function.uses_function_keyword());
+    assert!(!function.has_trailing_parens());
+    assert_eq!(function.header.entries.len(), 4);
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec![
+            "chruby_prompt_info",
+            "rbenv_prompt_info",
+            "hg_prompt_info",
+            "pyenv_prompt_info",
+        ]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+
+    let AstCommand::Builtin(AstBuiltinCommand::Return(command)) = &body[0].command else {
+        panic!("expected return body");
+    };
+    assert_eq!(
+        command
+            .code
+            .as_ref()
+            .expect("expected return code")
+            .render(input),
+        "1"
+    );
+}
+
+#[test]
 fn test_zsh_function_keyword_preserves_multi_name_stub_body() {
     let input = "function foo bar\nreturn 1\n";
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
@@ -532,6 +578,40 @@ fn test_zsh_function_keyword_allows_nameless_anonymous_function_command() {
 }
 
 #[test]
+fn test_zsh_function_keyword_allows_multiline_nameless_anonymous_function_command() {
+    let input = "function {\n  local agents\n  local -a identities\n  return 0\n}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_anonymous_function(&script.body[0]);
+    assert!(function.uses_function_keyword());
+    assert!(function.args.is_empty());
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group anonymous function body");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 3);
+    assert!(matches!(body[0].command, AstCommand::Decl(_)));
+    assert!(matches!(body[1].command, AstCommand::Decl(_)));
+
+    let AstCommand::Builtin(AstBuiltinCommand::Return(command)) = &body[2].command else {
+        panic!("expected return body");
+    };
+    assert_eq!(
+        command
+            .code
+            .as_ref()
+            .expect("expected return code")
+            .render(input),
+        "0"
+    );
+}
+
+#[test]
 fn test_zsh_paren_anonymous_function_command_keeps_invocation_args() {
     let input = "() { print -- anon:$#; } a b\n";
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
@@ -581,6 +661,40 @@ fn test_zsh_function_keyword_accepts_punctuated_literal_names() {
             .collect::<Vec<_>>(),
         vec!["cfh~"]
     );
+}
+
+#[test]
+fn test_zsh_function_keyword_preserves_multi_name_header_with_local_assignment_body() {
+    let input = "function music itunes() {\n  local APP_NAME=Music sw_vers=$(sw_vers -productVersion 2>/dev/null)\n  print -- \"$APP_NAME $sw_vers\"\n}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert!(function.uses_function_keyword());
+    assert!(function.has_trailing_parens());
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["music", "itunes"]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 2);
+    assert!(matches!(body[0].command, AstCommand::Decl(_)));
+
+    let AstCommand::Simple(command) = &body[1].command else {
+        panic!("expected print body");
+    };
+    assert_eq!(command.name.render(input), "print");
 }
 
 #[test]

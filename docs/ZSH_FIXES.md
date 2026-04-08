@@ -23,8 +23,8 @@ The remaining zsh parser work is no longer in the live large-corpus harness. It 
 The zsh-mode parser corpus still defaults that regression fixture to `parse_err` and then opts individual snippets into `parse_ok` as we finish them. Right now:
 
 - `103` regression snippets exist in the zsh regression fixture
-- `77` snippets are promoted to `parse_ok`
-- `26` snippets remain unresolved
+- `80` snippets are promoted to `parse_ok`
+- `23` snippets remain unresolved
 
 This document is intentionally zsh-only. The non-zsh OILS cleanup belongs in the parser corpus and expectation files, not here.
 
@@ -32,7 +32,6 @@ This document is intentionally zsh-only. The non-zsh OILS cleanup belongs in the
 
 | Code | Count | Primary layer | Representative surface |
 | --- | ---: | --- | --- |
-| `AST-1` | 3 | AST surface + command parser | multi-name or punctuated `function` headers |
 | `AST-2` | 2 | AST surface + command parser | anonymous `() { ... }` commands |
 | `CASE-1` | 6 | command parser + word parser | grouped alternatives, numeric ranges, mixed case patterns |
 | `CASE-2` | 1 | AST surface + lexer + command parser | `;|` terminator follow-through |
@@ -44,13 +43,13 @@ This document is intentionally zsh-only. The non-zsh OILS cleanup belongs in the
 
 ## Execution Order
 
-### 1. Finish function surface modeling
+### 1. Finish anonymous function surface modeling
 
-Target codes: `AST-1`, `AST-2`
+Target codes: `AST-2`
 
-- Preserve zsh-only function headers without forcing them through the Bash-shaped `name: Name` model.
-- Cover multi-name `function` headers, punctuated function names, and anonymous `() { ... }` commands.
-- Do not silently normalize zsh-only surface forms into a Bash spelling.
+- Preserve anonymous `() { ... }` commands without forcing them through a different surface spelling.
+- Keep the remaining anonymous-function cases isolated so they do not regress named zsh function parsing.
+- Do not silently normalize zsh-only anonymous function forms into a Bash spelling.
 
 ### 2. Finish `case` grammar and surface preservation
 
@@ -104,14 +103,11 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 | `ohmyzsh__ohmyzsh__lib__cli.zsh` | `CASE-1` |
 | `ohmyzsh__ohmyzsh__lib__clipboard.zsh` | `EDGE-1` |
 | `ohmyzsh__ohmyzsh__lib__git.zsh` | `CMD-2` |
-| `ohmyzsh__ohmyzsh__lib__prompt_info_functions.zsh` | `AST-1` |
 | `ohmyzsh__ohmyzsh__lib__termsupport.zsh` | `CASE-1` |
 | `ohmyzsh__ohmyzsh__plugins__battery__battery.plugin.zsh` | `CMD-1` |
 | `ohmyzsh__ohmyzsh__plugins__dash__dash.plugin.zsh` | `EXPR-1` |
 | `ohmyzsh__ohmyzsh__plugins__extract__extract.plugin.zsh` | `CMD-2` |
 | `ohmyzsh__ohmyzsh__plugins__genpass__genpass-xkcd` | `EXPR-2` |
-| `ohmyzsh__ohmyzsh__plugins__keychain__keychain.plugin.zsh` | `AST-1` |
-| `ohmyzsh__ohmyzsh__plugins__macos__music` | `AST-1` |
 | `ohmyzsh__ohmyzsh__plugins__rake-fast__rake-fast.plugin.zsh` | `CMD-2` |
 | `ohmyzsh__ohmyzsh__plugins__rbenv__rbenv.plugin.zsh` | `CMD-1` |
 | `ohmyzsh__ohmyzsh__plugins__sublime-merge__sublime-merge.plugin.zsh` | `AST-2` |

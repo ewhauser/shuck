@@ -399,6 +399,18 @@
     "expectation": "parse_ok",
     "reason": "zsh always clauses parse in this fixture"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__lib__prompt_info_functions.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh line-continued multi-name function headers now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__keychain__keychain.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh nameless function keyword commands now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__macos__music": {
+    "expectation": "parse_ok",
+    "reason": "zsh multi-name function keyword headers with trailing parens now parse in zsh mode"
+  },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__virtualenvwrapper__virtualenvwrapper.plugin.zsh": {
     "expectation": "parse_ok",
     "reason": "zsh anonymous function commands now parse in zsh mode"
