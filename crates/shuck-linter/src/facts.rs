@@ -3585,9 +3585,22 @@ fn conditional_binary_operator_family(operator: ConditionalBinaryOp) -> Conditio
 
 fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     let mut index = 0usize;
+    let mut pending_dynamic_option_arg = false;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
+            if word_starts_with_literal_dash(word, source) {
+                pending_dynamic_option_arg = true;
+                index += 1;
+                continue;
+            }
+
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
             break;
         };
 
@@ -3596,9 +3609,16 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
         }
 
         if !text.starts_with('-') || text == "-" {
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
             break;
         }
 
+        pending_dynamic_option_arg = false;
         let mut chars = text[1..].chars().peekable();
         while let Some(flag) = chars.next() {
             if flag == 'r' {
@@ -3617,6 +3637,13 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     }
 
     false
+}
+
+fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
+    matches!(
+        word.parts_with_spans().next(),
+        Some((WordPart::Literal(text), span)) if text.as_str(source, span).starts_with('-')
+    )
 }
 
 fn option_takes_argument(flag: char) -> bool {
@@ -4056,6 +4083,50 @@ mod tests {
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn summarizes_builtin_wrapped_reads() {
+        let source = "#!/bin/bash\nbuiltin read response\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let read = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("read"))
+            .expect("expected builtin-wrapped read fact");
+
+        assert_eq!(read.wrappers(), &[WrapperKind::Builtin]);
+        assert_eq!(
+            read.options().read().map(|read| read.uses_raw_input),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn keeps_read_raw_input_when_option_flags_are_dynamic() {
+        let source = "#!/bin/bash\nbuiltin read -${_read_char_flag} 1 -s -r anykey\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let read = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("read"))
+            .expect("expected dynamic-option read fact");
+
+        assert_eq!(read.wrappers(), &[WrapperKind::Builtin]);
+        assert_eq!(
+            read.options().read().map(|read| read.uses_raw_input),
+            Some(true)
+        );
     }
 
     #[test]

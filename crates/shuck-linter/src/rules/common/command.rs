@@ -6,6 +6,7 @@ use shuck_ast::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WrapperKind {
     Command,
+    Builtin,
     Exec,
     Busybox,
     FindExec,
@@ -249,6 +250,10 @@ fn resolve_command_resolution(
             kind: WrapperKind::Command,
             target_index: command_wrapper_target_index(words, current_index, source),
         }),
+        "builtin" => Some(CommandResolution::Wrapper {
+            kind: WrapperKind::Builtin,
+            target_index: words.get(current_index + 1).map(|_| current_index + 1),
+        }),
         "exec" => Some(CommandResolution::Wrapper {
             kind: WrapperKind::Exec,
             target_index: exec_wrapper_target_index(words, current_index, source),
@@ -466,6 +471,13 @@ mod tests {
                 Some("printf"),
                 vec![WrapperKind::Command],
                 ("printf", Some("'%s\\n'")),
+            ),
+            (
+                "builtin read line\n",
+                Some("builtin"),
+                Some("read"),
+                vec![WrapperKind::Builtin],
+                ("read", Some("line")),
             ),
             (
                 "exec printf '%s\\n' hi\n",
