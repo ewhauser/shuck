@@ -26,7 +26,7 @@ pub use shuck_format::IndentStyle;
 pub type ShellFormatter<'source, 'buf> =
     shuck_format::Formatter<context::ShellFormatContext<'source>>;
 
-pub trait FormatNodeRule<N> {
+pub(crate) trait FormatNodeRule<N> {
     fn fmt(&self, node: &N, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()>;
 }
 
