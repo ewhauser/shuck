@@ -30,6 +30,7 @@ pub(crate) struct BuildOutput {
     pub(crate) bindings: Vec<Binding>,
     pub(crate) references: Vec<Reference>,
     pub(crate) predefined_runtime_refs: FxHashSet<ReferenceId>,
+    pub(crate) guarded_parameter_refs: FxHashSet<ReferenceId>,
     pub(crate) binding_index: FxHashMap<Name, Vec<BindingId>>,
     pub(crate) resolved: FxHashMap<ReferenceId, BindingId>,
     pub(crate) unresolved: Vec<ReferenceId>,
@@ -55,6 +56,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     bindings: Vec<Binding>,
     references: Vec<Reference>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
+    guarded_parameter_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, Vec<BindingId>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -121,6 +123,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             bindings: Vec::new(),
             references: Vec::new(),
             predefined_runtime_refs: FxHashSet::default(),
+            guarded_parameter_refs: FxHashSet::default(),
             binding_index: FxHashMap::default(),
             resolved: FxHashMap::default(),
             unresolved: Vec::new(),
@@ -153,6 +156,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             bindings: builder.bindings,
             references: builder.references,
             predefined_runtime_refs: builder.predefined_runtime_refs,
+            guarded_parameter_refs: builder.guarded_parameter_refs,
             binding_index: builder.binding_index,
             resolved: builder.resolved,
             unresolved: builder.unresolved,
@@ -382,6 +386,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
                 DeclOperand::Name(name) => {
                     self.visit_var_ref_subscript_words(
+                        Some(&name.name),
                         name.subscript.as_ref(),
                         WordVisitKind::Expansion,
                         flow,
@@ -844,6 +849,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
         self.visit_var_ref_subscript_words(
+            Some(&assignment.target.name),
             assignment.target.subscript.as_ref(),
             WordVisitKind::Expansion,
             flow,
@@ -863,6 +869,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             (kind, self.current_scope())
         });
         attributes |= assignment_binding_attributes(assignment);
+        if assignment.target.subscript.is_some()
+            && !attributes.contains(BindingAttributes::ASSOC)
+            && self
+                .resolve_reference(
+                    &assignment.target.name,
+                    self.current_scope(),
+                    assignment.target.name_span.start.offset,
+                )
+                .map(|binding_id| {
+                    self.bindings[binding_id.index()]
+                        .attributes
+                        .contains(BindingAttributes::ASSOC)
+                })
+                .unwrap_or(false)
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
 
         let binding = self.add_binding(
             &assignment.target.name,
@@ -935,7 +958,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_word_into(word, kind, flow, nested_regions)
                 }
                 ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                    self.visit_var_ref_subscript_words(Some(key), kind, flow, nested_regions);
+                    self.visit_var_ref_subscript_words(None, Some(key), kind, flow, nested_regions);
                     self.visit_word_into(value, kind, flow, nested_regions);
                 }
             }
@@ -1052,9 +1075,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
         span: Span,
-    ) {
-        self.add_reference(&reference.name, reference_kind, span);
+    ) -> ReferenceId {
+        let id = self.add_reference(&reference.name, reference_kind, span);
         self.visit_var_ref_subscript_words(
+            Some(&reference.name),
             reference.subscript.as_ref(),
             if matches!(reference_kind, ReferenceKind::ConditionalOperand) {
                 WordVisitKind::Conditional
@@ -1064,10 +1088,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             flow,
             nested_regions,
         );
+        id
     }
 
     fn visit_var_ref_subscript_words(
         &mut self,
+        owner_name: Option<&Name>,
         subscript: Option<&Subscript>,
         kind: WordVisitKind,
         flow: FlowState,
@@ -1076,11 +1102,25 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let Some(subscript) = subscript else {
             return;
         };
-        if let Some(expression) = subscript.arithmetic_ast.as_ref() {
-            nested_regions.extend(self.visit_optional_arithmetic_expr(Some(expression), flow));
+        if subscript.selector().is_some() {
             return;
         }
-        if subscript.selector().is_some() {
+        let uses_associative_word_semantics = matches!(
+            subscript.interpretation,
+            shuck_ast::SubscriptInterpretation::Associative
+        ) || owner_name.is_some_and(|name| {
+            self.resolve_reference(name, self.current_scope(), subscript.span().start.offset)
+                .map(|binding_id| {
+                    self.bindings[binding_id.index()]
+                        .attributes
+                        .contains(BindingAttributes::ASSOC)
+                })
+                .unwrap_or(false)
+        });
+        if !uses_associative_word_semantics
+            && let Some(expression) = subscript.arithmetic_ast.as_ref()
+        {
+            nested_regions.extend(self.visit_optional_arithmetic_expr(Some(expression), flow));
             return;
         }
 
@@ -1147,7 +1187,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 operator,
                 ..
             } => {
-                self.visit_var_ref_reference(
+                let reference_id = self.visit_var_ref_reference(
                     reference,
                     if matches!(operator, ParameterOp::Error) {
                         ReferenceKind::RequiredRead
@@ -1160,6 +1200,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     span,
                 );
+                if parameter_operator_guards_unset_reference(operator) {
+                    self.guarded_parameter_refs.insert(reference_id);
+                }
+                if matches!(operator, ParameterOp::AssignDefault) {
+                    self.add_parameter_default_binding(reference);
+                }
                 match operator {
                     ParameterOp::RemovePrefixShort { pattern }
                     | ParameterOp::RemovePrefixLong { pattern }
@@ -1400,7 +1446,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     operator,
                     ..
                 } => {
-                    self.visit_var_ref_reference(
+                    let reference_id = self.visit_var_ref_reference(
                         reference,
                         if matches!(operator, ParameterOp::Error) {
                             ReferenceKind::RequiredRead
@@ -1413,6 +1459,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         nested_regions,
                         span,
                     );
+                    if parameter_operator_guards_unset_reference(operator) {
+                        self.guarded_parameter_refs.insert(reference_id);
+                    }
+                    if matches!(operator, ParameterOp::AssignDefault) {
+                        self.add_parameter_default_binding(reference);
+                    }
                     match operator {
                         ParameterOp::RemovePrefixShort { pattern }
                         | ParameterOp::RemovePrefixLong { pattern }
@@ -1995,6 +2047,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         id
     }
 
+    fn add_parameter_default_binding(&mut self, reference: &VarRef) {
+        self.add_binding(
+            &reference.name,
+            BindingKind::ParameterDefaultAssignment,
+            self.current_scope(),
+            reference.name_span,
+            BindingAttributes::empty(),
+        );
+    }
+
     fn add_reference_if_bound(&mut self, name: &Name, kind: ReferenceKind, span: Span) {
         if self
             .resolve_reference(name, self.current_scope(), span.start.offset)
@@ -2248,6 +2310,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             .copied()
             .find(|scope| matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_)))
     }
+}
+
+fn parameter_operator_guards_unset_reference(operator: &ParameterOp) -> bool {
+    matches!(
+        operator,
+        ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+    )
 }
 
 fn declaration_builtin(name: &Name) -> DeclarationBuiltin {

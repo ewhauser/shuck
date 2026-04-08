@@ -109,6 +109,7 @@ pub struct SemanticModel {
     bindings: Vec<Binding>,
     references: Vec<Reference>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
+    guarded_parameter_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, Vec<BindingId>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -158,6 +159,7 @@ impl SemanticModel {
             bindings: built.bindings,
             references: built.references,
             predefined_runtime_refs: built.predefined_runtime_refs,
+            guarded_parameter_refs: built.guarded_parameter_refs,
             binding_index: built.binding_index,
             resolved: built.resolved,
             unresolved: built.unresolved,
@@ -561,6 +563,7 @@ impl SemanticModel {
             bindings: &self.bindings,
             references: &self.references,
             predefined_runtime_refs: &self.predefined_runtime_refs,
+            guarded_parameter_refs: &self.guarded_parameter_refs,
             resolved: &self.resolved,
             call_sites: &self.call_sites,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
@@ -1305,6 +1308,7 @@ done
             "if cond; then VAR=x; fi\necho $VAR\n",
             "f() { local VAR; echo \"$VAR\"; }\nf\n",
             "#!/bin/bash\nf() { local carrier; echo \"${!carrier}\"; }\nf\n",
+            "printf '%s\\n' \"${VAR:-fallback}\" \"${MAYBE:+alt}\" \"${REQ:?missing}\" \"${INIT:=value}\"\nprintf '%s\\n' \"$INIT\"\n",
             "#!/bin/sh\nprintf '%s\\n' \"$HOME\"\n",
             "#!/bin/bash\nprintf '%s\\n' \"$RANDOM\"\n",
         ];
@@ -2095,6 +2099,62 @@ f
     }
 
     #[test]
+    fn guarded_parameter_expansions_are_not_marked_uninitialized() {
+        let source = "\
+printf '%s\\n' \
+  \"${missing_default:-fallback}\" \
+  \"${missing_assign:=value}\" \
+  \"${missing_replace:+alt}\" \
+  \"${missing_error:?missing}\"
+";
+        let mut model = model(source);
+        let unresolved = unresolved_names(&model);
+        let uninitialized = uninitialized_names(&mut model);
+
+        assert_names_present(
+            &[
+                "missing_default",
+                "missing_assign",
+                "missing_replace",
+                "missing_error",
+            ],
+            &unresolved,
+        );
+        assert_names_absent(
+            &[
+                "missing_default",
+                "missing_assign",
+                "missing_replace",
+                "missing_error",
+            ],
+            &uninitialized,
+        );
+    }
+
+    #[test]
+    fn assign_default_parameter_expansion_initializes_later_reads() {
+        let source = "\
+printf '%s\\n' \"${config_path:=/tmp/default}\"
+printf '%s\\n' \"$config_path\" \"$still_missing\"
+";
+        let mut model = model(source);
+        let uninitialized = uninitialized_names(&mut model);
+
+        assert_names_absent(&["config_path"], &uninitialized);
+        assert_names_present(&["still_missing"], &uninitialized);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "config_path"
+                    && matches!(binding.kind, BindingKind::ParameterDefaultAssignment)
+            })
+            .unwrap();
+        assert_eq!(binding.span.slice(source), "config_path");
+    }
+
+    #[test]
     fn detects_dead_code_after_exit() {
         let source = "exit 0\necho dead\n";
         let mut model = model(source);
@@ -2751,6 +2811,29 @@ declare -A map=([\"$other\"]=1)
             .find(|reference| reference.name == "other")
             .expect("expected declaration subscript reference");
         assert_eq!(declaration_reference.kind, ReferenceKind::Expansion);
+    }
+
+    #[test]
+    fn associative_subscript_literals_do_not_register_variable_reads() {
+        let source = "\
+#!/bin/bash
+declare -A map
+map[swift-cmark]=1
+printf '%s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
+";
+        let model = model(source);
+        let unresolved = unresolved_names(&model);
+
+        assert_names_absent(&["swift", "cmark"], &unresolved);
+        assert_names_present(&["dynamic_key"], &unresolved);
+        assert!(
+            model
+                .bindings()
+                .iter()
+                .rev()
+                .find(|binding| binding.name == "map")
+                .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+        );
     }
 
     #[test]

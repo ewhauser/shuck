@@ -26,6 +26,7 @@ pub struct Binding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingKind {
     Assignment,
+    ParameterDefaultAssignment,
     AppendAssignment,
     ArrayAssignment,
     Declaration(DeclarationBuiltin),

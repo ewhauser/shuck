@@ -824,7 +824,7 @@ f
     }
 
     #[test]
-    fn name_only_local_declaration_read_is_reported_as_uninitialized() {
+    fn name_only_local_declaration_read_is_not_reported_as_uninitialized() {
         let diagnostics = lint_for_rule(
             "\
 #!/bin/bash
@@ -837,9 +837,7 @@ f
             Rule::UndefinedVariable,
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
-        assert!(diagnostics[0].message.contains("foo"));
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -890,7 +888,7 @@ printf '%s\\n' \"${!foo}\"
     }
 
     #[test]
-    fn undefined_variable_reports_definite_and_possible_reads() {
+    fn undefined_variable_ignores_names_bound_anywhere_in_the_file() {
         let source = "\
 #!/bin/bash
 echo \"$missing\"
@@ -898,24 +896,23 @@ if true; then
   maybe=1
 fi
 echo \"$maybe\"
+echo \"$late\"
+late=1
+helper() {
+  printf '%s\\n' \"$package\" \"$seeded_elsewhere\"
+}
+seed() {
+  local seeded_elsewhere=1
+}
+package=readline
+helper
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("missing"));
-        assert!(
-            diagnostics[0]
-                .message
-                .contains("referenced before assignment")
-        );
-        assert_eq!(diagnostics[1].rule, Rule::UndefinedVariable);
-        assert!(diagnostics[1].message.contains("maybe"));
-        assert!(
-            diagnostics[1]
-                .message
-                .contains("may be referenced before assignment")
-        );
+        assert!(diagnostics[0].message.contains("referenced before assignment"));
     }
 
     #[test]
@@ -964,6 +961,39 @@ printf '%s %s\\n' \"$foo\" \"$Foo_BAR\"
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("Foo_BAR"))
         );
+    }
+
+    #[test]
+    fn undefined_variable_ignores_guarded_parameter_expansions() {
+        let source = "\
+#!/bin/sh
+printf '%s %s %s %s\\n' \
+  \"${missing_default:-fallback}\" \
+  \"${missing_assign:=value}\" \
+  \"${missing_replace:+alt}\" \
+  \"${missing_error:?missing}\"
+printf '%s %s\\n' \"$missing_assign\" \"$plain_missing\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("plain_missing"));
+    }
+
+    #[test]
+    fn undefined_variable_ignores_associative_subscript_literals() {
+        let source = "\
+#!/bin/bash
+declare -A map
+map[swift-cmark]=1
+printf '%s %s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("dynamic_key"));
     }
 
     #[test]

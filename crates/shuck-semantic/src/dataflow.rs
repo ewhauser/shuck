@@ -66,6 +66,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) bindings: &'a [Binding],
     pub(crate) references: &'a [Reference],
     pub(crate) predefined_runtime_refs: &'a FxHashSet<ReferenceId>,
+    pub(crate) guarded_parameter_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, Vec<CallSite>>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
@@ -108,6 +109,7 @@ pub(crate) fn analyze_uninitialized_references(
         context.bindings,
         context.references,
         context.predefined_runtime_refs,
+        context.guarded_parameter_refs,
         context.resolved,
         context.indirect_targets_by_reference,
         &names,
@@ -142,6 +144,7 @@ pub(crate) fn analyze(context: &DataflowContext<'_>) -> DataflowResult {
         context.bindings,
         context.references,
         context.predefined_runtime_refs,
+        context.guarded_parameter_refs,
         context.resolved,
         context.indirect_targets_by_reference,
         &names,
@@ -165,6 +168,7 @@ fn analyze_uninitialized_references_dense(
     bindings: &[Binding],
     references: &[Reference],
     predefined_runtime_refs: &FxHashSet<ReferenceId>,
+    guarded_parameter_refs: &FxHashSet<ReferenceId>,
     resolved: &FxHashMap<ReferenceId, BindingId>,
     indirect_targets_by_reference: &FxHashMap<ReferenceId, Vec<BindingId>>,
     names: &NameTable,
@@ -207,6 +211,7 @@ fn analyze_uninitialized_references_dense(
             reference.kind,
             ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
         ) || predefined_runtime_refs.contains(&reference.id)
+            || guarded_parameter_refs.contains(&reference.id)
         {
             continue;
         }
@@ -637,6 +642,7 @@ fn participates_in_unused_assignment_reporting(
 ) -> bool {
     match kind {
         BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
         | BindingKind::ArrayAssignment
         | BindingKind::LoopVariable
@@ -1481,6 +1487,7 @@ fn binding_initializes_name(binding: &Binding) -> bool {
             .contains(BindingAttributes::DECLARATION_INITIALIZED),
         BindingKind::FunctionDefinition | BindingKind::Imported => false,
         BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
         | BindingKind::ArrayAssignment
         | BindingKind::LoopVariable

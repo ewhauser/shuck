@@ -1,4 +1,4 @@
-use shuck_semantic::{ReferenceKind, UninitializedCertainty};
+use shuck_semantic::{BindingKind, ReferenceKind, UninitializedCertainty};
 
 use crate::{Checker, Rule, Violation};
 
@@ -42,6 +42,16 @@ pub fn undefined_variable(checker: &mut Checker) {
         if is_environment_style_name(reference.name.as_str()) {
             continue;
         }
+        if checker
+            .semantic()
+            .bindings_for(&reference.name)
+            .iter()
+            .any(|binding_id| {
+                is_sc2154_defining_binding(checker.semantic().binding(*binding_id).kind)
+            })
+        {
+            continue;
+        }
 
         checker.report(
             UndefinedVariable {
@@ -63,4 +73,8 @@ fn is_environment_style_name(name: &str) -> bool {
         && name
             .chars()
             .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '_')
+}
+
+fn is_sc2154_defining_binding(kind: BindingKind) -> bool {
+    !matches!(kind, BindingKind::FunctionDefinition | BindingKind::Imported)
 }

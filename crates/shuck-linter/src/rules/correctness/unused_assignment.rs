@@ -58,7 +58,7 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
-        BindingKind::AppendAssignment => false,
+        BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment => false,
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
         }
