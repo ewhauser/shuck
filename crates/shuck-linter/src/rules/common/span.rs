@@ -111,6 +111,11 @@ fn collect_array_expansion_spans(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_array_expansion_spans(parts, true, only_unquoted, spans)
             }
+            WordPart::Variable(name)
+                if matches!(name.as_str(), "@" | "*") && (!quoted || !only_unquoted) =>
+            {
+                spans.push(part.span);
+            }
             WordPart::ArrayAccess(reference)
                 if reference.has_array_selector() && (!quoted || !only_unquoted) =>
             {
@@ -136,6 +141,9 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => collect_expansion_spans(parts, spans),
+            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {
+                spans.push(part.span)
+            }
             WordPart::Variable(_)
             | WordPart::ZshQualifiedGlob(_)
             | WordPart::CommandSubstitution { .. }
@@ -168,6 +176,7 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>)
                     spans.push(part.span);
                 }
             }
+            WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
             WordPart::Variable(_)
             | WordPart::ArithmeticExpansion { .. }
             | WordPart::ParameterExpansion { .. }
@@ -293,6 +302,7 @@ mod tests {
             panic!("expected simple command");
         };
 
+        assert_eq!(command.args.len(), 4);
         assert_eq!(
             array_expansion_part_spans(&command.args[1], source)
                 .iter()
@@ -325,6 +335,31 @@ mod tests {
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${assoc[\"key\"]}"]
+        );
+    }
+
+    #[test]
+    fn positional_parameters_are_treated_like_array_splats() {
+        let source = "printf '%s\\n' $@ $* \"$@\" \"$*\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            array_expansion_part_spans(&command.args[1], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+        assert_eq!(
+            array_expansion_part_spans(&command.args[2], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$*"]
         );
     }
 }

@@ -541,6 +541,12 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
             false,
             true,
         ),
+        WordPart::Variable(name) if matches!(name.as_str(), "@") => {
+            array_part(true, false, false, false)
+        }
+        WordPart::Variable(name) if matches!(name.as_str(), "*") => {
+            array_part(!in_double_quotes, !in_double_quotes, false, false)
+        }
         WordPart::Variable(_)
         | WordPart::ArithmeticExpansion { .. }
         | WordPart::Length(_)

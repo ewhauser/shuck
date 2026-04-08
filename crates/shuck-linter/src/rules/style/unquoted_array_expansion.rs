@@ -111,4 +111,24 @@ done
             vec!["${arr[@]}", "${arr[@]}"]
         );
     }
+
+    #[test]
+    fn reports_positional_parameter_expansions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' $@ $*
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@", "$*"]
+        );
+    }
 }

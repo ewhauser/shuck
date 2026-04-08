@@ -105,6 +105,20 @@ fn test_parse_variable() {
 }
 
 #[test]
+fn test_parse_positional_parameters() {
+    let parser = Parser::new("echo $@ $*");
+    let script = parser.parse().unwrap().file;
+
+    if let AstCommand::Simple(cmd) = &script.body[0].command {
+        assert_eq!(cmd.args.len(), 2);
+        assert!(matches!(&cmd.args[0].parts[0].kind, WordPart::Variable(v) if v == "@"));
+        assert!(matches!(&cmd.args[1].parts[0].kind, WordPart::Variable(v) if v == "*"));
+    } else {
+        panic!("expected simple command");
+    }
+}
+
+#[test]
 fn test_function_keyword_without_parens_preserves_surface_form() {
     let input = "function inc { :; }\n";
     let script = Parser::new(input).parse().unwrap().file;
