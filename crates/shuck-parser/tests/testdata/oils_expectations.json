@@ -219,6 +219,10 @@
     "expectation": "parse_ok",
     "reason": "the quoted continuation in this fixture now parses"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__globalias__globalias.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh conditional operands with contextual subscripts now parse in this fixture"
+  },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__scd__scd.plugin.zsh": {
     "expectation": "parse_ok",
     "reason": "zsh compact function brace bodies are supported"
@@ -250,6 +254,10 @@
   "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__internal__configure.zsh": {
     "expectation": "parse_ok",
     "reason": "zsh always clauses parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__gitstatus__gitstatus.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh conditional pattern operands with inline controls now parse in this fixture"
   },
   "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-loop.zsh": {
     "expectation": "parse_ok",
@@ -434,6 +442,42 @@
   "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_case_semipipe": {
     "expectation": "parse_ok",
     "reason": "regression minimization for zsh ;| case terminators"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_conditional_subscript_unary": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh unary conditional operands with contextual subscripts"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_conditional_subscript_arith": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh arithmetic conditional operands with contextual subscripts"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_conditional_pattern_backrefs": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh conditional patterns with backreferences and parameter words"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_conditional_pattern_anchors": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh conditional patterns with start and end anchors"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_conditional_pattern_bare_group": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh conditional patterns with bare alternation groups"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_arithmetic_subscript_ref": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh arithmetic shell words with contextual subscripts"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_arithmetic_char_literal": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh arithmetic character literals"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_parameter_modifier_groups": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh parameter modifier groups with delimiter arguments"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_parameter_word_target": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh parameter word targets"
   },
   "oils/zsh-large-corpus-regressions.test.sh": {
     "expectation": "skip",

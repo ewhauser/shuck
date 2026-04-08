@@ -1300,6 +1300,7 @@ fn rewrite_parameter_source_texts(
                 ZshExpansionTarget::Reference(reference) => {
                     rewrite_var_ref_source_texts(reference, source, visitor)
                 }
+                ZshExpansionTarget::Word(word) => rewrite_word_source_texts(word, source, visitor),
                 ZshExpansionTarget::Nested(parameter) => {
                     rewrite_parameter_source_texts(parameter, source, visitor)
                 }
@@ -1473,15 +1474,24 @@ fn render_zsh_parameter_raw_body(
     source: &str,
 ) -> String {
     let mut rendered = String::new();
+    let mut modifier_index = 0usize;
 
-    for modifier in &syntax.modifiers {
+    while modifier_index < syntax.modifiers.len() {
+        let group_span = syntax.modifiers[modifier_index].span;
         rendered.push('(');
-        rendered.push(modifier.name);
-        if let Some(delimiter) = modifier.argument_delimiter {
-            rendered.push(delimiter);
-        }
-        if let Some(argument) = &modifier.argument {
-            rendered.push_str(argument.slice(source));
+        while modifier_index < syntax.modifiers.len()
+            && syntax.modifiers[modifier_index].span == group_span
+        {
+            let modifier = &syntax.modifiers[modifier_index];
+            rendered.push(modifier.name);
+            if let Some(delimiter) = modifier.argument_delimiter {
+                rendered.push(delimiter);
+                if let Some(argument) = &modifier.argument {
+                    rendered.push_str(argument.slice(source));
+                }
+                rendered.push(delimiter);
+            }
+            modifier_index += 1;
         }
         rendered.push(')');
     }
@@ -1489,6 +1499,9 @@ fn render_zsh_parameter_raw_body(
     match &syntax.target {
         ZshExpansionTarget::Reference(reference) => {
             rendered.push_str(&render_var_ref_syntax(reference, source));
+        }
+        ZshExpansionTarget::Word(word) => {
+            rendered.push_str(&word.render(source));
         }
         ZshExpansionTarget::Nested(parameter) => {
             rendered.push_str("${");

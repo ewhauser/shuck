@@ -1547,6 +1547,7 @@ fn collect_presence_tested_names_from_parameter_expansion(
             shuck_ast::ZshExpansionTarget::Reference(reference) => {
                 names.insert(reference.name.clone());
             }
+            shuck_ast::ZshExpansionTarget::Word(_) => {}
             shuck_ast::ZshExpansionTarget::Nested(parameter) => {
                 collect_presence_tested_names_from_parameter_expansion(parameter, names);
             }

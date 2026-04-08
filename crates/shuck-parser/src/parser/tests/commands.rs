@@ -1546,6 +1546,127 @@ fn test_parse_conditional_pattern_rhs_preserves_structure() {
 }
 
 #[test]
+fn test_parse_zsh_conditional_unary_operand_with_subscripted_word() {
+    let input = "[[ -z $opts[(r)-P] ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Unary(unary) = &command.expression else {
+        panic!("expected unary conditional");
+    };
+    assert_eq!(unary.op, ConditionalUnaryOp::EmptyString);
+
+    let ConditionalExpr::Word(word) = unary.expr.as_ref() else {
+        panic!("expected word operand");
+    };
+    assert_eq!(word.render(input), "$opts[(r)-P]");
+}
+
+#[test]
+fn test_parse_zsh_conditional_arithmetic_comparison_operand_with_subscripted_word() {
+    let input = "[[ $GLOBALIAS_FILTER_VALUES[(Ie)$word] -eq 0 ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::ArithmeticEq);
+
+    let ConditionalExpr::Word(left) = binary.left.as_ref() else {
+        panic!("expected word operand on left");
+    };
+    assert_eq!(left.render(input), "$GLOBALIAS_FILTER_VALUES[(Ie)$word]");
+}
+
+#[test]
+fn test_parse_zsh_conditional_pattern_rhs_with_backrefs_and_parameter_expansion() {
+    let input = "[[ \"$buf\" == (#b)(*)(${~pat})* ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::PatternEq);
+
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(pattern.render(input), "(#b)(*)(${~pat})*");
+}
+
+#[test]
+fn test_parse_zsh_conditional_pattern_rhs_with_inline_anchors() {
+    let input = "[[ $buffer != (#s)[$'\\t -~']#(#e) ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::PatternNe);
+
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(pattern.render(input), "(#s)[\t -~]#(#e)");
+}
+
+#[test]
+fn test_parse_zsh_conditional_pattern_rhs_accepts_bare_alternation_groups() {
+    let input = "[[ $OPTARG != (|+|-)<->(|.<->)(|[eE](|-|+)<->) ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::PatternNe);
+
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(pattern.render(input), "(|+|-)<->(|.<->)(|[eE](|-|+)<->)");
+    assert!(!pattern.parts.is_empty());
+}
+
+#[test]
 fn test_parse_conditional_var_ref_operand() {
     let input = "[[ -v assoc[$key] ]]\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -1607,7 +1728,7 @@ fn test_parse_conditional_regex_rhs_with_double_left_paren_groups() {
     let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
         panic!("expected regex rhs");
     };
-    assert_eq!(word.render(input), "^\"-1[[:blank:]]((\\?[luds])+).*");
+    assert_eq!(word.render(input), "^\\\"\\-1[[:blank:]]((\\?[luds])+).*");
 }
 
 #[test]

@@ -15,6 +15,7 @@ enum PatternSegment<'a> {
 enum PatternParseMode {
     Standard,
     ZshCase,
+    ZshConditional,
 }
 
 struct PatternParser<'a> {
@@ -197,7 +198,10 @@ impl<'a> PatternParser<'a> {
         &self,
         cursor: PatternCursor,
     ) -> Option<(PatternPartNode, PatternCursor)> {
-        if self.mode != PatternParseMode::ZshCase {
+        if !matches!(
+            self.mode,
+            PatternParseMode::ZshCase | PatternParseMode::ZshConditional
+        ) {
             return None;
         }
 
@@ -497,6 +501,15 @@ impl<'a> PatternParser<'a> {
 impl<'a> Parser<'a> {
     pub(super) fn pattern_from_word(&self, word: &Word) -> Pattern {
         PatternParser::new(self.input, word).parse()
+    }
+
+    pub(super) fn pattern_from_conditional_word(&self, word: &Word) -> Pattern {
+        let mode = if self.dialect == ShellDialect::Zsh {
+            PatternParseMode::ZshConditional
+        } else {
+            PatternParseMode::Standard
+        };
+        PatternParser::with_mode(self.input, word, mode).parse()
     }
 
     pub(super) fn pattern_from_zsh_case_span(&mut self, span: Span) -> Pattern {
@@ -1494,6 +1507,8 @@ impl<'a> Parser<'a> {
             ZshGlobSegment::InlineControl(control) => match control {
                 ZshInlineGlobControl::CaseInsensitive { .. } => out.push_str("(#i)"),
                 ZshInlineGlobControl::Backreferences { .. } => out.push_str("(#b)"),
+                ZshInlineGlobControl::StartAnchor { .. } => out.push_str("(#s)"),
+                ZshInlineGlobControl::EndAnchor { .. } => out.push_str("(#e)"),
             },
         }
     }
@@ -2667,7 +2682,10 @@ impl<'a> Parser<'a> {
                 let brace_body_start = cursor;
 
                 if self.dialect.features().zsh_parameter_modifiers
-                    && matches!(chars.peek(), Some(&'(') | Some(&':'))
+                    && matches!(
+                        chars.peek(),
+                        Some(&'(') | Some(&':') | Some(&'^') | Some(&'~')
+                    )
                 {
                     let raw_body = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                     let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);

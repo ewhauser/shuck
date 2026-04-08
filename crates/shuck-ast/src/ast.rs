@@ -1348,6 +1348,7 @@ pub struct ZshParameterExpansion {
 pub enum ZshExpansionTarget {
     Reference(VarRef),
     Nested(Box<ParameterExpansion>),
+    Word(Word),
     Empty,
 }
 
@@ -1436,6 +1437,8 @@ pub enum ZshGlobSegment {
 pub enum ZshInlineGlobControl {
     CaseInsensitive { span: Span },
     Backreferences { span: Span },
+    StartAnchor { span: Span },
+    EndAnchor { span: Span },
 }
 
 /// Surface form for a terminal zsh glob qualifier suffix.
@@ -2659,6 +2662,8 @@ fn fmt_zsh_inline_glob_control_with_source(
     match control {
         ZshInlineGlobControl::CaseInsensitive { .. } => f.write_str("(#i)"),
         ZshInlineGlobControl::Backreferences { .. } => f.write_str("(#b)"),
+        ZshInlineGlobControl::StartAnchor { .. } => f.write_str("(#s)"),
+        ZshInlineGlobControl::EndAnchor { .. } => f.write_str("(#e)"),
     }
 }
 

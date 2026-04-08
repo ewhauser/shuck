@@ -5,7 +5,7 @@ use shuck_ast::{
 
 use crate::error::{Error, Result};
 
-use super::Parser;
+use super::{Parser, ShellDialect};
 
 #[derive(Debug, Clone)]
 enum TokenKind {
@@ -74,10 +74,11 @@ impl Token {
 pub(super) fn parse_expression(
     input: &str,
     base: Span,
+    dialect: ShellDialect,
     max_depth: usize,
     max_fuel: usize,
 ) -> Result<ArithmeticExprNode> {
-    let mut parser = ArithmeticParser::new(input, base, max_depth, max_fuel);
+    let mut parser = ArithmeticParser::new(input, base, dialect, max_depth, max_fuel);
     let expr = parser.parse_expression()?;
     if !matches!(parser.peek_token()?.kind, TokenKind::End) {
         let trailing_start = parser.peek_token()?.span.start;
@@ -89,6 +90,7 @@ pub(super) fn parse_expression(
 struct ArithmeticParser<'a> {
     input: &'a str,
     base: Span,
+    dialect: ShellDialect,
     index: usize,
     peeked: Option<Token>,
     max_depth: usize,
@@ -97,10 +99,17 @@ struct ArithmeticParser<'a> {
 }
 
 impl<'a> ArithmeticParser<'a> {
-    fn new(input: &'a str, base: Span, max_depth: usize, max_fuel: usize) -> Self {
+    fn new(
+        input: &'a str,
+        base: Span,
+        dialect: ShellDialect,
+        max_depth: usize,
+        max_fuel: usize,
+    ) -> Self {
         Self {
             input,
             base,
+            dialect,
             index: 0,
             peeked: None,
             max_depth,
@@ -513,6 +522,13 @@ impl<'a> ArithmeticParser<'a> {
             self.lex_identifier_or_word(start)?
         } else if ch.is_ascii_digit() {
             self.lex_number(start)
+        } else if ch == '#'
+            && self.dialect == ShellDialect::Zsh
+            && self
+                .char_at(start + 1)
+                .is_some_and(|next| !next.is_whitespace())
+        {
+            self.lex_zsh_char_literal(start)
         } else {
             match ch {
                 '(' => self.simple_token(start, ch.len_utf8(), TokenKind::LeftParen),
@@ -689,6 +705,18 @@ impl<'a> ArithmeticParser<'a> {
         }
     }
 
+    fn lex_zsh_char_literal(&mut self, start: usize) -> Token {
+        let next = self
+            .char_at(start + 1)
+            .expect("zsh char literal requires a following character");
+        let end = start + 1 + next.len_utf8();
+        self.index = end;
+        Token {
+            kind: TokenKind::Number(SourceText::source(self.span_for(start, end))),
+            span: self.span_for(start, end),
+        }
+    }
+
     fn lex_shell_word(&mut self, start: usize) -> Result<Token> {
         let end = self.scan_shell_word_end(start)?;
         let raw = &self.input[start..end];
@@ -773,7 +801,7 @@ impl<'a> ArithmeticParser<'a> {
         let Some(next) = self.char_at(start + 1) else {
             return Ok(start + 1);
         };
-        match next {
+        let mut index = match next {
             '\'' | '"' => {
                 if next == '\'' {
                     self.consume_single_quoted(start + 1)
@@ -789,6 +817,19 @@ impl<'a> ArithmeticParser<'a> {
                     self.consume_command_substitution(start)
                 }
             }
+            '+' if self.dialect == ShellDialect::Zsh
+                && self.char_at(start + 2).is_some_and(is_ident_start) =>
+            {
+                let mut index = start + 2;
+                while let Some(ch) = self.char_at(index) {
+                    if is_ident_continue(ch) {
+                        index += ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+                Ok(index)
+            }
             ch if is_special_parameter(ch) => Ok(start + 1 + ch.len_utf8()),
             ch if is_ident_start(ch) => {
                 let mut index = start + 1 + ch.len_utf8();
@@ -803,7 +844,86 @@ impl<'a> ArithmeticParser<'a> {
             }
             ch if ch.is_ascii_digit() => Ok(start + 1 + ch.len_utf8()),
             _ => Ok(start + 1),
+        }?;
+
+        if self.dialect == ShellDialect::Zsh {
+            while self.char_at(index) == Some('[') {
+                index = self.consume_zsh_subscript(index)?;
+            }
         }
+
+        Ok(index)
+    }
+
+    fn consume_zsh_subscript(&self, start: usize) -> Result<usize> {
+        let mut index = start + 1;
+        let mut depth = 1usize;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while index < self.input.len() {
+            let ch = self.char_at(index).unwrap();
+            if escaped {
+                escaped = false;
+                index += ch.len_utf8();
+                continue;
+            }
+            if in_single {
+                index += ch.len_utf8();
+                if ch == '\'' {
+                    in_single = false;
+                }
+                continue;
+            }
+            if in_double {
+                match ch {
+                    '"' => {
+                        in_double = false;
+                        index += 1;
+                    }
+                    '\\' => index = self.consume_escape(index),
+                    '$' => index = self.consume_dollar(index)?,
+                    '`' => index = self.consume_backticks(index)?,
+                    _ => index += ch.len_utf8(),
+                }
+                continue;
+            }
+
+            match ch {
+                '\\' => {
+                    escaped = true;
+                    index += 1;
+                }
+                '\'' => {
+                    in_single = true;
+                    index += 1;
+                }
+                '"' => {
+                    in_double = true;
+                    index += 1;
+                }
+                '$' => index = self.consume_dollar(index)?,
+                '`' => index = self.consume_backticks(index)?,
+                '[' => {
+                    depth += 1;
+                    index += 1;
+                }
+                ']' => {
+                    depth -= 1;
+                    index += 1;
+                    if depth == 0 {
+                        return Ok(index);
+                    }
+                }
+                _ => index += ch.len_utf8(),
+            }
+        }
+
+        Err(self.error_at(
+            self.position_at(start),
+            "unterminated zsh subscript in arithmetic expression",
+        ))
     }
 
     fn consume_braced(&self, start: usize) -> Result<usize> {

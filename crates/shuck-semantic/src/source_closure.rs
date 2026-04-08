@@ -778,6 +778,9 @@ fn walk_parameter_expansion(
                 ZshExpansionTarget::Reference(reference) => {
                     walk_var_ref_subscript(reference, model, source, facts);
                 }
+                ZshExpansionTarget::Word(word) => {
+                    walk_word(word, model, source, facts);
+                }
                 ZshExpansionTarget::Nested(parameter) => {
                     walk_parameter_expansion(parameter, model, source, facts);
                 }

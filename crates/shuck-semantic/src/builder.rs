@@ -1593,6 +1593,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             span,
                         );
                     }
+                    ZshExpansionTarget::Word(word) => {
+                        self.visit_word_into(word, kind, flow, nested_regions);
+                    }
                     ZshExpansionTarget::Nested(parameter) => {
                         self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
                     }

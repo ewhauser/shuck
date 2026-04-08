@@ -1110,6 +1110,26 @@ impl<'a> Parser<'a> {
                     ),
                 },
             )
+        } else if text[start..].starts_with("(#s)") {
+            (
+                "(#s)".len(),
+                ZshInlineGlobControl::StartAnchor {
+                    span: Span::from_positions(
+                        Self::text_position(base, text, start),
+                        Self::text_position(base, text, start + "(#s)".len()),
+                    ),
+                },
+            )
+        } else if text[start..].starts_with("(#e)") {
+            (
+                "(#e)".len(),
+                ZshInlineGlobControl::EndAnchor {
+                    span: Span::from_positions(
+                        Self::text_position(base, text, start),
+                        Self::text_position(base, text, start + "(#e)".len()),
+                    ),
+                },
+            )
         } else {
             return None;
         };
@@ -2399,7 +2419,9 @@ impl<'a> Parser<'a> {
     fn rebase_zsh_inline_glob_control(control: &mut ZshInlineGlobControl, base: Position) {
         match control {
             ZshInlineGlobControl::CaseInsensitive { span }
-            | ZshInlineGlobControl::Backreferences { span } => {
+            | ZshInlineGlobControl::Backreferences { span }
+            | ZshInlineGlobControl::StartAnchor { span }
+            | ZshInlineGlobControl::EndAnchor { span } => {
                 *span = span.rebased(base);
             }
         }
@@ -2479,6 +2501,7 @@ impl<'a> Parser<'a> {
                     ZshExpansionTarget::Reference(reference) => {
                         Self::rebase_var_ref(reference, base)
                     }
+                    ZshExpansionTarget::Word(word) => Self::rebase_word(word, base),
                     ZshExpansionTarget::Nested(parameter) => {
                         parameter.span = parameter.span.rebased(base);
                         parameter.raw_body.rebased(base);
@@ -2905,7 +2928,7 @@ impl<'a> Parser<'a> {
     }
 
     fn zsh_parameter_word_part(
-        &self,
+        &mut self,
         raw_body: SourceText,
         part_start: Position,
         part_end: Position,
@@ -2918,47 +2941,84 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_zsh_parameter_syntax(
+    fn parse_zsh_modifier_group(
         &self,
+        text: &str,
+        base: Position,
+        start: usize,
+    ) -> Option<(usize, Vec<ZshModifier>)> {
+        let rest = text.get(start..)?;
+        if !rest.starts_with('(') {
+            return None;
+        }
+
+        let close_rel = rest[1..].find(')')?;
+        let close = start + 1 + close_rel;
+        let group_text = &text[start..=close];
+        let inner = &text[start + 1..close];
+        let group_start = base.advanced_by(&text[..start]);
+        let group_span = Span::from_positions(group_start, group_start.advanced_by(group_text));
+        let mut modifiers = Vec::new();
+        let mut index = 0usize;
+
+        while index < inner.len() {
+            let name = inner[index..].chars().next()?;
+            index += name.len_utf8();
+
+            let mut argument_delimiter = None;
+            let mut argument = None;
+            if matches!(name, 's' | 'j')
+                && let Some(delimiter) = inner[index..].chars().next()
+            {
+                index += delimiter.len_utf8();
+                let argument_start = index;
+                while index < inner.len() {
+                    let ch = inner[index..].chars().next()?;
+                    if ch == delimiter {
+                        let argument_text = &inner[argument_start..index];
+                        let argument_base =
+                            group_start.advanced_by(&group_text[..1 + argument_start]);
+                        let argument_end = argument_base.advanced_by(argument_text);
+                        argument_delimiter = Some(delimiter);
+                        argument = Some(self.source_text(
+                            argument_text.to_string(),
+                            argument_base,
+                            argument_end,
+                        ));
+                        index += delimiter.len_utf8();
+                        break;
+                    }
+                    index += ch.len_utf8();
+                }
+            }
+
+            modifiers.push(ZshModifier {
+                name,
+                argument,
+                argument_delimiter,
+                span: group_span,
+            });
+        }
+
+        Some((close + 1, modifiers))
+    }
+
+    fn parse_zsh_parameter_syntax(
+        &mut self,
         raw_body: &SourceText,
         base: Position,
     ) -> ZshParameterExpansion {
         let text = raw_body.slice(self.input);
         let mut index = 0;
         let mut modifiers = Vec::new();
+        let source_backed = raw_body.is_source_backed();
 
-        while text[index..].starts_with('(') {
-            let Some(close_rel) = text[index + 1..].find(')') else {
-                break;
-            };
-            let close = index + 1 + close_rel;
-            let modifier_text = &text[index + 1..close];
-            let modifier_start = base.advanced_by(&text[..index]);
-            let modifier_span = Span::from_positions(
-                modifier_start,
-                modifier_start.advanced_by(&text[index..=close]),
-            );
-            let mut chars = modifier_text.chars();
-            let name = chars.next().unwrap_or('?');
-            let rest: String = chars.collect();
-            let (argument_delimiter, argument) = if rest.is_empty() {
-                (None, None)
-            } else {
-                let mut rest_chars = rest.chars();
-                let delimiter = rest_chars.next();
-                let arg = rest_chars.as_str();
-                (
-                    delimiter,
-                    (!arg.is_empty()).then(|| SourceText::from(arg.to_string())),
-                )
-            };
-            modifiers.push(ZshModifier {
-                name,
-                argument,
-                argument_delimiter,
-                span: modifier_span,
-            });
-            index = close + 1;
+        while text[index..].starts_with('(')
+            && let Some((next_index, group_modifiers)) =
+                self.parse_zsh_modifier_group(text, base, index)
+        {
+            modifiers.extend(group_modifiers);
+            index = next_index;
         }
 
         let (target, operation_index) = if text[index..].starts_with("${") {
@@ -2975,11 +3035,20 @@ impl<'a> Parser<'a> {
                 .find_zsh_operation_start(&text[index..])
                 .map(|offset| index + offset)
                 .unwrap_or(text.len());
-            let target_text = text[index..end].trim();
-            let target = if target_text.is_empty() {
+            let raw_target = &text[index..end];
+            let trimmed = raw_target.trim();
+            let target = if trimmed.is_empty() {
                 ZshExpansionTarget::Empty
             } else {
-                ZshExpansionTarget::Reference(self.parse_loose_var_ref(target_text))
+                let leading = raw_target
+                    .len()
+                    .saturating_sub(raw_target.trim_start().len());
+                let target_base = base.advanced_by(&raw_target[..leading]);
+                self.parse_zsh_target_from_text(
+                    trimmed,
+                    target_base,
+                    source_backed && leading == 0 && trimmed.len() == raw_target.len(),
+                )
             };
             (target, end)
         };
@@ -2998,14 +3067,58 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_nested_parameter_target(&self, text: &str) -> ZshExpansionTarget {
+    fn parse_zsh_target_from_text(
+        &mut self,
+        text: &str,
+        base: Position,
+        source_backed: bool,
+    ) -> ZshExpansionTarget {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return ZshExpansionTarget::Empty;
+        }
+
+        if trimmed.starts_with("${") && trimmed.ends_with('}') {
+            return self.parse_nested_parameter_target(trimmed);
+        }
+
+        if let Some(reference) = self.maybe_parse_loose_var_ref_target(trimmed) {
+            return ZshExpansionTarget::Reference(reference);
+        }
+
+        let span = Span::from_positions(base, base.advanced_by(trimmed));
+        let word = self.parse_word_with_context(trimmed, span, base, source_backed);
+        if let Some(reference) =
+            self.parse_var_ref_from_word(&word, SubscriptInterpretation::Contextual)
+        {
+            ZshExpansionTarget::Reference(reference)
+        } else {
+            ZshExpansionTarget::Word(word)
+        }
+    }
+
+    fn maybe_parse_loose_var_ref_target(&self, text: &str) -> Option<VarRef> {
+        let trimmed = text.trim();
+        let name = if let Some(open) = trimmed.find('[') {
+            trimmed.strip_suffix(']')?;
+            &trimmed[..open]
+        } else {
+            trimmed
+        };
+
+        Self::is_valid_identifier(name).then(|| self.parse_loose_var_ref(trimmed))
+    }
+
+    fn parse_nested_parameter_target(&mut self, text: &str) -> ZshExpansionTarget {
         if !(text.starts_with("${") && text.ends_with('}')) {
-            return ZshExpansionTarget::Reference(self.parse_loose_var_ref(text));
+            return self.parse_zsh_target_from_text(text, Position::new(), false);
         }
 
         let raw_body = SourceText::from(text[2..text.len() - 1].to_string());
         let syntax = if raw_body.slice(self.input).starts_with('(')
             || raw_body.slice(self.input).starts_with(':')
+            || raw_body.slice(self.input).starts_with('^')
+            || raw_body.slice(self.input).starts_with('~')
         {
             ParameterExpansionSyntax::Zsh(
                 self.parse_zsh_parameter_syntax(&raw_body, Position::new()),
@@ -3306,6 +3419,7 @@ impl<'a> Parser<'a> {
         arithmetic::parse_expression(
             span.slice(self.input),
             span,
+            self.dialect,
             self.max_depth.saturating_sub(self.current_depth),
             self.fuel,
         )
@@ -3319,6 +3433,7 @@ impl<'a> Parser<'a> {
         arithmetic::parse_expression(
             text.slice(self.input),
             text.span(),
+            self.dialect,
             self.max_depth.saturating_sub(self.current_depth),
             self.fuel,
         )

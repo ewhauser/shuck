@@ -2160,6 +2160,44 @@ case $2 in
   *)                     print -r -- "${bin:-fallback}" ;;
 esac
 
+#### minimization__zsh_conditional_subscript_unary
+
+[[ -z $opts[(r)-P] ]]
+
+#### minimization__zsh_conditional_subscript_arith
+
+[[ $GLOBALIAS_FILTER_VALUES[(Ie)$word] -eq 0 ]]
+
+#### minimization__zsh_conditional_pattern_backrefs
+
+[[ "$buf" == (#b)(*)(${~pat})* ]]
+
+#### minimization__zsh_conditional_pattern_anchors
+
+[[ $buffer != (#s)[$'\t -~']#(#e) ]]
+
+#### minimization__zsh_conditional_pattern_bare_group
+
+[[ $OPTARG != (|+|-)<->(|.<->)(|[eE](|-|+)<->) ]]
+
+#### minimization__zsh_arithmetic_subscript_ref
+
+(( $+aliases[(e)$1] ))
+(( $cmdnames[(Ie)$point] ))
+
+#### minimization__zsh_arithmetic_char_literal
+
+(( #c < 256 / $1 * $1 ))
+(( rnd = (~(1 << 23) & rnd) << 8 | #c ))
+
+#### minimization__zsh_parameter_modifier_groups
+
+print ${(Az)LBUFFER} ${(s./.)_p9k__cwd} ${(pj./.)parts[1,MATCH]}
+
+#### minimization__zsh_parameter_word_target
+
+print ${^$(pidof zsh):#$$}
+
 #### ohmyzsh__ohmyzsh__tools__upgrade.sh
 
 # source: ohmyzsh__ohmyzsh__tools__upgrade.sh

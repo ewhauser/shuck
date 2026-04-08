@@ -563,6 +563,7 @@ impl<'a> Parser<'a> {
                     previous_top_level_operand = false;
                     probe.advance();
                 }
+                Some(TokenKind::Comment) if probe.dialect == ShellDialect::Zsh => return false,
                 Some(_)
                     if paren_depth == 0
                         && probe
@@ -2704,7 +2705,7 @@ impl<'a> Parser<'a> {
             | ConditionalBinaryOp::PatternEq
             | ConditionalBinaryOp::PatternNe => {
                 let word = self.collect_conditional_context_word(stop_at_right_paren)?;
-                ConditionalExpr::Pattern(self.pattern_from_word(&word))
+                ConditionalExpr::Pattern(self.pattern_from_conditional_word(&word))
             }
             _ => ConditionalExpr::Word(self.parse_conditional_operand_word()?),
         };
@@ -2719,6 +2720,12 @@ impl<'a> Parser<'a> {
 
     fn parse_conditional_operand_word(&mut self) -> Result<Word> {
         self.skip_conditional_newlines();
+
+        if let Some(word) = self.current_conditional_source_word(false) {
+            self.advance_past_word(&word);
+            self.restore_conditional_source_delimiter(word.span.end, false);
+            return Ok(word);
+        }
 
         let Some(word) = self
             .current_word()
@@ -2735,6 +2742,156 @@ impl<'a> Parser<'a> {
             .map(Box::new)
             .map(ConditionalExpr::VarRef)
             .unwrap_or(ConditionalExpr::Word(word))
+    }
+
+    fn current_conditional_source_word(&mut self, stop_at_right_paren: bool) -> Option<Word> {
+        let token = self.current_token.as_ref()?;
+        if token.flags.is_synthetic() {
+            return None;
+        }
+
+        let starts_with_paren = matches!(self.current_token_kind, Some(TokenKind::LeftParen));
+
+        if !starts_with_paren && !self.current_token_kind.is_some_and(TokenKind::is_word_like) {
+            return None;
+        }
+
+        let start = self.current_span.start;
+        let (text, end) =
+            self.scan_conditional_source_word(start, stop_at_right_paren, starts_with_paren)?;
+        let span = Span::from_positions(start, end);
+        Some(self.parse_word_with_context(&text, span, start, true))
+    }
+
+    fn scan_conditional_source_word(
+        &self,
+        start: Position,
+        stop_at_right_paren: bool,
+        starts_with_paren: bool,
+    ) -> Option<(String, Position)> {
+        if start.offset >= self.input.len() {
+            return None;
+        }
+
+        let mut cursor = start;
+        let mut text = String::new();
+        let mut paren_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut bracket_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+
+        while cursor.offset < self.input.len() {
+            let rest = &self.input[cursor.offset..];
+            if !in_single
+                && !in_double
+                && !in_backtick
+                && paren_depth == 0
+                && brace_depth == 0
+                && bracket_depth == 0
+            {
+                if rest.starts_with("]]")
+                    || rest.starts_with("&&")
+                    || rest.starts_with("||")
+                    || (!starts_with_paren && rest.starts_with(')'))
+                    || (stop_at_right_paren && rest.starts_with(')'))
+                {
+                    break;
+                }
+
+                let ch = rest.chars().next()?;
+                if matches!(ch, ' ' | '\t' | '\n' | ';') {
+                    break;
+                }
+            }
+
+            let ch = self.input[cursor.offset..].chars().next()?;
+            cursor.advance(ch);
+            text.push(ch);
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '`' if !in_single => in_backtick = !in_backtick,
+                '(' if !in_single && !in_double => paren_depth += 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                '[' if !in_single && !in_double => bracket_depth += 1,
+                ']' if !in_single && !in_double && bracket_depth > 0 => bracket_depth -= 1,
+                _ => {}
+            }
+        }
+
+        (!text.is_empty()).then_some((text, cursor))
+    }
+
+    fn conditional_source_delimiter_after(
+        &self,
+        end: Position,
+        stop_at_right_paren: bool,
+    ) -> Option<(TokenKind, Span)> {
+        let mut cursor = end;
+        while cursor.offset < self.input.len() {
+            let rest = &self.input[cursor.offset..];
+            let ch = rest.chars().next()?;
+            if matches!(ch, ' ' | '\t') {
+                cursor.advance(ch);
+                continue;
+            }
+            break;
+        }
+
+        let rest = self.input.get(cursor.offset..)?;
+        let (kind, text) = if rest.starts_with("]]") {
+            (TokenKind::DoubleRightBracket, "]]")
+        } else if rest.starts_with("&&") {
+            (TokenKind::And, "&&")
+        } else if rest.starts_with("||") {
+            (TokenKind::Or, "||")
+        } else if stop_at_right_paren && rest.starts_with(')') {
+            (TokenKind::RightParen, ")")
+        } else {
+            return None;
+        };
+
+        Some((kind, Span::from_positions(cursor, cursor.advanced_by(text))))
+    }
+
+    fn restore_conditional_source_delimiter(&mut self, end: Position, stop_at_right_paren: bool) {
+        let Some((kind, span)) = self.conditional_source_delimiter_after(end, stop_at_right_paren)
+        else {
+            return;
+        };
+
+        if self.current_token_kind == Some(kind) && self.current_span == span {
+            return;
+        }
+
+        if let Some(current_kind) = self.current_token_kind
+            && matches!(
+                current_kind,
+                TokenKind::Newline
+                    | TokenKind::Semicolon
+                    | TokenKind::And
+                    | TokenKind::Or
+                    | TokenKind::RightParen
+                    | TokenKind::DoubleRightBracket
+            )
+        {
+            self.synthetic_tokens
+                .push_front(SyntheticToken::punctuation(current_kind, self.current_span));
+        }
+
+        self.set_current_kind(kind, span);
     }
 
     fn current_conditional_unary_op(&self) -> Option<ConditionalUnaryOp> {
@@ -2799,6 +2956,12 @@ impl<'a> Parser<'a> {
 
     fn collect_conditional_context_word(&mut self, stop_at_right_paren: bool) -> Result<Word> {
         self.skip_conditional_newlines();
+
+        if let Some(word) = self.current_conditional_source_word(stop_at_right_paren) {
+            self.advance_past_word(&word);
+            self.restore_conditional_source_delimiter(word.span.end, stop_at_right_paren);
+            return Ok(word);
+        }
 
         let mut first_word: Option<Word> = None;
         let mut parts = Vec::new();
@@ -3026,51 +3189,16 @@ impl<'a> Parser<'a> {
     fn parse_arithmetic_command(&mut self) -> Result<CompoundCommand> {
         self.ensure_arithmetic_command()?;
         let left_paren_span = self.current_span;
-        self.advance(); // consume '(('
-
-        let mut depth = 0_i32;
-        let right_paren_span = loop {
-            match self.current_token_kind {
-                Some(TokenKind::DoubleLeftParen) => {
-                    depth += 2;
-                    self.advance();
-                }
-                Some(TokenKind::LeftParen) => {
-                    depth += 1;
-                    self.advance();
-                }
-                Some(TokenKind::ProcessSubIn) | Some(TokenKind::ProcessSubOut) => {
-                    depth += 1;
-                    self.advance();
-                }
-                Some(TokenKind::DoubleRightParen) => {
-                    if depth == 0 {
-                        let right_paren_span = self.current_span;
-                        self.advance();
-                        break right_paren_span;
-                    }
-                    if depth == 1 {
-                        break self.split_nested_arithmetic_close("arithmetic command")?;
-                    }
-                    depth -= 2;
-                    self.advance();
-                }
-                Some(TokenKind::RightParen) => {
-                    if depth > 0 {
-                        depth -= 1;
-                    }
-                    self.advance();
-                }
-                Some(_) => {
-                    self.advance();
-                }
-                None => {
-                    return Err(Error::parse(
-                        "unexpected end of input in arithmetic command".to_string(),
-                    ));
-                }
-            }
+        let Some(right_paren_span) = self.scan_arithmetic_command_close(left_paren_span) else {
+            return Err(Error::parse(
+                "unexpected end of input in arithmetic command".to_string(),
+            ));
         };
+        while self.current_token.is_some()
+            && self.current_span.start.offset < right_paren_span.end.offset
+        {
+            self.advance();
+        }
 
         let expr_span = Self::optional_span(left_paren_span.end, right_paren_span.start);
         let expr_ast =
@@ -3082,6 +3210,60 @@ impl<'a> Parser<'a> {
             expr_ast,
             right_paren_span,
         }))
+    }
+
+    fn scan_arithmetic_command_close(&self, left_paren_span: Span) -> Option<Span> {
+        let mut cursor = left_paren_span.end;
+        let mut depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+
+        while cursor.offset < self.input.len() {
+            let rest = &self.input[cursor.offset..];
+
+            if !in_single && !in_double && !in_backtick {
+                if rest.starts_with("((") {
+                    depth += 2;
+                    cursor = cursor.advanced_by("((");
+                    continue;
+                }
+
+                if rest.starts_with("))") {
+                    if depth == 0 {
+                        return Some(Span::from_positions(cursor, cursor.advanced_by("))")));
+                    }
+                    if depth == 1 {
+                        cursor.advance(')');
+                        return Some(Span::from_positions(cursor, cursor.advanced_by("))")));
+                    }
+                    depth -= 2;
+                    cursor = cursor.advanced_by("))");
+                    continue;
+                }
+            }
+
+            let ch = rest.chars().next()?;
+            cursor.advance(ch);
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double && !in_backtick => in_single = !in_single,
+                '"' if !in_single && !in_backtick => in_double = !in_double,
+                '`' if !in_single && !in_double => in_backtick = !in_backtick,
+                '(' if !in_single && !in_double && !in_backtick => depth += 1,
+                ')' if !in_single && !in_double && !in_backtick && depth > 0 => depth -= 1,
+                _ => {}
+            }
+        }
+
+        None
     }
 
     fn parse_function_body_command(&mut self, allow_bare_compound: bool) -> Result<Command> {

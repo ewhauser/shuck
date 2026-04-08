@@ -1433,6 +1433,95 @@ fn test_parse_arithmetic_command_accepts_command_substitutions_and_quoted_words(
 }
 
 #[test]
+fn test_parse_zsh_arithmetic_command_keeps_subscripted_shell_words_intact() {
+    let input = "(( $+aliases[(e)$1] ))\n(( $cmdnames[(Ie)$point] ))\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (first, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(first) = first else {
+        panic!("expected arithmetic compound command");
+    };
+    let first_expr = first.expr_ast.as_ref().expect("expected arithmetic AST");
+    expect_shell_word(first_expr, input, "$+aliases[(e)$1]");
+
+    let (second, _) = expect_compound(&script.body[1]);
+    let AstCompoundCommand::Arithmetic(second) = second else {
+        panic!("expected arithmetic compound command");
+    };
+    let second_expr = second.expr_ast.as_ref().expect("expected arithmetic AST");
+    expect_shell_word(second_expr, input, "$cmdnames[(Ie)$point]");
+}
+
+#[test]
+fn test_parse_zsh_arithmetic_command_supports_char_literal_numbers() {
+    let input = "(( #c < 256 / $1 * $1 ))\n(( rnd = (~(1 << 23) & rnd) << 8 | #c ))\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (first, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(first) = first else {
+        panic!("expected arithmetic compound command");
+    };
+    let first_expr = first.expr_ast.as_ref().expect("expected arithmetic AST");
+    let ArithmeticExpr::Binary { left, op, right } = &first_expr.kind else {
+        panic!("expected binary arithmetic expression");
+    };
+    assert_eq!(*op, ArithmeticBinaryOp::LessThan);
+    expect_number(left, input, "#c");
+    let ArithmeticExpr::Binary {
+        left: mul_left,
+        op: mul_op,
+        right: mul_right,
+    } = &right.kind
+    else {
+        panic!("expected multiplication on right-hand side");
+    };
+    assert_eq!(*mul_op, ArithmeticBinaryOp::Multiply);
+    expect_shell_word(mul_right, input, "$1");
+    let ArithmeticExpr::Binary {
+        left: div_left,
+        op: div_op,
+        right: div_right,
+    } = &mul_left.kind
+    else {
+        panic!("expected division on left-hand side");
+    };
+    assert_eq!(*div_op, ArithmeticBinaryOp::Divide);
+    expect_number(div_left, input, "256");
+    expect_shell_word(div_right, input, "$1");
+
+    let (second, _) = expect_compound(&script.body[1]);
+    let AstCompoundCommand::Arithmetic(second) = second else {
+        panic!("expected arithmetic compound command");
+    };
+    let second_expr = second.expr_ast.as_ref().expect("expected arithmetic AST");
+    let ArithmeticExpr::Assignment { target, op, value } = &second_expr.kind else {
+        panic!("expected arithmetic assignment");
+    };
+    assert_eq!(*op, ArithmeticAssignOp::Assign);
+    let ArithmeticLvalue::Variable(name) = target else {
+        panic!("expected variable assignment target");
+    };
+    assert_eq!(name, "rnd");
+    let ArithmeticExpr::Binary {
+        left: or_left,
+        op: or_op,
+        right: or_right,
+    } = &value.kind
+    else {
+        panic!("expected bitwise or value");
+    };
+    assert_eq!(*or_op, ArithmeticBinaryOp::BitwiseOr);
+    assert!(matches!(or_left.kind, ArithmeticExpr::Binary { .. }));
+    expect_number(or_right, input, "#c");
+}
+
+#[test]
 fn test_for_loop_words_consume_segmented_tokens_directly() {
     let input = "for item in foo\"bar\" 'baz'qux; do echo \"$item\"; done";
     let script = Parser::new(input).parse().unwrap().file;
@@ -2724,6 +2813,29 @@ fn test_zsh_inline_glob_backreference_control_preserves_segments() {
 }
 
 #[test]
+fn test_zsh_inline_glob_anchor_controls_preserve_segments() {
+    let parser = Parser::with_dialect("", ShellDialect::Zsh);
+
+    let (start_len, start) = parser
+        .parse_zsh_inline_glob_control("(#s)", Position::new(), 0)
+        .expect("expected start-anchor control");
+    let (end_len, end) = parser
+        .parse_zsh_inline_glob_control("(#e)", Position::new(), 0)
+        .expect("expected end-anchor control");
+
+    assert_eq!(start_len, "(#s)".len());
+    assert_eq!(end_len, "(#e)".len());
+    assert!(matches!(
+        start,
+        ZshInlineGlobControl::StartAnchor { span } if span.slice("(#s)") == "(#s)"
+    ));
+    assert!(matches!(
+        end,
+        ZshInlineGlobControl::EndAnchor { span } if span.slice("(#e)") == "(#e)"
+    ));
+}
+
+#[test]
 fn test_zsh_hash_q_glob_qualifier_parses_terminal_flag_group() {
     let source = "print *.log(#qN)\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -3083,6 +3195,123 @@ fn test_zsh_parameter_modifier_records_modifier_and_target() {
             ref operand,
             colon_variant: true,
         }) if operand.slice(source) == "%x"
+    ));
+}
+
+#[test]
+fn test_zsh_parameter_modifier_groups_split_flags_and_preserve_delimited_args() {
+    let source = "print ${(Az)LBUFFER} ${(s./.)_p9k__cwd} ${(pj./.)parts[1,MATCH]}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        first
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['A', 'z']
+    );
+    assert!(
+        first
+            .modifiers
+            .iter()
+            .all(|modifier| modifier.span == first.modifiers[0].span)
+    );
+    let ZshExpansionTarget::Reference(reference) = &first.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "LBUFFER");
+
+    let second = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(second) = &second.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        second
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['s']
+    );
+    assert_eq!(second.modifiers[0].argument_delimiter, Some('.'));
+    assert_eq!(
+        second.modifiers[0]
+            .argument
+            .as_ref()
+            .expect("expected modifier argument")
+            .slice(source),
+        "/"
+    );
+    let ZshExpansionTarget::Reference(reference) = &second.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "_p9k__cwd");
+
+    let third = expect_parameter(&command.args[2]);
+    let ParameterExpansionSyntax::Zsh(third) = &third.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        third
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['p', 'j']
+    );
+    assert!(
+        third
+            .modifiers
+            .iter()
+            .all(|modifier| modifier.span == third.modifiers[0].span)
+    );
+    assert_eq!(third.modifiers[1].argument_delimiter, Some('.'));
+    assert_eq!(
+        third.modifiers[1]
+            .argument
+            .as_ref()
+            .expect("expected modifier argument")
+            .slice(source),
+        "/"
+    );
+    let ZshExpansionTarget::Reference(reference) = &third.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "parts");
+    let subscript = expect_subscript(reference, source, "1,MATCH");
+    assert_eq!(subscript.syntax_text(source), "1,MATCH");
+}
+
+#[test]
+fn test_zsh_parameter_word_target_preserves_non_reference_target_text() {
+    let source = "print ${^$(pidof zsh):#$$}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    let parameter = expect_parameter(&command.args[0]);
+
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Word(word) = &parameter.target else {
+        panic!("expected word target");
+    };
+    assert_eq!(word.render(source), "^$(pidof zsh)");
+    assert!(matches!(
+        parameter.operation,
+        Some(ZshExpansionOperation::PatternOperation {
+            kind: ZshPatternOp::Filter,
+            ref operand,
+        }) if operand.slice(source) == "$$"
     ));
 }
 
