@@ -1125,10 +1125,13 @@ fn format_brace_group(
     formatter: &mut ShellFormatter<'_, '_>,
     upper_bound: Option<usize>,
 ) -> FormatResult<()> {
-    if group_open_suffix(commands.as_slice(), formatter.context().source(), '{').is_none()
-        && group_was_inline_in_source(commands.as_slice(), formatter.context().source(), '{', '}')
-        && can_inline_group(commands, formatter)
-    {
+    let should_inline = {
+        let source_map = formatter.context().comments().source_map();
+        group_open_suffix(commands.as_slice(), source_map, '{').is_none()
+            && group_was_inline_in_source(commands.as_slice(), source_map, '{', '}')
+            && can_inline_group(commands, formatter)
+    };
+    if should_inline {
         write!(formatter, [text("{ ")])?;
         format_inline_stmts(commands, formatter)?;
         return write!(formatter, [text("; }")]);
@@ -1142,10 +1145,13 @@ fn format_subshell(
     formatter: &mut ShellFormatter<'_, '_>,
     upper_bound: Option<usize>,
 ) -> FormatResult<()> {
-    if group_open_suffix(commands.as_slice(), formatter.context().source(), '(').is_none()
-        && group_was_inline_in_source(commands.as_slice(), formatter.context().source(), '(', ')')
-        && can_inline_group(commands, formatter)
-    {
+    let should_inline = {
+        let source_map = formatter.context().comments().source_map();
+        group_open_suffix(commands.as_slice(), source_map, '(').is_none()
+            && group_was_inline_in_source(commands.as_slice(), source_map, '(', ')')
+            && can_inline_group(commands, formatter)
+    };
+    if should_inline {
         write!(formatter, [text("(")])?;
         format_inline_stmts(commands, formatter)?;
         return write!(formatter, [text(")")]);
@@ -1350,15 +1356,12 @@ fn format_function_body(
             terminator: None,
             ..
         } if redirects.is_empty() => {
-            if !formatter.context().options().function_next_line()
-                && group_was_inline_in_source(
-                    commands.as_slice(),
-                    formatter.context().source(),
-                    '{',
-                    '}',
-                )
-                && can_inline_group(commands, formatter)
-            {
+            let should_inline = !formatter.context().options().function_next_line() && {
+                let source_map = formatter.context().comments().source_map();
+                group_was_inline_in_source(commands.as_slice(), source_map, '{', '}')
+                    && can_inline_group(commands, formatter)
+            };
+            if should_inline {
                 write!(formatter, [text("{ ".to_string())])?;
                 format_inline_stmts(commands, formatter)?;
                 write!(formatter, [text("; }".to_string())])
@@ -1373,15 +1376,12 @@ fn format_function_body(
             terminator: None,
             ..
         } if redirects.is_empty() => {
-            if !formatter.context().options().function_next_line()
-                && group_was_inline_in_source(
-                    commands.as_slice(),
-                    formatter.context().source(),
-                    '(',
-                    ')',
-                )
-                && can_inline_group(commands, formatter)
-            {
+            let should_inline = !formatter.context().options().function_next_line() && {
+                let source_map = formatter.context().comments().source_map();
+                group_was_inline_in_source(commands.as_slice(), source_map, '(', ')')
+                    && can_inline_group(commands, formatter)
+            };
+            if should_inline {
                 write!(formatter, [text("(".to_string())])?;
                 format_inline_stmts(commands, formatter)?;
                 write!(formatter, [text(")".to_string())])
@@ -1955,11 +1955,14 @@ fn format_group_with_upper_bound(
         write!(formatter, [space()])?;
     }
     write!(formatter, [text(open)])?;
-    if let Some((span, suffix)) =
-        group_open_suffix(commands.as_slice(), formatter.context().source(), open_char)
-    {
+    let open_suffix = {
+        let source_map = formatter.context().comments().source_map();
+        group_open_suffix(commands.as_slice(), source_map, open_char)
+            .map(|(span, suffix)| (span, suffix.to_string()))
+    };
+    if let Some((span, suffix)) = open_suffix {
         formatter.context_mut().comments_mut().claim_in_span(span);
-        write!(formatter, [text(suffix.to_string())])?;
+        write!(formatter, [text(suffix)])?;
     }
     format_body_with_upper_bound(commands, formatter, upper_bound)?;
     finish_block(close, formatter)
@@ -1967,9 +1970,10 @@ fn format_group_with_upper_bound(
 
 fn group_open_suffix<'a>(
     commands: &[Stmt],
-    source: &'a str,
+    source_map: &'a crate::comments::SourceMap<'a>,
     open: char,
 ) -> Option<(Span, &'a str)> {
+    let source = source_map.source();
     let first = commands.first()?;
     let first_start = stmt_span(first).start.offset;
     let open_offset = source[..first_start].rfind(open)?;
@@ -1981,10 +1985,16 @@ fn group_open_suffix<'a>(
     let suffix = source.get(suffix_start..line_end)?;
     suffix
         .contains('#')
-        .then(|| (span_for_offsets(source, suffix_start, line_end), suffix))
+        .then(|| (source_map.span_for_offsets(suffix_start, line_end), suffix))
 }
 
-fn group_attachment_span(commands: &[Stmt], source: &str, open: char, close: char) -> Option<Span> {
+fn group_attachment_span(
+    commands: &[Stmt],
+    source_map: &crate::comments::SourceMap<'_>,
+    open: char,
+    close: char,
+) -> Option<Span> {
+    let source = source_map.source();
     let first = commands.first()?;
     let last = commands.last()?;
     let open_offset = source[..stmt_span(first).start.offset].rfind(open)?;
@@ -1993,12 +2003,17 @@ fn group_attachment_span(commands: &[Stmt], source: &str, open: char, close: cha
         .find(close)
         .map(|offset| last_end + offset + close.len_utf8())
         .unwrap_or(last_end);
-    Some(span_for_offsets(source, open_offset, end))
+    Some(source_map.span_for_offsets(open_offset, end))
 }
 
-fn group_was_inline_in_source(commands: &[Stmt], source: &str, open: char, close: char) -> bool {
-    group_attachment_span(commands, source, open, close)
-        .map(|span| !span.slice(source).contains('\n'))
+fn group_was_inline_in_source(
+    commands: &[Stmt],
+    source_map: &crate::comments::SourceMap<'_>,
+    open: char,
+    close: char,
+) -> bool {
+    group_attachment_span(commands, source_map, open, close)
+        .map(|span| !span.slice(source_map.source()).contains('\n'))
         .unwrap_or(false)
 }
 
@@ -2357,13 +2372,13 @@ fn stmt_attachment_span(
         anonymous_function_attachment_span(command)
     } else if let Command::Compound(CompoundCommand::BraceGroup(commands)) = &stmt.command {
         stmt.redirects.iter().fold(
-            group_attachment_span(commands.as_slice(), source, '{', '}')
+            group_attachment_span(commands.as_slice(), source_map, '{', '}')
                 .unwrap_or_else(|| stmt_span(stmt)),
             |span, redirect| span.merge(redirect.span),
         )
     } else if let Command::Compound(CompoundCommand::Subshell(commands)) = &stmt.command {
         stmt.redirects.iter().fold(
-            group_attachment_span(commands.as_slice(), source, '(', ')')
+            group_attachment_span(commands.as_slice(), source_map, '(', ')')
                 .unwrap_or_else(|| stmt_span(stmt)),
             |span, redirect| span.merge(redirect.span),
         )
