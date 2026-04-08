@@ -294,6 +294,82 @@ fn test_empty_function_body_rejected() {
 }
 
 #[test]
+fn test_zsh_posix_function_allows_empty_compact_brace_body() {
+    let input = "f() {}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(redirects.is_empty());
+    assert!(body.is_empty());
+}
+
+#[test]
+fn test_zsh_posix_function_allows_compact_same_line_brace_body() {
+    let input = "f() { echo hi }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+    let command = expect_simple(&body[0]);
+    assert_eq!(command.name.render(input), "echo");
+    assert_eq!(command.args[0].render(input), "hi");
+}
+
+#[test]
+fn test_zsh_posix_function_allows_compact_brace_body_without_space_after_left_brace() {
+    let input = "f() {echo hi }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+    let command = expect_simple(&body[0]);
+    assert_eq!(command.name.render(input), "echo");
+    assert_eq!(command.args[0].render(input), "hi");
+}
+
+#[test]
+fn test_non_zsh_dialects_reject_compact_posix_function_brace_bodies() {
+    for dialect in [ShellDialect::Posix, ShellDialect::Mksh, ShellDialect::Bash] {
+        assert!(
+            Parser::with_dialect("f() { echo hi }\n", dialect)
+                .parse()
+                .is_err(),
+            "expected {dialect:?} to reject compact same-line brace body",
+        );
+        assert!(
+            Parser::with_dialect("f() {}\n", dialect).parse().is_err(),
+            "expected {dialect:?} to reject compact empty brace body",
+        );
+    }
+}
+
+#[test]
 fn test_empty_while_body_rejected() {
     let parser = Parser::new("while true; do\ndone");
     assert!(
@@ -333,6 +409,55 @@ fn test_nonempty_function_body_accepted() {
         parser.parse().is_ok(),
         "non-empty function body should be accepted"
     );
+}
+
+#[test]
+fn test_zsh_and_or_brace_groups_allow_same_line_closing_brace() {
+    let input = "true && { echo yes } || { echo no }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let outer = expect_binary(&script.body[0]);
+    assert_eq!(outer.op, BinaryOp::Or);
+    let inner = expect_binary(&outer.left);
+    assert_eq!(inner.op, BinaryOp::And);
+
+    let (yes_group, yes_redirects) = expect_compound(&inner.right);
+    let AstCompoundCommand::BraceGroup(yes_body) = yes_group else {
+        panic!("expected brace group on right side of &&");
+    };
+    assert!(yes_redirects.is_empty());
+    assert_eq!(expect_simple(&yes_body[0]).name.render(input), "echo");
+
+    let (no_group, no_redirects) = expect_compound(&outer.right);
+    let AstCompoundCommand::BraceGroup(no_body) = no_group else {
+        panic!("expected brace group on right side of ||");
+    };
+    assert!(no_redirects.is_empty());
+    assert_eq!(expect_simple(&no_body[0]).name.render(input), "echo");
+}
+
+#[test]
+fn test_zsh_brace_group_command_can_use_right_brace_as_literal_argument_before_closer() {
+    let source = "rbrace() { echo }; }; rbrace\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let function = expect_function(&output.file.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+    let command = expect_simple(&body[0]);
+    assert_eq!(command.name.render(source), "echo");
+    assert_eq!(command.args.len(), 1);
+    assert_eq!(command.args[0].render(source), "}");
 }
 
 #[test]

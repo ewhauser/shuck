@@ -656,7 +656,9 @@ impl<'a> Parser<'a> {
 
         // Check for brace group
         if self.at(TokenKind::LeftBrace) {
-            return self.parse_compound_with_redirects(|s| s.parse_brace_group());
+            return self.parse_compound_with_redirects(|s| {
+                s.parse_brace_group(BraceBodyContext::Ordinary)
+            });
         }
 
         // Default to simple command
@@ -682,8 +684,11 @@ impl<'a> Parser<'a> {
 
         let (mut syntax, then_branch, brace_style) =
             if allow_brace_syntax && self.at(TokenKind::LeftBrace) {
-                let (then_branch, left_brace_span, right_brace_span) =
-                    self.parse_brace_enclosed_stmt_seq("syntax error: empty then clause")?;
+                let (then_branch, left_brace_span, right_brace_span) = self
+                    .parse_brace_enclosed_stmt_seq(
+                        "syntax error: empty then clause",
+                        BraceBodyContext::IfClause,
+                    )?;
                 (
                     IfSyntax::Brace {
                         left_brace_span,
@@ -734,10 +739,14 @@ impl<'a> Parser<'a> {
                     self.pop_depth();
                     return Err(self.error("expected '{' to start elif clause"));
                 }
-                self.parse_brace_enclosed_stmt_seq("syntax error: empty elif clause")?
-                    .0
+                self.parse_brace_enclosed_stmt_seq(
+                    "syntax error: empty elif clause",
+                    BraceBodyContext::IfClause,
+                )?
+                .0
             } else {
                 self.expect_keyword(Keyword::Then)?;
+                let elif_body_region_start = self.current_span.start;
                 self.skip_newlines()?;
 
                 let elif_body_start = self.current_span.start;
@@ -745,11 +754,23 @@ impl<'a> Parser<'a> {
                 let elif_body_span = Span::from_positions(elif_body_start, self.current_span.start);
 
                 if elif_body.is_empty() {
-                    self.pop_depth();
-                    return Err(self.error("syntax error: empty elif clause"));
+                    if self.dialect == ShellDialect::Zsh
+                        && self.has_recorded_comment_between(
+                            elif_body_region_start.offset,
+                            self.current_span.start.offset,
+                        )
+                    {
+                        Self::stmt_seq_with_span(
+                            Span::from_positions(elif_body_region_start, self.current_span.start),
+                            Vec::new(),
+                        )
+                    } else {
+                        self.pop_depth();
+                        return Err(self.error("syntax error: empty elif clause"));
+                    }
+                } else {
+                    Self::lower_commands_to_stmt_seq(elif_body, elif_body_span)
                 }
-
-                Self::lower_commands_to_stmt_seq(elif_body, elif_body_span)
             };
 
             elif_branches.push((elif_condition, elif_body));
@@ -765,8 +786,11 @@ impl<'a> Parser<'a> {
                     return Err(self.error("expected '{' to start else clause"));
                 }
                 Some(
-                    self.parse_brace_enclosed_stmt_seq("syntax error: empty else clause")?
-                        .0,
+                    self.parse_brace_enclosed_stmt_seq(
+                        "syntax error: empty else clause",
+                        BraceBodyContext::IfClause,
+                    )?
+                    .0,
                 )
             } else {
                 let else_start = self.current_span.start;
@@ -911,8 +935,11 @@ impl<'a> Parser<'a> {
 
         let (syntax, body, end_span) = match self.current_token_kind {
             Some(TokenKind::LeftBrace) => {
-                let (body, left_brace_span, right_brace_span) =
-                    self.parse_brace_enclosed_stmt_seq("syntax error: empty repeat loop body")?;
+                let (body, left_brace_span, right_brace_span) = self
+                    .parse_brace_enclosed_stmt_seq(
+                        "syntax error: empty repeat loop body",
+                        BraceBodyContext::Ordinary,
+                    )?;
                 (
                     RepeatSyntax::Brace {
                         left_brace_span,
@@ -1044,8 +1071,10 @@ impl<'a> Parser<'a> {
                 return Err(self.error("expected '{' after foreach word list"));
             }
 
-            let (body, left_brace_span, right_brace_span) =
-                self.parse_brace_enclosed_stmt_seq("syntax error: empty foreach loop body")?;
+            let (body, left_brace_span, right_brace_span) = self.parse_brace_enclosed_stmt_seq(
+                "syntax error: empty foreach loop body",
+                BraceBodyContext::Ordinary,
+            )?;
             (
                 words,
                 body,
@@ -1323,7 +1352,7 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         let (body, end_span) = if self.at(TokenKind::LeftBrace) {
-            let body = self.parse_brace_group()?;
+            let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
                 Self::lower_commands_to_stmt_seq(
@@ -1685,10 +1714,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a brace group
-    fn parse_brace_group(&mut self) -> Result<CompoundCommand> {
+    fn parse_brace_group(&mut self, context: BraceBodyContext) -> Result<CompoundCommand> {
         self.push_depth()?;
         let (body, left_brace_span, right_brace_span) =
-            self.parse_brace_enclosed_stmt_seq("syntax error: empty brace group")?;
+            self.parse_brace_enclosed_stmt_seq("syntax error: empty brace group", context)?;
 
         let compound = if self.dialect.features().zsh_always && self.is_keyword(Keyword::Always) {
             self.advance();
@@ -1697,8 +1726,10 @@ impl<'a> Parser<'a> {
                 self.pop_depth();
                 return Err(self.error("expected '{' after always"));
             }
-            let (always_body, _, always_right_brace_span) =
-                self.parse_brace_enclosed_stmt_seq("syntax error: empty always clause")?;
+            let (always_body, _, always_right_brace_span) = self.parse_brace_enclosed_stmt_seq(
+                "syntax error: empty always clause",
+                BraceBodyContext::Ordinary,
+            )?;
             CompoundCommand::Always(AlwaysCommand {
                 body,
                 always_body,
@@ -1716,10 +1747,12 @@ impl<'a> Parser<'a> {
     fn parse_brace_enclosed_stmt_seq(
         &mut self,
         empty_error: &str,
+        context: BraceBodyContext,
     ) -> Result<(StmtSeq, Span, Span)> {
         let left_brace_span = self.current_span;
         self.advance();
         self.brace_group_depth += 1;
+        self.brace_body_stack.push(context);
         self.skip_newlines()?;
 
         let body_start = self.current_span.start;
@@ -1733,19 +1766,24 @@ impl<'a> Parser<'a> {
         }
 
         if !self.at(TokenKind::RightBrace) {
+            self.brace_body_stack.pop();
             self.brace_group_depth -= 1;
             return Err(Error::parse(
                 "expected '}' to close brace group".to_string(),
             ));
         }
 
-        if commands.is_empty() {
+        if commands.is_empty()
+            && !(self.dialect == ShellDialect::Zsh && matches!(context, BraceBodyContext::Function))
+        {
+            self.brace_body_stack.pop();
             self.brace_group_depth -= 1;
             return Err(self.error(empty_error));
         }
 
         let right_brace_span = self.current_span;
         self.advance();
+        self.brace_body_stack.pop();
         self.brace_group_depth -= 1;
         Ok((
             Self::lower_commands_to_stmt_seq(
@@ -1766,7 +1804,20 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_newlines()?;
 
-            if self.is_keyword(Keyword::Then) || (allow_brace_body && self.at(TokenKind::LeftBrace))
+            if self.at(TokenKind::Semicolon) {
+                let mut probe = self.clone();
+                probe.advance();
+                probe.skip_newlines()?;
+                if probe.is_keyword(Keyword::Then)
+                    || (allow_brace_body && !commands.is_empty() && probe.at(TokenKind::LeftBrace))
+                {
+                    *self = probe;
+                    break;
+                }
+            }
+
+            if self.is_keyword(Keyword::Then)
+                || (allow_brace_body && !commands.is_empty() && self.at(TokenKind::LeftBrace))
             {
                 break;
             }
@@ -1781,6 +1832,109 @@ impl<'a> Parser<'a> {
         }
 
         Ok(commands)
+    }
+
+    fn has_recorded_comment_between(&self, start_offset: usize, end_offset: usize) -> bool {
+        self.comments.iter().any(|comment| {
+            let comment_start = usize::from(comment.range.start());
+            comment_start >= start_offset && comment_start < end_offset
+        })
+    }
+
+    fn rebase_nested_parse_error(&self, error: Error, base: Position) -> Error {
+        let Error::Parse {
+            message,
+            line,
+            column,
+        } = error;
+
+        if line == 0 {
+            return Error::parse(message);
+        }
+
+        let rebased_line = base.line + line.saturating_sub(1);
+        let rebased_column = if line == 1 {
+            base.column + column.saturating_sub(1)
+        } else {
+            column
+        };
+
+        Error::parse_at(message, rebased_line, rebased_column)
+    }
+
+    fn try_parse_compact_function_brace_body(&mut self) -> Result<Option<CompoundCommand>> {
+        if self.dialect != ShellDialect::Zsh || !self.at_word_like() {
+            return Ok(None);
+        }
+
+        let Some(body_text) = self.current_source_like_word_text() else {
+            return Ok(None);
+        };
+        let body_text = body_text.into_owned();
+        let Some(inner) = body_text
+            .strip_prefix('{')
+            .and_then(|body| body.strip_suffix('}'))
+        else {
+            return Ok(None);
+        };
+
+        if !inner.is_empty()
+            && !inner.chars().any(|ch| {
+                matches!(
+                    ch,
+                    ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | '$' | '"' | '\'' | '(' | ')'
+                )
+            })
+        {
+            return Ok(None);
+        }
+
+        let mut nested =
+            Parser::with_limits_and_dialect(inner, self.max_depth, self.max_fuel, self.dialect);
+        nested.aliases = self.aliases.clone();
+        nested.expand_aliases = self.expand_aliases;
+        nested.expand_next_word = self.expand_next_word;
+
+        let inner_start = self.current_span.start.advanced_by("{");
+        let mut output = nested
+            .parse()
+            .map_err(|error| self.rebase_nested_parse_error(error, inner_start))?;
+        Self::rebase_stmt_seq(&mut output.file.body, inner_start);
+        self.advance();
+        Ok(Some(CompoundCommand::BraceGroup(output.file.body)))
+    }
+
+    fn should_consume_right_brace_as_literal_argument(
+        &mut self,
+        next_kind_after_right_brace: Option<TokenKind>,
+    ) -> bool {
+        if !self.current_token_has_leading_whitespace()
+            || next_kind_after_right_brace.is_some_and(Self::is_redirect_kind)
+        {
+            return false;
+        }
+
+        if self.brace_group_depth == 0 {
+            return true;
+        }
+
+        if self.dialect != ShellDialect::Zsh || self.current_brace_body_context().is_none() {
+            return true;
+        }
+
+        next_kind_after_right_brace == Some(TokenKind::Semicolon)
+            && self.current_token_is_tight_to_next_token()
+            && self.next_token_after_tight_semicolon_is(TokenKind::RightBrace)
+    }
+
+    fn next_token_after_tight_semicolon_is(&self, expected: TokenKind) -> bool {
+        let mut probe = self.clone();
+        probe.advance();
+        if !probe.at(TokenKind::Semicolon) {
+            return false;
+        }
+        probe.advance();
+        probe.at(expected)
     }
 
     /// Parse arithmetic command ((expression))
@@ -2326,6 +2480,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_body_command(&mut self, allow_bare_compound: bool) -> Result<Command> {
+        if let Some(compound) = self.try_parse_compact_function_brace_body()? {
+            let redirects = self.parse_trailing_redirects();
+            return Ok(Command::Compound(Box::new(compound), redirects));
+        }
+
         let compound = match self.current_keyword() {
             Some(Keyword::If) if allow_bare_compound => self.parse_if()?,
             Some(Keyword::For) if allow_bare_compound => self.parse_for()?,
@@ -2344,7 +2503,7 @@ impl<'a> Parser<'a> {
             Some(Keyword::Case) if allow_bare_compound => self.parse_case()?,
             Some(Keyword::Select) if allow_bare_compound => self.parse_select()?,
             _ => match self.current_token_kind {
-                Some(TokenKind::LeftBrace) => self.parse_brace_group()?,
+                Some(TokenKind::LeftBrace) => self.parse_brace_group(BraceBodyContext::Function)?,
                 Some(TokenKind::LeftParen) => self.parse_subshell()?,
                 Some(TokenKind::DoubleLeftBracket) if allow_bare_compound => {
                     self.parse_conditional()?
@@ -2540,6 +2699,9 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
+            let right_brace_is_literal_argument = self.at(TokenKind::RightBrace)
+                && !words.is_empty()
+                && self.should_consume_right_brace_as_literal_argument(next_kind_after_right_brace);
             match self.current_token_kind {
                 Some(kind) if kind.is_word_like() => {
                     let is_literal = kind == TokenKind::LiteralWord;
@@ -2644,13 +2806,7 @@ impl<'a> Parser<'a> {
                 // argument like `echo }`, but only when it's separated from the
                 // preceding token by whitespace and isn't introducing an outer
                 // redirect on the brace group itself.
-                Some(TokenKind::RightBrace)
-                    if !words.is_empty()
-                        && (self.brace_group_depth == 0
-                            || (self.current_token_has_leading_whitespace()
-                                && !next_kind_after_right_brace
-                                    .is_some_and(Self::is_redirect_kind))) =>
-                {
+                Some(TokenKind::RightBrace) if right_brace_is_literal_argument => {
                     words.push(Word::literal_with_span("}", self.current_span));
                     self.advance();
                 }

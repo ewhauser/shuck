@@ -199,6 +199,162 @@
     "expectation": "parse_err",
     "reason": "non-static heredoc delimiters are rejected during parsing"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__lib__functions.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__cabal__cabal.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__chruby__chruby.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__cloudfoundry__cloudfoundry.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "punctuated zsh function names parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__git-extras__git-extras.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "the quoted continuation in this fixture now parses"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__scd__scd.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__screen__screen.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__config__p10k-classic.zsh": {
+    "expectation": "parse_ok",
+    "reason": "comment-only zsh elif bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__config__p10k-lean-8colors.zsh": {
+    "expectation": "parse_ok",
+    "reason": "comment-only zsh elif bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__config__p10k-lean.zsh": {
+    "expectation": "parse_ok",
+    "reason": "comment-only zsh elif bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__config__p10k-rainbow.zsh": {
+    "expectation": "parse_ok",
+    "reason": "comment-only zsh elif bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__internal__configure.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh always clauses parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-loop.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-nested-precommand.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument1.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument2.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument3.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument4.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__array-cmdsep1.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__cmdpos-elision-partial.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__commmand-parameter.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__off-by-one.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__opt-shwordsplit1.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__param-precommand-option-argument1.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__param-precommand-option-argument3.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__precommand-unknown-option.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__precommand4.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-command.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-comment.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection2.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection3.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__root__root-highlighter.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__tests__generate.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh always clauses parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__tests__test-highlighting.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__tests__test-perfs.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh always clauses parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__tests__test-zprof.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh always clauses parse in this fixture"
+  },
   "oils/zsh-large-corpus-regressions.test.sh": {
     "expectation": "skip",
     "reason": "zsh-only regression snippets are covered by the zsh-mode parser corpus test"

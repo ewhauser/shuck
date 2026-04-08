@@ -311,6 +311,9 @@ pub struct Parser<'a> {
     expand_next_word: bool,
     /// Nesting depth of active brace-delimited statement sequences.
     brace_group_depth: usize,
+    /// Active brace-body parsing contexts, used to distinguish compact zsh
+    /// closers from literal `}` arguments.
+    brace_body_stack: Vec<BraceBodyContext>,
     dialect: ShellDialect,
 }
 
@@ -379,6 +382,13 @@ enum FlowControlBuiltinKind {
     Continue,
     Return,
     Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BraceBodyContext {
+    Ordinary,
+    Function,
+    IfClause,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -591,6 +601,7 @@ impl<'a> Parser<'a> {
             expand_aliases: false,
             expand_next_word: false,
             brace_group_depth: 0,
+            brace_body_stack: Vec::new(),
             dialect,
         }
     }
@@ -4291,6 +4302,16 @@ impl<'a> Parser<'a> {
                 .chars()
                 .next_back()
                 .is_some_and(|ch| matches!(ch, ' ' | '\t' | '\n'))
+    }
+
+    fn current_token_is_tight_to_next_token(&mut self) -> bool {
+        let current_end = self.current_span.end.offset;
+        self.peek_next()
+            .is_some_and(|token| token.span.start.offset == current_end)
+    }
+
+    fn current_brace_body_context(&self) -> Option<BraceBodyContext> {
+        self.brace_body_stack.last().copied()
     }
 
     fn at_in_set(&self, set: TokenSet) -> bool {

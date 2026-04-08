@@ -214,6 +214,38 @@ fn test_function_keyword_rejects_same_line_conditional_body() {
 }
 
 #[test]
+fn test_zsh_function_keyword_allows_empty_compact_brace_body() {
+    let input = "function quit() {}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(function.uses_function_keyword());
+    assert!(function.has_name_parens());
+    assert!(redirects.is_empty());
+    assert!(body.is_empty());
+}
+
+#[test]
+fn test_non_zsh_dialects_reject_compact_function_keyword_brace_body() {
+    for dialect in [ShellDialect::Posix, ShellDialect::Mksh, ShellDialect::Bash] {
+        assert!(
+            Parser::with_dialect("function quit() {}\n", dialect)
+                .parse()
+                .is_err(),
+            "expected {dialect:?} to reject compact function-keyword brace body",
+        );
+    }
+}
+
+#[test]
 fn test_adjacent_left_paren_after_command_word_is_a_parse_error() {
     let parser = Parser::new("foo$identity('z')\n");
     assert!(
@@ -2967,6 +2999,129 @@ fn test_zsh_brace_if_records_brace_syntax() {
     ));
     assert_eq!(command.elif_branches.len(), 1);
     assert!(command.else_branch.is_some());
+}
+
+#[test]
+fn test_zsh_brace_if_allows_same_line_closing_braces_without_semicolons() {
+    let source =
+        "if [[ -n $foo ]] { print foo } elif [[ -n $bar ]] { print bar } else { print baz }\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, _) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert_eq!(command.then_branch.len(), 1);
+    assert_eq!(command.elif_branches.len(), 1);
+    assert!(command.else_branch.is_some());
+    assert_eq!(
+        expect_simple(&command.then_branch[0]).name.render(source),
+        "print"
+    );
+    assert_eq!(
+        expect_simple(&command.elif_branches[0].1[0])
+            .name
+            .render(source),
+        "print"
+    );
+    assert_eq!(
+        expect_simple(&command.else_branch.as_ref().unwrap()[0])
+            .name
+            .render(source),
+        "print"
+    );
+}
+
+#[test]
+fn test_zsh_if_condition_allows_compact_brace_group_before_then_separator() {
+    let source = "\
+if zstyle -t ':omz:alpha:lib:git' async-prompt \\
+  || { is-at-least 5.0.6 && zstyle -T ':omz:alpha:lib:git' async-prompt }; then
+  print ok
+fi
+";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, _) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert_eq!(command.then_branch.len(), 1);
+    assert_eq!(
+        expect_simple(&command.then_branch[0]).name.render(source),
+        "print"
+    );
+}
+
+#[test]
+fn test_zsh_if_condition_can_start_with_brace_group() {
+    let source = "\
+if { ! . \"$srcdir\"/\"$ARG\" } || (( $#fail_test )); then
+  print ok
+fi
+";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, _) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert_eq!(command.condition.len(), 1);
+    assert_eq!(command.then_branch.len(), 1);
+    assert_eq!(
+        expect_simple(&command.then_branch[0]).name.render(source),
+        "print"
+    );
+}
+
+#[test]
+fn test_zsh_comment_only_elif_body_is_preserved_on_branch() {
+    let source = "\
+if true; then
+  print ok
+elif false; then
+  # keep this branch for later
+fi
+";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, _) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert_eq!(command.elif_branches.len(), 1);
+    let elif_body = &command.elif_branches[0].1;
+    assert!(elif_body.is_empty());
+    assert_eq!(elif_body.trailing_comments.len(), 1);
+
+    let comment = elif_body.trailing_comments[0];
+    let start = usize::from(comment.range.start());
+    let end = usize::from(comment.range.end());
+    assert_eq!(&source[start..end], "# keep this branch for later");
+}
+
+#[test]
+fn test_zsh_truly_empty_elif_body_is_still_rejected() {
+    let source = "\
+if true; then
+  print ok
+elif false; then
+fi
+";
+    assert!(
+        Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .is_err(),
+        "expected zsh empty elif without comments to stay rejected",
+    );
 }
 
 #[test]
