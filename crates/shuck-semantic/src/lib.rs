@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
-use crate::dataflow::DataflowResult;
+use crate::dataflow::{DataflowContext, DataflowResult};
 use crate::runtime::RuntimePrelude;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -397,18 +397,8 @@ impl SemanticModel {
             }
             let result = {
                 let cfg = self.cfg.as_ref().unwrap();
-                dataflow::analyze(
-                    cfg,
-                    &self.runtime,
-                    &self.scopes,
-                    &self.bindings,
-                    &self.references,
-                    &self.predefined_runtime_refs,
-                    &self.resolved,
-                    &self.call_sites,
-                    &self.indirect_targets_by_reference,
-                    &self.synthetic_reads,
-                )
+                let context = self.dataflow_context(cfg);
+                dataflow::analyze(&context)
             };
             self.dataflow = Some(result);
         }
@@ -429,17 +419,8 @@ impl SemanticModel {
                 ));
             }
             let cfg = self.cfg.as_ref().unwrap();
-            self.precise_unused_assignments = Some(dataflow::analyze_unused_assignments(
-                cfg,
-                &self.runtime,
-                &self.scopes,
-                &self.bindings,
-                &self.references,
-                &self.resolved,
-                &self.call_sites,
-                &self.indirect_targets_by_reference,
-                &self.synthetic_reads,
-            ));
+            let context = self.dataflow_context(cfg);
+            self.precise_unused_assignments = Some(dataflow::analyze_unused_assignments(&context));
         }
         self.precise_unused_assignments.as_deref().unwrap()
     }
@@ -454,15 +435,9 @@ impl SemanticModel {
                 ));
             }
             let cfg = self.cfg.as_ref().unwrap();
+            let context = self.dataflow_context(cfg);
             self.precise_uninitialized_references =
-                Some(dataflow::analyze_uninitialized_references(
-                    cfg,
-                    &self.bindings,
-                    &self.references,
-                    &self.predefined_runtime_refs,
-                    &self.resolved,
-                    &self.indirect_targets_by_reference,
-                ));
+                Some(dataflow::analyze_uninitialized_references(&context));
         }
         self.precise_uninitialized_references.as_deref().unwrap()
     }
@@ -488,6 +463,21 @@ impl SemanticModel {
         self.precise_unused_assignments = None;
         self.precise_uninitialized_references = None;
         self.precise_dead_code = None;
+    }
+
+    fn dataflow_context<'a>(&'a self, cfg: &'a ControlFlowGraph) -> DataflowContext<'a> {
+        DataflowContext {
+            cfg,
+            runtime: &self.runtime,
+            scopes: &self.scopes,
+            bindings: &self.bindings,
+            references: &self.references,
+            predefined_runtime_refs: &self.predefined_runtime_refs,
+            resolved: &self.resolved,
+            call_sites: &self.call_sites,
+            indirect_targets_by_reference: &self.indirect_targets_by_reference,
+            synthetic_reads: &self.synthetic_reads,
+        }
     }
 
     pub fn is_reachable(&mut self, span: &Span) -> bool {

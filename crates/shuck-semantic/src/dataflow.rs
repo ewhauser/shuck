@@ -59,6 +59,19 @@ impl DataflowResult {
     }
 }
 
+pub(crate) struct DataflowContext<'a> {
+    pub(crate) cfg: &'a ControlFlowGraph,
+    pub(crate) runtime: &'a RuntimePrelude,
+    pub(crate) scopes: &'a [Scope],
+    pub(crate) bindings: &'a [Binding],
+    pub(crate) references: &'a [Reference],
+    pub(crate) predefined_runtime_refs: &'a FxHashSet<ReferenceId>,
+    pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
+    pub(crate) call_sites: &'a FxHashMap<Name, Vec<CallSite>>,
+    pub(crate) indirect_targets_by_reference: &'a [Vec<BindingId>],
+    pub(crate) synthetic_reads: &'a [SyntheticRead],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UnusedAssignmentsResult {
     unused_assignments: Vec<UnusedAssignment>,
@@ -70,58 +83,33 @@ struct BindingNameData {
     bindings_by_name: FxHashMap<Name, Vec<BindingId>>,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn analyze_unused_assignments(
-    cfg: &ControlFlowGraph,
-    runtime: &RuntimePrelude,
-    scopes: &[Scope],
-    bindings: &[Binding],
-    references: &[Reference],
-    resolved: &FxHashMap<ReferenceId, BindingId>,
-    call_sites: &FxHashMap<Name, Vec<CallSite>>,
-    indirect_targets_by_reference: &[Vec<BindingId>],
-    synthetic_reads: &[SyntheticRead],
-) -> Vec<BindingId> {
-    analyze_unused_assignments_exact(
-        cfg,
-        runtime,
-        scopes,
-        bindings,
-        references,
-        resolved,
-        call_sites,
-        indirect_targets_by_reference,
-        synthetic_reads,
-    )
-    .unused_assignment_ids
+pub(crate) fn analyze_unused_assignments(context: &DataflowContext<'_>) -> Vec<BindingId> {
+    analyze_unused_assignments_exact(context).unused_assignment_ids
 }
 
 pub(crate) fn analyze_uninitialized_references(
-    cfg: &ControlFlowGraph,
-    bindings: &[Binding],
-    references: &[Reference],
-    predefined_runtime_refs: &FxHashSet<ReferenceId>,
-    resolved: &FxHashMap<ReferenceId, BindingId>,
-    indirect_targets_by_reference: &[Vec<BindingId>],
+    context: &DataflowContext<'_>,
 ) -> Vec<UninitializedReference> {
-    let names = build_uninitialized_name_table(bindings, references);
+    let names = build_uninitialized_name_table(context.bindings, context.references);
     let binding_data = build_dense_binding_data_for_scope_count(
-        bindings,
-        bindings
+        context.bindings,
+        context
+            .bindings
             .iter()
             .map(|binding| binding.scope.index() + 1)
             .max()
             .unwrap_or(0),
         &names,
     );
-    let reaching_definitions = compute_reaching_definitions_dense(cfg, bindings, &binding_data);
+    let reaching_definitions =
+        compute_reaching_definitions_dense(context.cfg, context.bindings, &binding_data);
     analyze_uninitialized_references_dense(
-        cfg,
-        bindings,
-        references,
-        predefined_runtime_refs,
-        resolved,
-        indirect_targets_by_reference,
+        context.cfg,
+        context.bindings,
+        context.references,
+        context.predefined_runtime_refs,
+        context.resolved,
+        context.indirect_targets_by_reference,
         &names,
         &binding_data,
         &reaching_definitions,
@@ -132,49 +120,35 @@ pub(crate) fn analyze_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
     build_dead_code(cfg)
 }
 
-#[allow(clippy::too_many_arguments, dead_code)]
-pub(crate) fn analyze(
-    cfg: &ControlFlowGraph,
-    runtime: &RuntimePrelude,
-    scopes: &[Scope],
-    bindings: &[Binding],
-    references: &[Reference],
-    predefined_runtime_refs: &FxHashSet<ReferenceId>,
-    resolved: &FxHashMap<ReferenceId, BindingId>,
-    call_sites: &FxHashMap<Name, Vec<CallSite>>,
-    indirect_targets_by_reference: &[Vec<BindingId>],
-    synthetic_reads: &[SyntheticRead],
-) -> DataflowResult {
-    let binding_name_data = build_binding_name_data(bindings);
-    let reaching_definitions =
-        compute_reaching_definitions(cfg, bindings, &binding_name_data.bindings_by_name);
-    let names = build_name_table(bindings, references, synthetic_reads);
-    let dense_binding_data = build_dense_binding_data(bindings, scopes, &names);
-    let dense_reaching_definitions =
-        compute_reaching_definitions_dense(cfg, bindings, &dense_binding_data);
-    let unused_assignments = analyze_unused_assignments_exact(
-        cfg,
-        runtime,
-        scopes,
-        bindings,
-        references,
-        resolved,
-        call_sites,
-        indirect_targets_by_reference,
-        synthetic_reads,
+#[allow(dead_code)]
+pub(crate) fn analyze(context: &DataflowContext<'_>) -> DataflowResult {
+    let binding_name_data = build_binding_name_data(context.bindings);
+    let reaching_definitions = compute_reaching_definitions(
+        context.cfg,
+        context.bindings,
+        &binding_name_data.bindings_by_name,
     );
+    let names = build_name_table(
+        context.bindings,
+        context.references,
+        context.synthetic_reads,
+    );
+    let dense_binding_data = build_dense_binding_data(context.bindings, context.scopes, &names);
+    let dense_reaching_definitions =
+        compute_reaching_definitions_dense(context.cfg, context.bindings, &dense_binding_data);
+    let unused_assignments = analyze_unused_assignments_exact(context);
     let uninitialized_references = analyze_uninitialized_references_dense(
-        cfg,
-        bindings,
-        references,
-        predefined_runtime_refs,
-        resolved,
-        indirect_targets_by_reference,
+        context.cfg,
+        context.bindings,
+        context.references,
+        context.predefined_runtime_refs,
+        context.resolved,
+        context.indirect_targets_by_reference,
         &names,
         &dense_binding_data,
         &dense_reaching_definitions,
     );
-    let dead_code = build_dead_code(cfg);
+    let dead_code = build_dead_code(context.cfg);
 
     DataflowResult {
         reaching_definitions,
@@ -371,50 +345,46 @@ fn compute_reaching_definitions(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn analyze_unused_assignments_exact(
-    cfg: &ControlFlowGraph,
-    runtime: &RuntimePrelude,
-    scopes: &[Scope],
-    bindings: &[Binding],
-    references: &[Reference],
-    resolved: &FxHashMap<ReferenceId, BindingId>,
-    call_sites: &FxHashMap<Name, Vec<CallSite>>,
-    indirect_targets_by_reference: &[Vec<BindingId>],
-    synthetic_reads: &[SyntheticRead],
-) -> UnusedAssignmentsResult {
-    let names = build_name_table(bindings, references, synthetic_reads);
-    let binding_data = build_dense_binding_data(bindings, scopes, &names);
-    let reference_name_ids = references
+fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssignmentsResult {
+    let names = build_name_table(
+        context.bindings,
+        context.references,
+        context.synthetic_reads,
+    );
+    let binding_data = build_dense_binding_data(context.bindings, context.scopes, &names);
+    let reference_name_ids = context
+        .references
         .iter()
         .map(|reference| names.get(&reference.name).expect("reference name interned"))
         .collect::<Vec<_>>();
-    let synthetic_read_name_ids = synthetic_reads
+    let synthetic_read_name_ids = context
+        .synthetic_reads
         .iter()
         .map(|read| names.get(&read.name).expect("synthetic read name interned"))
         .collect::<Vec<_>>();
-    let binding_blocks = build_binding_block_index(cfg, bindings.len());
-    let reference_blocks = build_reference_block_index(cfg, references.len());
-    let unreachable_blocks = build_unreachable_block_set(cfg);
-    let reaching_definitions = compute_reaching_definitions_dense(cfg, bindings, &binding_data);
+    let binding_blocks = build_binding_block_index(context.cfg, context.bindings.len());
+    let reference_blocks = build_reference_block_index(context.cfg, context.references.len());
+    let unreachable_blocks = build_unreachable_block_set(context.cfg);
+    let reaching_definitions =
+        compute_reaching_definitions_dense(context.cfg, context.bindings, &binding_data);
     let scope_components = compute_scope_components_dense(
-        cfg,
-        scopes.len(),
-        cfg.blocks().len(),
-        bindings.len(),
+        context.cfg,
+        context.scopes.len(),
+        context.cfg.blocks().len(),
+        context.bindings.len(),
         &reaching_definitions.reaching_out,
     );
-    let interprocedural_reads = if call_sites.is_empty() {
+    let interprocedural_reads = if context.call_sites.is_empty() {
         None
     } else {
         let (read_plans, callers_by_callee) = build_scope_read_plans(
-            scopes,
-            bindings,
-            references,
-            synthetic_reads,
+            context.scopes,
+            context.bindings,
+            context.references,
+            context.synthetic_reads,
             &reference_name_ids,
             &synthetic_read_name_ids,
-            call_sites,
+            context.call_sites,
             names.len(),
         );
         let interprocedural =
@@ -422,14 +392,14 @@ fn analyze_unused_assignments_exact(
         Some((read_plans, interprocedural))
     };
 
-    let mut used_bindings = DenseBitSet::new(bindings.len());
-    for binding in bindings {
-        if !binding.references.is_empty() || runtime.is_always_used_binding(&binding.name) {
+    let mut used_bindings = DenseBitSet::new(context.bindings.len());
+    for binding in context.bindings {
+        if !binding.references.is_empty() || context.runtime.is_always_used_binding(&binding.name) {
             used_bindings.insert(binding.id.index());
         }
     }
 
-    for (reference_index, reference) in references.iter().enumerate() {
+    for (reference_index, reference) in context.references.iter().enumerate() {
         let Some(block_id) = reference_blocks[reference_index] else {
             continue;
         };
@@ -442,10 +412,10 @@ fn analyze_unused_assignments_exact(
         used_bindings
             .or_intersection_with(incoming, &binding_data.bindings_for_name[name_id.index()]);
 
-        let Some(resolved_binding_id) = resolved.get(&reference.id).copied() else {
+        let Some(resolved_binding_id) = context.resolved.get(&reference.id).copied() else {
             continue;
         };
-        let resolved_binding = &bindings[resolved_binding_id.index()];
+        let resolved_binding = &context.bindings[resolved_binding_id.index()];
         let component = &scope_components[resolved_binding.scope.index()];
         if !component.blocks.contains(block_id.index()) {
             used_bindings.or_intersection3_with(
@@ -455,7 +425,9 @@ fn analyze_unused_assignments_exact(
             );
         }
 
-        if let Some(candidates) = indirect_targets_by_reference.get(reference.id.index())
+        if let Some(candidates) = context
+            .indirect_targets_by_reference
+            .get(reference.id.index())
             && !candidates.is_empty()
         {
             mark_reaching_candidate_bindings_used(&mut used_bindings, incoming, candidates);
@@ -469,8 +441,8 @@ fn analyze_unused_assignments_exact(
         }
     }
 
-    for (read_index, synthetic_read) in synthetic_reads.iter().enumerate() {
-        let Some(block_id) = command_block_for_span(cfg, synthetic_read.span) else {
+    for (read_index, synthetic_read) in context.synthetic_reads.iter().enumerate() {
+        let Some(block_id) = command_block_for_span(context.cfg, synthetic_read.span) else {
             continue;
         };
         if unreachable_blocks.contains(block_id.index()) {
@@ -485,7 +457,7 @@ fn analyze_unused_assignments_exact(
     if let Some((read_plans, interprocedural)) = &interprocedural_reads {
         for plan in read_plans {
             for call in &plan.calls {
-                let Some(block_id) = command_block_for_span(cfg, call.span) else {
+                let Some(block_id) = command_block_for_span(context.cfg, call.span) else {
                     continue;
                 };
                 if unreachable_blocks.contains(block_id.index()) {
@@ -500,8 +472,8 @@ fn analyze_unused_assignments_exact(
             }
         }
 
-        for binding in bindings {
-            if is_function_escape_candidate(binding, scopes)
+        for binding in context.bindings {
+            if is_function_escape_candidate(binding, context.scopes)
                 && future_reads_contain_after(
                     binding.scope,
                     binding.span.start.offset,
@@ -517,14 +489,14 @@ fn analyze_unused_assignments_exact(
     }
 
     let mut unused_assignments = Vec::new();
-    for binding in bindings {
+    for binding in context.bindings {
         let Some(block_id) = binding_blocks[binding.id.index()] else {
             continue;
         };
         if matches!(
             binding.kind,
             BindingKind::FunctionDefinition | BindingKind::Imported
-        ) || runtime.is_always_used_binding(&binding.name)
+        ) || context.runtime.is_always_used_binding(&binding.name)
             || unreachable_blocks.contains(block_id.index())
             || used_bindings.contains(binding.id.index())
         {
@@ -540,8 +512,8 @@ fn analyze_unused_assignments_exact(
         });
     }
     let unused_assignment_ids = collapse_redundant_branch_unused_assignment_ids(
-        cfg,
-        bindings,
+        context.cfg,
+        context.bindings,
         &binding_blocks,
         &unreachable_blocks,
         &unused_assignments,
