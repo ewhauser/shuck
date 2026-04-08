@@ -273,7 +273,7 @@ mod tests {
 
     fn runtime_prelude_source(shebang: &str) -> String {
         format!(
-            "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$LANG\" \"$SUDO_USER\" \"$DOAS_USER\"\nprintf '%s\\n' \"$LINENO\" \"$FUNCNAME\" \"${{BASH_SOURCE[0]}}\" \"${{BASH_LINENO[0]}}\" \"$RANDOM\" \"${{BASH_REMATCH[0]}}\" \"$READLINE_LINE\" \"$BASH_VERSION\" \"${{BASH_VERSINFO[0]}}\" \"$OSTYPE\" \"$HISTCONTROL\" \"$HISTSIZE\"\n"
+            "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$PATH\" \"$CDPATH\" \"$LANG\" \"$LC_ALL\" \"$LC_TIME\" \"$SUDO_USER\" \"$DOAS_USER\"\nprintf '%s\\n' \"$LINENO\" \"$FUNCNAME\" \"${{BASH_SOURCE[0]}}\" \"${{BASH_LINENO[0]}}\" \"$RANDOM\" \"${{BASH_REMATCH[0]}}\" \"$READLINE_LINE\" \"$BASH_VERSION\" \"${{BASH_VERSINFO[0]}}\" \"$OSTYPE\" \"$HISTCONTROL\" \"$HISTSIZE\"\n"
         )
     }
 
@@ -604,6 +604,24 @@ f
         let source = "\
 #!/bin/bash
 IFS=$'\\n\\t'
+unused=1
+echo ok
+";
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn shell_runtime_assignments_are_not_flagged_but_unrelated_assignment_is() {
+        let source = "\
+#!/bin/sh
+PATH=$PATH:/opt/custom
+CDPATH=/tmp
+LANG=C
+LC_ALL=C
+LC_TIME=C
 unused=1
 echo ok
 ";

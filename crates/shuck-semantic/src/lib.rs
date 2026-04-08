@@ -986,7 +986,7 @@ mod tests {
 
     fn common_runtime_source(shebang: &str) -> String {
         format!(
-            "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$LANG\" \"$SUDO_USER\" \"$DOAS_USER\"\n"
+            "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$PATH\" \"$CDPATH\" \"$LANG\" \"$LC_ALL\" \"$LC_TIME\" \"$SUDO_USER\" \"$DOAS_USER\"\n"
         )
     }
 
@@ -1995,6 +1995,32 @@ echo ok
     }
 
     #[test]
+    fn shell_runtime_assignments_are_treated_as_implicitly_used() {
+        let source = "\
+#!/bin/sh
+PATH=$PATH:/opt/custom
+CDPATH=/tmp
+LANG=C
+LC_ALL=C
+LC_TIME=C
+unused=1
+echo ok
+";
+        let mut model = model(source);
+        model.dataflow();
+
+        let unused = model
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        for name in ["PATH", "CDPATH", "LANG", "LC_ALL", "LC_TIME"] {
+            assert!(!unused.contains(&name), "unused bindings: {:?}", unused);
+        }
+        assert!(unused.contains(&"unused"));
+    }
+
+    #[test]
     fn bash_completion_runtime_vars_are_treated_as_live() {
         let source = "\
 #!/bin/bash
@@ -2218,7 +2244,11 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
             "SHELL",
             "PWD",
             "TERM",
+            "PATH",
+            "CDPATH",
             "LANG",
+            "LC_ALL",
+            "LC_TIME",
             "SUDO_USER",
             "DOAS_USER",
         ];

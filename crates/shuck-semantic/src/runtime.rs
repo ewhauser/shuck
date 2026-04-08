@@ -7,6 +7,8 @@ const COMMON_PREINITIALIZED: &[&str] = &[
     "SHELL",
     "PWD",
     "TERM",
+    "PATH",
+    "CDPATH",
     "LANG",
     "SUDO_USER",
     "DOAS_USER",
@@ -29,7 +31,7 @@ const BASH_PREINITIALIZED: &[&str] = &[
     "COMP_CWORD",
 ];
 
-const ALWAYS_USED_BINDINGS: &[&str] = &["IFS"];
+const ALWAYS_USED_BINDINGS: &[&str] = &["IFS", "PATH", "CDPATH"];
 const BASH_ALWAYS_USED_BINDINGS: &[&str] = &["COMPREPLY"];
 const EMPTY_IMPLICIT_READS: &[&str] = &[];
 const READ_IMPLICIT_READS: &[&str] = &["IFS"];
@@ -60,11 +62,13 @@ impl RuntimePrelude {
 
     pub(crate) fn is_preinitialized(&self, name: &Name) -> bool {
         contains_name(self.common_preinitialized, name)
+            || is_locale_binding(name)
             || (self.bash_enabled && contains_name(self.bash_preinitialized, name))
     }
 
     pub(crate) fn is_always_used_binding(&self, name: &Name) -> bool {
         contains_name(self.always_used_bindings, name)
+            || is_locale_binding(name)
             || (self.bash_enabled && contains_name(self.bash_always_used_bindings, name))
     }
 
@@ -83,4 +87,9 @@ impl RuntimePrelude {
 
 fn contains_name(names: &[&str], name: &Name) -> bool {
     names.iter().any(|candidate| *candidate == name.as_str())
+}
+
+fn is_locale_binding(name: &Name) -> bool {
+    let name = name.as_str();
+    name == "LANG" || name.starts_with("LC_")
 }
