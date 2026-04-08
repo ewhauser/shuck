@@ -103,7 +103,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SemanticModel {
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,

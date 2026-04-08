@@ -17,16 +17,16 @@ fn bench_unused_assignment(c: &mut Criterion) {
     let mut group = c.benchmark_group("unused_assignment");
 
     for case in benchmark_cases() {
-        let models = case
-            .files
-            .iter()
-            .map(|file| build_semantic(file.source))
-            .collect::<Vec<_>>();
         group.sample_size(case.speed.sample_size());
         group.throughput(Throughput::Bytes(case.total_bytes()));
-        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, case| {
             b.iter_batched(
-                || models.clone(),
+                || {
+                    case.files
+                        .iter()
+                        .map(|file| build_semantic(file.source))
+                        .collect::<Vec<_>>()
+                },
                 |mut models| {
                     let unused_count: usize = models
                         .iter_mut()
@@ -34,7 +34,7 @@ fn bench_unused_assignment(c: &mut Criterion) {
                         .sum();
                     black_box(unused_count);
                 },
-                BatchSize::SmallInput,
+                BatchSize::LargeInput,
             );
         });
     }
@@ -46,16 +46,16 @@ fn bench_uninitialized_reference(c: &mut Criterion) {
     let mut group = c.benchmark_group("uninitialized_reference");
 
     for case in benchmark_cases() {
-        let models = case
-            .files
-            .iter()
-            .map(|file| build_semantic(file.source))
-            .collect::<Vec<_>>();
         group.sample_size(case.speed.sample_size());
         group.throughput(Throughput::Bytes(case.total_bytes()));
-        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, case| {
             b.iter_batched(
-                || models.clone(),
+                || {
+                    case.files
+                        .iter()
+                        .map(|file| build_semantic(file.source))
+                        .collect::<Vec<_>>()
+                },
                 |mut models| {
                     let reference_count: usize = models
                         .iter_mut()
@@ -63,7 +63,7 @@ fn bench_uninitialized_reference(c: &mut Criterion) {
                         .sum();
                     black_box(reference_count);
                 },
-                BatchSize::SmallInput,
+                BatchSize::LargeInput,
             );
         });
     }
@@ -75,16 +75,16 @@ fn bench_dead_code(c: &mut Criterion) {
     let mut group = c.benchmark_group("dead_code");
 
     for case in benchmark_cases() {
-        let models = case
-            .files
-            .iter()
-            .map(|file| build_semantic(file.source))
-            .collect::<Vec<_>>();
         group.sample_size(case.speed.sample_size());
         group.throughput(Throughput::Bytes(case.total_bytes()));
-        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, case| {
             b.iter_batched(
-                || models.clone(),
+                || {
+                    case.files
+                        .iter()
+                        .map(|file| build_semantic(file.source))
+                        .collect::<Vec<_>>()
+                },
                 |mut models| {
                     let dead_code_count: usize = models
                         .iter_mut()
@@ -92,7 +92,7 @@ fn bench_dead_code(c: &mut Criterion) {
                         .sum();
                     black_box(dead_code_count);
                 },
-                BatchSize::SmallInput,
+                BatchSize::LargeInput,
             );
         });
     }
