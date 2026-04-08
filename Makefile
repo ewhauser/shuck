@@ -1,8 +1,9 @@
-.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
 NIX_DEVELOP ?= nix --extra-experimental-features 'nix-command flakes' develop --command
+UV_PYTHON ?= uv run python
 PROFILE_CASE ?= nvm
 PROFILE_FILE ?= crates/shuck-benchmark/resources/files/$(PROFILE_CASE).sh
 PROFILE_DIR ?= .cache/profiles
@@ -14,6 +15,9 @@ SHUCK_LARGE_CORPUS_SAMPLE_PERCENT ?= 100
 SHUCK_LARGE_CORPUS_MAPPED_ONLY ?= 1
 SHUCK_LARGE_CORPUS_KEEP_GOING ?= 1
 SHUCK_LARGE_CORPUS_RULES ?=
+LARGE_CORPUS_REPORT_DIR ?= target/large-corpus-report
+LARGE_CORPUS_REPORT_LOG ?= $(LARGE_CORPUS_REPORT_DIR)/latest.log
+LARGE_CORPUS_REPORT_HTML ?= $(LARGE_CORPUS_REPORT_DIR)/index.html
 
 setup-hooks:
 	git config core.hooksPath .githooks
@@ -48,6 +52,25 @@ test-large-corpus: ensure-cache
 	SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored --nocapture
+
+large-corpus-report-from-log:
+	test -f "$(LARGE_CORPUS_REPORT_LOG)"
+	$(UV_PYTHON) ./scripts/large_corpus_report.py --log "$(LARGE_CORPUS_REPORT_LOG)" --output "$(LARGE_CORPUS_REPORT_HTML)"
+	@echo "large corpus HTML report: $$(cd . && pwd)/$(LARGE_CORPUS_REPORT_HTML)"
+
+large-corpus-report: ensure-cache
+	@mkdir -p "$(LARGE_CORPUS_REPORT_DIR)"
+	@status=0; \
+	$(MAKE) --no-print-directory test-large-corpus >"$(LARGE_CORPUS_REPORT_LOG)" 2>&1 || status=$$?; \
+	cat "$(LARGE_CORPUS_REPORT_LOG)"; \
+	$(UV_PYTHON) ./scripts/large_corpus_report.py --log "$(LARGE_CORPUS_REPORT_LOG)" --output "$(LARGE_CORPUS_REPORT_HTML)"; \
+	echo "large corpus HTML report: $$(cd . && pwd)/$(LARGE_CORPUS_REPORT_HTML)"; \
+	if [ $$status -ne 0 ]; then \
+		echo "large corpus run exited with $$status; the HTML report was still generated from the captured log"; \
+	fi
+
+large-corpus-report-open: large-corpus-report
+	$(UV_PYTHON) -m webbrowser "file://$$(cd . && pwd)/$(LARGE_CORPUS_REPORT_HTML)"
 
 test-oracle-shfmt: test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark
 
