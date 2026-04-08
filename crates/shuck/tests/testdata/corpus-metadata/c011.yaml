@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "Shuck intentionally treats `for` loops that iterate over command substitution output as a line-orientation hazard, because the shell will re-split that output into separate words before the loop sees it. ShellCheck does not report this SC2013 family of cases, so C011 keeps that stricter policy as a reviewed divergence instead of expanding the rule to match ShellCheck's silence."
