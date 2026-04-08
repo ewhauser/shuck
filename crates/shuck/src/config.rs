@@ -6,6 +6,8 @@ use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 use shuck_formatter::{IndentStyle, ShellDialect, ShellFormatOptions};
 
+use crate::discover::normalize_path;
+
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -168,6 +170,3 @@ fn parse_indent_style(value: &str) -> Result<IndentStyle> {
     }
 }
 
-fn normalize_path(path: &Path) -> PathBuf {
-    path.components().collect()
-}

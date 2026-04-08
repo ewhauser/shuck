@@ -14,8 +14,7 @@ use similar::TextDiff;
 use crate::ExitStatus;
 use crate::args::FormatCommand;
 use crate::config::load_project_config;
-use crate::discover::{DiscoveredFile, ProjectRoot};
-use crate::format_resolver::resolve_format_files;
+use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DisplayedFormatError {
@@ -196,7 +195,12 @@ fn print_report(report: &FormatReport) -> Result<()> {
 }
 
 fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Result<FormatReport> {
-    let files = resolve_format_files(args, cwd)?;
+    let options = DiscoveryOptions {
+        exclude_patterns: args.exclude.clone(),
+        respect_gitignore: args.respect_gitignore(),
+        force_exclude: args.force_exclude(),
+    };
+    let files = discover_files(&args.files, cwd, &options)?;
     let mut groups: BTreeMap<ProjectRoot, Vec<DiscoveredFile>> = BTreeMap::new();
     for file in files {
         groups

@@ -23,7 +23,6 @@ shuck-parser = { path = "../shuck-parser" }
 shuck-semantic = { path = "../shuck-semantic" }
 similar = { workspace = true }
 toml = { workspace = true }
-walkdir = "2"
 
 [dev-dependencies]
 assert_cmd = "2"

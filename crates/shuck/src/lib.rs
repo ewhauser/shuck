@@ -3,7 +3,6 @@ pub mod args;
 mod commands;
 mod config;
 mod discover;
-mod format_resolver;
 mod stdin;
 
 use std::path::{Path, PathBuf};

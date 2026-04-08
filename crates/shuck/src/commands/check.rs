@@ -15,7 +15,7 @@ use shuck_parser::{Error as ParseError, parser::Parser};
 
 use crate::ExitStatus;
 use crate::args::CheckCommand;
-use crate::discover::{DiscoveredFile, ProjectRoot, discover_files};
+use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DisplayedDiagnostic {
@@ -163,7 +163,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
         ));
     }
 
-    let files = discover_files(&args.paths, cwd)?;
+    let files = discover_files(&args.paths, cwd, &DiscoveryOptions::default())?;
     let mut groups: BTreeMap<ProjectRoot, Vec<DiscoveredFile>> = BTreeMap::new();
     for file in files {
         groups
