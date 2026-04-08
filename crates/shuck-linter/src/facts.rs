@@ -9,10 +9,12 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, AssignmentValue, BinaryCommand, BinaryOp,
-    BuiltinCommand, Command, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclOperand, File, ForCommand, Pattern, PatternPart, Redirect,
-    RedirectKind, SelectCommand, Span, Stmt, StmtSeq, Word, WordPart, WordPartNode,
+    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
+    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand,
+    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, ParameterExpansionSyntax,
+    ParameterOp, Pattern, PatternPart, Redirect, RedirectKind, SelectCommand, SimpleCommand, Span,
+    Stmt, StmtSeq, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
@@ -319,6 +321,65 @@ impl<'a> RedirectFact<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SingleQuotedFragmentFact {
+    span: Span,
+    command_name: Option<Box<str>>,
+    assignment_target: Option<Box<str>>,
+    variable_set_operand: bool,
+}
+
+impl SingleQuotedFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn command_name(&self) -> Option<&str> {
+        self.command_name.as_deref()
+    }
+
+    pub fn assignment_target(&self) -> Option<&str> {
+        self.assignment_target.as_deref()
+    }
+
+    pub fn variable_set_operand(&self) -> bool {
+        self.variable_set_operand
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BacktickFragmentFact {
+    span: Span,
+}
+
+impl BacktickFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LegacyArithmeticFragmentFact {
+    span: Span,
+}
+
+impl LegacyArithmeticFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PositionalParameterFragmentFact {
+    span: Span,
+}
+
+impl PositionalParameterFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubstitutionHostKind {
     CommandArgument,
@@ -534,6 +595,14 @@ impl<'a> PipelineSegmentFact<'a> {
 
     pub fn effective_name_is(&self, name: &str) -> bool {
         self.effective_name() == Some(name)
+    }
+
+    pub fn static_utility_name(&self) -> Option<&str> {
+        self.effective_or_literal_name()
+    }
+
+    pub fn static_utility_name_is(&self, name: &str) -> bool {
+        self.static_utility_name() == Some(name)
     }
 }
 
@@ -856,6 +925,14 @@ impl<'a> CommandFact<'a> {
         self.normalized.effective_name_is(name)
     }
 
+    pub fn static_utility_name(&self) -> Option<&str> {
+        self.effective_or_literal_name()
+    }
+
+    pub fn static_utility_name_is(&self, name: &str) -> bool {
+        self.static_utility_name() == Some(name)
+    }
+
     pub fn wrappers(&self) -> &[WrapperKind] {
         &self.normalized.wrappers
     }
@@ -891,6 +968,10 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
+    single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
+    backtick_fragments: Vec<BacktickFragmentFact>,
+    legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
+    positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -950,6 +1031,22 @@ impl<'a> LinterFacts<'a> {
 
     pub fn lists(&self) -> &[ListFact<'a>] {
         &self.lists
+    }
+
+    pub fn single_quoted_fragments(&self) -> &[SingleQuotedFragmentFact] {
+        &self.single_quoted_fragments
+    }
+
+    pub fn backtick_fragments(&self) -> &[BacktickFragmentFact] {
+        &self.backtick_fragments
+    }
+
+    pub fn legacy_arithmetic_fragments(&self) -> &[LegacyArithmeticFragmentFact] {
+        &self.legacy_arithmetic_fragments
+    }
+
+    pub fn positional_parameter_fragments(&self) -> &[PositionalParameterFragmentFact] {
+        &self.positional_parameter_fragments
     }
 }
 
@@ -1036,6 +1133,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let select_headers = build_select_header_facts(&commands, &command_index, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_index);
         let lists = build_list_facts(&commands);
+        let surface_fragments =
+            build_surface_fragment_facts(self.file, &commands, &command_index, self.source);
 
         LinterFacts {
             commands,
@@ -1046,6 +1145,10 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             pipelines,
             lists,
+            single_quoted_fragments: surface_fragments.single_quoted,
+            backtick_fragments: surface_fragments.backticks,
+            legacy_arithmetic_fragments: surface_fragments.legacy_arithmetic,
+            positional_parameter_fragments: surface_fragments.positional_parameters,
         }
     }
 }
@@ -1430,6 +1533,10 @@ fn visit_command_words_for_substitutions(
                 if let Some(words) = &command.words {
                     visit_words_for_substitutions(words, visitor);
                 }
+            }
+            CompoundCommand::Repeat(command) => visitor(&command.count),
+            CompoundCommand::Foreach(command) => {
+                visit_words_for_substitutions(&command.words, visitor)
             }
             CompoundCommand::Case(command) => {
                 visitor(&command.word);
@@ -1989,6 +2096,500 @@ fn stmt_effective_name_is<'a>(
         .get(&command_ptr(&stmt.command))
         .map(|&index| commands[index].effective_name_is(name))
         .unwrap_or(false)
+}
+
+#[derive(Debug, Default)]
+struct SurfaceFragmentFacts {
+    single_quoted: Vec<SingleQuotedFragmentFact>,
+    backticks: Vec<BacktickFragmentFact>,
+    legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
+    positional_parameters: Vec<PositionalParameterFragmentFact>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SurfaceScanContext {
+    command_name: Option<Box<str>>,
+    assignment_target: Option<Box<str>>,
+    variable_set_operand: bool,
+}
+
+impl SurfaceScanContext {
+    fn with_assignment_target(self, assignment_target: &str) -> Self {
+        Self {
+            assignment_target: Some(assignment_target.to_owned().into_boxed_str()),
+            ..self
+        }
+    }
+
+    fn variable_set_operand(self) -> Self {
+        Self {
+            variable_set_operand: true,
+            ..self
+        }
+    }
+}
+
+struct SurfaceFragmentCollector<'a> {
+    commands: &'a [CommandFact<'a>],
+    command_index: &'a FxHashMap<*const Command, usize>,
+    source: &'a str,
+    facts: SurfaceFragmentFacts,
+}
+
+impl<'a> SurfaceFragmentCollector<'a> {
+    fn new(
+        commands: &'a [CommandFact<'a>],
+        command_index: &'a FxHashMap<*const Command, usize>,
+        source: &'a str,
+    ) -> Self {
+        Self {
+            commands,
+            command_index,
+            source,
+            facts: SurfaceFragmentFacts::default(),
+        }
+    }
+
+    fn finish(self) -> SurfaceFragmentFacts {
+        self.facts
+    }
+
+    fn collect_commands(&mut self, commands: &StmtSeq) {
+        for command in commands.iter() {
+            self.collect_command(command);
+        }
+    }
+
+    fn collect_command(&mut self, stmt: &Stmt) {
+        let context = SurfaceScanContext {
+            command_name: self
+                .command_fact_for_command(&stmt.command)
+                .and_then(CommandFact::effective_or_literal_name)
+                .map(str::to_owned)
+                .map(String::into_boxed_str),
+            ..SurfaceScanContext::default()
+        };
+
+        match &stmt.command {
+            Command::Simple(command) => self.collect_simple_command(command, context),
+            Command::Builtin(command) => self.collect_builtin(command),
+            Command::Decl(command) => self.collect_decl_command(command),
+            Command::Binary(command) => {
+                self.collect_command(&command.left);
+                self.collect_command(&command.right);
+            }
+            Command::Compound(command) => self.collect_compound(command),
+            Command::Function(function) => self.collect_command(&function.body),
+        }
+
+        self.collect_redirects(&stmt.redirects, SurfaceScanContext::default());
+    }
+
+    fn collect_simple_command(&mut self, command: &SimpleCommand, context: SurfaceScanContext) {
+        self.collect_assignments(&command.assignments, context.clone());
+        self.collect_word(&command.name, context.clone());
+
+        let variable_set_operand = simple_command_variable_set_operand(command, self.source);
+        for word in &command.args {
+            let word_context =
+                if variable_set_operand.is_some_and(|operand| std::ptr::eq(word, operand)) {
+                    context.clone().variable_set_operand()
+                } else {
+                    context.clone()
+                };
+            self.collect_word(word, word_context);
+        }
+    }
+
+    fn collect_builtin(&mut self, command: &BuiltinCommand) {
+        let context = SurfaceScanContext::default();
+        match command {
+            BuiltinCommand::Break(command) => {
+                self.collect_assignments(&command.assignments, context.clone());
+                if let Some(word) = &command.depth {
+                    self.collect_word(word, context.clone());
+                }
+                self.collect_words(&command.extra_args, context);
+            }
+            BuiltinCommand::Continue(command) => {
+                self.collect_assignments(&command.assignments, context.clone());
+                if let Some(word) = &command.depth {
+                    self.collect_word(word, context.clone());
+                }
+                self.collect_words(&command.extra_args, context);
+            }
+            BuiltinCommand::Return(command) => {
+                self.collect_assignments(&command.assignments, context.clone());
+                if let Some(word) = &command.code {
+                    self.collect_word(word, context.clone());
+                }
+                self.collect_words(&command.extra_args, context);
+            }
+            BuiltinCommand::Exit(command) => {
+                self.collect_assignments(&command.assignments, context.clone());
+                if let Some(word) = &command.code {
+                    self.collect_word(word, context.clone());
+                }
+                self.collect_words(&command.extra_args, context);
+            }
+        }
+    }
+
+    fn collect_decl_command(&mut self, command: &DeclClause) {
+        let context = SurfaceScanContext::default();
+        self.collect_assignments(&command.assignments, context.clone());
+        for operand in &command.operands {
+            match operand {
+                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                    self.collect_word(word, context.clone());
+                }
+                DeclOperand::Name(reference) => {
+                    query::visit_var_ref_subscript_words_with_source(
+                        reference,
+                        self.source,
+                        &mut |word| self.collect_word(word, context.clone()),
+                    );
+                }
+                DeclOperand::Assignment(assignment) => {
+                    self.collect_assignment(assignment, context.clone())
+                }
+            }
+        }
+    }
+
+    fn collect_compound(&mut self, command: &CompoundCommand) {
+        match command {
+            CompoundCommand::If(command) => {
+                self.collect_commands(&command.condition);
+                self.collect_commands(&command.then_branch);
+                for (condition, body) in &command.elif_branches {
+                    self.collect_commands(condition);
+                    self.collect_commands(body);
+                }
+                if let Some(body) = &command.else_branch {
+                    self.collect_commands(body);
+                }
+            }
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    self.collect_words(words, SurfaceScanContext::default());
+                }
+                self.collect_commands(&command.body);
+            }
+            CompoundCommand::Repeat(command) => {
+                self.collect_word(&command.count, SurfaceScanContext::default());
+                self.collect_commands(&command.body);
+            }
+            CompoundCommand::Foreach(command) => {
+                self.collect_words(&command.words, SurfaceScanContext::default());
+                self.collect_commands(&command.body);
+            }
+            CompoundCommand::ArithmeticFor(command) => self.collect_commands(&command.body),
+            CompoundCommand::While(command) => {
+                self.collect_commands(&command.condition);
+                self.collect_commands(&command.body);
+            }
+            CompoundCommand::Until(command) => {
+                self.collect_commands(&command.condition);
+                self.collect_commands(&command.body);
+            }
+            CompoundCommand::Case(command) => {
+                self.collect_word(&command.word, SurfaceScanContext::default());
+                for case in &command.cases {
+                    self.collect_patterns(&case.patterns, SurfaceScanContext::default());
+                    self.collect_commands(&case.body);
+                }
+            }
+            CompoundCommand::Select(command) => {
+                self.collect_words(&command.words, SurfaceScanContext::default());
+                self.collect_commands(&command.body);
+            }
+            CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+                self.collect_commands(commands);
+            }
+            CompoundCommand::Always(command) => {
+                self.collect_commands(&command.body);
+                self.collect_commands(&command.always_body);
+            }
+            CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Time(command) => {
+                if let Some(command) = &command.command {
+                    self.collect_command(command);
+                }
+            }
+            CompoundCommand::Conditional(command) => {
+                self.collect_conditional_expr(&command.expression, SurfaceScanContext::default());
+            }
+            CompoundCommand::Coproc(command) => self.collect_command(&command.body),
+        }
+    }
+
+    fn collect_assignments(&mut self, assignments: &[Assignment], context: SurfaceScanContext) {
+        for assignment in assignments {
+            self.collect_assignment(assignment, context.clone());
+        }
+    }
+
+    fn collect_assignment(&mut self, assignment: &Assignment, context: SurfaceScanContext) {
+        let context = context.with_assignment_target(assignment.target.name.as_str());
+        query::visit_var_ref_subscript_words_with_source(
+            &assignment.target,
+            self.source,
+            &mut |word| self.collect_word(word, context.clone()),
+        );
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => self.collect_word(word, context.clone()),
+            AssignmentValue::Compound(array) => {
+                for element in &array.elements {
+                    match element {
+                        ArrayElem::Sequential(word) => self.collect_word(word, context.clone()),
+                        ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                            query::visit_subscript_words(Some(key), self.source, &mut |word| {
+                                self.collect_word(word, context.clone());
+                            });
+                            self.collect_word(value, context.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_words(&mut self, words: &[Word], context: SurfaceScanContext) {
+        for word in words {
+            self.collect_word(word, context.clone());
+        }
+    }
+
+    fn collect_patterns(&mut self, patterns: &[Pattern], context: SurfaceScanContext) {
+        for pattern in patterns {
+            self.collect_pattern(pattern, context.clone());
+        }
+    }
+
+    fn collect_word(&mut self, word: &Word, context: SurfaceScanContext) {
+        self.collect_word_parts(&word.parts, context);
+    }
+
+    fn collect_word_parts(&mut self, parts: &[WordPartNode], context: SurfaceScanContext) {
+        for (index, part) in parts.iter().enumerate() {
+            if let WordPart::Variable(name) = &part.kind
+                && matches!(
+                    name.as_str(),
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+                )
+                && let Some(next_part) = parts.get(index + 1)
+                && let WordPart::Literal(text) = &next_part.kind
+                && text
+                    .as_str(self.source, next_part.span)
+                    .starts_with(|char: char| char.is_ascii_digit())
+            {
+                self.facts
+                    .positional_parameters
+                    .push(PositionalParameterFragmentFact {
+                        span: part.span.merge(next_part.span),
+                    });
+            }
+
+            match &part.kind {
+                WordPart::SingleQuoted { .. } => {
+                    self.facts.single_quoted.push(SingleQuotedFragmentFact {
+                        span: part.span,
+                        command_name: context.command_name.clone(),
+                        assignment_target: context.assignment_target.clone(),
+                        variable_set_operand: context.variable_set_operand,
+                    });
+                }
+                WordPart::DoubleQuoted { parts, .. } => {
+                    self.collect_word_parts(parts, context.clone())
+                }
+                WordPart::ArithmeticExpansion {
+                    syntax: ArithmeticExpansionSyntax::LegacyBracket,
+                    expression_ast,
+                    ..
+                } => {
+                    self.facts
+                        .legacy_arithmetic
+                        .push(LegacyArithmeticFragmentFact { span: part.span });
+                    if let Some(expression_ast) = expression_ast.as_ref() {
+                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                            self.collect_word(word, context.clone());
+                        });
+                    }
+                }
+                WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                    if let Some(expression_ast) = expression_ast.as_ref() {
+                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                            self.collect_word(word, context.clone());
+                        });
+                    }
+                }
+                WordPart::CommandSubstitution {
+                    syntax: CommandSubstitutionSyntax::Backtick,
+                    body,
+                    ..
+                } => {
+                    self.facts
+                        .backticks
+                        .push(BacktickFragmentFact { span: part.span });
+                    self.collect_commands(body);
+                }
+                WordPart::CommandSubstitution { body, .. }
+                | WordPart::ProcessSubstitution { body, .. } => self.collect_commands(body),
+                WordPart::Parameter(parameter) => {
+                    if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                        operator,
+                        ..
+                    }) = &parameter.syntax
+                    {
+                        self.collect_parameter_operator_patterns(operator, context.clone());
+                    }
+                }
+                WordPart::ParameterExpansion { operator, .. } => {
+                    self.collect_parameter_operator_patterns(operator, context.clone());
+                }
+                WordPart::IndirectExpansion {
+                    operator: Some(operator),
+                    ..
+                } => self.collect_parameter_operator_patterns(operator, context.clone()),
+                WordPart::Literal(_)
+                | WordPart::Variable(_)
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { operator: None, .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::Transformation { .. } => {}
+            }
+        }
+    }
+
+    fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext) {
+        for (part, _) in pattern.parts_with_spans() {
+            match part {
+                PatternPart::Group { patterns, .. } => {
+                    self.collect_patterns(patterns, context.clone())
+                }
+                PatternPart::Word(word) => self.collect_word(word, context.clone()),
+                PatternPart::Literal(_)
+                | PatternPart::AnyString
+                | PatternPart::AnyChar
+                | PatternPart::CharClass(_) => {}
+            }
+        }
+    }
+
+    fn collect_redirects(&mut self, redirects: &[Redirect], context: SurfaceScanContext) {
+        for redirect in redirects {
+            match redirect.word_target() {
+                Some(word) => self.collect_word(word, context.clone()),
+                None => {
+                    let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                    if heredoc.delimiter.expands_body {
+                        self.collect_word(&heredoc.body, context.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_conditional_expr(
+        &mut self,
+        expression: &ConditionalExpr,
+        context: SurfaceScanContext,
+    ) {
+        match expression {
+            ConditionalExpr::Binary(expr) => {
+                self.collect_conditional_expr(&expr.left, context.clone());
+                self.collect_conditional_expr(&expr.right, context);
+            }
+            ConditionalExpr::Unary(expr) => {
+                let context = if expr.op == ConditionalUnaryOp::VariableSet {
+                    context.variable_set_operand()
+                } else {
+                    context
+                };
+                self.collect_conditional_expr(&expr.expr, context);
+            }
+            ConditionalExpr::Parenthesized(expr) => {
+                self.collect_conditional_expr(&expr.expr, context);
+            }
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+                self.collect_word(word, context)
+            }
+            ConditionalExpr::Pattern(pattern) => self.collect_pattern(pattern, context),
+            ConditionalExpr::VarRef(reference) => {
+                query::visit_var_ref_subscript_words_with_source(
+                    reference,
+                    self.source,
+                    &mut |word| self.collect_word(word, context.clone()),
+                );
+            }
+        }
+    }
+
+    fn collect_parameter_operator_patterns(
+        &mut self,
+        operator: &ParameterOp,
+        context: SurfaceScanContext,
+    ) {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern }
+            | ParameterOp::ReplaceFirst { pattern, .. }
+            | ParameterOp::ReplaceAll { pattern, .. } => self.collect_pattern(pattern, context),
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => {}
+        }
+    }
+
+    fn command_fact_for_command(&self, command: &Command) -> Option<&CommandFact<'a>> {
+        self.command_index
+            .get(&command_ptr(command))
+            .map(|&index| &self.commands[index])
+    }
+}
+
+fn build_surface_fragment_facts<'a>(
+    file: &'a File,
+    commands: &'a [CommandFact<'a>],
+    command_index: &'a FxHashMap<*const Command, usize>,
+    source: &'a str,
+) -> SurfaceFragmentFacts {
+    let mut collector = SurfaceFragmentCollector::new(commands, command_index, source);
+    collector.collect_commands(&file.body);
+    collector.finish()
+}
+
+fn simple_command_variable_set_operand<'a>(
+    command: &'a SimpleCommand,
+    source: &str,
+) -> Option<&'a Word> {
+    let operands = simple_test_operands(command, source)?;
+    (operands.len() == 2 && static_word_text(&operands[0], source).as_deref() == Some("-v"))
+        .then(|| &operands[1])
+}
+
+fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<&'a [Word]> {
+    match static_word_text(&command.name, source).as_deref()? {
+        "[" => {
+            let (closing_bracket, operands) = command.args.split_last()?;
+            (static_word_text(closing_bracket, source).as_deref() == Some("]")).then_some(operands)
+        }
+        "test" => Some(&command.args),
+        _ => None,
+    }
 }
 
 fn build_simple_test_fact<'a>(
@@ -3052,6 +3653,86 @@ true && false || printf '%s\\n' fallback
                     .quote()
                     .is_some_and(|quote| quote != crate::rules::common::word::WordQuote::Unquoted)
             );
+        });
+    }
+
+    #[test]
+    fn builds_surface_fragment_facts_and_static_utility_names() {
+        let source = "\
+#!/bin/bash
+echo \"prefix `date` suffix\"
+echo \"$[1 + 2]\"
+arr[$10]=1
+declare other[$10]=1
+command jq '$__loc__'
+test -v '$name'
+printf '%s\\n' 123 | command kill -9
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .backtick_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["`date`"]
+            );
+            assert_eq!(
+                facts
+                    .legacy_arithmetic_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$[1 + 2]"]
+            );
+            assert_eq!(
+                facts
+                    .positional_parameter_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$10", "$10"]
+            );
+
+            let single_quoted = facts
+                .single_quoted_fragments()
+                .iter()
+                .map(|fragment| {
+                    (
+                        fragment.span().slice(source).to_owned(),
+                        fragment.command_name().map(str::to_owned),
+                        fragment.assignment_target().map(str::to_owned),
+                        fragment.variable_set_operand(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert!(single_quoted.contains(&(
+                "'$__loc__'".to_owned(),
+                Some("jq".to_owned()),
+                None,
+                false,
+            )));
+            assert!(single_quoted.contains(&(
+                "'$name'".to_owned(),
+                Some("test".to_owned()),
+                None,
+                true,
+            )));
+
+            let jq = facts
+                .structural_commands()
+                .find(|fact| fact.static_utility_name_is("jq"))
+                .expect("expected jq command fact");
+            assert_eq!(jq.static_utility_name(), Some("jq"));
+
+            let tail = facts
+                .pipelines()
+                .first()
+                .and_then(|pipeline| pipeline.last_segment())
+                .expect("expected pipeline tail");
+            assert_eq!(tail.static_utility_name(), Some("kill"));
+            assert!(tail.static_utility_name_is("kill"));
         });
     }
 }

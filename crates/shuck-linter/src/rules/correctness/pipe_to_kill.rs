@@ -20,7 +20,7 @@ pub fn pipe_to_kill(checker: &mut Checker) {
         .filter(|pipeline| {
             pipeline
                 .last_segment()
-                .is_some_and(|segment| segment.effective_name_is("kill"))
+                .is_some_and(|segment| segment.static_utility_name_is("kill"))
         })
         .map(|pipeline| pipeline.span())
         .collect::<Vec<_>>();

@@ -20,14 +20,15 @@ pub use context::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use facts::{
-    CommandFact, CommandOptionFacts, ConditionalBareWordFact, ConditionalBinaryFact,
-    ConditionalFact, ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
-    ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts, ForHeaderFact, LinterFacts,
-    ListFact, ListOperatorFact, LoopHeaderWordFact, PipelineFact, PipelineSegmentFact,
+    BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
+    ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
+    ConditionalOperatorFamily, ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts,
+    ForHeaderFact, LegacyArithmeticFragmentFact, LinterFacts, ListFact, ListOperatorFact,
+    LoopHeaderWordFact, PipelineFact, PipelineSegmentFact, PositionalParameterFragmentFact,
     PrintfCommandFacts, ReadCommandFacts, RedirectFact, SelectHeaderFact, SimpleTestFact,
-    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SubstitutionFact,
-    SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
-    XargsCommandFacts,
+    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
+    SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker,
+    UnsetCommandFacts, XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};

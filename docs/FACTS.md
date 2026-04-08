@@ -394,22 +394,22 @@ The surface-trivia fact family should precompute:
 
 Action items:
 
-- [ ] Add fragment facts for single-quoted spans and the rule-relevant local
+- [x] Add fragment facts for single-quoted spans and the rule-relevant local
       context that affects whether they should report.
-- [ ] Add positional-parameter fragment facts so `C025` no longer scans parts
+- [x] Add positional-parameter fragment facts so `C025` no longer scans parts
       itself.
-- [ ] Expose static utility-name facts for lightweight command queries such as
+- [x] Expose static utility-name facts for lightweight command queries such as
       `kill`.
-- [ ] Retire the bespoke walker in `C005`.
-- [ ] Retire the bespoke walker in `C046`.
+- [x] Retire the bespoke walker in `C005`.
+- [x] Retire the bespoke walker in `C046`.
 
 Rules to migrate onto surface trivia and literal fragment facts:
 
-- [ ] `S005` `LegacyBackticks`
-- [ ] `S006` `LegacyArithmeticExpansion`
-- [ ] `C005` `SingleQuotedLiteral`
-- [ ] `C025` `PositionalTenBraces`
-- [ ] `C046` `PipeToKill`
+- [x] `S005` `LegacyBackticks`
+- [x] `S006` `LegacyArithmeticExpansion`
+- [x] `C005` `SingleQuotedLiteral`
+- [x] `C025` `PositionalTenBraces`
+- [x] `C046` `PipeToKill`
 
 ### Initiative 8: Checker Integration And Cleanup
 
@@ -449,13 +449,13 @@ Needs migration to `LinterFacts`:
 - [ ] `S002` `ReadWithoutRaw`
 - [x] `S003` `LoopFromCommandOutput`
 - [x] `S004` `UnquotedCommandSubstitution`
-- [ ] `S005` `LegacyBackticks`
-- [ ] `S006` `LegacyArithmeticExpansion`
+- [x] `S005` `LegacyBackticks`
+- [x] `S006` `LegacyArithmeticExpansion`
 - [ ] `S007` `PrintfFormatVariable`
 - [ ] `S008` `UnquotedArrayExpansion`
 - [ ] `S009` `EchoedCommandSubstitution`
 - [ ] `S010` `ExportCommandSubstitution`
-- [ ] `C005` `SingleQuotedLiteral`
+- [x] `C005` `SingleQuotedLiteral`
 - [ ] `C008` `TrapStringExpansion`
 - [x] `C009` `QuotedBashRegex`
 - [x] `C010` `ChainedTestBranches`
@@ -468,7 +468,7 @@ Needs migration to `LinterFacts`:
 - [x] `C020` `TruthyLiteralTest`
 - [ ] `C021` `ConstantCaseSubject`
 - [x] `C022` `EmptyTest`
-- [ ] `C025` `PositionalTenBraces`
+- [x] `C025` `PositionalTenBraces`
 - [x] `C046` `PipeToKill`
 - [ ] `C047` `InvalidExitStatus`
 - [ ] `C048` `CasePatternVar`
@@ -503,9 +503,9 @@ Needs migration to `LinterFacts`:
 
 ### Phase 4: Bespoke Walker Retirement
 
-- [ ] Replace `C005` with shared fragment facts.
-- [ ] Replace `C046` with shared pipeline and utility facts.
-- [ ] Remove dead traversal helpers that were only kept alive by those rules.
+- [x] Replace `C005` with shared fragment facts.
+- [x] Replace `C046` with shared pipeline and utility facts.
+- [x] Remove dead traversal helpers that were only kept alive by those rules.
 
 ### Phase 5: Cleanup And Measurement
 

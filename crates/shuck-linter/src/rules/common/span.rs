@@ -1,7 +1,6 @@
 use shuck_ast::{
-    ArithmeticExpansionSyntax, Assignment, BinaryCommand, BourneParameterExpansion,
-    CommandSubstitutionSyntax, ParameterExpansion, ParameterExpansionSyntax, Redirect, Span, Word,
-    WordPart, WordPartNode,
+    Assignment, BinaryCommand, BourneParameterExpansion, ParameterExpansion,
+    ParameterExpansionSyntax, Redirect, Span, Word, WordPart, WordPartNode,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -68,18 +67,6 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
 pub fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_scalar_expansion_spans(&word.parts, &mut spans);
-    spans
-}
-
-pub fn backtick_fragment_spans(word: &Word) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_backtick_spans(&word.parts, &mut spans);
-    spans
-}
-
-pub fn legacy_arithmetic_part_spans(word: &Word) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_legacy_arithmetic_spans(&word.parts, &mut spans);
     spans
 }
 
@@ -228,43 +215,12 @@ fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
     }
 }
 
-fn collect_backtick_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => collect_backtick_spans(parts, spans),
-            WordPart::CommandSubstitution {
-                syntax: CommandSubstitutionSyntax::Backtick,
-                ..
-            } => {
-                spans.push(part.span);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_legacy_arithmetic_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => collect_legacy_arithmetic_spans(parts, spans),
-            WordPart::ArithmeticExpansion {
-                syntax: ArithmeticExpansionSyntax::LegacyBracket,
-                ..
-            } => {
-                spans.push(part.span);
-            }
-            _ => {}
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        array_expansion_part_spans, backtick_fragment_spans, command_substitution_part_spans,
-        scalar_expansion_part_spans,
+        array_expansion_part_spans, command_substitution_part_spans, scalar_expansion_part_spans,
     };
 
     #[test]
@@ -369,26 +325,6 @@ mod tests {
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${assoc[\"key\"]}"]
-        );
-    }
-
-    #[test]
-    fn backtick_fragment_spans_find_exact_pairs() {
-        let source = "echo \"today is `date` and `uname`\"\n";
-        let output = Parser::new(source).parse().unwrap();
-        let command = &output.file.body[0].command;
-        let shuck_ast::Command::Simple(command) = command else {
-            panic!("expected simple command");
-        };
-        let word = &command.args[0];
-
-        let spans = backtick_fragment_spans(word);
-        assert_eq!(
-            spans
-                .iter()
-                .map(|span| span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["`date`", "`uname`"]
         );
     }
 }

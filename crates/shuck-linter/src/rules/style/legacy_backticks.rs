@@ -1,5 +1,3 @@
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::span;
 use crate::{Checker, Rule, Violation};
 
 pub struct LegacyBackticks;
@@ -15,17 +13,16 @@ impl Violation for LegacyBackticks {
 }
 
 pub fn legacy_backticks(checker: &mut Checker) {
-    query::walk_words(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |word| {
-            for span in span::backtick_fragment_spans(word) {
-                checker.report_dedup(LegacyBackticks, span);
-            }
-        },
-    );
+    let spans = checker
+        .facts()
+        .backtick_fragments()
+        .iter()
+        .map(|fragment| fragment.span())
+        .collect::<Vec<_>>();
+
+    for span in spans {
+        checker.report_dedup(LegacyBackticks, span);
+    }
 }
 
 #[cfg(test)]

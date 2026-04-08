@@ -1,7 +1,3 @@
-use crate::rules::common::{
-    query::{self, CommandWalkOptions},
-    span,
-};
 use crate::{Checker, Rule, Violation};
 
 pub struct LegacyArithmeticExpansion;
@@ -17,22 +13,37 @@ impl Violation for LegacyArithmeticExpansion {
 }
 
 pub fn legacy_arithmetic_expansion(checker: &mut Checker) {
-    let mut spans = Vec::new();
-
-    query::walk_words(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |word| {
-            spans.extend(span::legacy_arithmetic_part_spans(word));
-        },
-    );
-
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup();
+    let spans = checker
+        .facts()
+        .legacy_arithmetic_fragments()
+        .iter()
+        .map(|fragment| fragment.span())
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(LegacyArithmeticExpansion, span);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn anchors_on_each_legacy_arithmetic_fragment() {
+        let source = "echo \"$[1 + 2]\" '$[ignored]' \"$[3 + 4]\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LegacyArithmeticExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$[1 + 2]", "$[3 + 4]"]
+        );
     }
 }
