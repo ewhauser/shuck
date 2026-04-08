@@ -675,7 +675,7 @@ fn large_corpus_conforms_with_shellcheck() {
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
     shellcheck_cache.prepare(&fixtures, &discover_worktree_roots());
-    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules);
+    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
     let supported_fixtures: Vec<_> = fixtures
         .iter()
         .filter(|fixture| fixture_supported_for_large_corpus(fixture, Some(&supported_shells)))
@@ -760,7 +760,7 @@ fn large_corpus_zsh_fixtures_parse() {
     }
 
     let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&all_fixture_refs));
-    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules);
+    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
     let failure_collection = collect_fixture_failures(&zsh_fixtures, cfg.keep_going, |fixture| {
         evaluate_fixture_zsh_parse(
             fixture,
@@ -2145,10 +2145,17 @@ fn build_shellcheck_index() -> HashMap<String, String> {
 
 fn build_large_corpus_linter_settings(
     selected_rules: Option<shuck_linter::RuleSet>,
+    mapped_only: bool,
 ) -> shuck_linter::LinterSettings {
-    selected_rules.map_or_else(shuck_linter::LinterSettings::default, |rules| {
-        shuck_linter::LinterSettings::for_rules(rules.iter())
-    })
+    if let Some(rules) = selected_rules {
+        return shuck_linter::LinterSettings::for_rules(rules.iter());
+    }
+    if mapped_only {
+        let map = shuck_linter::ShellCheckCodeMap::default();
+        let mapped_rules: Vec<_> = map.mappings().map(|(_, rule)| rule).collect();
+        return shuck_linter::LinterSettings::for_rules(mapped_rules);
+    }
+    shuck_linter::LinterSettings::default()
 }
 
 fn build_shellcheck_filter_codes(
@@ -3007,7 +3014,7 @@ mod tests {
     #[test]
     fn selected_rule_filter_builds_matching_linter_settings() {
         let rules = parse_large_corpus_rule_set("S001").unwrap();
-        let settings = build_large_corpus_linter_settings(Some(rules));
+        let settings = build_large_corpus_linter_settings(Some(rules), false);
 
         assert!(
             settings
@@ -3019,6 +3026,24 @@ mod tests {
                 .rules
                 .contains(shuck_linter::Rule::UnusedAssignment)
         );
+    }
+
+    #[test]
+    fn mapped_only_enables_all_mapped_rules_in_linter_settings() {
+        let settings = build_large_corpus_linter_settings(None, true);
+        // Style rules like S003 (LoopFromCommandOutput) should be included
+        assert!(settings
+            .rules
+            .contains(shuck_linter::Rule::LoopFromCommandOutput));
+        // All mapped rules should be present
+        let map = shuck_linter::ShellCheckCodeMap::default();
+        for (_, rule) in map.mappings() {
+            assert!(
+                settings.rules.contains(rule),
+                "mapped rule {:?} missing from mapped_only linter settings",
+                rule
+            );
+        }
     }
 
     #[test]
