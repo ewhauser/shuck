@@ -1,5 +1,5 @@
-use crate::rules::common::{span, word::classify_word};
-use crate::{Checker, Rule, Violation};
+use crate::rules::common::expansion::ExpansionContext;
+use crate::{Checker, Rule, Violation, WordFactContext};
 pub struct EchoedCommandSubstitution;
 
 impl Violation for EchoedCommandSubstitution {
@@ -13,7 +13,6 @@ impl Violation for EchoedCommandSubstitution {
 }
 
 pub fn echoed_command_substitution(checker: &mut Checker) {
-    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
@@ -23,11 +22,15 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
             let [word] = fact.body_args() else {
                 return None;
             };
-            classify_word(word, source)
-                .has_plain_command_substitution()
-                .then_some(*word)
+            checker
+                .facts()
+                .word_fact(
+                    word.span,
+                    WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                )
+                .filter(|fact| fact.classification().has_plain_command_substitution())
         })
-        .flat_map(span::command_substitution_part_spans)
+        .flat_map(|fact| fact.command_substitution_spans().iter().copied())
         .collect::<Vec<_>>();
 
     for span in spans {

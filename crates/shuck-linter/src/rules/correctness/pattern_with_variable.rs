@@ -1,6 +1,4 @@
 use crate::rules::common::expansion::ExpansionContext;
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
 pub struct PatternWithVariable;
@@ -16,25 +14,12 @@ impl Violation for PatternWithVariable {
 }
 
 pub fn pattern_with_variable(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let _command = visit.command;
-            query::visit_expansion_words(visit, source, &mut |word, context| {
-                if context == ExpansionContext::ParameterPattern
-                    && classify_word(word, source).is_expanded()
-                {
-                    spans.push(word.span);
-                }
-            });
-        },
-    );
+    let spans = checker
+        .facts()
+        .expansion_word_facts(ExpansionContext::ParameterPattern)
+        .filter(|fact| fact.classification().is_expanded())
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(PatternWithVariable, span);

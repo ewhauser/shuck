@@ -1,14 +1,8 @@
-use shuck_ast::{
-    BourneParameterExpansion, ParameterExpansion, ParameterExpansionSyntax, Word, WordPart,
-};
-
 use crate::rules::common::{
     expansion::ExpansionContext,
-    query::{self, CommandWalkOptions},
     safe_value::{SafeValueIndex, SafeValueQuery},
-    word::classify_word,
 };
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation, WordFact};
 
 pub struct UnquotedExpansion;
 
@@ -26,60 +20,24 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
     let mut safe_values = SafeValueIndex::build(checker.semantic(), checker.facts(), source);
 
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let _command = visit.command;
-            query::visit_expansion_words(visit, source, &mut |word, context| {
-                if !should_check_context(context, checker.shell()) {
-                    return;
-                }
+    let facts = checker
+        .facts()
+        .word_facts()
+        .iter()
+        .filter_map(|fact| Some((fact, fact.expansion_context()?)))
+        .filter(|(_, context)| should_check_context(*context, checker.shell()))
+        .map(|(fact, context)| (fact.clone(), context))
+        .collect::<Vec<_>>();
 
-                report_word_expansions(checker, &mut safe_values, word, context, source);
-            });
-        },
-    );
-}
-
-fn matches_scalar_expansion_part(part: &WordPart) -> bool {
-    match part {
-        WordPart::Literal(_)
-        | WordPart::ZshQualifiedGlob(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::DoubleQuoted { .. }
-        | WordPart::CommandSubstitution { .. }
-        | WordPart::ProcessSubstitution { .. } => false,
-        WordPart::Parameter(parameter) => parameter_is_scalar_like(parameter),
-        WordPart::Variable(_)
-        | WordPart::ArithmeticExpansion { .. }
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::Length(_)
-        | WordPart::ArrayLength(_)
-        | WordPart::Substring { .. }
-        | WordPart::IndirectExpansion { .. }
-        | WordPart::PrefixMatch { .. }
-        | WordPart::Transformation { .. } => true,
-        WordPart::ArrayAccess(reference) => !reference.has_array_selector(),
-        WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => false,
+    let mut spans = Vec::new();
+    for (fact, context) in facts {
+        report_word_expansions(&mut spans, &mut safe_values, &fact, context);
     }
-}
 
-fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference } => !reference.has_array_selector(),
-            BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::PrefixMatch { .. }
-            | BourneParameterExpansion::Operation { .. }
-            | BourneParameterExpansion::Transformation { .. } => true,
-            BourneParameterExpansion::Indices { .. } => false,
-            BourneParameterExpansion::Slice { reference, .. } => !reference.has_array_selector(),
-        },
-        ParameterExpansionSyntax::Zsh(_) => true,
+    drop(safe_values);
+
+    for span in spans {
+        checker.report_dedup(UnquotedExpansion, span);
     }
 }
 
@@ -93,41 +51,31 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
     }
 }
 
-fn command_name_has_literal_affixes(word: &Word) -> bool {
-    word.parts.iter().any(|part| {
-        matches!(
-            part.kind,
-            WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
-        )
-    })
-}
-
 fn report_word_expansions(
-    checker: &mut Checker,
+    spans: &mut Vec<shuck_ast::Span>,
     safe_values: &mut SafeValueIndex<'_>,
-    word: &Word,
+    fact: &WordFact,
     context: ExpansionContext,
-    source: &str,
 ) {
-    let classification = classify_word(word, source);
-    if !classification.has_scalar_expansion() {
+    if !fact.analysis().has_scalar_expansion() {
         return;
     }
-    if context == ExpansionContext::CommandName && !command_name_has_literal_affixes(word) {
+    if context == ExpansionContext::CommandName && !fact.has_literal_affixes() {
         return;
     }
     let query = SafeValueQuery::from_context(context)
         .expect("checked expansion context should map to a safe-value query");
+    let scalar_spans = fact.scalar_expansion_spans();
 
-    for (part, part_span) in word.parts_with_spans() {
-        if !matches_scalar_expansion_part(part) {
+    for (part, part_span) in fact.word().parts_with_spans() {
+        if !scalar_spans.contains(&part_span) {
             continue;
         }
         if safe_values.part_is_safe(part, part_span, query) {
             continue;
         }
 
-        checker.report_dedup(UnquotedExpansion, part_span);
+        spans.push(part_span);
     }
 }
 

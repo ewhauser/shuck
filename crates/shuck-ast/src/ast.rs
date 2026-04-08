@@ -2658,7 +2658,7 @@ pub struct HeredocDelimiter {
 }
 
 /// Types of redirections.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RedirectKind {
     /// > - redirect output
     Output,

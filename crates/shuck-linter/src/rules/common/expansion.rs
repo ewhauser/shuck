@@ -9,7 +9,7 @@ use shuck_ast::{
 use super::query::{self, CommandSubstitutionKind, CommandWalkOptions, NestedCommandSubstitution};
 use super::word::static_word_text;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExpansionContext {
     CommandName,
     CommandArgument,

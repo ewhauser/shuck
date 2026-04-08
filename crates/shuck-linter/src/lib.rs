@@ -28,7 +28,7 @@ pub use facts::{
     PrintfCommandFacts, ReadCommandFacts, RedirectFact, SelectHeaderFact, SimpleTestFact,
     SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
     SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker,
-    UnsetCommandFacts, XargsCommandFacts,
+    UnsetCommandFacts, WordFact, WordFactContext, WordFactHostKind, XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};

@@ -1,7 +1,3 @@
-use shuck_ast::{Command, CompoundCommand};
-
-use crate::rules::common::query::{self, CommandWalkOptions};
-use crate::rules::common::word::classify_word;
 use crate::{Checker, Rule, Violation};
 
 pub struct ConstantCaseSubject;
@@ -17,25 +13,12 @@ impl Violation for ConstantCaseSubject {
 }
 
 pub fn constant_case_subject(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let command = visit.command;
-            let Command::Compound(CompoundCommand::Case(command)) = command else {
-                return;
-            };
-
-            if classify_word(&command.word, source).is_fixed_literal() {
-                spans.push(command.word.span);
-            }
-        },
-    );
+    let spans = checker
+        .facts()
+        .case_subject_facts()
+        .filter(|fact| fact.classification().is_fixed_literal())
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(ConstantCaseSubject, span);

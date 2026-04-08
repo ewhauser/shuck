@@ -1,7 +1,7 @@
 use shuck_ast::AssignmentValue;
 
-use crate::rules::common::{command::DeclarationKind, span, word::classify_word};
-use crate::{Checker, Rule, Violation};
+use crate::rules::common::{command::DeclarationKind, expansion::ExpansionContext, span};
+use crate::{Checker, Rule, Violation, WordFactContext};
 
 pub struct ExportCommandSubstitution {
     pub name: String,
@@ -18,7 +18,6 @@ impl Violation for ExportCommandSubstitution {
 }
 
 pub fn export_command_substitution(checker: &mut Checker) {
-    let source = checker.source();
     let findings = checker
         .facts()
         .structural_commands()
@@ -38,9 +37,14 @@ pub fn export_command_substitution(checker: &mut Checker) {
                 return None;
             };
 
-            classify_word(word, source)
-                .has_command_substitution()
-                .then(|| {
+            checker
+                .facts()
+                .word_fact(
+                    word.span,
+                    WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue),
+                )
+                .filter(|fact| fact.classification().has_command_substitution())
+                .map(|_| {
                     (
                         assignment.target.name.to_string(),
                         span::assignment_name_span(assignment),

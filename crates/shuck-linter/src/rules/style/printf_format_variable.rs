@@ -1,5 +1,5 @@
-use crate::rules::common::word::classify_word;
-use crate::{Checker, Rule, Violation};
+use crate::rules::common::expansion::ExpansionContext;
+use crate::{Checker, Rule, Violation, WordFactContext};
 
 pub struct PrintfFormatVariable;
 
@@ -14,7 +14,6 @@ impl Violation for PrintfFormatVariable {
 }
 
 pub fn printf_format_variable(checker: &mut Checker) {
-    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
@@ -24,8 +23,15 @@ pub fn printf_format_variable(checker: &mut Checker) {
                 .printf()
                 .and_then(|printf| printf.format_word)
         })
-        .filter(|word| !classify_word(word, source).is_fixed_literal())
-        .map(|word| word.span)
+        .filter_map(|word| {
+            checker
+                .facts()
+                .word_fact(
+                    word.span,
+                    WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                )
+                .and_then(|fact| (!fact.classification().is_fixed_literal()).then_some(word.span))
+        })
         .collect::<Vec<_>>();
 
     for span in spans {

@@ -1,9 +1,4 @@
-use shuck_ast::{Span, Word, WordPart, WordPartNode};
-
-use crate::rules::common::{
-    expansion::ExpansionContext,
-    query::{self, CommandWalkOptions},
-};
+use crate::rules::common::expansion::ExpansionContext;
 use crate::{Checker, Rule, Violation};
 
 pub struct TrapStringExpansion;
@@ -19,67 +14,14 @@ impl Violation for TrapStringExpansion {
 }
 
 pub fn trap_string_expansion(checker: &mut Checker) {
-    let source = checker.source();
+    let spans = checker
+        .facts()
+        .expansion_word_facts(ExpansionContext::TrapAction)
+        .flat_map(|fact| fact.double_quoted_expansion_spans().iter().copied())
+        .collect::<Vec<_>>();
 
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let _command = visit.command;
-            query::visit_expansion_words(visit, source, &mut |word, context| {
-                if context != ExpansionContext::TrapAction {
-                    return;
-                }
-
-                for span in double_quoted_expansion_part_spans(word) {
-                    checker.report_dedup(TrapStringExpansion, span);
-                }
-            });
-        },
-    );
-}
-
-fn double_quoted_expansion_part_spans(word: &Word) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_double_quoted_expansion_spans(&word.parts, false, &mut spans);
-    spans
-}
-
-fn collect_double_quoted_expansion_spans(
-    parts: &[WordPartNode],
-    inside_double_quotes: bool,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_double_quoted_expansion_spans(parts, true, spans);
-            }
-            WordPart::Variable(_)
-            | WordPart::Parameter(_)
-            | WordPart::CommandSubstitution { .. }
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::ProcessSubstitution { .. }
-            | WordPart::Transformation { .. }
-                if inside_double_quotes =>
-            {
-                spans.push(part.span)
-            }
-            WordPart::Literal(_) => {}
-            _ => {}
-        }
+    for span in spans {
+        checker.report_dedup(TrapStringExpansion, span);
     }
 }
 

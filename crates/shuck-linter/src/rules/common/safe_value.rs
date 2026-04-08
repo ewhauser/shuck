@@ -9,8 +9,8 @@ use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
 use crate::{FactSpan, LinterFacts};
 
 use super::{
-    expansion::{ExpansionContext, analyze_word},
-    word::{classify_contextual_operand, static_word_text},
+    expansion::{ExpansionContext, analyze_literal_runtime},
+    word::static_word_text,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,6 +59,7 @@ impl SafeValueQuery {
 
 pub struct SafeValueIndex<'a> {
     semantic: &'a SemanticModel,
+    facts: &'a LinterFacts<'a>,
     source: &'a str,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
@@ -67,7 +68,7 @@ pub struct SafeValueIndex<'a> {
 }
 
 impl<'a> SafeValueIndex<'a> {
-    pub fn build(semantic: &'a SemanticModel, facts: &LinterFacts<'a>, source: &'a str) -> Self {
+    pub fn build(semantic: &'a SemanticModel, facts: &'a LinterFacts<'a>, source: &'a str) -> Self {
         let maybe_uninitialized_refs = semantic
             .uninitialized_references()
             .iter()
@@ -76,6 +77,7 @@ impl<'a> SafeValueIndex<'a> {
 
         Self {
             semantic,
+            facts,
             source,
             scalar_bindings: facts.scalar_binding_values().clone(),
             maybe_uninitialized_refs,
@@ -140,7 +142,13 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     pub fn word_is_safe(&mut self, word: &Word, query: SafeValueQuery) -> bool {
-        let analysis = analyze_word(word, self.source);
+        let Some(analysis) = self
+            .facts
+            .any_word_fact(word.span)
+            .map(|fact| fact.analysis())
+        else {
+            return false;
+        };
         if query != SafeValueQuery::Quoted
             && (analysis.array_valued || analysis.hazards.command_or_process_substitution)
         {
@@ -158,7 +166,7 @@ impl<'a> SafeValueIndex<'a> {
             brace_syntax: Vec::new(),
         };
         if let Some(context) = query.operand_context()
-            && !classify_contextual_operand(&word, self.source, context).is_fixed_literal()
+            && analyze_literal_runtime(&word, self.source, context).is_runtime_sensitive()
         {
             return false;
         }

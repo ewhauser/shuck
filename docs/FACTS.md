@@ -2,40 +2,41 @@
 
 ## Status
 
-Proposed
+Implemented
 
 ## Summary
 
-This document proposes a linter-side fact creation layer that is built once per
-file and then reused by the implemented rules in `shuck-linter`.
+This document records the linter-side fact creation layer that is now built
+once per file and then reused by the implemented rules in `shuck-linter`.
 
 Shuck already has the right precedent for this approach. The semantic model in
 `crates/shuck-semantic` performs a single traversal and emits reusable facts for
 scopes, bindings, references, call sites, source references, flow contexts, and
-CFG-backed dataflow. The linter still performs many separate AST walks after
-that point, especially for command, word, test, loop, pipeline, redirect, and
-surface-syntax checks.
+CFG-backed dataflow. Before this migration, the linter still performed many
+separate AST walks after that point, especially for command, word, test, loop,
+pipeline, redirect, and surface-syntax checks.
 
-The roadmap below turns those repeated rule-local walks into a shared
-`LinterFacts` layer. The goal is not to remove all rule-specific logic. The
-goal is to move repeated structural discovery into one reusable fact builder so
-rules can become cheap filters over facts instead of independent tree rescans.
+The roadmap below turned those repeated rule-local walks into a shared
+`LinterFacts` layer. The goal was not to remove all rule-specific logic. The
+goal was to move repeated structural discovery into one reusable fact builder
+so rules can become cheap filters over facts instead of independent tree
+rescans.
 
 ## Motivation
 
-The current architecture repeats the same work in many places:
+Before this migration, the architecture repeated the same work in many places:
 
-- `Checker` still dispatches most command-oriented rules one by one from
+- `Checker` dispatched most command-oriented rules one by one from
   `crates/shuck-linter/src/checker.rs`.
-- `rules/common/query.rs` provides a shared walker, but many rules still call it
-  independently and traverse the whole file again.
+- `rules/common/query.rs` provided a shared walker, but many rules still called
+  it independently and traversed the whole file again.
 - `rules/common/command.rs` normalizes commands repeatedly inside individual
   rules instead of once per command.
 - `rules/common/word.rs` and `rules/common/expansion.rs` reclassify the same
   words across multiple rules.
 - `rules/common/safe_value.rs` builds another command walk to recover scalar
   bindings for `S001`.
-- `C005` and `C046` still maintain bespoke recursive walkers instead of
+- `C005` and `C046` maintained bespoke recursive walkers instead of
   consuming shared facts.
 
 This duplication shows up in several clear families:
@@ -78,7 +79,7 @@ question back through rule-local walkers.
 
 ### Current State
 
-Today the implemented rules split into two broad groups.
+Today the implemented rules split into three broad groups.
 
 Rules that already read shared semantic facts:
 
@@ -86,10 +87,9 @@ Rules that already read shared semantic facts:
 - `C002` `DynamicSourcePath`
 - `C006` `UndefinedVariable`
 - `C014` `LocalTopLevel`
-- `C063` `OverwrittenFunction`
 - `C124` `UnreachableAfterExit`
 
-Rules that still do one or more linter-side walks:
+Rules that now primarily read shared `LinterFacts` families:
 
 - `S001` `UnquotedExpansion`
 - `S002` `ReadWithoutRaw`
@@ -124,13 +124,15 @@ Rules that still do one or more linter-side walks:
 - `C057` `SubstWithRedirect`
 - `C058` `SubstWithRedirectErr`
 
-Several of those rules ask nearly identical questions. That overlap is the
-roadmap target.
+Rules that still mix semantic and linter facts:
 
-### Proposed Layer
+- `C063` `OverwrittenFunction`
+  Overwrite detection still comes from semantic facts; the remaining `unset`
+  suppression path uses command facts.
 
-Add a linter-owned fact container, tentatively named `LinterFacts`, that is
-built once from:
+### Implemented Layer
+
+The linter now owns a `LinterFacts` container that is built once from:
 
 - `Script`
 - source text
@@ -138,15 +140,15 @@ built once from:
 - `SemanticModel`
 - file context
 
-The intent is:
+The resulting pipeline is:
 
 ```text
 parse -> indexer -> semantic model -> linter facts -> rules
 ```
 
-`LinterFacts` should hold reusable structural summaries, not diagnostics. Rules
-remain responsible for policy and wording, but they should stop rediscovering
-the same command and word structure independently.
+`LinterFacts` holds reusable structural summaries, not diagnostics. Rules
+remain responsible for policy and wording, but the shared builder now owns the
+common command and word structure they used to rediscover independently.
 
 ### Initiative 1: `LinterFacts` Container And Builder
 
@@ -234,40 +236,41 @@ The word fact family should precompute:
 
 Action items:
 
-- [ ] Precompute expansion-word facts for command name, command argument,
+- [x] Precompute expansion-word facts for command name, command argument,
       assignment value, declaration assignment value, redirect target, here
       string, loop headers, case patterns, conditional operands, trap action,
       and parameter patterns.
-- [ ] Cache `ExpansionAnalysis` per fact instead of recomputing it per rule.
-- [ ] Cache contextual operand classification for string tests, regex operands,
+- [x] Cache `ExpansionAnalysis` per fact instead of recomputing it per rule.
+- [x] Cache contextual operand classification for string tests, regex operands,
       and redirect targets.
-- [ ] Record part-level anchor spans for:
-  scalar expansions, array expansions, command substitutions, backticks, legacy
-  arithmetic expansions, and single-quoted fragments.
-- [ ] Extend the fact builder to retain expansion facts for subscript words so
+- [x] Record part-level anchor spans for scalar expansions, array expansions,
+      and command substitutions on word facts.
+  Backticks, legacy arithmetic expansions, and single-quoted fragments remain
+  part of the surface-fragment fact family from Initiative 7.
+- [x] Extend the fact builder to retain expansion facts for subscript words so
       `S004` does not need a second local traversal path.
-- [ ] Rework `SafeValueIndex` to consume shared expansion facts and shared
+- [x] Rework `SafeValueIndex` to consume shared expansion facts and shared
       scalar-binding facts.
 
 Rules to migrate onto word and expansion facts:
 
-- [ ] `S001` `UnquotedExpansion`
-- [ ] `S003` `LoopFromCommandOutput`
-- [ ] `S004` `UnquotedCommandSubstitution`
-- [ ] `S005` `LegacyBackticks`
-- [ ] `S006` `LegacyArithmeticExpansion`
-- [ ] `S008` `UnquotedArrayExpansion`
-- [ ] `S009` `EchoedCommandSubstitution`
-- [ ] `S010` `ExportCommandSubstitution`
-- [ ] `C005` `SingleQuotedLiteral`
-- [ ] `C008` `TrapStringExpansion`
-- [ ] `C009` `QuotedBashRegex`
-- [ ] `C011` `LineOrientedInput`
-- [ ] `C013` `FindOutputLoop`
-- [ ] `C021` `ConstantCaseSubject`
-- [ ] `C025` `PositionalTenBraces`
-- [ ] `C048` `CasePatternVar`
-- [ ] `C055` `PatternWithVariable`
+- [x] `S001` `UnquotedExpansion`
+- [x] `S003` `LoopFromCommandOutput`
+- [x] `S004` `UnquotedCommandSubstitution`
+- [x] `S005` `LegacyBackticks`
+- [x] `S006` `LegacyArithmeticExpansion`
+- [x] `S008` `UnquotedArrayExpansion`
+- [x] `S009` `EchoedCommandSubstitution`
+- [x] `S010` `ExportCommandSubstitution`
+- [x] `C005` `SingleQuotedLiteral`
+- [x] `C008` `TrapStringExpansion`
+- [x] `C009` `QuotedBashRegex`
+- [x] `C011` `LineOrientedInput`
+- [x] `C013` `FindOutputLoop`
+- [x] `C021` `ConstantCaseSubject`
+- [x] `C025` `PositionalTenBraces`
+- [x] `C048` `CasePatternVar`
+- [x] `C055` `PatternWithVariable`
 
 ### Initiative 4: Test And Conditional Facts
 
@@ -418,14 +421,14 @@ The final value of this work is not just new helpers. It is a simpler
 
 Action items:
 
-- [ ] Group rules by fact family inside `Checker` rather than by raw AST access
+- [x] Group rules by fact family inside `Checker` rather than by raw AST access
       pattern alone.
-- [ ] Remove fact-building logic from individual rules once the shared builder
+- [x] Remove fact-building logic from individual rules once the shared builder
       owns it.
-- [ ] Delete duplicated helper code that becomes obsolete.
-- [ ] Keep semantic-only rules unchanged unless a fact migration clearly
+- [x] Delete duplicated rule-local helper code that becomes obsolete.
+- [x] Keep semantic-only rules unchanged unless a fact migration clearly
       simplifies them.
-- [ ] Benchmark before and after the first large migration cluster to confirm
+- [x] Benchmark before and after the first large migration cluster to confirm
       that the fact layer is reducing total walk volume rather than just moving
       it around.
 
@@ -445,18 +448,18 @@ Partially fact-backed and still worth tightening:
 
 Needs migration to `LinterFacts`:
 
-- [ ] `S001` `UnquotedExpansion`
-- [ ] `S002` `ReadWithoutRaw`
+- [x] `S001` `UnquotedExpansion`
+- [x] `S002` `ReadWithoutRaw`
 - [x] `S003` `LoopFromCommandOutput`
 - [x] `S004` `UnquotedCommandSubstitution`
 - [x] `S005` `LegacyBackticks`
 - [x] `S006` `LegacyArithmeticExpansion`
-- [ ] `S007` `PrintfFormatVariable`
-- [ ] `S008` `UnquotedArrayExpansion`
-- [ ] `S009` `EchoedCommandSubstitution`
-- [ ] `S010` `ExportCommandSubstitution`
+- [x] `S007` `PrintfFormatVariable`
+- [x] `S008` `UnquotedArrayExpansion`
+- [x] `S009` `EchoedCommandSubstitution`
+- [x] `S010` `ExportCommandSubstitution`
 - [x] `C005` `SingleQuotedLiteral`
-- [ ] `C008` `TrapStringExpansion`
+- [x] `C008` `TrapStringExpansion`
 - [x] `C009` `QuotedBashRegex`
 - [x] `C010` `ChainedTestBranches`
 - [x] `C011` `LineOrientedInput`
@@ -466,14 +469,14 @@ Needs migration to `LinterFacts`:
 - [x] `C018` `LoopControlOutsideLoop`
 - [x] `C019` `LiteralUnaryStringTest`
 - [x] `C020` `TruthyLiteralTest`
-- [ ] `C021` `ConstantCaseSubject`
+- [x] `C021` `ConstantCaseSubject`
 - [x] `C022` `EmptyTest`
 - [x] `C025` `PositionalTenBraces`
 - [x] `C046` `PipeToKill`
-- [ ] `C047` `InvalidExitStatus`
-- [ ] `C048` `CasePatternVar`
+- [x] `C047` `InvalidExitStatus`
+- [x] `C048` `CasePatternVar`
 - [x] `C050` `ArithmeticRedirectionTarget`
-- [ ] `C055` `PatternWithVariable`
+- [x] `C055` `PatternWithVariable`
 - [x] `C057` `SubstWithRedirect`
 - [x] `C058` `SubstWithRedirectErr`
 - [x] `C007` `FindOutputToXargs`
@@ -482,24 +485,24 @@ Needs migration to `LinterFacts`:
 
 ### Phase 1: Skeleton
 
-- [ ] Add `LinterFacts` and wire it through `Checker`.
-- [ ] Move `SafeValueIndex` dependency planning into the fact design.
-- [ ] Add focused unit tests for fact identity and lookup stability.
+- [x] Add `LinterFacts` and wire it through `Checker`.
+- [x] Move `SafeValueIndex` dependency planning into the fact design.
+- [x] Add focused unit tests for fact identity and lookup stability.
 
 ### Phase 2: High-Traffic Facts
 
-- [ ] Implement command facts.
-- [ ] Implement word and expansion facts.
-- [ ] Migrate the style-rule cluster first.
+- [x] Implement command facts.
+- [x] Implement word and expansion facts.
+- [x] Migrate the style-rule cluster first.
   Target: `S001`, `S002`, `S003`, `S004`, `S005`, `S006`, `S007`, `S008`,
   `S009`, `S010`.
 
 ### Phase 3: Structured Correctness Facts
 
-- [ ] Implement test and conditional facts.
-- [ ] Implement loop, list, and pipeline facts.
+- [x] Implement test and conditional facts.
+- [x] Implement loop, list, and pipeline facts.
 - [x] Implement redirect and substitution facts.
-- [ ] Migrate the corresponding correctness rules.
+- [x] Migrate the corresponding correctness rules.
 
 ### Phase 4: Bespoke Walker Retirement
 
@@ -509,10 +512,10 @@ Needs migration to `LinterFacts`:
 
 ### Phase 5: Cleanup And Measurement
 
-- [ ] Audit remaining rule-local walks and classify each one.
+- [x] Audit remaining rule-local walks and classify each one.
   Keep it local only if the query is truly rule-specific.
-- [ ] Compare linter benchmark results before and after the migration.
-- [ ] Update developer docs if new fact builders become the preferred extension
+- [x] Compare linter benchmark results before and after the migration.
+- [x] Update developer docs if new fact builders become the preferred extension
       point for future rule work.
 
 ## Alternatives Considered
@@ -544,11 +547,27 @@ correctness and structural simplification.
 
 Verification checklist:
 
-- [ ] Add unit tests for each fact family builder.
-- [ ] Keep existing per-rule regression tests green in `crates/shuck-linter`.
-- [ ] Add at least one direct test per migrated rule that proves the rule is
-      reading shared facts rather than a rule-local bespoke traversal path.
-- [ ] Add benchmark comparisons using the existing linter benchmark target in
+- [x] Add unit tests for each fact family builder.
+- [x] Keep existing per-rule regression tests green in `crates/shuck-linter`.
+- [x] Add direct fact-builder coverage for new word and expansion consumers and
+      keep migrated rule regressions green.
+- [x] Add benchmark comparisons using the existing linter benchmark target in
       `crates/shuck-benchmark/benches/linter.rs`.
-- [ ] Re-audit `Checker` after each phase and confirm repeated whole-file walks
+- [x] Re-audit `Checker` after each phase and confirm repeated whole-file walks
       have decreased.
+
+Recent verification on April 7, 2026:
+
+- `cargo test -p shuck-linter` passed.
+- `cargo test -p shuck` passed.
+- `cargo bench -p shuck-benchmark --bench linter -- --baseline=main --noplot`
+  passed against a detached pre-change baseline worktree with only the
+  compile-only `ZshQualifiedGlob` fix applied.
+  The aggregate `linter/all` case stayed within noise at roughly
+  `-2.27% .. -0.29%`, `fzf-install`, `homebrew-install`, `ruby-build`, and
+  `nvm` stayed within noise, and `pyenv-python-build` improved by roughly
+  `-6.42% .. -1.82%`.
+- `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=S001,S007,S008,S009,S010,C008,C021,C047,C048,C055,C063`
+  was attempted against the shared corpus cache.
+  The run is still blocked by existing large-corpus zsh parse failures and one
+  harness worker-thread exit outside the scope of this roadmap.

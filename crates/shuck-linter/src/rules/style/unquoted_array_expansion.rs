@@ -1,9 +1,4 @@
-use crate::rules::common::expansion::analyze_word;
-use crate::rules::common::span;
-use crate::rules::common::{
-    expansion::ExpansionContext,
-    query::{self, CommandWalkOptions},
-};
+use crate::rules::common::expansion::ExpansionContext;
 use crate::{Checker, Rule, Violation};
 
 pub struct UnquotedArrayExpansion;
@@ -19,29 +14,18 @@ impl Violation for UnquotedArrayExpansion {
 }
 
 pub fn unquoted_array_expansion(checker: &mut Checker) {
-    let source = checker.source();
+    let spans = checker
+        .facts()
+        .expansion_word_facts(ExpansionContext::CommandArgument)
+        .filter(|fact| {
+            fact.analysis().array_valued && fact.analysis().can_expand_to_multiple_fields
+        })
+        .flat_map(|fact| fact.unquoted_array_expansion_spans().iter().copied())
+        .collect::<Vec<_>>();
 
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-        &mut |visit| {
-            let _command = visit.command;
-            query::visit_expansion_words(visit, source, &mut |word, context| {
-                if context != ExpansionContext::CommandArgument {
-                    return;
-                }
-
-                let analysis = analyze_word(word, source);
-                if analysis.array_valued && analysis.can_expand_to_multiple_fields {
-                    for span in span::unquoted_array_expansion_part_spans(word, source) {
-                        checker.report_dedup(UnquotedArrayExpansion, span);
-                    }
-                }
-            });
-        },
-    );
+    for span in spans {
+        checker.report_dedup(UnquotedArrayExpansion, span);
+    }
 }
 
 #[cfg(test)]
