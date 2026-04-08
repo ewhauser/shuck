@@ -52,6 +52,13 @@
 - [ ] Track alignment-sensitive spans more explicitly instead of preserving whole statements when padding appears.
 - [ ] Add regressions for assignments, declarations, tables of redirects, and mixed-comment alignment.
 
+## Performance
+
+- [x] Land Phase 1 of the staged performance refactor in `specs/012-formatter-performance.md`.
+- [ ] Remove the nested document/printer fallback for normal `$()` formatting.
+- [ ] Add formatter facts and earlier comment anchoring so attachment/layout decisions are computed once per file.
+- [ ] Revisit parser and CLI reuse after the formatter hot path is cheaper.
+
 ## Validation
 
 - [x] Grow the `shfmt` oracle fixture set across dialects and option combinations.
@@ -69,6 +76,7 @@
 - [ ] Revisit whether some formatter decisions should move into parser or AST metadata to avoid source-slice fallbacks.
 - [ ] Consider a dedicated formatter fixture corpus under `crates/shuck-formatter/tests/fixtures/`.
 - [ ] Document intentional divergences from `shfmt` when Shuck chooses safety over normalization.
+- [ ] Keep the detailed staged perf plan current in `specs/012-formatter-performance.md`.
 
 ## Notes
 
@@ -76,4 +84,5 @@
 - The fixture oracle is green aside from the known `minify` shebang divergence and the `function never split` case when the installed `shfmt` binary lacks `-ns`.
 - The latest targeted batch improves arithmetic expansions, backslash-continued simple commands, and leading redirect placement from the benchmark corpus.
 - Remaining benchmark diffs still include the explicitly deferred inline grouped-command and inline `case ... esac` layout cases, plus the unfinished multiline `$()` and comment-run attachment work.
+- Phase 1 of the formatter perf refactor landed already; the remaining work is the `$()` streaming unification, formatter-facts/comment-anchoring pass, and parser/CLI reuse cleanup tracked in `specs/012-formatter-performance.md`.
 - Use `make bench-macro-format` for the full formatter corpus and `make bench-macro-format-single BENCH_FILE=/absolute/path/to/script.sh` for a one-off file comparison.
