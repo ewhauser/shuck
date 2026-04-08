@@ -2097,6 +2097,33 @@ fn fmt_literal_text(
     }
 }
 
+fn fmt_double_quoted_literal_text(
+    f: &mut impl fmt::Write,
+    text: &LiteralText,
+    span: Span,
+    source: Option<&str>,
+) -> fmt::Result {
+    let rendered = match source {
+        Some(source) => text.as_str(source, span),
+        None => match text {
+            LiteralText::Source => "<source>",
+            LiteralText::Owned(text) => text,
+        },
+    };
+
+    for ch in rendered.chars() {
+        match ch {
+            '"' | '\\' | '$' | '`' => {
+                f.write_char('\\')?;
+                f.write_char(ch)?;
+            }
+            _ => f.write_char(ch)?,
+        }
+    }
+
+    Ok(())
+}
+
 fn fmt_pattern_part_with_source_mode(
     f: &mut impl fmt::Write,
     part: &PatternPart,
@@ -2207,7 +2234,22 @@ fn fmt_word_part_with_source_mode(
                     }
                     f.write_str("\"")?;
                     for part in parts {
-                        fmt_word_part_with_source_mode(f, &part.kind, part.span, source, mode)?;
+                        match &part.kind {
+                            // Re-escape literal text when reconstructing a quoted word from
+                            // cooked AST parts so we do not emit raw quote delimiters.
+                            WordPart::Literal(text) => {
+                                fmt_double_quoted_literal_text(f, text, part.span, source)?;
+                            }
+                            _ => {
+                                fmt_word_part_with_source_mode(
+                                    f,
+                                    &part.kind,
+                                    part.span,
+                                    source,
+                                    mode,
+                                )?;
+                            }
+                        }
                     }
                     f.write_str("\"")?;
                 }
@@ -3060,6 +3102,57 @@ mod tests {
             dollar: false,
         }]);
         assert_eq!(w.render_syntax(""), "\"hello\"");
+    }
+
+    #[test]
+    fn word_render_syntax_reescapes_cooked_double_quoted_literal_text() {
+        let w = word(vec![WordPart::DoubleQuoted {
+            parts: vec![WordPartNode::new(
+                WordPart::Literal(LiteralText::owned(
+                    "quoted \"value\" uses $HOME and `pwd` with \\".to_string(),
+                )),
+                Span::new(),
+            )],
+            dollar: false,
+        }]);
+
+        assert_eq!(
+            w.render_syntax(""),
+            "\"quoted \\\"value\\\" uses \\$HOME and \\`pwd\\` with \\\\\""
+        );
+    }
+
+    #[test]
+    fn word_render_syntax_preserves_nested_parameter_expansion_inside_double_quotes() {
+        let w = word(vec![WordPart::DoubleQuoted {
+            parts: vec![
+                WordPartNode::new(
+                    WordPart::Literal(LiteralText::owned("N/A: version \"".to_string())),
+                    Span::new(),
+                ),
+                WordPartNode::new(
+                    WordPart::ParameterExpansion {
+                        reference: plain_ref("PREFIXED_VERSION"),
+                        operator: ParameterOp::UseDefault,
+                        operand: Some("$PROVIDED_VERSION".into()),
+                        colon_variant: true,
+                    },
+                    Span::new(),
+                ),
+                WordPartNode::new(
+                    WordPart::Literal(
+                        LiteralText::owned("\" is not yet installed.".to_string()),
+                    ),
+                    Span::new(),
+                ),
+            ],
+            dollar: false,
+        }]);
+
+        assert_eq!(
+            w.render_syntax(""),
+            "\"N/A: version \\\"${PREFIXED_VERSION:-$PROVIDED_VERSION}\\\" is not yet installed.\""
+        );
     }
 
     #[test]

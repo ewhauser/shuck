@@ -412,6 +412,57 @@ mod tests {
     }
 
     #[test]
+    fn preserves_nested_parameter_expansions_inside_quoted_strings() {
+        let source = "nvm_err \"N/A: version \\\"${PREFIXED_VERSION:-$PROVIDED_VERSION}\\\" is not yet installed.\"\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_default_redirect_spacing_without_space_redirects() {
+        let source = "archi=$(uname -smo 2> /dev/null || uname -sm)\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("archi=$(uname -smo 2>/dev/null || uname -sm)\n".to_string())
+        );
+    }
+
+    #[test]
+    fn preserves_inline_negated_subshell_conditions() {
+        let source = "if ! (try_curl \"$url\" || try_wget \"$url\"); then\n\treturn 1\nfi\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_else_branch_comments_inside_the_branch() {
+        let source = "if foo; then\n  bar\nelse\n  # branch comment\n  baz\nfi\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "if foo; then\n\tbar\nelse\n\t# branch comment\n\tbaz\nfi\n".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn formats_multiline_compound_assignments_structurally() {
+        let source = "directories=(\n  bin\n  etc\n  Frameworks\n)\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("directories=(\n\tbin\n\tetc\n\tFrameworks\n)\n".to_string())
+        );
+    }
+
+    #[test]
     fn preserves_case_pattern_escapes() {
         let source = "case \"$archi\" in\nDarwin\\ arm64*) download foo ;;\nesac\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

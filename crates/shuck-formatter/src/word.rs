@@ -1,7 +1,10 @@
-use shuck_ast::{Pattern, Word};
+use shuck_ast::{CommandSubstitutionSyntax, Pattern, Word, WordPart};
 use shuck_format::{FormatResult, text, write};
 
 use crate::FormatNodeRule;
+use crate::command::format_stmt_sequence;
+use crate::comments::Comments;
+use crate::context::ShellFormatContext;
 use crate::options::ResolvedShellFormatOptions;
 use crate::prelude::ShellFormatter;
 
@@ -24,6 +27,10 @@ pub(crate) fn render_word_syntax(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
+    if let Some(rendered) = render_safe_command_substitution_word(word, source, options) {
+        return rendered;
+    }
+
     let rendered = word.render_syntax(source);
 
     if !options.simplify()
@@ -35,6 +42,33 @@ pub(crate) fn render_word_syntax(
     }
 
     rendered
+}
+
+fn render_safe_command_substitution_word(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<String> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+    let WordPart::CommandSubstitution { body, syntax } = &part.kind else {
+        return None;
+    };
+    if *syntax != CommandSubstitutionSyntax::DollarParen {
+        return None;
+    }
+
+    let raw = raw_word_source_slice(word, source)?;
+    if raw.contains('\n') || raw.contains('#') {
+        return None;
+    }
+
+    let context = ShellFormatContext::new(options.clone(), source, Comments::from_ast(source, &[]));
+    let mut formatter = shuck_format::Formatter::new(context);
+    format_stmt_sequence(body, &mut formatter).ok()?;
+    let rendered = formatter.finish().print().ok()?.into_code();
+    Some(format!("$({})", rendered.trim_end_matches('\n')))
 }
 
 pub(crate) fn render_pattern_syntax(
@@ -81,6 +115,8 @@ fn should_preserve_raw_syntax(raw: &str, rendered: &str) -> bool {
         && (raw.starts_with('\\')
             || raw.starts_with('&')
             || raw.starts_with("$'")
+            || raw.contains("\\\"")
+            || raw.contains("\\`")
             || raw.contains("\\\\")
             || raw.contains("[^ ]"))
 }
