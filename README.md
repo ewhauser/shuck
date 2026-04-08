@@ -81,16 +81,27 @@ shuck clean .
 
 ## Output
 
-Diagnostics are printed one per line:
+`shuck check` prints rich code-frame diagnostics by default:
+
+```
+warning[C001]: variable `tmp` is assigned but never used
+ --> deploy.sh:14:1
+  |
+14 | tmp=$(mktemp)
+  | ^^^
+  |
+```
+
+Use `--output-format concise` to keep the legacy one-line format:
 
 ```
 path:line:col: severity[CODE] message
 ```
 
 ```
-deploy.sh:14:1: warning[C001] variable 'tmp' is assigned but never used
-deploy.sh:31:10: error[C006] undefined variable 'DEPLY_ENV'
-deploy.sh:45:3: style[S005] legacy backtick command substitution
+deploy.sh:14:1: warning[C001] variable `tmp` is assigned but never used
+deploy.sh:31:10: error[C006] undefined variable `DEPLY_ENV`
+deploy.sh:45:3: warning[S005] legacy backtick command substitution
 ```
 
 ### Exit codes

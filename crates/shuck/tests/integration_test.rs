@@ -52,8 +52,73 @@ fn check_broken_file_reports_parse_error() {
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert()
         .code(1)
-        .stdout(predicate::str::contains("broken.sh:2:"))
-        .stdout(predicate::str::contains("parse error"));
+        .stdout(predicate::str::contains("error[parse-error]:"))
+        .stdout(predicate::str::contains("--> broken.sh:2:7"))
+        .stdout(predicate::str::contains("2 | if true"))
+        .stdout(predicate::str::contains("^"));
+}
+
+#[test]
+fn check_reports_lint_with_full_snippet_by_default() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[C001]:"))
+        .stdout(predicate::str::contains("--> warn.sh:2:1"))
+        .stdout(predicate::str::contains("2 | unused=1"))
+        .stdout(predicate::str::contains("| ^"));
+}
+
+#[test]
+fn check_concise_output_preserves_legacy_one_line_format() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    cmd.assert()
+        .code(1)
+        .stdout("warn.sh:2:1: warning[C001] variable `unused` is assigned but never used\n");
+}
+
+#[test]
+fn check_cache_hits_keep_full_snippet_output() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let mut first = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut first, tempdir.path());
+    first.current_dir(tempdir.path()).arg("check");
+    first.assert().code(1);
+
+    let mut second = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut second, tempdir.path());
+    second.current_dir(tempdir.path()).arg("check");
+    second
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("--> warn.sh:2:1"))
+        .stdout(predicate::str::contains("2 | unused=1"))
+        .stdout(predicate::str::contains("| ^"));
 }
 
 #[test]

@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use colored::{ColoredString, Colorize};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
@@ -18,22 +18,10 @@ use shuck_parser::{Error as ParseError, parser::Parser};
 use crate::ExitStatus;
 use crate::args::CheckCommand;
 use crate::cache::resolve_cache_root;
+use crate::commands::check_output::{
+    DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
+};
 use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DisplayedDiagnostic {
-    path: PathBuf,
-    line: usize,
-    column: usize,
-    message: String,
-    kind: DisplayedDiagnosticKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum DisplayedDiagnosticKind {
-    ParseError,
-    Lint { code: String, severity: String },
-}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct CheckReport {
@@ -106,8 +94,10 @@ struct ParseCacheFailure {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct CachedLintDiagnostic {
-    line: usize,
-    column: usize,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
     code: String,
     severity: String,
     message: String,
@@ -116,8 +106,10 @@ struct CachedLintDiagnostic {
 impl CachedLintDiagnostic {
     fn from_diagnostic(diagnostic: &shuck_linter::Diagnostic) -> Self {
         Self {
-            line: diagnostic.span.start.line,
-            column: diagnostic.span.start.column,
+            start_line: diagnostic.span.start.line,
+            start_column: diagnostic.span.start.column,
+            end_line: diagnostic.span.end.line,
+            end_column: diagnostic.span.end.column,
             code: diagnostic.code().to_owned(),
             severity: diagnostic.severity.as_str().to_owned(),
             message: diagnostic.message.clone(),
@@ -143,73 +135,22 @@ pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<Exit
     let cwd = std::env::current_dir()?;
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
     let report = run_check_with_cwd(&args, &cwd, &cache_root)?;
-    print_report(&report)?;
+    print_report(&report, args.output_format)?;
     Ok(report.exit_status())
 }
 
-fn print_report(report: &CheckReport) -> Result<()> {
+fn print_report(
+    report: &CheckReport,
+    output_format: crate::args::CheckOutputFormatArg,
+) -> Result<()> {
     let mut stdout = BufWriter::new(io::stdout().lock());
     print_report_to(
         &mut stdout,
-        report,
+        &report.diagnostics,
+        output_format,
         colored::control::SHOULD_COLORIZE.should_colorize(),
     )?;
     Ok(())
-}
-
-fn print_report_to(writer: &mut dyn Write, report: &CheckReport, use_color: bool) -> Result<()> {
-    for diagnostic in &report.diagnostics {
-        writeln!(writer, "{}", format_diagnostic(diagnostic, use_color))?;
-    }
-    Ok(())
-}
-
-fn format_diagnostic(diagnostic: &DisplayedDiagnostic, use_color: bool) -> String {
-    let path = paint(diagnostic.path.display().to_string(), use_color, |value| {
-        value.bold()
-    });
-    let line = paint(diagnostic.line.to_string(), use_color, |value| value.cyan());
-    let column = paint(diagnostic.column.to_string(), use_color, |value| {
-        value.cyan()
-    });
-
-    match &diagnostic.kind {
-        DisplayedDiagnosticKind::ParseError => {
-            let label = paint("parse error".to_owned(), use_color, |value| {
-                value.red().bold()
-            });
-            format!("{path}:{line}:{column}: {label} {}", diagnostic.message)
-        }
-        DisplayedDiagnosticKind::Lint { code, severity } => {
-            let severity = format_severity(severity, use_color);
-            let code = paint(code.clone(), use_color, |value| value.cyan().bold());
-            format!(
-                "{path}:{line}:{column}: {severity}[{code}] {}",
-                diagnostic.message
-            )
-        }
-    }
-}
-
-fn format_severity(severity: &str, use_color: bool) -> String {
-    paint(severity.to_owned(), use_color, |value| match severity {
-        "error" => value.red().bold(),
-        "warning" => value.yellow().bold(),
-        "info" => value.blue().bold(),
-        _ => value.bold(),
-    })
-}
-
-fn paint(
-    value: String,
-    use_color: bool,
-    style: impl FnOnce(ColoredString) -> ColoredString,
-) -> String {
-    if use_color {
-        style(value.normal()).to_string()
-    } else {
-        value
-    }
 }
 
 fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Result<CheckReport> {
@@ -218,6 +159,8 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             "--fix and --unsafe-fixes are not supported until the analyzer is wired"
         ));
     }
+
+    let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
 
     let files = discover_files(
         &args.paths,
@@ -267,15 +210,26 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
                 report.cache_hits += 1;
                 match cached {
                     CheckCacheData::Success(diagnostics) => {
-                        push_cached_lint_diagnostics(&mut report, &file.display_path, &diagnostics);
+                        let source = (include_source && !diagnostics.is_empty())
+                            .then(|| read_shared_source(&file.absolute_path))
+                            .transpose()?;
+                        push_cached_lint_diagnostics(
+                            &mut report,
+                            &file.display_path,
+                            &diagnostics,
+                            source,
+                        );
                     }
                     CheckCacheData::ParseError(error) => {
+                        let source = include_source
+                            .then(|| read_shared_source(&file.absolute_path))
+                            .transpose()?;
                         report.diagnostics.push(DisplayedDiagnostic {
                             path: file.display_path,
-                            line: error.line,
-                            column: error.column,
+                            span: DisplaySpan::point(error.line, error.column),
                             message: error.message,
                             kind: DisplayedDiagnosticKind::ParseError,
+                            source,
                         });
                     }
                 }
@@ -287,7 +241,14 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
 
         let results = pending
             .into_par_iter()
-            .map(|pending| analyze_file(pending, &base_linter_settings, &shellcheck_map))
+            .map(|pending| {
+                analyze_file(
+                    pending,
+                    &base_linter_settings,
+                    &shellcheck_map,
+                    include_source,
+                )
+            })
             .collect::<Vec<_>>();
 
         for result in results {
@@ -311,8 +272,8 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
     report.diagnostics.sort_by(|left, right| {
         left.path
             .cmp(&right.path)
-            .then(left.line.cmp(&right.line))
-            .then(left.column.cmp(&right.column))
+            .then(left.span.start.line.cmp(&right.span.start.line))
+            .then(left.span.start.column.cmp(&right.span.start.column))
             .then(left.message.cmp(&right.message))
     });
 
@@ -323,8 +284,9 @@ fn analyze_file(
     pending: PendingFileCheck,
     base_linter_settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
+    include_source: bool,
 ) -> Result<FileCheckResult> {
-    let source = fs::read_to_string(&pending.file.absolute_path)?;
+    let source = read_shared_source(&pending.file.absolute_path)?;
     let inferred_shell = ShellDialect::infer(&source, Some(&pending.file.absolute_path));
     let parse_dialect = match inferred_shell {
         ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
@@ -355,6 +317,8 @@ fn analyze_file(
                 suppression_index.as_ref(),
                 Some(&pending.file.absolute_path),
             );
+            let diagnostic_source =
+                (!diagnostics.is_empty() && include_source).then_some(source.clone());
 
             (
                 CheckCacheData::Success(
@@ -367,13 +331,22 @@ fn analyze_file(
                     .iter()
                     .map(|diagnostic| DisplayedDiagnostic {
                         path: pending.file.display_path.clone(),
-                        line: diagnostic.span.start.line,
-                        column: diagnostic.span.start.column,
+                        span: DisplaySpan::new(
+                            DisplayPosition::new(
+                                diagnostic.span.start.line,
+                                diagnostic.span.start.column,
+                            ),
+                            DisplayPosition::new(
+                                diagnostic.span.end.line,
+                                diagnostic.span.end.column,
+                            ),
+                        ),
                         message: diagnostic.message.clone(),
                         kind: DisplayedDiagnosticKind::Lint {
                             code: diagnostic.code().to_owned(),
                             severity: diagnostic.severity.as_str().to_owned(),
                         },
+                        source: diagnostic_source.clone(),
                     })
                     .collect(),
             )
@@ -390,10 +363,10 @@ fn analyze_file(
             }),
             vec![DisplayedDiagnostic {
                 path: pending.file.display_path.clone(),
-                line,
-                column,
+                span: DisplaySpan::point(line, column),
                 message,
                 kind: DisplayedDiagnosticKind::ParseError,
+                source: include_source.then_some(source.clone()),
             }],
         ),
     };
@@ -410,26 +383,37 @@ fn push_cached_lint_diagnostics(
     report: &mut CheckReport,
     path: &Path,
     diagnostics: &[CachedLintDiagnostic],
+    source: Option<Arc<str>>,
 ) {
     for diagnostic in diagnostics {
         report.diagnostics.push(DisplayedDiagnostic {
             path: path.to_path_buf(),
-            line: diagnostic.line,
-            column: diagnostic.column,
+            span: DisplaySpan::new(
+                DisplayPosition::new(diagnostic.start_line, diagnostic.start_column),
+                DisplayPosition::new(diagnostic.end_line, diagnostic.end_column),
+            ),
             message: diagnostic.message.clone(),
             kind: DisplayedDiagnosticKind::Lint {
                 code: diagnostic.code.clone(),
                 severity: diagnostic.severity.clone(),
             },
+            source: source.clone(),
         });
     }
 }
 
+fn read_shared_source(path: &Path) -> Result<Arc<str>> {
+    Ok(Arc::<str>::from(fs::read_to_string(path)?))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use tempfile::tempdir;
 
     use super::*;
+    use crate::args::CheckOutputFormatArg;
 
     fn cache_root(cwd: &Path) -> PathBuf {
         cwd.join("cache")
@@ -441,13 +425,18 @@ mod tests {
         fs::set_permissions(path, permissions).unwrap();
     }
 
-    fn check_args(no_cache: bool) -> CheckCommand {
+    fn check_args_with_format(no_cache: bool, output_format: CheckOutputFormatArg) -> CheckCommand {
         CheckCommand {
             fix: false,
             unsafe_fixes: false,
             no_cache,
+            output_format,
             paths: Vec::new(),
         }
+    }
+
+    fn check_args(no_cache: bool) -> CheckCommand {
+        check_args_with_format(no_cache, CheckOutputFormatArg::Full)
     }
 
     #[test]
@@ -645,20 +634,26 @@ mod tests {
         let report = CheckReport {
             diagnostics: vec![DisplayedDiagnostic {
                 path: PathBuf::from("script.sh"),
-                line: 3,
-                column: 14,
+                span: DisplaySpan::new(DisplayPosition::new(3, 14), DisplayPosition::new(3, 18)),
                 message: "example message".to_owned(),
                 kind: DisplayedDiagnosticKind::Lint {
                     code: "C014".to_owned(),
                     severity: "warning".to_owned(),
                 },
+                source: Some(Arc::<str>::from("echo ok\nvalue=$foo\nprintf '%s' $bar\n")),
             }],
             cache_hits: 0,
             cache_misses: 0,
         };
 
         let mut output = Vec::new();
-        print_report_to(&mut output, &report, true).unwrap();
+        print_report_to(
+            &mut output,
+            &report.diagnostics,
+            CheckOutputFormatArg::Full,
+            true,
+        )
+        .unwrap();
 
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("\u{1b}["));
@@ -673,21 +668,58 @@ mod tests {
         let report = CheckReport {
             diagnostics: vec![DisplayedDiagnostic {
                 path: PathBuf::from("script.sh"),
-                line: 2,
-                column: 7,
+                span: DisplaySpan::point(2, 7),
                 message: "unterminated construct".to_owned(),
                 kind: DisplayedDiagnosticKind::ParseError,
+                source: None,
             }],
             cache_hits: 0,
             cache_misses: 0,
         };
 
         let mut output = Vec::new();
-        print_report_to(&mut output, &report, false).unwrap();
+        print_report_to(
+            &mut output,
+            &report.diagnostics,
+            CheckOutputFormatArg::Concise,
+            false,
+        )
+        .unwrap();
 
         assert_eq!(
             String::from_utf8(output).unwrap(),
             "script.sh:2:7: parse error unterminated construct\n"
+        );
+    }
+
+    #[test]
+    fn cached_diagnostics_retain_source_for_full_output() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("warn.sh"),
+            "#!/bin/bash\nunused=1\necho ok\n",
+        )
+        .unwrap();
+
+        let first = run_check_with_cwd(
+            &check_args_with_format(false, CheckOutputFormatArg::Full),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        let second = run_check_with_cwd(
+            &check_args_with_format(false, CheckOutputFormatArg::Full),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(first.cache_misses, 1);
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.diagnostics.len(), 1);
+        assert_eq!(
+            second.diagnostics[0].source.as_deref(),
+            Some("#!/bin/bash\nunused=1\necho ok\n")
         );
     }
 }

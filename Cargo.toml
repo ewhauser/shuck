@@ -20,6 +20,7 @@ thiserror = "2"
 anyhow = "1"
 etcetera = "0.8"
 rayon = "1.10"
+annotate-snippets = "0.10"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

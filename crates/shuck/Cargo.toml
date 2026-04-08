@@ -10,6 +10,7 @@ keywords = ["shell", "bash", "linter", "formatter", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+annotate-snippets = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 colored = { workspace = true }
@@ -29,6 +30,7 @@ toml = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"
+insta = { workspace = true }
 predicates = "3"
 serde = { workspace = true }
 serde_json = { workspace = true }

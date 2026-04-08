@@ -47,6 +47,12 @@ impl From<FormatIndentStyleArg> for IndentStyle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CheckOutputFormatArg {
+    Full,
+    Concise,
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "shuck")]
 #[command(about = "Shell checker CLI for shuck")]
@@ -80,6 +86,9 @@ pub struct CheckCommand {
     /// Disable cache reads and writes.
     #[arg(long = "no-cache")]
     pub no_cache: bool,
+    /// Choose the text output format for reported diagnostics.
+    #[arg(long = "output-format", value_enum, default_value_t = CheckOutputFormatArg::Full)]
+    pub output_format: CheckOutputFormatArg,
     /// Files or directories to check.
     pub paths: Vec<PathBuf>,
 }
