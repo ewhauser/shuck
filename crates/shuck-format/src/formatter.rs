@@ -1,3 +1,4 @@
+use crate::buffer::{Buffer, VecBuffer};
 use crate::format_element::{Document, FormatElement};
 use crate::printer::{Printed, Printer, PrinterOptions};
 
@@ -73,14 +74,14 @@ impl<Context> Format<Context> for Document {
 
 impl<Context> Format<Context> for FormatElement {
     fn fmt(&self, formatter: &mut Formatter<Context>) -> FormatResult<()> {
-        formatter.write_document(Document::from_element(self.clone()));
+        formatter.write_element(self.clone());
         Ok(())
     }
 }
 
 pub struct Formatter<Context> {
     context: Context,
-    document: Document,
+    buffer: VecBuffer,
 }
 
 impl<Context> Formatter<Context>
@@ -92,7 +93,7 @@ where
         let capacity = estimate_document_capacity(context.source_length_hint());
         Self {
             context,
-            document: Document::with_capacity(capacity),
+            buffer: VecBuffer::with_capacity(capacity),
         }
     }
 }
@@ -107,16 +108,30 @@ impl<Context> Formatter<Context> {
         &mut self.context
     }
 
+    pub fn write_element(&mut self, element: FormatElement) {
+        self.buffer.write_element(element);
+    }
+
     pub fn write_document(&mut self, document: Document) {
-        self.document.extend(document);
+        self.buffer.write_elements(document.into_vec());
     }
 
     #[must_use]
     pub fn finish(self) -> Formatted<Context> {
         Formatted {
             context: self.context,
-            document: self.document,
+            document: Document::from_elements(self.buffer.into_vec()),
         }
+    }
+}
+
+impl<Context> Buffer for Formatter<Context> {
+    fn write_element(&mut self, element: FormatElement) {
+        Formatter::write_element(self, element);
+    }
+
+    fn elements(&self) -> &[FormatElement] {
+        self.buffer.elements()
     }
 }
 

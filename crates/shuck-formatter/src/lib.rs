@@ -114,14 +114,7 @@ fn format_file(
         return Ok(FormattedSource::Unchanged);
     }
 
-    if resolved.simplify() || resolved.minify() {
-        simplify::simplify_file(&mut file, source);
-    }
-
-    let comments = flatten_comments(&file);
-    let comments = comments::Comments::from_ast(source, &comments);
-    let context = context::ShellFormatContext::new(resolved, source, comments);
-    let formatted = format!(context, [file.format()])?;
+    let formatted = build_formatted(source, &mut file, resolved)?;
     let mut output = formatted.print()?.into_code();
     ensure_single_trailing_newline(&mut output);
 
@@ -132,12 +125,66 @@ fn format_file(
     }
 }
 
+fn build_formatted<'source>(
+    source: &'source str,
+    file: &mut File,
+    resolved: ResolvedShellFormatOptions,
+) -> Result<shuck_format::Formatted<context::ShellFormatContext<'source>>> {
+    if resolved.keep_padding() {
+        let comments = comments::Comments::from_ast(source, &[]);
+        let context = context::ShellFormatContext::new(resolved, source, comments);
+        return Ok(format!(context, [])?);
+    }
+
+    if resolved.simplify() || resolved.minify() {
+        simplify::simplify_file(file, source);
+    }
+
+    let comments = flatten_comments(file);
+    let comments = comments::Comments::from_ast(source, &comments);
+    let context = context::ShellFormatContext::new(resolved, source, comments);
+    Ok(format!(context, [file.format()])?)
+}
+
+#[cfg(feature = "benchmarking")]
+#[derive(Clone)]
+pub struct BenchmarkFormatted<'source> {
+    formatted: shuck_format::Formatted<context::ShellFormatContext<'source>>,
+}
+
+#[cfg(feature = "benchmarking")]
+impl BenchmarkFormatted<'_> {
+    #[must_use]
+    pub fn document_elements(&self) -> usize {
+        self.formatted.document().as_slice().len()
+    }
+
+    pub fn print_bytes(&self) -> Result<usize> {
+        let mut output = self.formatted.print()?.into_code();
+        ensure_single_trailing_newline(&mut output);
+        Ok(output.len())
+    }
+}
+
 #[cfg(feature = "benchmarking")]
 #[doc(hidden)]
 #[must_use]
 pub fn build_comment_index(source: &str, file: &File) -> usize {
     let comments = flatten_comments(file);
     comments::Comments::from_ast(source, &comments).len()
+}
+
+#[cfg(feature = "benchmarking")]
+#[doc(hidden)]
+pub fn build_benchmark_document<'source>(
+    source: &'source str,
+    mut file: File,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<BenchmarkFormatted<'source>> {
+    let resolved = options.resolve(source, path);
+    let formatted = build_formatted(source, &mut file, resolved)?;
+    Ok(BenchmarkFormatted { formatted })
 }
 
 fn ensure_single_trailing_newline(output: &mut String) {
@@ -191,6 +238,18 @@ mod tests {
         let from_source = format_source(source, path, options).unwrap();
         let from_ast = format_file_ast(source, parsed.file, path, options).unwrap();
         assert_eq!(from_source, from_ast);
+    }
+
+    fn assert_idempotent(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
+        let once = match format_source(source, path, options).unwrap() {
+            FormattedSource::Unchanged => source.to_string(),
+            FormattedSource::Formatted(formatted) => formatted,
+        };
+        let twice = match format_source(&once, path, options).unwrap() {
+            FormattedSource::Unchanged => once.clone(),
+            FormattedSource::Formatted(formatted) => formatted,
+        };
+        assert_eq!(once, twice);
     }
 
     #[test]
@@ -992,5 +1051,82 @@ print hidden &!
             Some(Path::new("decl_heredoc.sh")),
             &ShellFormatOptions::default(),
         );
+    }
+
+    #[test]
+    fn stable_formatter_fixtures_are_idempotent() {
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle-fixtures");
+        let cases = vec![
+            (
+                "function_next_line.sh",
+                "function_next_line.sh",
+                ShellFormatOptions::default().with_function_next_line(true),
+            ),
+            (
+                "case_default.sh",
+                "case_default.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "space_redirects.sh",
+                "space_redirects.sh",
+                ShellFormatOptions::default().with_space_redirects(true),
+            ),
+            (
+                "keep_padding.sh",
+                "keep_padding.sh",
+                ShellFormatOptions::default().with_keep_padding(true),
+            ),
+            (
+                "never_split.sh",
+                "never_split.sh",
+                ShellFormatOptions::default().with_never_split(true),
+            ),
+            (
+                "nested_heredoc.sh",
+                "nested_heredoc.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "simplify.sh",
+                "simplify.bash",
+                ShellFormatOptions::default().with_simplify(true),
+            ),
+            (
+                "minify.sh",
+                "minify.sh",
+                ShellFormatOptions::default().with_minify(true),
+            ),
+            (
+                "mksh_select.sh",
+                "script.mksh",
+                ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),
+            ),
+        ];
+
+        for (fixture, filename, options) in cases {
+            let source = fs::read_to_string(fixture_root.join(fixture)).unwrap();
+            assert_idempotent(&source, Some(Path::new(filename)), &options);
+        }
+
+        for (source, filename, options) in [
+            (
+                "if true; then\n\techo hi\nfi\n",
+                "if_body.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "foo() {\n\techo hi\n}\n",
+                "func.sh",
+                ShellFormatOptions::default(),
+            ),
+            (
+                "echo hi > out\n",
+                "redirect.sh",
+                ShellFormatOptions::default().with_space_redirects(true),
+            ),
+        ] {
+            assert_idempotent(source, Some(Path::new(filename)), &options);
+        }
     }
 }

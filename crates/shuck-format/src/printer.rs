@@ -1,4 +1,4 @@
-use crate::format_element::{Document, FormatElement, LineMode};
+use crate::format_element::{Document, FormatElement, InternedDocument, LineMode, TextMetrics};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum IndentStyle {
@@ -100,88 +100,221 @@ impl Printer {
     ) -> Result<Printed, PrintError> {
         let mut output = String::with_capacity(output_capacity);
         let mut state = PrinterState::new(self.options);
-        self.print_document(document, PrintMode::Expanded, &mut state, &mut output)?;
-        Ok(Printed { code: output })
-    }
+        let mut queue = PrintQueue::new(document.as_slice());
+        let mut mode_stack = Vec::new();
 
-    fn print_document(
-        &self,
-        document: &Document,
-        mode: PrintMode,
-        state: &mut PrinterState,
-        output: &mut String,
-    ) -> Result<(), PrintError> {
-        for element in document.as_slice() {
+        while let Some(element) = queue.next(&mut state, &mut mode_stack) {
             match element {
-                FormatElement::Text(text) => state.push_text(text, output),
-                FormatElement::Space => state.push_text(" ", output),
-                FormatElement::Line(line_mode) => match (mode, line_mode) {
-                    (PrintMode::Flat, LineMode::Soft) => {}
-                    (PrintMode::Flat, LineMode::SoftOrSpace) => state.push_text(" ", output),
-                    (_, LineMode::Hard) | (PrintMode::Expanded, _) => {
-                        state.push_newline(output);
-                    }
-                },
-                FormatElement::Indent(inner) => {
-                    state.indent_level += 1;
-                    self.print_document(inner, mode, state, output)?;
-                    state.indent_level = state.indent_level.saturating_sub(1);
+                FormatElement::Token(text) => state.push_token(text, &mut output),
+                FormatElement::Text(text) => {
+                    state.push_text(text.as_str(), text.metrics(), &mut output);
                 }
-                FormatElement::Group(inner) => {
-                    let fits_flat = self.fits(inner, state)?;
-                    let next_mode = if fits_flat {
+                FormatElement::Space => state.push_token(" ", &mut output),
+                FormatElement::Line(line_mode) => {
+                    let mode = mode_stack.last().copied().unwrap_or(PrintMode::Expanded);
+                    match (mode, line_mode) {
+                        (PrintMode::Flat, LineMode::Soft) => {}
+                        (PrintMode::Flat, LineMode::SoftOrSpace) => {
+                            state.push_token(" ", &mut output);
+                        }
+                        (_, LineMode::Hard) | (PrintMode::Expanded, _) => {
+                            state.push_newline(&mut output);
+                        }
+                    }
+                }
+                FormatElement::Indent(document) => {
+                    queue.push(document.as_slice(), None, 1, &mut state, &mut mode_stack);
+                }
+                FormatElement::Group(document) => {
+                    let mode = if self.fits(document.as_slice(), PrintMode::Flat, state.column) {
                         PrintMode::Flat
                     } else {
                         PrintMode::Expanded
                     };
-                    self.print_document(inner, next_mode, state, output)?;
+                    queue.push(document.as_slice(), Some(mode), 0, &mut state, &mut mode_stack);
                 }
                 FormatElement::BestFit { flat, expanded } => {
-                    if self.fits(flat, state)? {
-                        self.print_document(flat, PrintMode::Flat, state, output)?;
-                    } else {
-                        self.print_document(expanded, PrintMode::Expanded, state, output)?;
-                    }
-                }
-                FormatElement::Verbatim(text) => state.push_verbatim(text, output),
-            }
-        }
-
-        Ok(())
-    }
-
-    fn fits(&self, document: &Document, state: &PrinterState) -> Result<bool, PrintError> {
-        let mut width = state.column;
-        self.measure_document(document, &mut width)?;
-        Ok(width <= usize::from(self.options.line_width))
-    }
-
-    fn measure_document(&self, document: &Document, width: &mut usize) -> Result<(), PrintError> {
-        for element in document.as_slice() {
-            match element {
-                FormatElement::Text(text) => *width += text.chars().count(),
-                FormatElement::Space => *width += 1,
-                FormatElement::Line(LineMode::Hard) => return Ok(()),
-                FormatElement::Line(LineMode::Soft) => {}
-                FormatElement::Line(LineMode::SoftOrSpace) => *width += 1,
-                FormatElement::Indent(inner) | FormatElement::Group(inner) => {
-                    self.measure_document(inner, width)?;
-                }
-                FormatElement::BestFit { flat, .. } => {
-                    self.measure_document(flat, width)?;
+                    let (variant, mode) =
+                        if self.fits(flat.as_slice(), PrintMode::Flat, state.column) {
+                            (flat.as_slice(), PrintMode::Flat)
+                        } else {
+                            (expanded.as_slice(), PrintMode::Expanded)
+                        };
+                    queue.push(variant, Some(mode), 0, &mut state, &mut mode_stack);
                 }
                 FormatElement::Verbatim(text) => {
-                    let line = text.rsplit('\n').next().unwrap_or(text);
-                    *width += line.chars().count();
+                    state.push_text(text.as_str(), text.metrics(), &mut output);
                 }
-            }
-
-            if *width > usize::from(self.options.line_width) {
-                return Ok(());
             }
         }
 
-        Ok(())
+        Ok(Printed { code: output })
+    }
+
+    fn fits(&self, document: &[FormatElement], mode: PrintMode, column: usize) -> bool {
+        let mut width = column;
+        let mut queue = MeasureQueue::new(document, mode);
+        let line_width = usize::from(self.options.line_width);
+
+        while let Some((element, mode)) = queue.next() {
+            match element {
+                FormatElement::Token(text) => width += text.len(),
+                FormatElement::Text(text) => {
+                    if let Some(single_line_width) = text.metrics().single_line_width() {
+                        width += single_line_width;
+                    } else {
+                        width += text.metrics().first_line_width();
+                        return width <= line_width;
+                    }
+                }
+                FormatElement::Space => width += 1,
+                FormatElement::Line(line_mode) => match (mode, line_mode) {
+                    (PrintMode::Flat, LineMode::Soft) => {}
+                    (PrintMode::Flat, LineMode::SoftOrSpace) => width += 1,
+                    (_, LineMode::Hard) | (PrintMode::Expanded, _) => return width <= line_width,
+                },
+                FormatElement::Indent(document) => queue.push(document, None),
+                FormatElement::Group(document) => queue.push(document, Some(PrintMode::Flat)),
+                FormatElement::BestFit { flat, .. } => queue.push(flat, Some(PrintMode::Flat)),
+                FormatElement::Verbatim(text) => {
+                    if let Some(single_line_width) = text.metrics().single_line_width() {
+                        width += single_line_width;
+                    } else {
+                        width += text.metrics().first_line_width();
+                        return width <= line_width;
+                    }
+                }
+            }
+
+            if width > line_width {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PrintFrame<'a> {
+    elements: &'a [FormatElement],
+    index: usize,
+    mode: Option<PrintMode>,
+    indent_delta: usize,
+}
+
+#[derive(Debug, Clone)]
+struct PrintQueue<'a> {
+    frames: Vec<PrintFrame<'a>>,
+}
+
+impl<'a> PrintQueue<'a> {
+    fn new(elements: &'a [FormatElement]) -> Self {
+        Self {
+            frames: vec![PrintFrame {
+                elements,
+                index: 0,
+                mode: None,
+                indent_delta: 0,
+            }],
+        }
+    }
+
+    fn push(
+        &mut self,
+        elements: &'a [FormatElement],
+        mode: Option<PrintMode>,
+        indent_delta: usize,
+        state: &mut PrinterState,
+        mode_stack: &mut Vec<PrintMode>,
+    ) {
+        if indent_delta > 0 {
+            state.indent_level += indent_delta;
+        }
+        if let Some(mode) = mode {
+            mode_stack.push(mode);
+        }
+        self.frames.push(PrintFrame {
+            elements,
+            index: 0,
+            mode,
+            indent_delta,
+        });
+    }
+
+    fn next(
+        &mut self,
+        state: &mut PrinterState,
+        mode_stack: &mut Vec<PrintMode>,
+    ) -> Option<&'a FormatElement> {
+        loop {
+            let frame = self.frames.last_mut()?;
+            if frame.index < frame.elements.len() {
+                let element = &frame.elements[frame.index];
+                frame.index += 1;
+                return Some(element);
+            }
+
+            let frame = self.frames.pop()?;
+            state.indent_level = state.indent_level.saturating_sub(frame.indent_delta);
+            if frame.mode.is_some() {
+                mode_stack.pop();
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MeasureFrame<'a> {
+    elements: &'a [FormatElement],
+    index: usize,
+    mode: Option<PrintMode>,
+}
+
+#[derive(Debug, Clone)]
+struct MeasureQueue<'a> {
+    frames: Vec<MeasureFrame<'a>>,
+    mode_stack: Vec<PrintMode>,
+}
+
+impl<'a> MeasureQueue<'a> {
+    fn new(elements: &'a [FormatElement], mode: PrintMode) -> Self {
+        Self {
+            frames: vec![MeasureFrame {
+                elements,
+                index: 0,
+                mode: Some(mode),
+            }],
+            mode_stack: vec![mode],
+        }
+    }
+
+    fn push(&mut self, document: &'a InternedDocument, mode: Option<PrintMode>) {
+        if let Some(mode) = mode {
+            self.mode_stack.push(mode);
+        }
+        self.frames.push(MeasureFrame {
+            elements: document.as_slice(),
+            index: 0,
+            mode,
+        });
+    }
+
+    fn next(&mut self) -> Option<(&'a FormatElement, PrintMode)> {
+        loop {
+            let frame = self.frames.last_mut()?;
+            if frame.index < frame.elements.len() {
+                let element = &frame.elements[frame.index];
+                frame.index += 1;
+                let mode = self.mode_stack.last().copied().unwrap_or(PrintMode::Expanded);
+                return Some((element, mode));
+            }
+
+            let frame = self.frames.pop()?;
+            if frame.mode.is_some() {
+                self.mode_stack.pop();
+            }
+        }
     }
 }
 
@@ -203,13 +336,32 @@ impl PrinterState {
         }
     }
 
-    fn push_text(&mut self, text: &str, output: &mut String) {
+    fn push_token(&mut self, text: &str, output: &mut String) {
         if !self.line_has_content {
             self.push_indent(output);
         }
         output.push_str(text);
-        self.column += text.chars().count();
+        self.column += text.len();
         self.line_has_content = true;
+    }
+
+    fn push_text(&mut self, text: &str, metrics: TextMetrics, output: &mut String) {
+        if !self.line_has_content {
+            self.push_indent(output);
+        }
+
+        output.push_str(text);
+        if let Some(width) = metrics.single_line_width() {
+            self.column += width;
+            self.line_has_content = true;
+        } else {
+            self.column = if metrics.ends_with_newline() {
+                0
+            } else {
+                metrics.last_line_width()
+            };
+            self.line_has_content = !metrics.ends_with_newline();
+        }
     }
 
     fn push_newline(&mut self, output: &mut String) {
@@ -223,29 +375,24 @@ impl PrinterState {
             return;
         }
 
-        let indent = match self.options.indent_style {
-            IndentStyle::Tab => "\t".repeat(self.indent_level),
-            IndentStyle::Space => {
-                " ".repeat(self.indent_level * usize::from(self.options.indent_width))
+        match self.options.indent_style {
+            IndentStyle::Tab => {
+                for _ in 0..self.indent_level {
+                    output.push('\t');
+                }
             }
-        };
+            IndentStyle::Space => {
+                for _ in 0..(self.indent_level * usize::from(self.options.indent_width)) {
+                    output.push(' ');
+                }
+            }
+        }
 
-        output.push_str(&indent);
-        self.column += indent.chars().count();
+        self.column += self.indent_width();
         self.line_has_content = true;
     }
 
-    fn push_verbatim(&mut self, text: &str, output: &mut String) {
-        if !self.line_has_content {
-            self.push_indent(output);
-        }
-
-        output.push_str(text);
-        if let Some(last_line) = text.rsplit('\n').next() {
-            self.column = last_line.chars().count();
-        } else {
-            self.column += text.chars().count();
-        }
-        self.line_has_content = !text.ends_with('\n');
+    fn indent_width(&self) -> usize {
+        self.indent_level * usize::from(self.options.indent_width)
     }
 }

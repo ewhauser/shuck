@@ -1,5 +1,5 @@
 use shuck_ast::{Redirect, RedirectKind};
-use shuck_format::{FormatResult, text, write};
+use shuck_format::{FormatResult, space, text, token, write};
 
 use crate::FormatNodeRule;
 use crate::prelude::ShellFormatter;
@@ -11,7 +11,7 @@ pub struct FormatRedirect;
 impl FormatNodeRule<Redirect> for FormatRedirect {
     fn fmt(&self, redirect: &Redirect, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
         let source = formatter.context().source();
-        let options = formatter.context().options();
+        let options = formatter.context().options().clone();
         if !options.simplify()
             && !options.minify()
             && let Some(raw) = raw_redirect_source_slice(redirect, source)
@@ -20,20 +20,18 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
             return write!(formatter, [text(raw.to_string())]);
         }
 
-        let mut rendered = String::new();
-
         if let Some(name) = &redirect.fd_var {
-            rendered.push('{');
-            rendered.push_str(name.as_str());
-            rendered.push('}');
+            write!(formatter, [token("{"), text(name.as_str().to_string()), token("}")])?;
         } else if let Some(fd) = redirect
             .fd
             .filter(|fd| should_render_explicit_fd(*fd, redirect.kind))
         {
-            rendered.push_str(&fd.to_string());
+            write!(formatter, [text(fd.to_string())])?;
         }
 
-        rendered.push_str(match redirect.kind {
+        write!(
+            formatter,
+            [token(match redirect.kind {
             RedirectKind::Output => ">",
             RedirectKind::Clobber => ">|",
             RedirectKind::Append => ">>",
@@ -45,20 +43,19 @@ impl FormatNodeRule<Redirect> for FormatRedirect {
             RedirectKind::DupOutput => ">&",
             RedirectKind::DupInput => "<&",
             RedirectKind::OutputBoth => "&>",
-        });
+        })]
+        )?;
 
         let target = match (redirect.word_target(), redirect.heredoc()) {
-            (Some(word), None) => render_word_syntax(word, source, options),
-            (None, Some(heredoc)) => render_word_syntax(&heredoc.delimiter.raw, source, options),
+            (Some(word), None) => render_word_syntax(word, source, &options),
+            (None, Some(heredoc)) => render_word_syntax(&heredoc.delimiter.raw, source, &options),
             (None, None) => String::new(),
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
         };
         if needs_space_before_target(redirect.kind, &target, options.space_redirects()) {
-            rendered.push(' ');
+            write!(formatter, [space()])?;
         }
-        rendered.push_str(&target);
-
-        write!(formatter, [text(rendered)])
+        write!(formatter, [text(target)])
     }
 }
 

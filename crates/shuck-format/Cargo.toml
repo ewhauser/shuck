@@ -10,3 +10,4 @@ keywords = ["formatter", "pretty-printer", "document"]
 categories = ["text-processing", "development-tools"]
 
 [dependencies]
+unicode-width = "0.2"

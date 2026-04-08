@@ -331,12 +331,18 @@ fn render_command_substitution(
     }
 
     if multiline {
-        Some(format!(
-            "$(\n{}\n)",
-            indent_rendered_block(trimmed, options, 1)
-        ))
+        let indented = indent_rendered_block(trimmed, options, 1);
+        let mut result = String::with_capacity(indented.len() + 5);
+        result.push_str("$(\n");
+        result.push_str(&indented);
+        result.push_str("\n)");
+        Some(result)
     } else {
-        Some(format!("$({trimmed})"))
+        let mut result = String::with_capacity(trimmed.len() + 3);
+        result.push_str("$(");
+        result.push_str(trimmed);
+        result.push(')');
+        Some(result)
     }
 }
 
@@ -350,17 +356,17 @@ fn indent_rendered_block(
         IndentStyle::Space => " ".repeat(levels * usize::from(options.indent_width())),
     };
 
-    rendered
-        .lines()
-        .map(|line| {
-            if line.is_empty() {
-                String::new()
-            } else {
-                format!("{prefix}{line}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut indented = String::with_capacity(rendered.len() + prefix.len() * rendered.lines().count());
+    for (index, line) in rendered.lines().enumerate() {
+        if index > 0 {
+            indented.push('\n');
+        }
+        if !line.is_empty() {
+            indented.push_str(&prefix);
+            indented.push_str(line);
+        }
+    }
+    indented
 }
 
 fn render_double_quoted_literal(rendered: &mut String, text: &str) {
@@ -380,7 +386,15 @@ fn render_arithmetic_expr(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
-    render_arithmetic_expr_with_parent(expr, ArithmeticContext::TopLevel, source, options)
+    let mut rendered = String::new();
+    push_arithmetic_expr(
+        &mut rendered,
+        expr,
+        ArithmeticContext::TopLevel,
+        source,
+        options,
+    );
+    rendered
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -395,103 +409,120 @@ enum ArithmeticContext {
     Subscript,
 }
 
-fn render_arithmetic_expr_with_parent(
+fn push_arithmetic_expr(
+    rendered: &mut String,
     expr: &ArithmeticExprNode,
     context: ArithmeticContext,
     source: &str,
     options: &ResolvedShellFormatOptions,
-) -> String {
-    let rendered = match &expr.kind {
-        ArithmeticExpr::Number(number) => number.slice(source).to_string(),
-        ArithmeticExpr::Variable(name) => name.to_string(),
-        ArithmeticExpr::Indexed { name, index } => format!(
-            "{}[{}]",
-            name,
-            render_arithmetic_expr_with_parent(
+) {
+    let needs_parentheses = arithmetic_needs_parentheses(expr, context);
+    if needs_parentheses {
+        rendered.push('(');
+    }
+
+    match &expr.kind {
+        ArithmeticExpr::Number(number) => rendered.push_str(number.slice(source)),
+        ArithmeticExpr::Variable(name) => rendered.push_str(name),
+        ArithmeticExpr::Indexed { name, index } => {
+            rendered.push_str(name);
+            rendered.push('[');
+            push_arithmetic_expr(
+                rendered,
                 index,
                 ArithmeticContext::Subscript,
                 source,
-                options
-            )
-        ),
-        ArithmeticExpr::ShellWord(word) => render_arithmetic_shell_word(word, source, options),
-        ArithmeticExpr::Parenthesized { expression } => format!(
-            "({})",
-            render_arithmetic_expr_with_parent(
+                options,
+            );
+            rendered.push(']');
+        }
+        ArithmeticExpr::ShellWord(word) => {
+            rendered.push_str(&render_arithmetic_shell_word(word, source, options));
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            rendered.push('(');
+            push_arithmetic_expr(
+                rendered,
                 expression,
                 ArithmeticContext::TopLevel,
                 source,
-                options
-            )
-        ),
-        ArithmeticExpr::Unary { op, expr } => format!(
-            "{}{}",
-            arithmetic_unary_operator(*op),
-            render_arithmetic_expr_with_parent(expr, ArithmeticContext::Unary, source, options)
-        ),
-        ArithmeticExpr::Postfix { expr, op } => format!(
-            "{}{}",
-            render_arithmetic_expr_with_parent(expr, ArithmeticContext::Postfix, source, options),
-            arithmetic_postfix_operator(*op)
-        ),
-        ArithmeticExpr::Binary { left, op, right } => format!(
-            "{} {} {}",
-            render_arithmetic_expr_with_parent(
+                options,
+            );
+            rendered.push(')');
+        }
+        ArithmeticExpr::Unary { op, expr } => {
+            rendered.push_str(arithmetic_unary_operator(*op));
+            push_arithmetic_expr(rendered, expr, ArithmeticContext::Unary, source, options);
+        }
+        ArithmeticExpr::Postfix { expr, op } => {
+            push_arithmetic_expr(rendered, expr, ArithmeticContext::Postfix, source, options);
+            rendered.push_str(arithmetic_postfix_operator(*op));
+        }
+        ArithmeticExpr::Binary { left, op, right } => {
+            push_arithmetic_expr(
+                rendered,
                 left,
                 ArithmeticContext::Binary(*op),
                 source,
-                options
-            ),
-            arithmetic_binary_operator(*op),
-            render_arithmetic_expr_with_parent(
+                options,
+            );
+            rendered.push(' ');
+            rendered.push_str(arithmetic_binary_operator(*op));
+            rendered.push(' ');
+            push_arithmetic_expr(
+                rendered,
                 right,
                 ArithmeticContext::Binary(*op),
                 source,
-                options
-            )
-        ),
+                options,
+            );
+        }
         ArithmeticExpr::Conditional {
             condition,
             then_expr,
             else_expr,
-        } => format!(
-            "{} ? {} : {}",
-            render_arithmetic_expr_with_parent(
+        } => {
+            push_arithmetic_expr(
+                rendered,
                 condition,
                 ArithmeticContext::ConditionalCondition,
                 source,
-                options
-            ),
-            render_arithmetic_expr_with_parent(
+                options,
+            );
+            rendered.push_str(" ? ");
+            push_arithmetic_expr(
+                rendered,
                 then_expr,
                 ArithmeticContext::ConditionalBranch,
                 source,
-                options
-            ),
-            render_arithmetic_expr_with_parent(
+                options,
+            );
+            rendered.push_str(" : ");
+            push_arithmetic_expr(
+                rendered,
                 else_expr,
                 ArithmeticContext::ConditionalBranch,
                 source,
-                options
-            )
-        ),
-        ArithmeticExpr::Assignment { target, op, value } => format!(
-            "{} {} {}",
-            render_arithmetic_lvalue(target, source, options),
-            arithmetic_assign_operator(*op),
-            render_arithmetic_expr_with_parent(
+                options,
+            );
+        }
+        ArithmeticExpr::Assignment { target, op, value } => {
+            push_arithmetic_lvalue(rendered, target, source, options);
+            rendered.push(' ');
+            rendered.push_str(arithmetic_assign_operator(*op));
+            rendered.push(' ');
+            push_arithmetic_expr(
+                rendered,
                 value,
                 ArithmeticContext::Assignment,
                 source,
-                options
-            )
-        ),
-    };
+                options,
+            );
+        }
+    }
 
-    if arithmetic_needs_parentheses(expr, context) {
-        format!("({rendered})")
-    } else {
-        rendered
+    if needs_parentheses {
+        rendered.push(')');
     }
 }
 
@@ -648,23 +679,26 @@ fn arithmetic_assign_operator(op: ArithmeticAssignOp) -> &'static str {
     }
 }
 
-fn render_arithmetic_lvalue(
+fn push_arithmetic_lvalue(
+    rendered: &mut String,
     target: &ArithmeticLvalue,
     source: &str,
     options: &ResolvedShellFormatOptions,
-) -> String {
+) {
     match target {
-        ArithmeticLvalue::Variable(name) => name.to_string(),
-        ArithmeticLvalue::Indexed { name, index } => format!(
-            "{}[{}]",
-            name,
-            render_arithmetic_expr_with_parent(
+        ArithmeticLvalue::Variable(name) => rendered.push_str(name),
+        ArithmeticLvalue::Indexed { name, index } => {
+            rendered.push_str(name);
+            rendered.push('[');
+            push_arithmetic_expr(
+                rendered,
                 index,
                 ArithmeticContext::Subscript,
                 source,
-                options
-            )
-        ),
+                options,
+            );
+            rendered.push(']');
+        }
     }
 }
 
@@ -707,18 +741,38 @@ fn render_parameter_word(
     options: &ResolvedShellFormatOptions,
 ) -> String {
     let Some(syntax) = parameter.bourne() else {
-        return format!("${{{}}}", parameter.raw_body.slice(source));
+        let raw = parameter.raw_body.slice(source);
+        let mut rendered = String::with_capacity(raw.len() + 3);
+        rendered.push_str("${");
+        rendered.push_str(raw);
+        rendered.push('}');
+        return rendered;
     };
 
     match syntax {
         BourneParameterExpansion::Access { reference } => {
-            format!("${{{}}}", render_var_ref(reference, source, options))
+            let rendered_reference = render_var_ref(reference, source, options);
+            let mut rendered = String::with_capacity(rendered_reference.len() + 3);
+            rendered.push_str("${");
+            rendered.push_str(&rendered_reference);
+            rendered.push('}');
+            rendered
         }
         BourneParameterExpansion::Length { reference } => {
-            format!("${{#{}}}", render_var_ref(reference, source, options))
+            let rendered_reference = render_var_ref(reference, source, options);
+            let mut rendered = String::with_capacity(rendered_reference.len() + 4);
+            rendered.push_str("${#");
+            rendered.push_str(&rendered_reference);
+            rendered.push('}');
+            rendered
         }
         BourneParameterExpansion::Indices { reference } => {
-            format!("${{!{}}}", render_var_ref(reference, source, options))
+            let rendered_reference = render_var_ref(reference, source, options);
+            let mut rendered = String::with_capacity(rendered_reference.len() + 4);
+            rendered.push_str("${!");
+            rendered.push_str(&rendered_reference);
+            rendered.push('}');
+            rendered
         }
         BourneParameterExpansion::Indirect {
             name,
@@ -726,7 +780,9 @@ fn render_parameter_word(
             operand,
             colon_variant,
         } => {
-            let mut rendered = format!("${{!{name}");
+            let mut rendered = String::with_capacity(name.len() + 8);
+            rendered.push_str("${!");
+            rendered.push_str(name);
             if let Some(operator) = operator {
                 if *colon_variant {
                     rendered.push(':');
@@ -740,7 +796,12 @@ fn render_parameter_word(
             rendered
         }
         BourneParameterExpansion::PrefixMatch { prefix, kind } => {
-            format!("${{!{}{}}}", prefix, kind.as_char())
+            let mut rendered = String::with_capacity(prefix.len() + 5);
+            rendered.push_str("${!");
+            rendered.push_str(prefix);
+            rendered.push(kind.as_char());
+            rendered.push('}');
+            rendered
         }
         BourneParameterExpansion::Slice {
             reference,
@@ -749,7 +810,10 @@ fn render_parameter_word(
             length,
             length_ast,
         } => {
-            let mut rendered = format!("${{{}", render_var_ref(reference, source, options));
+            let rendered_reference = render_var_ref(reference, source, options);
+            let mut rendered = String::with_capacity(rendered_reference.len() + 8);
+            rendered.push_str("${");
+            rendered.push_str(&rendered_reference);
             rendered.push(':');
             rendered.push_str(&render_arithmetic_source_text(
                 offset,
@@ -792,10 +856,14 @@ fn render_parameter_word(
             reference,
             operator,
         } => {
-            format!(
-                "${{{}@{operator}}}",
-                render_var_ref(reference, source, options)
-            )
+            let rendered_reference = render_var_ref(reference, source, options);
+            let mut rendered = String::with_capacity(rendered_reference.len() + 6);
+            rendered.push_str("${");
+            rendered.push_str(&rendered_reference);
+            rendered.push('@');
+            std::write!(rendered, "{operator}").expect("writing into a String should not fail");
+            rendered.push('}');
+            rendered
         }
     }
 }
