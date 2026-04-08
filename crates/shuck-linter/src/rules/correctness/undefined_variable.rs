@@ -1,3 +1,4 @@
+use rustc_hash::FxHashSet;
 use shuck_semantic::{BindingKind, ReferenceKind, UninitializedCertainty};
 
 use crate::{Checker, Rule, Violation};
@@ -28,7 +29,15 @@ impl Violation for UndefinedVariable {
 }
 
 pub fn undefined_variable(checker: &mut Checker) {
-    for uninitialized in checker.semantic().uninitialized_references() {
+    let mut uninitialized_references = checker.semantic().uninitialized_references().to_vec();
+    uninitialized_references.sort_by_key(|uninitialized| {
+        let reference = checker.semantic().reference(uninitialized.reference);
+        (reference.span.start.offset, reference.span.end.offset)
+    });
+
+    let mut reported_names = FxHashSet::default();
+
+    for uninitialized in uninitialized_references {
         let reference = checker.semantic().reference(uninitialized.reference);
         if matches!(
             reference.kind,
@@ -57,6 +66,9 @@ pub fn undefined_variable(checker: &mut Checker) {
                 is_sc2154_defining_binding(checker.semantic().binding(*binding_id).kind)
             })
         {
+            continue;
+        }
+        if !reported_names.insert(reference.name.clone()) {
             continue;
         }
 

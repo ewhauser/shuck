@@ -1192,6 +1192,45 @@ helper
     }
 
     #[test]
+    fn undefined_variable_reports_only_first_reportable_use_per_name() {
+        let source = "\
+#!/bin/bash
+helper() {
+  printf '%s %s\\n' \"$missing\" \"$also_missing\"
+}
+printf '%s\\n' \"$missing\"
+printf '%s\\n' \"$also_missing\"
+helper
+printf '%s %s\\n' \"$missing\" \"$also_missing\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("missing"));
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[1].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[1].message.contains("also_missing"));
+        assert_eq!(diagnostics[1].span.start.line, 3);
+    }
+
+    #[test]
+    fn undefined_variable_uses_first_plain_read_after_ignored_occurrences() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${guarded:-fallback}\"
+printf '%s\\n' \"$guarded\"
+printf '%s\\n' \"$guarded\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("guarded"));
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
     fn undefined_variable_ignores_declaration_names_and_special_parameters() {
         let diagnostics = lint_for_rule(
             "\
