@@ -20,9 +20,7 @@ pub fn chained_test_branches(checker: &mut Checker) {
         .filter_map(|list| list.mixed_short_circuit_span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(ChainedTestBranches, span);
-    }
+    checker.report_all_dedup(spans, || ChainedTestBranches);
 }
 
 #[cfg(test)]

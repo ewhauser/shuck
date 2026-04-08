@@ -20,7 +20,5 @@ pub fn constant_case_subject(checker: &mut Checker) {
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(ConstantCaseSubject, span);
-    }
+    checker.report_all(spans, || ConstantCaseSubject);
 }

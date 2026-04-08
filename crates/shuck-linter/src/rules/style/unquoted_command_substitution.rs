@@ -37,9 +37,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(UnquotedCommandSubstitution, span);
-    }
+    checker.report_all_dedup(spans, || UnquotedCommandSubstitution);
 }
 
 #[cfg(test)]

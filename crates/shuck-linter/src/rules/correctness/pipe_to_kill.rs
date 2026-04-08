@@ -25,9 +25,7 @@ pub fn pipe_to_kill(checker: &mut Checker) {
         .map(|pipeline| pipeline.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(PipeToKill, span);
-    }
+    checker.report_all_dedup(spans, || PipeToKill);
 }
 
 #[cfg(test)]

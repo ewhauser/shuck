@@ -22,7 +22,5 @@ pub fn line_oriented_input(checker: &mut Checker) {
         .map(|word| word.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(LineOrientedInput, span);
-    }
+    checker.report_all(spans, || LineOrientedInput);
 }

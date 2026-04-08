@@ -27,9 +27,7 @@ pub fn constant_comparison_test(checker: &mut Checker) {
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(ConstantComparisonTest, span);
-    }
+    checker.report_all(spans, || ConstantComparisonTest);
 }
 
 fn simple_test_is_constant(fact: &crate::SimpleTestFact<'_>) -> bool {

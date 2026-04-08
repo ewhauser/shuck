@@ -107,6 +107,18 @@ impl<'a> Checker<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    pub fn report_all<V: Violation>(&mut self, spans: Vec<Span>, violation: impl Fn() -> V) {
+        for span in spans {
+            self.report(violation(), span);
+        }
+    }
+
+    pub fn report_all_dedup<V: Violation>(&mut self, spans: Vec<Span>, violation: impl Fn() -> V) {
+        for span in spans {
+            self.report_dedup(violation(), span);
+        }
+    }
+
     pub fn check(mut self) -> Vec<Diagnostic> {
         if self.rules.is_empty() {
             return self.diagnostics;

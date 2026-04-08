@@ -20,9 +20,7 @@ pub fn legacy_arithmetic_expansion(checker: &mut Checker) {
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(LegacyArithmeticExpansion, span);
-    }
+    checker.report_all(spans, || LegacyArithmeticExpansion);
 }
 
 #[cfg(test)]

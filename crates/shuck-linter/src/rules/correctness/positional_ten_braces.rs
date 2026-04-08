@@ -20,9 +20,7 @@ pub fn positional_ten_braces(checker: &mut Checker) {
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(PositionalTenBraces, span);
-    }
+    checker.report_all(spans, || PositionalTenBraces);
 }
 
 #[cfg(test)]

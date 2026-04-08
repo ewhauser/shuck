@@ -22,9 +22,7 @@ pub fn invalid_exit_status(checker: &mut Checker) {
         .filter_map(|exit| exit.status_word.map(|word| word.span))
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(InvalidExitStatus, span);
-    }
+    checker.report_all(spans, || InvalidExitStatus);
 }
 
 #[cfg(test)]

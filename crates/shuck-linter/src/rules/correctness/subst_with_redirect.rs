@@ -27,9 +27,7 @@ pub fn subst_with_redirect(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(SubstWithRedirect, span);
-    }
+    checker.report_all(spans, || SubstWithRedirect);
 }
 
 #[cfg(test)]

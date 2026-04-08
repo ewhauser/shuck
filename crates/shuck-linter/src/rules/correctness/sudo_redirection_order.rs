@@ -36,9 +36,7 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(SudoRedirectionOrder, span);
-    }
+    checker.report_all_dedup(spans, || SudoRedirectionOrder);
 }
 
 fn redirects_output_to_file(kind: RedirectKind) -> bool {

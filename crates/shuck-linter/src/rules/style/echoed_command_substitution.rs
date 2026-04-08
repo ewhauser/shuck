@@ -33,9 +33,7 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
         .flat_map(|fact| fact.command_substitution_spans().iter().copied())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(EchoedCommandSubstitution, span);
-    }
+    checker.report_all_dedup(spans, || EchoedCommandSubstitution);
 }
 
 #[cfg(test)]

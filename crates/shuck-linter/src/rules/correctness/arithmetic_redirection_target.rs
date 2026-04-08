@@ -27,9 +27,7 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(ArithmeticRedirectionTarget, span);
-    }
+    checker.report_all(spans, || ArithmeticRedirectionTarget);
 }
 
 #[cfg(test)]

@@ -25,7 +25,5 @@ pub fn read_without_raw(checker: &mut Checker) {
         .filter_map(|fact| fact.body_name_word().map(|word| word.span))
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(ReadWithoutRaw, span);
-    }
+    checker.report_all(spans, || ReadWithoutRaw);
 }

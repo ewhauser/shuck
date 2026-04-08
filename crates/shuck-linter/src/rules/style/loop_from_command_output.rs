@@ -24,7 +24,5 @@ pub fn loop_from_command_output(checker: &mut Checker) {
         .map(|word| word.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(LoopFromCommandOutput, span);
-    }
+    checker.report_all(spans, || LoopFromCommandOutput);
 }

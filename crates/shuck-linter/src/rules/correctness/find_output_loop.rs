@@ -22,9 +22,7 @@ pub fn find_output_loop(checker: &mut Checker) {
         .map(|word| word.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(FindOutputLoop, span);
-    }
+    checker.report_all(spans, || FindOutputLoop);
 }
 
 #[cfg(test)]

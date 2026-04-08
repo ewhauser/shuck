@@ -24,9 +24,7 @@ pub fn truthy_literal_test(checker: &mut Checker) {
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(TruthyLiteralTest, span);
-    }
+    checker.report_all(spans, || TruthyLiteralTest);
 }
 
 fn simple_test_matches(fact: &crate::SimpleTestFact<'_>) -> bool {

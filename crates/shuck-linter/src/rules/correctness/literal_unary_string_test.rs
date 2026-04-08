@@ -27,9 +27,7 @@ pub fn literal_unary_string_test(checker: &mut Checker) {
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(LiteralUnaryStringTest, span);
-    }
+    checker.report_all(spans, || LiteralUnaryStringTest);
 }
 
 fn simple_test_matches(fact: &crate::SimpleTestFact<'_>) -> bool {

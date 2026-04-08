@@ -25,9 +25,7 @@ pub fn empty_test(checker: &mut Checker) {
         .map(|(span, _)| span)
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(EmptyTest, span);
-    }
+    checker.report_all(spans, || EmptyTest);
 }
 
 #[cfg(test)]

@@ -34,9 +34,7 @@ pub fn printf_format_variable(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report(PrintfFormatVariable, span);
-    }
+    checker.report_all(spans, || PrintfFormatVariable);
 }
 
 #[cfg(test)]

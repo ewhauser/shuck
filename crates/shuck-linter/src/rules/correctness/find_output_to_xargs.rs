@@ -22,9 +22,7 @@ pub fn find_output_to_xargs(checker: &mut Checker) {
         .flat_map(|pipeline| unsafe_find_to_xargs_spans(checker, pipeline))
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(FindOutputToXargs, span);
-    }
+    checker.report_all_dedup(spans, || FindOutputToXargs);
 }
 
 fn unsafe_find_to_xargs_spans(checker: &Checker<'_>, pipeline: &PipelineFact<'_>) -> Vec<Span> {
