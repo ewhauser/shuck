@@ -569,6 +569,7 @@ pub struct LoopHeaderWordFact<'a> {
     word: &'a Word,
     classification: WordClassification,
     has_unquoted_command_substitution: bool,
+    contains_ls_substitution: bool,
     contains_find_substitution: bool,
 }
 
@@ -591,6 +592,10 @@ impl<'a> LoopHeaderWordFact<'a> {
 
     pub fn has_unquoted_command_substitution(&self) -> bool {
         self.has_unquoted_command_substitution
+    }
+
+    pub fn contains_ls_substitution(&self) -> bool {
+        self.contains_ls_substitution
     }
 
     pub fn contains_find_substitution(&self) -> bool {
@@ -2653,6 +2658,12 @@ fn build_loop_header_word_facts<'a>(
                 classification,
                 has_unquoted_command_substitution: classification.has_command_substitution()
                     && !span::unquoted_command_substitution_part_spans(word).is_empty(),
+                contains_ls_substitution: word_contains_command_substitution_named(
+                    word,
+                    "ls",
+                    commands,
+                    command_index,
+                ),
                 contains_find_substitution: word_contains_find_substitution(
                     word,
                     commands,
@@ -2834,6 +2845,34 @@ fn word_contains_find_substitution<'a>(
         .any(|part| part_contains_find_substitution(&part.kind, commands, command_index))
 }
 
+fn word_contains_command_substitution_named<'a>(
+    word: &'a Word,
+    name: &str,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    word.parts.iter().any(|part| {
+        part_contains_command_substitution_named(&part.kind, name, commands, command_index)
+    })
+}
+
+fn part_contains_command_substitution_named<'a>(
+    part: &WordPart,
+    name: &str,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
+            part_contains_command_substitution_named(&part.kind, name, commands, command_index)
+        }),
+        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
+            substitution_body_is_simple_command_named(body, name, commands, command_index)
+        }
+        _ => false,
+    }
+}
+
 fn part_contains_find_substitution<'a>(
     part: &WordPart,
     commands: &[CommandFact<'a>],
@@ -2858,6 +2897,15 @@ fn substitution_body_is_find<'a>(
     matches!(body.as_slice(), [stmt] if stmt_effective_name_is(stmt, "find", commands, command_index))
 }
 
+fn substitution_body_is_simple_command_named<'a>(
+    body: &'a StmtSeq,
+    name: &str,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_index))
+}
+
 fn stmt_effective_name_is<'a>(
     stmt: &'a Stmt,
     name: &str,
@@ -2868,6 +2916,18 @@ fn stmt_effective_name_is<'a>(
         .get(&command_ptr(&stmt.command))
         .map(|&index| commands[index].effective_name_is(name))
         .unwrap_or(false)
+}
+
+fn stmt_literal_name_is<'a>(
+    stmt: &'a Stmt,
+    name: &str,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+) -> bool {
+    command_index
+        .get(&command_ptr(&stmt.command))
+        .and_then(|&index| commands[index].literal_name())
+        == Some(name)
 }
 
 #[derive(Debug, Default)]
@@ -4535,6 +4595,30 @@ true && false || printf '%s\\n' fallback
                     .map(|span| span.slice(source)),
                 Some("&&")
             );
+        });
+    }
+
+    #[test]
+    fn builds_loop_header_ls_substitution_detection() {
+        let source = "\
+#!/bin/bash
+for entry in $(ls); do :; done
+for entry in $(command ls); do :; done
+for entry in $(find . -type f); do :; done
+";
+
+        with_facts(source, None, |_, facts| {
+            let words = facts.for_headers()[0].words();
+            assert!(words[0].has_unquoted_command_substitution());
+            assert!(words[0].contains_ls_substitution());
+
+            let command_ls = facts.for_headers()[1].words();
+            assert!(command_ls[0].has_unquoted_command_substitution());
+            assert!(!command_ls[0].contains_ls_substitution());
+
+            let find_words = facts.for_headers()[2].words();
+            assert!(find_words[0].has_unquoted_command_substitution());
+            assert!(!find_words[0].contains_ls_substitution());
         });
     }
 

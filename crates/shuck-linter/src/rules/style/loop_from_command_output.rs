@@ -20,7 +20,9 @@ pub fn loop_from_command_output(checker: &mut Checker) {
         .iter()
         .filter(|header| !header.is_nested_word_command())
         .flat_map(|header| header.words().iter())
-        .filter(|word| word.has_unquoted_command_substitution())
+        .filter(|word| {
+            word.has_unquoted_command_substitution() && word.contains_ls_substitution()
+        })
         .map(|word| word.span())
         .collect::<Vec<_>>();
 
