@@ -43,7 +43,7 @@ true && false; false || printf '%s\\n' ok
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["||", "&&"]
+            vec!["&&", "||"]
         );
     }
 }

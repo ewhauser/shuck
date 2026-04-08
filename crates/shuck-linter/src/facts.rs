@@ -2811,14 +2811,14 @@ fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<
 }
 
 fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<Span> {
-    let mut current = None;
+    let mut previous = operators.first()?;
 
-    for operator in operators {
-        match current {
-            None => current = Some(operator.op()),
-            Some(previous) if previous == operator.op() => {}
-            Some(_) => return Some(operator.span()),
+    for operator in operators.iter().skip(1) {
+        if previous.op() != operator.op() {
+            return Some(previous.span());
         }
+
+        previous = operator;
     }
 
     None
@@ -4425,7 +4425,7 @@ true && false || printf '%s\\n' fallback
             assert_eq!(
                 list.mixed_short_circuit_span()
                     .map(|span| span.slice(source)),
-                Some("||")
+                Some("&&")
             );
         });
     }

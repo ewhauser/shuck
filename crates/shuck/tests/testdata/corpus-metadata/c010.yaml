@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "C010 intentionally treats mixed `&&` / `||` fallback chains as a control-flow hazard even when they appear in helper scripts, project-closure code, directives, or test harnesses. ShellCheck does not emit SC2015 for the remaining corpus cases, and the survivors are all the same policy shape, so one broad reviewed divergence captures that stricter Shuck behavior without masking a separate implementation bug."
