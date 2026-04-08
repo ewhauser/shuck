@@ -423,6 +423,34 @@
     "expectation": "parse_ok",
     "reason": "zsh anonymous paren eval callbacks now parse in loop bodies"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__lib__cli.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh grouped case alternatives with literal prefixes now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__lib__termsupport.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh jobspec case patterns with numeric ranges and grouped alternatives now parse"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__tools__upgrade.sh": {
+    "expectation": "parse_ok",
+    "reason": "zsh case patterns with trailing optional suffix groups now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__gitstatus__mbuild": {
+    "expectation": "parse_ok",
+    "reason": "zsh ;| case terminators are preserved across repeated fallthrough arms"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-autosuggestions__src__bind.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh infix grouped case alternatives with trailing wildcards now parse"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-autosuggestions__zsh-autosuggestions.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh infix grouped case alternatives with trailing wildcards now parse"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__tests__tap-colorizer.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh wrapped wildcard case patterns now parse in zsh mode"
+  },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__autoenv__autoenv.plugin.zsh": {
     "expectation": "parse_ok",
     "reason": "zsh parenthesized for headers now parse in zsh mode"

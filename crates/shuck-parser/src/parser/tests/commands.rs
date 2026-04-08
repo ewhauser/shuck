@@ -663,10 +663,22 @@ fn test_zsh_top_level_anonymous_function_can_wrap_compact_helper_functions() {
         panic!("expected if statement in for loop body");
     };
     assert_eq!(command.then_branch.len(), 5);
-    assert!(matches!(command.then_branch[0].command, AstCommand::Function(_)));
-    assert!(matches!(command.then_branch[1].command, AstCommand::Function(_)));
-    assert!(matches!(command.then_branch[2].command, AstCommand::Simple(_)));
-    assert!(matches!(command.then_branch[3].command, AstCommand::Simple(_)));
+    assert!(matches!(
+        command.then_branch[0].command,
+        AstCommand::Function(_)
+    ));
+    assert!(matches!(
+        command.then_branch[1].command,
+        AstCommand::Function(_)
+    ));
+    assert!(matches!(
+        command.then_branch[2].command,
+        AstCommand::Simple(_)
+    ));
+    assert!(matches!(
+        command.then_branch[3].command,
+        AstCommand::Simple(_)
+    ));
     assert!(matches!(
         command.then_branch[4].command,
         AstCommand::Builtin(AstBuiltinCommand::Break(_))
@@ -1560,6 +1572,141 @@ fn test_zsh_case_accepts_start_group_with_suffix() {
 }
 
 #[test]
+fn test_zsh_case_accepts_optional_suffix_group_after_literal_url() {
+    let input = concat!(
+        "case \"$url\" in\n",
+        "  https://github.com/ohmyzsh/ohmyzsh(|.git)) print ok ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    let pattern = &command.cases[0].patterns[0];
+    assert_eq!(
+        pattern_part_slices(pattern, input),
+        vec!["https://github.com/ohmyzsh/ohmyzsh", "(|.git)"]
+    );
+    let PatternPart::Group { kind, patterns } = &pattern.parts[1].kind else {
+        panic!("expected optional suffix group");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["", ".git"]
+    );
+}
+
+#[test]
+fn test_zsh_case_accepts_infix_group_with_trailing_wildcard() {
+    let input = concat!(
+        "case $widgets[$widget] in\n",
+        "  user:_zsh_autosuggest_(bound|orig)_*) print ok ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    let pattern = &command.cases[0].patterns[0];
+    assert_eq!(
+        pattern.render_syntax(input),
+        "user:_zsh_autosuggest_(bound|orig)_*"
+    );
+    assert!(matches!(&pattern.parts[0].kind, PatternPart::Literal(_)));
+    let PatternPart::Group { kind, patterns } = &pattern.parts[1].kind else {
+        panic!("expected infix group");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["bound", "orig"]
+    );
+    assert!(matches!(&pattern.parts[2].kind, PatternPart::Literal(_)));
+    assert!(matches!(&pattern.parts[3].kind, PatternPart::AnyString));
+}
+
+#[test]
+fn test_zsh_case_accepts_mixed_jobspec_patterns() {
+    let input = concat!(
+        "case \"$jobspec\" in\n",
+        "  <->) print number ;;\n",
+        "  \"\"|%|+) print current ;;\n",
+        "  -) print previous ;;\n",
+        "  [?]*) print contains ;;\n",
+        "  *) print prefix ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(command.cases[0].patterns[0].render_syntax(input), "<->");
+    assert_eq!(command.cases[1].patterns.len(), 3);
+    assert!(matches!(
+        &command.cases[1].patterns[0].parts[0].kind,
+        PatternPart::Word(word) if is_fully_quoted(word)
+    ));
+    assert_eq!(command.cases[1].patterns[1].render_syntax(input), "%");
+    assert_eq!(command.cases[1].patterns[2].render_syntax(input), "+");
+    assert_eq!(command.cases[2].patterns[0].render_syntax(input), "-");
+    assert_eq!(command.cases[3].patterns[0].render_syntax(input), "[?]*");
+    assert_eq!(command.cases[4].patterns[0].render_syntax(input), "*");
+}
+
+#[test]
+fn test_zsh_case_accepts_wrapped_wildcard_suffix_patterns() {
+    let input = concat!(
+        "case $line in\n",
+        "  (*# SKIP*) print skip ;;\n",
+        "  (ok*# TODO*) print xpass ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(
+        command.cases[0].patterns[0].render_syntax(input),
+        "*# SKIP*"
+    );
+    assert_eq!(
+        command.cases[1].patterns[0].render_syntax(input),
+        "ok*# TODO*"
+    );
+}
+
+#[test]
 fn test_zsh_case_accepts_wrapper_quoted_pattern_with_same_line_body() {
     let input = concat!("case $arg in\n", "  ($'\\n') print ok ;;\n", "esac\n",);
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
@@ -1600,6 +1747,45 @@ fn test_zsh_case_preserves_semipipe_terminator() {
         command.cases[0].terminator,
         CaseTerminator::ContinueMatching
     );
+}
+
+#[test]
+fn test_zsh_case_preserves_semipipe_terminator_across_repeated_arms() {
+    let input = concat!(
+        "case $2 in\n",
+        "  cygwin_nt-10.0-i686)   bin='cygwin32/bin'  ;|\n",
+        "  cygwin_nt-10.0-x86_64) bin='cygwin64/bin'  ;|\n",
+        "  msys_nt-10.0-i686)     bin='msys32/usr/bin';|\n",
+        "  msys_nt-10.0-x86_64)   bin='msys64/usr/bin';|\n",
+        "  cygwin_nt-10.0-*)\n",
+        "    tmp='/cygdrive/c/tmp'\n",
+        "  ;|\n",
+        "  msys_nt-10.0-*)\n",
+        "    tmp='/c/tmp'\n",
+        "    env='MSYSTEM=MSYS'\n",
+        "    intro+='PATH=\"$PATH:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl\"'\n",
+        "    ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(command.cases.len(), 6);
+    assert_eq!(
+        command.cases[..5]
+            .iter()
+            .map(|case| case.terminator)
+            .collect::<Vec<_>>(),
+        vec![CaseTerminator::ContinueMatching; 5]
+    );
+    assert_eq!(command.cases[5].terminator, CaseTerminator::Break);
 }
 
 #[test]
@@ -2099,7 +2285,10 @@ fn test_parse_zsh_anonymous_eval_callback_inside_worker_loop_with_always_followt
     };
     assert_eq!(command.name.render(input), "eval");
     assert_eq!(command.args.len(), 1);
-    assert_eq!(command.args[0].render(input), "$req[$#_p9k_worker_request_id+2,-1]");
+    assert_eq!(
+        command.args[0].render(input),
+        "$req[$#_p9k_worker_request_id+2,-1]"
+    );
 }
 
 #[test]

@@ -6,18 +6,29 @@
 #### ohmyzsh__ohmyzsh__lib__cli.zsh
 
 # source: ohmyzsh__ohmyzsh__lib__cli.zsh
-# parser gap: parse error at line 59, column 15: expected ')' after case pattern
+# surface: case pattern with literal prefix bare groups and sibling grouped arms
 
-        _describe 'command' subcmds ;;
-      pr) subcmds=('clean:Delete all Pull Request branches' 'test:Test a Pull Request')
-        _describe 'command' subcmds ;;
-      theme) subcmds=('list:List themes' 'set:Set a theme in your .zshrc file' 'use:Load a theme')
-        _describe 'command' subcmds ;;
-    esac
-  elif (( CURRENT == 4 )); then
-    case "${words[2]}::${words[3]}" in
-      plugin::(disable|enable|load))
-        local -aU valid_plugins
+case "${words[2]}::${words[3]}" in
+  plugin::(disable|enable|load))
+    local -aU valid_plugins
+
+    if [[ "${words[3]}" = disable ]]; then
+      valid_plugins=($plugins)
+    else
+      valid_plugins=("$ZSH"/plugins/*/{_*,*.plugin.zsh}(-.N:h:t))
+      [[ "${words[3]}" = enable ]] && valid_plugins=(${valid_plugins:|plugins})
+    fi
+
+    _describe 'plugin' valid_plugins ;;
+  plugin::info)
+    local -aU plugins
+    plugins=("$ZSH"/plugins/*/{_*,*.plugin.zsh}(-.N:h:t))
+    _describe 'plugin' plugins ;;
+  theme::(set|use))
+    local -aU themes
+    themes=("$ZSH"/themes/*.zsh-theme(N:t:r))
+    _describe 'theme' themes ;;
+esac
 
 #### ohmyzsh__ohmyzsh__lib__clipboard.zsh
 
@@ -100,37 +111,20 @@ function chruby_prompt_info \
 #### ohmyzsh__ohmyzsh__lib__termsupport.zsh
 
 # source: ohmyzsh__ohmyzsh__lib__termsupport.zsh
-# parser gap: parse error at line 72, column 7: expected ')' after case pattern
+# surface: jobspec case patterns with numeric ranges and mixed grouped alternatives
 
-  # split command into array of arguments
-  local -a cmdargs
-  cmdargs=("${(z)2}")
-  # if running fg, extract the command from the job description
-  if [[ "${cmdargs[1]}" = fg ]]; then
-    # get the job id from the first argument passed to the fg command
-    local job_id jobspec="${cmdargs[2]#%}"
-    # logic based on jobs arguments:
-    # http://zsh.sourceforge.net/Doc/Release/Jobs-_0026-Signals.html#Jobs
-    # https://www.zsh.org/mla/users/2007/msg00704.html
-    case "$jobspec" in
-      <->) # %number argument:
-        # use the same <number> passed as an argument
-        job_id=${jobspec} ;;
-      ""|%|+) # empty, %% or %+ argument:
-        # use the current job, which appears with a + in $jobstates:
-        # suspended:+:5071=suspended (tty output)
-        job_id=${(k)jobstates[(r)*:+:*]} ;;
-      -) # %- argument:
-        # use the previous job, which appears with a - in $jobstates:
-        # suspended:-:6493=suspended (signal)
-        job_id=${(k)jobstates[(r)*:-:*]} ;;
-      [?]*) # %?string argument:
-        # use $jobtexts to match for a job whose command *contains* <string>
-        job_id=${(k)jobtexts[(r)*${(Q)jobspec}*]} ;;
-      *) # %string argument:
-        # use $jobtexts to match for a job whose command *starts with* <string>
-        job_id=${(k)jobtexts[(r)${(Q)jobspec}*]} ;;
-    esac
+case "$jobspec" in
+  <->) # %number argument:
+    job_id=${jobspec} ;;
+  ""|%|+) # empty, %% or %+ argument:
+    job_id=${(k)jobstates[(r)*:+:*]} ;;
+  -) # %- argument:
+    job_id=${(k)jobstates[(r)*:-:*]} ;;
+  [?]*) # %?string argument:
+    job_id=${(k)jobtexts[(r)*${(Q)jobspec}*]} ;;
+  *) # %string argument:
+    job_id=${(k)jobtexts[(r)${(Q)jobspec}*]} ;;
+esac
 
 #### ohmyzsh__ohmyzsh__lib__theme-and-appearance.zsh
 
@@ -2219,7 +2213,7 @@ print ${^$(pidof zsh):#$$}
 #### ohmyzsh__ohmyzsh__tools__upgrade.sh
 
 # source: ohmyzsh__ohmyzsh__tools__upgrade.sh
-# parser gap: parse error at line 197, column 42: expected ')' after case pattern
+# surface: url case patterns with optional trailing suffix groups
 
 # Update upstream remote to ohmyzsh org
 git remote -v | while read remote url extra; do
@@ -2235,6 +2229,9 @@ git remote -v | while read remote url extra; do
   git@github.com:ohmyzsh/ohmyzsh(|.git)) ;;
   *) continue ;;
   esac
+  git config --local oh-my-zsh.remote "$remote"
+  break
+done
 
 #### romkatv__powerlevel10k__config__p10k-classic.zsh
 
@@ -2330,15 +2327,23 @@ git remote -v | while read remote url extra; do
 #### romkatv__powerlevel10k__gitstatus__mbuild
 
 # source: romkatv__powerlevel10k__gitstatus__mbuild
-# parser gap: parse error at line 205, column 49: expected command
+# surface: repeated ;| case terminators with a multiline fallthrough arm
 
-  local tmp env bin intro flags=(-w)
-  case $2 in
-    cygwin_nt-10.0-i686)   bin='cygwin32/bin'  ;|
-    cygwin_nt-10.0-x86_64) bin='cygwin64/bin'  ;|
-    msys_nt-10.0-i686)     bin='msys32/usr/bin';|
-    msys_nt-10.0-x86_64)   bin='msys64/usr/bin';|
-    cygwin_nt-10.0-*)
+local tmp env bin intro flags=(-w)
+case $2 in
+  cygwin_nt-10.0-i686)   bin='cygwin32/bin'  ;|
+  cygwin_nt-10.0-x86_64) bin='cygwin64/bin'  ;|
+  msys_nt-10.0-i686)     bin='msys32/usr/bin';|
+  msys_nt-10.0-x86_64)   bin='msys64/usr/bin';|
+  cygwin_nt-10.0-*)
+    tmp='/cygdrive/c/tmp'
+  ;|
+  msys_nt-10.0-*)
+    tmp='/c/tmp'
+    env='MSYSTEM=MSYS'
+    intro+='PATH="$PATH:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"'
+    ;;
+esac
 
 #### romkatv__powerlevel10k__internal__configure.zsh
 
@@ -2498,26 +2503,54 @@ function p9k_configure() {
 #### zsh-users__zsh-autosuggestions__src__bind.zsh
 
 # source: zsh-users__zsh-autosuggestions__src__bind.zsh
-# parser gap: parse error at line 24, column 25: expected ')' after case pattern
+# surface: infix grouped alternatives with trailing wildcard suffix
 
-	# Save a reference to the original widget
-	case $widgets[$widget] in
-		# Already bound
-		user:_zsh_autosuggest_(bound|orig)_*)
-			bind_count=$((_ZSH_AUTOSUGGEST_BIND_COUNTS[$widget]))
-			;;
+local -i bind_count
+
+# Save a reference to the original widget
+case $widgets[$widget] in
+  # Already bound
+  user:_zsh_autosuggest_(bound|orig)_*)
+    bind_count=$((_ZSH_AUTOSUGGEST_BIND_COUNTS[$widget]))
+    ;;
+
+  # User-defined widget
+  user:*)
+    _zsh_autosuggest_incr_bind_count $widget
+    zle -N $prefix$bind_count-$widget ${widgets[$widget]#*:}
+    ;;
+
+  # Built-in widget
+  *)
+    bind_count=0
+    ;;
+esac
 
 #### zsh-users__zsh-autosuggestions__zsh-autosuggestions.zsh
 
 # source: zsh-users__zsh-autosuggestions__zsh-autosuggestions.zsh
-# parser gap: parse error at line 156, column 25: expected ')' after case pattern
+# surface: infix grouped alternatives with trailing wildcard suffix
 
-	# Save a reference to the original widget
-	case $widgets[$widget] in
-		# Already bound
-		user:_zsh_autosuggest_(bound|orig)_*)
-			bind_count=$((_ZSH_AUTOSUGGEST_BIND_COUNTS[$widget]))
-			;;
+local -i bind_count
+
+# Save a reference to the original widget
+case $widgets[$widget] in
+  # Already bound
+  user:_zsh_autosuggest_(bound|orig)_*)
+    bind_count=$((_ZSH_AUTOSUGGEST_BIND_COUNTS[$widget]))
+    ;;
+
+  # User-defined widget
+  user:*)
+    _zsh_autosuggest_incr_bind_count $widget
+    zle -N $prefix$bind_count-$widget ${widgets[$widget]#*:}
+    ;;
+
+  # Built-in widget
+  *)
+    bind_count=0
+    ;;
+esac
 
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__main-highlighter.zsh
 
@@ -2785,7 +2818,7 @@ exec > >(tee -a $fname)
 #### zsh-users__zsh-syntax-highlighting__tests__tap-colorizer.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__tests__tap-colorizer.zsh
-# parser gap: parse error at line 44, column 20: expected ')' after case pattern
+# surface: wrapped alternatives and wildcard suffixes inside case patterns
 
 while read -r line;
 do
@@ -2796,6 +2829,17 @@ do
       ;;
     # SKIP
     (*# SKIP*)
+      print -nP %F{yellow}
+      ;;
+    # XPASS
+    (ok*# TODO*)
+      print -nP %F{red}
+      ;;
+    *)
+      print -nP %F{default}
+      ;;
+  esac
+done
 
 #### zsh-users__zsh-syntax-highlighting__tests__test-highlighting.zsh
 
