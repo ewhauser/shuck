@@ -407,7 +407,7 @@ where
 fn current_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
+        .unwrap_or(Duration::ZERO)
         .as_millis() as u64
 }
 
