@@ -258,13 +258,19 @@ function cfhu() { unset CF_HOME }
 #### ohmyzsh__ohmyzsh__plugins__command-not-found__command-not-found.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__command-not-found__command-not-found.plugin.zsh
-# parser gap: parse error at line 3, column 10: expected 'do'
+# parser gap: commented parenthesized zsh for header
 
 for file (
   # Arch Linux. Must have pkgfile installed: https://wiki.archlinux.org/title/Zsh#pkgfile_"command_not_found"_handler
   /usr/share/doc/pkgfile/command-not-found.zsh
   # Void Linux: https://codeberg.org/classabbyamp/xbps-command-not-found
   /usr/share/zsh/plugins/xbps-command-not-found/xbps-command-not-found.zsh
+); do
+  if [[ -r "$file" ]]; then
+    source "$file"
+    break
+  fi
+done
 
 #### ohmyzsh__ohmyzsh__plugins__dash__dash.plugin.zsh
 
@@ -779,15 +785,16 @@ zstyle ':completion:*:*:git:*' user-commands $existing_user_commands \
 #### ohmyzsh__ohmyzsh__plugins__git__git.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__git__git.plugin.zsh
-# parser gap: parse error at line 424, column 14: expected 'do'
+# parser gap: multi-target parenthesized zsh for header
 
 # Logic for adding warnings on deprecated aliases or functions
 local old_name new_name
 for old_name new_name (
   current_branch  git_current_branch
 ); do
-  aliases[$old_name]="
-    print -Pu2 \"%F{yellow}[oh-my-zsh] '%F{red}${old_name}%F{yellow}' is deprecated, using '%F{green}${new_name}%F{yellow}' instead.%f\"
+  aliases[$old_name]="deprecated: ${old_name} -> ${new_name}
+    $new_name"
+done
 
 #### ohmyzsh__ohmyzsh__plugins__globalias__globalias.plugin.zsh
 

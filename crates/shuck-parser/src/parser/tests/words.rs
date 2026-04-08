@@ -2447,6 +2447,64 @@ fn test_zsh_for_loop_paren_word_list_allows_newlines() {
 }
 
 #[test]
+fn test_zsh_for_loop_paren_word_list_ignores_comments() {
+    let source = "for file (\n  # first path\n  one\n  # second path\n  two\n); do echo $file; done\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected parenthesized word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["one", "two"]
+    );
+    assert!(matches!(command.syntax, ForSyntax::ParenDoDone { .. }));
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_multi_target_paren_do_done_syntax() {
+    let source = "for old_name new_name (\n  current_branch git_current_branch\n); do aliases[$old_name]=$new_name; done\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .targets
+            .iter()
+            .map(|target| target.name.as_deref().expect("expected normalized target"))
+            .collect::<Vec<_>>(),
+        vec!["old_name", "new_name"]
+    );
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected parenthesized word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["current_branch", "git_current_branch"]
+    );
+    assert!(matches!(command.syntax, ForSyntax::ParenDoDone { .. }));
+}
+
+#[test]
 fn test_zsh_for_loop_preserves_paren_brace_syntax() {
     let source = "for version ($versions); { echo $version; }\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)

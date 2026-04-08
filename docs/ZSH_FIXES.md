@@ -23,8 +23,8 @@ The remaining zsh parser work is no longer in the live large-corpus harness. It 
 The zsh-mode parser corpus still defaults that regression fixture to `parse_err` and then opts individual snippets into `parse_ok` as we finish them. Right now:
 
 - `103` regression snippets exist in the zsh regression fixture
-- `75` snippets are promoted to `parse_ok`
-- `28` snippets remain unresolved
+- `77` snippets are promoted to `parse_ok`
+- `26` snippets remain unresolved
 
 This document is intentionally zsh-only. The non-zsh OILS cleanup belongs in the parser corpus and expectation files, not here.
 
@@ -41,21 +41,10 @@ This document is intentionally zsh-only. The non-zsh OILS cleanup belongs in the
 | `EDGE-1` | 1 | lexer / redirect plumbing / command parser | token-boundary composition edge |
 | `EXPR-1` | 4 | word / conditional parser | zsh parameter flags and conditional pattern forms |
 | `EXPR-2` | 1 | arithmetic parser | zsh arithmetic char-literal follow-through |
-| `LOOP-1` | 2 | AST surface + command parser | remaining zsh loop header/surface cases |
 
 ## Execution Order
 
-### 1. Finish loop-surface follow-through
-
-Target codes: `LOOP-1`, spillover into `AST-1`
-
-This is the next highest-leverage pass because the parser now accepts broader `for` target surfaces, but the remaining zsh loop shapes still need AST and surface-preservation work.
-
-- Finish the unresolved loop fixtures in the regression file before touching unrelated buckets.
-- Keep loop header preservation explicit enough that formatter and later rule work can distinguish zsh forms from Bourne forms.
-- If a loop fix also resolves a function-surface regression, promote both snippets in the same pass.
-
-### 2. Finish function surface modeling
+### 1. Finish function surface modeling
 
 Target codes: `AST-1`, `AST-2`
 
@@ -63,7 +52,7 @@ Target codes: `AST-1`, `AST-2`
 - Cover multi-name `function` headers, punctuated function names, and anonymous `() { ... }` commands.
 - Do not silently normalize zsh-only surface forms into a Bash spelling.
 
-### 3. Finish `case` grammar and surface preservation
+### 2. Finish `case` grammar and surface preservation
 
 Target codes: `CASE-1`, `CASE-2`
 
@@ -71,14 +60,14 @@ Target codes: `CASE-1`, `CASE-2`
 - Preserve `;|` honestly in the AST rather than collapsing it into a different terminator spelling.
 - Add or keep one minimization per distinct pattern family in the regression fixture.
 
-### 4. Finish compact command-body parsing
+### 3. Finish compact command-body parsing
 
 Target codes: `CMD-1`, `CMD-2`
 
 - Clear the remaining compact function-body and compact brace-group cases.
 - Keep zsh-only same-line body handling isolated so it does not regress non-zsh parsing.
 
-### 5. Finish expression and edge cleanup
+### 4. Finish expression and edge cleanup
 
 Target codes: `EXPR-1`, `EXPR-2`, `EDGE-1`
 
@@ -118,11 +107,9 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 | `ohmyzsh__ohmyzsh__lib__prompt_info_functions.zsh` | `AST-1` |
 | `ohmyzsh__ohmyzsh__lib__termsupport.zsh` | `CASE-1` |
 | `ohmyzsh__ohmyzsh__plugins__battery__battery.plugin.zsh` | `CMD-1` |
-| `ohmyzsh__ohmyzsh__plugins__command-not-found__command-not-found.plugin.zsh` | `LOOP-1` |
 | `ohmyzsh__ohmyzsh__plugins__dash__dash.plugin.zsh` | `EXPR-1` |
 | `ohmyzsh__ohmyzsh__plugins__extract__extract.plugin.zsh` | `CMD-2` |
 | `ohmyzsh__ohmyzsh__plugins__genpass__genpass-xkcd` | `EXPR-2` |
-| `ohmyzsh__ohmyzsh__plugins__git__git.plugin.zsh` | `LOOP-1` |
 | `ohmyzsh__ohmyzsh__plugins__keychain__keychain.plugin.zsh` | `AST-1` |
 | `ohmyzsh__ohmyzsh__plugins__macos__music` | `AST-1` |
 | `ohmyzsh__ohmyzsh__plugins__rake-fast__rake-fast.plugin.zsh` | `CMD-2` |
