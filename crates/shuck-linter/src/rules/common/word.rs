@@ -106,10 +106,6 @@ fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut Stri
     true
 }
 
-pub(crate) fn classify_test_operand(word: &Word, source: &str) -> TestOperandClass {
-    classify_contextual_operand(word, source, ExpansionContext::CommandArgument)
-}
-
 pub(crate) fn classify_conditional_operand(
     expression: &ConditionalExpr,
     source: &str,
@@ -171,7 +167,7 @@ mod tests {
     use super::{
         ExpansionContext, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
         WordSubstitutionShape, classify_conditional_operand, classify_contextual_operand,
-        classify_test_operand, classify_word,
+        classify_word,
     };
 
     fn parse_commands(source: &str) -> shuck_ast::StmtSeq {
@@ -252,7 +248,11 @@ mod tests {
             panic!("expected simple command");
         };
         assert_eq!(
-            classify_test_operand(&simple_test.args[0], source),
+            classify_contextual_operand(
+                &simple_test.args[0],
+                source,
+                ExpansionContext::CommandArgument
+            ),
             TestOperandClass::FixedLiteral
         );
 
@@ -260,7 +260,11 @@ mod tests {
             panic!("expected simple command");
         };
         assert_eq!(
-            classify_test_operand(&runtime_test.args[0], source),
+            classify_contextual_operand(
+                &runtime_test.args[0],
+                source,
+                ExpansionContext::CommandArgument
+            ),
             TestOperandClass::RuntimeSensitive
         );
 

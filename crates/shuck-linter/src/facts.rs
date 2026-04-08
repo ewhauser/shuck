@@ -983,10 +983,6 @@ impl<'a> CommandFact<'a> {
         self.key
     }
 
-    pub(crate) fn visit(&self) -> CommandVisit<'a> {
-        self.visit
-    }
-
     pub fn is_nested_word_command(&self) -> bool {
         self.nested_word_command
     }

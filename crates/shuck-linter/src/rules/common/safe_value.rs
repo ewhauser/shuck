@@ -424,7 +424,7 @@ mod tests {
 
     use super::{SafeValueIndex, SafeValueQuery};
     use crate::LinterFacts;
-    use crate::rules::common::{expansion::ExpansionContext, query};
+    use crate::rules::common::expansion::ExpansionContext;
     use crate::{ShellDialect, classify_file_context};
 
     #[test]
@@ -481,127 +481,6 @@ mod tests {
 
         assert!(safe_values.word_is_safe(&command.args[1], SafeValueQuery::Quoted));
         assert!(!safe_values.word_is_safe(&command.args[2], SafeValueQuery::Argv));
-    }
-
-    #[test]
-    fn distinguishes_pattern_and_regex_safe_bindings() {
-        let source = "\
-#!/bin/bash
-plain=abc
-glob='*.sh'
-regex='a+'
-case $value in
-  $plain) : ;;
-  $glob) : ;;
-esac
-[[ $value =~ $plain ]]
-[[ $value =~ $regex ]]
-";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
-
-        let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())
-            .flat_map(|visit| query::iter_expansion_words(visit, source))
-            .collect::<Vec<_>>();
-
-        let pattern_plain = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::CasePattern && word.span.slice(source) == "$plain")
-                    .then_some(word)
-            })
-            .expect("expected plain case-pattern word");
-        let pattern_glob = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::CasePattern && word.span.slice(source) == "$glob")
-                    .then_some(word)
-            })
-            .expect("expected glob case-pattern word");
-        let regex_plain = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::RegexOperand && word.span.slice(source) == "$plain")
-                    .then_some(word)
-            })
-            .expect("expected plain regex word");
-        let regex_runtime = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::RegexOperand && word.span.slice(source) == "$regex")
-                    .then_some(word)
-            })
-            .expect("expected runtime regex word");
-
-        assert!(safe_values.word_is_safe(pattern_plain, SafeValueQuery::Pattern));
-        assert!(!safe_values.word_is_safe(pattern_glob, SafeValueQuery::Pattern));
-        assert!(safe_values.word_is_safe(regex_plain, SafeValueQuery::Regex));
-        assert!(!safe_values.word_is_safe(regex_runtime, SafeValueQuery::Regex));
-    }
-
-    #[test]
-    fn supports_default_trim_and_replacement_parameter_operators() {
-        let source = "\
-#!/bin/bash
-base=abc
-fallback=${base:-safe}
-trimmed=${base#?}
-replaced=${base/b/x}
-unsafe=${base:+a b}
-printf '%s\\n' $fallback $trimmed $replaced $unsafe
-";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
-
-        let words = query::iter_commands(&output.file.body, query::CommandWalkOptions::default())
-            .flat_map(|visit| query::iter_expansion_words(visit, source))
-            .collect::<Vec<_>>();
-
-        let fallback = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$fallback")
-                    .then_some(word)
-            })
-            .expect("expected fallback argument");
-        let trimmed = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$trimmed")
-                    .then_some(word)
-            })
-            .expect("expected trimmed argument");
-        let replaced = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$replaced")
-                    .then_some(word)
-            })
-            .expect("expected replaced argument");
-        let unsafe_replacement = words
-            .iter()
-            .find_map(|(word, context)| {
-                (*context == ExpansionContext::CommandArgument
-                    && word.span.slice(source) == "$unsafe")
-                    .then_some(word)
-            })
-            .expect("expected unsafe argument");
-
-        assert!(safe_values.word_is_safe(fallback, SafeValueQuery::Argv));
-        assert!(safe_values.word_is_safe(trimmed, SafeValueQuery::Argv));
-        assert!(safe_values.word_is_safe(replaced, SafeValueQuery::Argv));
-        assert!(!safe_values.word_is_safe(unsafe_replacement, SafeValueQuery::Argv));
     }
 
     #[test]

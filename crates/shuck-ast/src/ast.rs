@@ -2894,7 +2894,7 @@ mod tests {
     fn literal_text_source_does_not_compare_equal_to_str_without_source() {
         let text = LiteralText::source();
 
-        assert!(text != "");
+        assert!(!text.is_empty());
         assert!(text != "hello");
     }
 
