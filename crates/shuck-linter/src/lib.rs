@@ -930,7 +930,11 @@ helper
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("missing"));
-        assert!(diagnostics[0].message.contains("referenced before assignment"));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("referenced before assignment")
+        );
     }
 
     #[test]
@@ -973,7 +977,11 @@ printf '%s %s\\n' \"$foo\" \"$Foo_BAR\"
         let diagnostics = lint_for_rule(&source, Rule::UndefinedVariable);
 
         assert_eq!(diagnostics.len(), 2);
-        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("foo")));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("foo"))
+        );
         assert!(
             diagnostics
                 .iter()
@@ -1012,6 +1020,62 @@ printf '%s %s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("dynamic_key"));
+    }
+
+    #[test]
+    fn undefined_variable_ignores_presence_tested_names_in_supported_guards() {
+        let source = "\
+#!/bin/bash
+[ -z \"$guarded\" ] && echo nope
+[ \"$truthy\" ] && echo maybe
+if [[ -n \"${nonempty:-}\" && \"$also_truthy\" ]]; then
+  echo yes
+fi
+if [[ \"$eq_only\" = x ]]; then
+  echo no
+fi
+if [[ -s \"$file_only\" ]]; then
+  echo no
+fi
+echo \"$guarded\" \"$truthy\" \"$nonempty\" \"$also_truthy\" \"$eq_only\" \"$file_only\" \"$still_missing\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("guarded"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("truthy"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("nonempty"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("also_truthy"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("eq_only"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("file_only"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("still_missing"))
+        );
     }
 
     #[test]

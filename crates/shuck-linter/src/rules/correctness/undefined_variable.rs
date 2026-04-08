@@ -43,6 +43,13 @@ pub fn undefined_variable(checker: &mut Checker) {
             continue;
         }
         if checker
+            .facts()
+            .presence_tested_names()
+            .contains(&reference.name)
+        {
+            continue;
+        }
+        if checker
             .semantic()
             .bindings_for(&reference.name)
             .iter()
@@ -76,5 +83,8 @@ fn is_environment_style_name(name: &str) -> bool {
 }
 
 fn is_sc2154_defining_binding(kind: BindingKind) -> bool {
-    !matches!(kind, BindingKind::FunctionDefinition | BindingKind::Imported)
+    !matches!(
+        kind,
+        BindingKind::FunctionDefinition | BindingKind::Imported
+    )
 }

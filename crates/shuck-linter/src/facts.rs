@@ -12,7 +12,7 @@ use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
     Assignment, AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand,
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, ParameterExpansionSyntax,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, Name, ParameterExpansionSyntax,
     ParameterOp, Pattern, PatternPart, Redirect, RedirectKind, SelectCommand, SimpleCommand, Span,
     Stmt, StmtSeq, Word, WordPart, WordPartNode, ZshGlobSegment, ZshQualifiedGlob,
 };
@@ -1088,6 +1088,7 @@ pub struct LinterFacts<'a> {
     structural_command_indices: Vec<usize>,
     command_index: FxHashMap<*const Command, usize>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
+    presence_tested_names: FxHashSet<Name>,
     words: Vec<WordFact>,
     word_index: FxHashMap<FactSpan, Vec<usize>>,
     for_headers: Vec<ForHeaderFact<'a>>,
@@ -1141,6 +1142,10 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn scalar_binding_values(&self) -> &FxHashMap<FactSpan, &'a Word> {
         &self.scalar_bindings
+    }
+
+    pub fn presence_tested_names(&self) -> &FxHashSet<Name> {
+        &self.presence_tested_names
     }
 
     pub fn word_facts(&self) -> &[WordFact] {
@@ -1295,6 +1300,7 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.substitution_facts = substitutions;
         }
 
+        let presence_tested_names = build_presence_tested_names(&commands);
         let for_headers = build_for_header_facts(&commands, &command_index, self.source);
         let select_headers = build_select_header_facts(&commands, &command_index, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_index);
@@ -1311,6 +1317,7 @@ impl<'a> LinterFactsBuilder<'a> {
             structural_command_indices,
             command_index,
             scalar_bindings,
+            presence_tested_names,
             words,
             word_index,
             for_headers,
@@ -1335,6 +1342,154 @@ fn build_redirect_facts<'a>(redirects: &'a [Redirect], source: &str) -> Box<[Red
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()
+}
+
+fn build_presence_tested_names(commands: &[CommandFact<'_>]) -> FxHashSet<Name> {
+    let mut names = FxHashSet::default();
+
+    for command in commands {
+        if let Some(simple_test) = command.simple_test() {
+            match simple_test.shape() {
+                SimpleTestShape::Truthy => {
+                    if let Some(word) = simple_test.operands().first().copied() {
+                        collect_presence_tested_names_from_word(word, &mut names);
+                    }
+                }
+                SimpleTestShape::Unary
+                    if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary =>
+                {
+                    if let Some(word) = simple_test.operands().get(1).copied() {
+                        collect_presence_tested_names_from_word(word, &mut names);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(conditional) = command.conditional() {
+            collect_presence_tested_names_from_conditional_expr(
+                conditional.root().expression(),
+                &mut names,
+            );
+        }
+    }
+
+    names
+}
+
+fn collect_presence_tested_names_from_conditional_expr(
+    expression: &ConditionalExpr,
+    names: &mut FxHashSet<Name>,
+) {
+    let expression = strip_parenthesized_conditionals(expression);
+
+    match expression {
+        ConditionalExpr::Word(word) => collect_presence_tested_names_from_word(word, names),
+        ConditionalExpr::Unary(unary)
+            if conditional_unary_operator_family(unary.op)
+                == ConditionalOperatorFamily::StringUnary =>
+        {
+            collect_presence_tested_names_from_conditional_operand(&unary.expr, names);
+        }
+        ConditionalExpr::Binary(binary)
+            if conditional_binary_operator_family(binary.op)
+                == ConditionalOperatorFamily::Logical =>
+        {
+            collect_presence_tested_names_from_conditional_expr(&binary.left, names);
+            collect_presence_tested_names_from_conditional_expr(&binary.right, names);
+        }
+        ConditionalExpr::Unary(_)
+        | ConditionalExpr::Binary(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => {}
+        ConditionalExpr::Parenthesized(_) => {
+            unreachable!("parentheses should be stripped before collecting presence tests")
+        }
+    }
+}
+
+fn collect_presence_tested_names_from_conditional_operand(
+    expression: &ConditionalExpr,
+    names: &mut FxHashSet<Name>,
+) {
+    let expression = strip_parenthesized_conditionals(expression);
+
+    if let ConditionalExpr::Word(word) = expression {
+        collect_presence_tested_names_from_word(word, names);
+    }
+}
+
+fn collect_presence_tested_names_from_word(word: &Word, names: &mut FxHashSet<Name>) {
+    collect_presence_tested_names_from_word_parts(&word.parts, names);
+}
+
+fn collect_presence_tested_names_from_word_parts(
+    parts: &[WordPartNode],
+    names: &mut FxHashSet<Name>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_presence_tested_names_from_word_parts(parts, names);
+            }
+            WordPart::Variable(name)
+            | WordPart::IndirectExpansion { name, .. }
+            | WordPart::PrefixMatch { prefix: name, .. } => {
+                names.insert(name.clone());
+            }
+            WordPart::ParameterExpansion { reference, .. }
+            | WordPart::Length(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Substring { reference, .. }
+            | WordPart::ArraySlice { reference, .. }
+            | WordPart::Transformation { reference, .. } => {
+                names.insert(reference.name.clone());
+            }
+            WordPart::Parameter(parameter) => {
+                collect_presence_tested_names_from_parameter_expansion(parameter, names);
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
+fn collect_presence_tested_names_from_parameter_expansion(
+    parameter: &shuck_ast::ParameterExpansion,
+    names: &mut FxHashSet<Name>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Slice { reference, .. }
+            | BourneParameterExpansion::Operation { reference, .. }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                names.insert(reference.name.clone());
+            }
+            BourneParameterExpansion::Indirect { name, .. }
+            | BourneParameterExpansion::PrefixMatch { prefix: name, .. } => {
+                names.insert(name.clone());
+            }
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            shuck_ast::ZshExpansionTarget::Reference(reference) => {
+                names.insert(reference.name.clone());
+            }
+            shuck_ast::ZshExpansionTarget::Nested(parameter) => {
+                collect_presence_tested_names_from_parameter_expansion(parameter, names);
+            }
+            shuck_ast::ZshExpansionTarget::Empty => {}
+        },
+    }
 }
 
 fn build_word_facts_for_command(
