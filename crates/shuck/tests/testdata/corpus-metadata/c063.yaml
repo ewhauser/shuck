@@ -1,0 +1,25 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 1520
+    reason: "This helper is intentionally replaced later in the same function for a Bedrock-specific path, so the earlier definition is a deliberate override pattern."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 1522
+    reason: "This helper is intentionally replaced later in the same function for a Bedrock-specific path, so the earlier definition is a deliberate override pattern."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 5406
+    reason: "This is a temporary command-line mode override for info rendering, not an accidental dead definition."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__openindiana"
+    line: 68
+    reason: "This platform-specific helper is part of RVM's override chain, so the overwrite is intentional rather than a real dead-definition bug."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__angle-android__build.sh"
+    line: 126
+    reason: "Termux package scripts routinely override build-step hooks, and this configure hook is meant to replace the inherited implementation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__dnglab__build.sh"
+    line: 16
+    reason: "Termux package scripts routinely override build-step hooks, and this install hook is meant to replace the inherited implementation."
