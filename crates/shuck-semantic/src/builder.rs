@@ -388,10 +388,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         &mut nested_regions,
                     );
                     self.visit_name_only_declaration_operand(
-                        builtin,
-                        &flags,
-                        &name.name,
-                        name.span,
+                        builtin, &flags, &name.name, name.span,
                     );
                 }
                 DeclOperand::Assignment(assignment) => {

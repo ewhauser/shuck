@@ -169,4 +169,3 @@ fn parse_indent_style(value: &str) -> Result<IndentStyle> {
         )),
     }
 }
-

@@ -1206,11 +1206,16 @@ fn emit_heredocs(
         let Some(heredoc) = redirect.heredoc() else {
             continue;
         };
+        let mut delimiter = String::new();
+        heredoc
+            .delimiter
+            .raw
+            .render_syntax_to_buf(source, &mut delimiter);
         write!(
             formatter,
             [verbatim(render_heredoc_tail(
                 heredoc.body.span,
-                &heredoc.delimiter.raw.render_syntax(source),
+                &delimiter,
                 source,
             ))]
         )?;

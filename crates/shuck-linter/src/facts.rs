@@ -3261,11 +3261,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
     }
 
-    fn collect_zsh_qualified_glob(
-        &mut self,
-        glob: &ZshQualifiedGlob,
-        context: SurfaceScanContext,
-    ) {
+    fn collect_zsh_qualified_glob(&mut self, glob: &ZshQualifiedGlob, context: SurfaceScanContext) {
         for segment in &glob.segments {
             if let ZshGlobSegment::Pattern(pattern) = segment {
                 self.collect_pattern(pattern, context.clone());

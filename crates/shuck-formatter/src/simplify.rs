@@ -1381,26 +1381,26 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
                 }
                 ParameterOp::RemovePrefixShort { pattern } => {
                     rendered.push('#');
-                    rendered.push_str(&pattern.render_syntax(source));
+                    pattern.render_syntax_to_buf(source, &mut rendered);
                 }
                 ParameterOp::RemovePrefixLong { pattern } => {
                     rendered.push_str("##");
-                    rendered.push_str(&pattern.render_syntax(source));
+                    pattern.render_syntax_to_buf(source, &mut rendered);
                 }
                 ParameterOp::RemoveSuffixShort { pattern } => {
                     rendered.push('%');
-                    rendered.push_str(&pattern.render_syntax(source));
+                    pattern.render_syntax_to_buf(source, &mut rendered);
                 }
                 ParameterOp::RemoveSuffixLong { pattern } => {
                     rendered.push_str("%%");
-                    rendered.push_str(&pattern.render_syntax(source));
+                    pattern.render_syntax_to_buf(source, &mut rendered);
                 }
                 ParameterOp::ReplaceFirst {
                     pattern,
                     replacement,
                 } => {
                     rendered.push('/');
-                    rendered.push_str(&pattern.render_syntax(source));
+                    pattern.render_syntax_to_buf(source, &mut rendered);
                     rendered.push('/');
                     rendered.push_str(replacement.slice(source));
                 }
@@ -1409,7 +1409,7 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
                     replacement,
                 } => {
                     rendered.push_str("//");
-                    rendered.push_str(&pattern.render_syntax(source));
+                    pattern.render_syntax_to_buf(source, &mut rendered);
                     rendered.push('/');
                     rendered.push_str(replacement.slice(source));
                 }

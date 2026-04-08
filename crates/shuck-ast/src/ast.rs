@@ -1540,20 +1540,32 @@ impl Word {
     /// Render this word using exact source slices when available and owned cooked
     /// text only where the parser normalized the input.
     pub fn render(&self, source: &str) -> String {
-        self.render_with_mode(Some(source), RenderMode::Decoded)
+        let mut rendered = String::new();
+        self.render_to_buf(source, &mut rendered);
+        rendered
     }
 
     /// Render this word as shell syntax, preserving quote delimiters and other
     /// syntactic wrappers when they are represented in the AST.
     pub fn render_syntax(&self, source: &str) -> String {
-        self.render_with_mode(Some(source), RenderMode::Syntax)
+        let mut rendered = String::new();
+        self.render_syntax_to_buf(source, &mut rendered);
+        rendered
     }
 
-    fn render_with_mode(&self, source: Option<&str>, mode: RenderMode) -> String {
-        let mut rendered = String::new();
-        self.fmt_with_source_mode(&mut rendered, source, mode)
+    /// Render this word into an existing buffer using exact source slices when
+    /// available and owned cooked text only where the parser normalized the input.
+    pub fn render_to_buf(&self, source: &str, rendered: &mut String) {
+        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Decoded)
             .expect("writing into a String should not fail");
-        rendered
+    }
+
+    /// Render this word as shell syntax into an existing buffer, preserving
+    /// quote delimiters and other syntactic wrappers when they are represented
+    /// in the AST.
+    pub fn render_syntax_to_buf(&self, source: &str, rendered: &mut String) {
+        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Syntax)
+            .expect("writing into a String should not fail");
     }
 
     fn fmt_with_source_mode(
@@ -1617,20 +1629,32 @@ impl Pattern {
     /// Render this pattern using exact source slices when available and owned cooked
     /// text only where the parser normalized the input.
     pub fn render(&self, source: &str) -> String {
-        self.render_with_mode(Some(source), RenderMode::Decoded)
+        let mut rendered = String::new();
+        self.render_to_buf(source, &mut rendered);
+        rendered
     }
 
     /// Render this pattern as shell syntax, preserving quoted fragments when
     /// they are represented in the AST.
     pub fn render_syntax(&self, source: &str) -> String {
-        self.render_with_mode(Some(source), RenderMode::Syntax)
+        let mut rendered = String::new();
+        self.render_syntax_to_buf(source, &mut rendered);
+        rendered
     }
 
-    fn render_with_mode(&self, source: Option<&str>, mode: RenderMode) -> String {
-        let mut rendered = String::new();
-        self.fmt_with_source_mode(&mut rendered, source, mode)
+    /// Render this pattern into an existing buffer using exact source slices
+    /// when available and owned cooked text only where the parser normalized
+    /// the input.
+    pub fn render_to_buf(&self, source: &str, rendered: &mut String) {
+        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Decoded)
             .expect("writing into a String should not fail");
-        rendered
+    }
+
+    /// Render this pattern as shell syntax into an existing buffer, preserving
+    /// quoted fragments when they are represented in the AST.
+    pub fn render_syntax_to_buf(&self, source: &str, rendered: &mut String) {
+        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Syntax)
+            .expect("writing into a String should not fail");
     }
 
     fn fmt_with_source_mode(
@@ -2957,6 +2981,45 @@ mod tests {
     }
 
     #[test]
+    fn word_render_to_buf_appends_to_existing_contents() {
+        let word = word(vec![
+            WordPart::Literal("hello ".into()),
+            WordPart::Variable("USER".into()),
+        ]);
+        let mut rendered = String::from("prefix:");
+
+        word.render_to_buf("hello $USER", &mut rendered);
+
+        assert_eq!(rendered, "prefix:hello $USER");
+        assert_eq!(rendered["prefix:".len()..], word.render("hello $USER"));
+    }
+
+    #[test]
+    fn word_render_syntax_to_buf_matches_render_syntax() {
+        let source = "\"hello\"";
+        let span = span_for_source(source);
+        let word = Word {
+            parts: vec![WordPartNode::new(
+                WordPart::DoubleQuoted {
+                    parts: vec![WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned("hello".to_string())),
+                        span,
+                    )],
+                    dollar: false,
+                },
+                span,
+            )],
+            span,
+            brace_syntax: Vec::new(),
+        };
+        let mut rendered = String::from("prefix:");
+
+        word.render_syntax_to_buf(source, &mut rendered);
+
+        assert_eq!(rendered, format!("prefix:{}", word.render_syntax(source)));
+    }
+
+    #[test]
     fn word_display_variable() {
         let w = word(vec![WordPart::Variable("HOME".into())]);
         assert_eq!(format!("{w}"), "$HOME");
@@ -3138,6 +3201,42 @@ mod tests {
         };
 
         assert_eq!(p.render_syntax(source), source);
+    }
+
+    #[test]
+    fn pattern_render_to_buf_appends_to_existing_contents() {
+        let pattern = pattern(vec![
+            PatternPart::Literal("file".into()),
+            PatternPart::AnyString,
+            PatternPart::CharClass("[[:digit:]]".into()),
+        ]);
+        let source = "file*[[:digit:]]";
+        let mut rendered = String::from("prefix:");
+
+        pattern.render_to_buf(source, &mut rendered);
+
+        assert_eq!(rendered, format!("prefix:{}", pattern.render(source)));
+    }
+
+    #[test]
+    fn pattern_render_syntax_to_buf_matches_render_syntax() {
+        let source = "Darwin\\ arm64*";
+        let span = span_for_source(source);
+        let pattern = Pattern {
+            parts: vec![PatternPartNode::new(
+                PatternPart::Literal(LiteralText::owned("Darwin arm64*".to_string())),
+                span,
+            )],
+            span,
+        };
+        let mut rendered = String::from("prefix:");
+
+        pattern.render_syntax_to_buf(source, &mut rendered);
+
+        assert_eq!(
+            rendered,
+            format!("prefix:{}", pattern.render_syntax(source))
+        );
     }
 
     #[test]
