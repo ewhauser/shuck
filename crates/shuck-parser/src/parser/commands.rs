@@ -1,0 +1,2718 @@
+use super::*;
+
+impl<'a> Parser<'a> {
+    fn apply_simple_command_effects(&mut self, command: &SimpleCommand) {
+        let Some(name) = self.literal_word_text(&command.name) else {
+            return;
+        };
+
+        match name.as_str() {
+            "shopt" => {
+                let mut toggle = None;
+                for arg in &command.args {
+                    let Some(arg) = self.literal_word_text(arg) else {
+                        continue;
+                    };
+                    match arg.as_str() {
+                        "-s" => toggle = Some(true),
+                        "-u" => toggle = Some(false),
+                        "expand_aliases" => {
+                            if let Some(toggle) = toggle {
+                                self.expand_aliases = toggle;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "alias" => {
+                for arg in &command.args {
+                    let Some(arg) = self.literal_word_text(arg) else {
+                        continue;
+                    };
+                    if arg == "--" {
+                        continue;
+                    }
+                    let Some((alias_name, value)) = arg.split_once('=') else {
+                        continue;
+                    };
+                    self.aliases
+                        .insert(alias_name.to_string(), self.compile_alias_definition(value));
+                }
+            }
+            "unalias" => {
+                for arg in &command.args {
+                    let Some(arg) = self.literal_word_text(arg) else {
+                        continue;
+                    };
+                    match arg.as_str() {
+                        "--" => {}
+                        "-a" => self.aliases.clear(),
+                        _ => {
+                            self.aliases.remove(arg.as_str());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_command_effects(&mut self, command: &Command) {
+        match command {
+            Command::Simple(simple) => self.apply_simple_command_effects(simple),
+            Command::List(list) => {
+                self.apply_command_effects(&list.first);
+                for item in &list.rest {
+                    self.apply_command_effects(&item.command);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn parse_command_list_required(&mut self) -> Result<Command> {
+        self.parse_command_list()?
+            .ok_or_else(|| self.error("expected command"))
+    }
+
+    fn is_recovery_separator(kind: TokenKind) -> bool {
+        matches!(
+            kind,
+            TokenKind::Newline
+                | TokenKind::Semicolon
+                | TokenKind::Background
+                | TokenKind::BackgroundPipe
+                | TokenKind::BackgroundBang
+                | TokenKind::And
+                | TokenKind::Or
+                | TokenKind::Pipe
+                | TokenKind::DoubleSemicolon
+                | TokenKind::SemiAmp
+                | TokenKind::DoubleSemiAmp
+        )
+    }
+
+    fn recover_to_command_boundary(&mut self, failed_offset: usize) -> bool {
+        let mut advanced = false;
+
+        while let Some(kind) = self.current_token_kind {
+            if Self::is_recovery_separator(kind) {
+                loop {
+                    let Some(kind) = self.current_token_kind else {
+                        break;
+                    };
+                    if !Self::is_recovery_separator(kind) {
+                        break;
+                    }
+                    self.advance();
+                    advanced = true;
+                }
+                break;
+            }
+
+            let before_offset = self.current_span.start.offset;
+            self.advance();
+            advanced = true;
+
+            if self.current_token.is_none() {
+                break;
+            }
+
+            if self.current_span.start.offset > failed_offset
+                && before_offset != self.current_span.start.offset
+            {
+                continue;
+            }
+        }
+
+        advanced
+    }
+
+    /// Parse the input and return the AST with collected comments.
+    pub fn parse(mut self) -> Result<ParseOutput> {
+        // Check if the very first token is an error
+        self.check_error_token()?;
+
+        let file_span =
+            Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
+        let mut commands = Vec::new();
+
+        while self.current_token.is_some() {
+            self.tick()?;
+            self.skip_newlines()?;
+            self.check_error_token()?;
+            if self.current_token.is_none() {
+                break;
+            }
+            let command = self.parse_command_list_required()?;
+            self.apply_command_effects(&command);
+            commands.push(command);
+        }
+
+        let mut file = File {
+            body: Self::lower_commands_to_stmt_seq(commands, file_span),
+            span: file_span,
+        };
+        self.attach_comments_to_file(&mut file);
+        Ok(ParseOutput { file })
+    }
+
+    /// Parse the input while recovering at top-level command boundaries.
+    pub fn parse_recovered(mut self) -> RecoveredParse {
+        let file_span =
+            Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
+        let mut commands = Vec::new();
+        let mut diagnostics = Vec::new();
+
+        while self.current_token.is_some() {
+            let checkpoint = self.current_span.start.offset;
+
+            if let Err(error) = self.tick() {
+                diagnostics.push(self.parse_diagnostic_from_error(error));
+                break;
+            }
+            if let Err(error) = self.skip_newlines() {
+                diagnostics.push(self.parse_diagnostic_from_error(error));
+                break;
+            }
+            if let Err(error) = self.check_error_token() {
+                diagnostics.push(self.parse_diagnostic_from_error(error));
+                if !self.recover_to_command_boundary(checkpoint) {
+                    break;
+                }
+                continue;
+            }
+            if self.current_token.is_none() {
+                break;
+            }
+
+            let command_start = self.current_span.start.offset;
+            match self.parse_command_list_required() {
+                Ok(command) => {
+                    self.apply_command_effects(&command);
+                    commands.push(command);
+                }
+                Err(error) => {
+                    diagnostics.push(self.parse_diagnostic_from_error(error));
+                    if !self.recover_to_command_boundary(command_start) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut file = File {
+            body: Self::lower_commands_to_stmt_seq(commands, file_span),
+            span: file_span,
+        };
+        self.attach_comments_to_file(&mut file);
+        RecoveredParse { file, diagnostics }
+    }
+    fn parse_command_list(&mut self) -> Result<Option<Command>> {
+        self.tick()?;
+        let first = match self.parse_pipeline()? {
+            Some(cmd) => cmd,
+            None => return Ok(None),
+        };
+
+        let mut rest = Vec::with_capacity(1);
+
+        loop {
+            let (op, allow_empty_tail) = match self.current_token_kind {
+                Some(TokenKind::And) => (ListOperator::And, false),
+                Some(TokenKind::Or) => (ListOperator::Or, false),
+                Some(TokenKind::Semicolon) => (ListOperator::Semicolon, true),
+                Some(TokenKind::Background) => {
+                    (ListOperator::Background(BackgroundOperator::Plain), true)
+                }
+                Some(TokenKind::BackgroundPipe) => {
+                    (ListOperator::Background(BackgroundOperator::Pipe), true)
+                }
+                Some(TokenKind::BackgroundBang) => {
+                    (ListOperator::Background(BackgroundOperator::Bang), true)
+                }
+                _ => break,
+            };
+            let operator_span = self.current_span;
+            self.advance();
+
+            self.skip_newlines()?;
+            if allow_empty_tail && self.current_token.is_none() {
+                rest.push(CommandListItem {
+                    operator: op,
+                    operator_span,
+                    command: Command::Simple(SimpleCommand {
+                        name: Word::literal(""),
+                        args: vec![],
+                        redirects: vec![],
+                        assignments: vec![],
+                        span: self.current_span,
+                    }),
+                });
+                break;
+            }
+
+            if let Some(cmd) = self.parse_pipeline()? {
+                rest.push(CommandListItem {
+                    operator: op,
+                    operator_span,
+                    command: cmd,
+                });
+            } else if allow_empty_tail {
+                rest.push(CommandListItem {
+                    operator: op,
+                    operator_span,
+                    command: Command::Simple(SimpleCommand {
+                        name: Word::literal(""),
+                        args: vec![],
+                        redirects: vec![],
+                        assignments: vec![],
+                        span: self.current_span,
+                    }),
+                });
+                break;
+            } else {
+                break;
+            }
+        }
+
+        if rest.is_empty() {
+            Ok(Some(first))
+        } else {
+            Ok(Some(Command::List(CommandList {
+                first: Box::new(first),
+                rest,
+            })))
+        }
+    }
+
+    /// Parse a pipeline (commands connected by |)
+    ///
+    /// Handles `!` pipeline negation: `! cmd | cmd2` negates the exit code.
+    fn parse_pipeline(&mut self) -> Result<Option<Command>> {
+        let start_span = self.current_span;
+
+        // Check for pipeline negation: `! command`
+        let negated = self.at(TokenKind::Word) && self.current_word_str() == Some("!");
+        if negated {
+            self.advance();
+        }
+
+        let first = match self.parse_command()? {
+            Some(cmd) => cmd,
+            None => {
+                if negated {
+                    return Err(self.error("expected command after !"));
+                }
+                return Ok(None);
+            }
+        };
+
+        let mut commands = Vec::with_capacity(2);
+        commands.push(first);
+        let mut operators = Vec::with_capacity(1);
+
+        while self.at_in_set(PIPE_OPERATOR_TOKENS) {
+            let op = if self.at(TokenKind::PipeBoth) {
+                BinaryOp::PipeAll
+            } else {
+                BinaryOp::Pipe
+            };
+            let operator_span = self.current_span;
+            self.advance();
+            self.skip_newlines()?;
+
+            if let Some(cmd) = self.parse_command()? {
+                operators.push((op, operator_span));
+                commands.push(cmd);
+            } else {
+                return Err(self.error("expected command after |"));
+            }
+        }
+
+        if commands.len() == 1 && !negated {
+            Ok(Some(commands.remove(0)))
+        } else {
+            Ok(Some(Command::Pipeline(Pipeline {
+                negated,
+                commands,
+                operators,
+                span: start_span.merge(self.current_span),
+            })))
+        }
+    }
+
+    fn parse_compound_with_redirects(
+        &mut self,
+        parser: impl FnOnce(&mut Self) -> Result<CompoundCommand>,
+    ) -> Result<Option<Command>> {
+        let compound = parser(self)?;
+        let redirects = self.parse_trailing_redirects();
+        Ok(Some(Command::Compound(Box::new(compound), redirects)))
+    }
+
+    fn classify_flow_control_name(&self, word: &Word) -> Option<FlowControlBuiltinKind> {
+        let name = self.single_literal_word_text(word)?;
+        match name {
+            "break" => Some(FlowControlBuiltinKind::Break),
+            "continue" => Some(FlowControlBuiltinKind::Continue),
+            "return" => Some(FlowControlBuiltinKind::Return),
+            "exit" => Some(FlowControlBuiltinKind::Exit),
+            _ => None,
+        }
+    }
+
+    fn classify_decl_variant_name(&self, word: &Word) -> Option<Name> {
+        let name = self.single_literal_word_text(word)?;
+        match name {
+            "declare" | "local" | "export" | "readonly" | "typeset" => Some(Name::from(name)),
+            _ => None,
+        }
+    }
+
+    fn classify_simple_command(&mut self, command: SimpleCommand) -> Command {
+        let kind = self.classify_flow_control_name(&command.name);
+
+        if let Some(kind) = kind {
+            let SimpleCommand {
+                args,
+                redirects,
+                assignments,
+                span,
+                ..
+            } = command;
+            let mut args = args.into_iter();
+
+            return match kind {
+                FlowControlBuiltinKind::Break => {
+                    Command::Builtin(BuiltinCommand::Break(BreakCommand {
+                        depth: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+                FlowControlBuiltinKind::Continue => {
+                    Command::Builtin(BuiltinCommand::Continue(ContinueCommand {
+                        depth: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+                FlowControlBuiltinKind::Return => {
+                    Command::Builtin(BuiltinCommand::Return(ReturnCommand {
+                        code: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+                FlowControlBuiltinKind::Exit => {
+                    Command::Builtin(BuiltinCommand::Exit(ExitCommand {
+                        code: args.next(),
+                        extra_args: args.collect(),
+                        redirects,
+                        assignments,
+                        span,
+                    }))
+                }
+            };
+        }
+
+        if let Some(variant) = self.classify_decl_variant_name(&command.name) {
+            let SimpleCommand {
+                name,
+                args,
+                redirects,
+                assignments,
+                span,
+            } = command;
+            return Command::Decl(DeclClause {
+                variant,
+                variant_span: name.span,
+                operands: self.classify_decl_operands(args),
+                redirects,
+                assignments,
+                span,
+            });
+        }
+
+        Command::Simple(command)
+    }
+
+    fn is_operand_like_double_paren_token(token: &LexedToken<'_>) -> bool {
+        match token.kind {
+            TokenKind::LiteralWord | TokenKind::QuotedWord => true,
+            TokenKind::Word => token.word_string().is_some_and(|text| {
+                !text.chars().all(|ch| ch.is_ascii_punctuation())
+                    && !Self::word_contains_obvious_arithmetic_punctuation(&text)
+            }),
+            _ => false,
+        }
+    }
+
+    fn word_contains_obvious_arithmetic_punctuation(text: &str) -> bool {
+        text.chars().any(|ch| {
+            matches!(
+                ch,
+                ',' | '='
+                    | '+'
+                    | '*'
+                    | '/'
+                    | '%'
+                    | '<'
+                    | '>'
+                    | '&'
+                    | '|'
+                    | '^'
+                    | '!'
+                    | '?'
+                    | ':'
+                    | '['
+                    | ']'
+            )
+        })
+    }
+
+    fn looks_like_command_style_double_paren(&self) -> bool {
+        let mut probe = self.clone();
+        if probe.current_token_kind != Some(TokenKind::DoubleLeftParen) {
+            return false;
+        }
+
+        probe.advance();
+        let mut paren_depth = 0_i32;
+        let mut previous_top_level_operand = false;
+
+        loop {
+            match probe.current_token_kind {
+                Some(TokenKind::DoubleLeftParen) => {
+                    paren_depth += 2;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(TokenKind::LeftParen) => {
+                    paren_depth += 1;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(TokenKind::DoubleRightParen) => {
+                    if paren_depth == 0 {
+                        return false;
+                    }
+                    if paren_depth == 1 {
+                        return false;
+                    }
+                    paren_depth -= 2;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(TokenKind::RightParen) => {
+                    if paren_depth == 0 {
+                        return true;
+                    }
+                    paren_depth -= 1;
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(TokenKind::Newline) | Some(TokenKind::Semicolon) if paren_depth == 0 => {
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                Some(_)
+                    if paren_depth == 0
+                        && probe
+                            .current_token
+                            .as_ref()
+                            .is_some_and(Self::is_operand_like_double_paren_token) =>
+                {
+                    if previous_top_level_operand {
+                        return true;
+                    }
+                    previous_top_level_operand = true;
+                    probe.advance();
+                }
+                Some(_) => {
+                    previous_top_level_operand = false;
+                    probe.advance();
+                }
+                None => return false,
+            }
+        }
+    }
+
+    fn split_current_double_left_paren(&mut self) {
+        let (left_span, right_span) = Self::split_double_left_paren(self.current_span);
+        self.set_current_kind(TokenKind::LeftParen, left_span);
+        self.synthetic_tokens
+            .push_front(SyntheticToken::punctuation(
+                TokenKind::LeftParen,
+                right_span,
+            ));
+    }
+
+    fn split_current_double_right_paren(&mut self) {
+        let (left_span, right_span) = Self::split_double_right_paren(self.current_span);
+        self.set_current_kind(TokenKind::RightParen, left_span);
+        self.synthetic_tokens
+            .push_front(SyntheticToken::punctuation(
+                TokenKind::RightParen,
+                right_span,
+            ));
+    }
+
+    /// Parse a single command (simple or compound)
+    fn parse_command(&mut self) -> Result<Option<Command>> {
+        self.skip_newlines()?;
+        self.check_error_token()?;
+        self.maybe_expand_current_alias_chain();
+        self.check_error_token()?;
+
+        if !self.dialect.features().zsh_repeat_loop && self.looks_like_disabled_repeat_loop()? {
+            self.ensure_repeat_loop()?;
+        }
+        if !self.dialect.features().zsh_foreach_loop && self.looks_like_disabled_foreach_loop()? {
+            self.ensure_foreach_loop()?;
+        }
+
+        // Check for compound commands and function keyword
+        match self.current_keyword() {
+            Some(Keyword::If) => return self.parse_compound_with_redirects(|s| s.parse_if()),
+            Some(Keyword::For) => return self.parse_compound_with_redirects(|s| s.parse_for()),
+            Some(Keyword::Repeat) if self.dialect.features().zsh_repeat_loop => {
+                return self.parse_compound_with_redirects(|s| s.parse_repeat());
+            }
+            Some(Keyword::Foreach) if self.dialect.features().zsh_foreach_loop => {
+                return self.parse_compound_with_redirects(|s| s.parse_foreach());
+            }
+            Some(Keyword::While) => {
+                return self.parse_compound_with_redirects(|s| s.parse_while());
+            }
+            Some(Keyword::Until) => {
+                return self.parse_compound_with_redirects(|s| s.parse_until());
+            }
+            Some(Keyword::Case) => return self.parse_compound_with_redirects(|s| s.parse_case()),
+            Some(Keyword::Select) => {
+                return self.parse_compound_with_redirects(|s| s.parse_select());
+            }
+            Some(Keyword::Time) => return self.parse_compound_with_redirects(|s| s.parse_time()),
+            Some(Keyword::Coproc) => {
+                return self.parse_compound_with_redirects(|s| s.parse_coproc());
+            }
+            Some(Keyword::Function) => return self.parse_function_keyword().map(Some),
+            _ => {}
+        }
+
+        if self.at(TokenKind::Word)
+            && let Some(word) = self.current_source_like_word_text()
+            && self.peek_next_is(TokenKind::LeftParen)
+        {
+            let mut probe = self.clone();
+            probe.advance();
+            probe.advance();
+            if probe.at(TokenKind::RightParen) {
+                // Check for POSIX-style function: name() { body }
+                // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
+                if !word.contains('=') && !word.contains('[') {
+                    return self.parse_function_posix().map(Some);
+                }
+            } else if word.contains('$') && !word.contains('=') {
+                return Err(self.error("unexpected '(' after command word"));
+            }
+        }
+
+        // Check for conditional expression [[ ... ]]
+        if self.at(TokenKind::DoubleLeftBracket) {
+            return self.parse_compound_with_redirects(|s| s.parse_conditional());
+        }
+
+        // Check for arithmetic command ((expression))
+        if self.at(TokenKind::DoubleLeftParen) {
+            if self.looks_like_command_style_double_paren() {
+                self.split_current_double_left_paren();
+                return self.parse_compound_with_redirects(|s| s.parse_subshell());
+            }
+
+            let mut arithmetic_probe = self.clone();
+            if let Ok(compound) = arithmetic_probe.parse_arithmetic_command() {
+                let redirects = arithmetic_probe.parse_trailing_redirects();
+                *self = arithmetic_probe;
+                return Ok(Some(Command::Compound(Box::new(compound), redirects)));
+            }
+
+            self.split_current_double_left_paren();
+            return self.parse_compound_with_redirects(|s| s.parse_subshell());
+        }
+
+        // Check for subshell
+        if self.at(TokenKind::LeftParen) {
+            return self.parse_compound_with_redirects(|s| s.parse_subshell());
+        }
+
+        // Check for brace group
+        if self.at(TokenKind::LeftBrace) {
+            return self.parse_compound_with_redirects(|s| s.parse_brace_group());
+        }
+
+        // Default to simple command
+        match self.parse_simple_command()? {
+            Some(cmd) => Ok(Some(self.classify_simple_command(cmd))),
+            None => Ok(None),
+        }
+    }
+
+    /// Parse an if statement
+    fn parse_if(&mut self) -> Result<CompoundCommand> {
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'if'
+        self.skip_newlines()?;
+
+        // Parse condition
+        let condition_start = self.current_span.start;
+        let allow_brace_syntax = self.dialect.features().zsh_brace_if;
+        let condition = self.parse_if_condition_until_body_start(allow_brace_syntax)?;
+        let condition_span = Span::from_positions(condition_start, self.current_span.start);
+        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
+
+        let (mut syntax, then_branch, brace_style) =
+            if allow_brace_syntax && self.at(TokenKind::LeftBrace) {
+                let (then_branch, left_brace_span, right_brace_span) =
+                    self.parse_brace_enclosed_stmt_seq("syntax error: empty then clause")?;
+                (
+                    IfSyntax::Brace {
+                        left_brace_span,
+                        right_brace_span,
+                    },
+                    then_branch,
+                    true,
+                )
+            } else {
+                let then_span = self.current_span;
+                self.expect_keyword(Keyword::Then)?;
+                self.skip_newlines()?;
+
+                let then_start = self.current_span.start;
+                let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
+                let then_branch_span = Span::from_positions(then_start, self.current_span.start);
+
+                if then_branch.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty then clause"));
+                }
+
+                (
+                    IfSyntax::ThenFi {
+                        then_span,
+                        fi_span: Span::new(),
+                    },
+                    Self::lower_commands_to_stmt_seq(then_branch, then_branch_span),
+                    false,
+                )
+            };
+
+        // Parse elif branches
+        let mut elif_branches = Vec::new();
+        while self.is_keyword(Keyword::Elif) {
+            self.advance(); // consume 'elif'
+            self.skip_newlines()?;
+
+            let elif_condition_start = self.current_span.start;
+            let elif_condition = self.parse_if_condition_until_body_start(brace_style)?;
+            let elif_condition_span =
+                Span::from_positions(elif_condition_start, self.current_span.start);
+            let elif_condition =
+                Self::lower_commands_to_stmt_seq(elif_condition, elif_condition_span);
+
+            let elif_body = if brace_style {
+                if !self.at(TokenKind::LeftBrace) {
+                    self.pop_depth();
+                    return Err(self.error("expected '{' to start elif clause"));
+                }
+                self.parse_brace_enclosed_stmt_seq("syntax error: empty elif clause")?
+                    .0
+            } else {
+                self.expect_keyword(Keyword::Then)?;
+                self.skip_newlines()?;
+
+                let elif_body_start = self.current_span.start;
+                let elif_body = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
+                let elif_body_span = Span::from_positions(elif_body_start, self.current_span.start);
+
+                if elif_body.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty elif clause"));
+                }
+
+                Self::lower_commands_to_stmt_seq(elif_body, elif_body_span)
+            };
+
+            elif_branches.push((elif_condition, elif_body));
+        }
+
+        // Parse else branch
+        let else_branch = if self.is_keyword(Keyword::Else) {
+            self.advance(); // consume 'else'
+            self.skip_newlines()?;
+            if brace_style {
+                if !self.at(TokenKind::LeftBrace) {
+                    self.pop_depth();
+                    return Err(self.error("expected '{' to start else clause"));
+                }
+                Some(
+                    self.parse_brace_enclosed_stmt_seq("syntax error: empty else clause")?
+                        .0,
+                )
+            } else {
+                let else_start = self.current_span.start;
+                let branch = self.parse_compound_list(Keyword::Fi)?;
+                let else_span = Span::from_positions(else_start, self.current_span.start);
+
+                if branch.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty else clause"));
+                }
+
+                Some(Self::lower_commands_to_stmt_seq(branch, else_span))
+            }
+        } else {
+            None
+        };
+
+        if !brace_style {
+            self.expect_keyword(Keyword::Fi)?;
+            if let IfSyntax::ThenFi { then_span, .. } = syntax {
+                syntax = IfSyntax::ThenFi {
+                    then_span,
+                    fi_span: self.current_span,
+                };
+            }
+        }
+
+        self.pop_depth();
+        Ok(CompoundCommand::If(IfCommand {
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+            syntax,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse a for loop
+    fn parse_for(&mut self) -> Result<CompoundCommand> {
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'for'
+        self.skip_newlines()?;
+
+        // Check for C-style for loop: for ((init; cond; step))
+        if self.at(TokenKind::DoubleLeftParen) {
+            let result = self.parse_arithmetic_for_inner(start_span);
+            self.pop_depth();
+            return result;
+        }
+
+        // Expect variable name
+        let (variable, variable_span) = match self.current_name_token() {
+            Some(pair) => pair,
+            _ => {
+                self.pop_depth();
+                return Err(Error::parse(
+                    "expected variable name in for loop".to_string(),
+                ));
+            }
+        };
+        self.advance();
+
+        // Check for 'in' keyword
+        let words = if self.is_keyword(Keyword::In) {
+            self.advance(); // consume 'in'
+
+            // Parse word list until do/newline/;
+            let mut words = Vec::new();
+            loop {
+                match self.current_token_kind {
+                    _ if self.current_keyword() == Some(Keyword::Do) => break,
+                    Some(kind) if kind.is_word_like() => {
+                        if let Some(word) = self.current_word() {
+                            self.advance_past_word(&word);
+                            words.push(word);
+                        }
+                    }
+                    Some(TokenKind::Newline | TokenKind::Semicolon) => {
+                        self.advance();
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+            Some(words)
+        } else {
+            // for var; do ... (iterates over positional params)
+            // Consume optional semicolon before 'do'
+            if self.at(TokenKind::Semicolon) {
+                self.advance();
+            }
+            None
+        };
+
+        self.skip_newlines()?;
+
+        // Expect 'do'
+        self.expect_keyword(Keyword::Do)?;
+        self.skip_newlines()?;
+
+        // Parse body
+        let body_start = self.current_span.start;
+        let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
+
+        // Bash requires at least one command in loop body
+        if body.is_empty() {
+            self.pop_depth();
+            return Err(self.error("syntax error: empty for loop body"));
+        }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
+
+        // Expect 'done'
+        self.expect_keyword(Keyword::Done)?;
+
+        self.pop_depth();
+        Ok(CompoundCommand::For(ForCommand {
+            variable,
+            variable_span,
+            words,
+            body,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse a zsh repeat loop.
+    fn parse_repeat(&mut self) -> Result<CompoundCommand> {
+        self.ensure_repeat_loop()?;
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'repeat'
+
+        let count = match self.current_token_kind {
+            Some(kind) if kind.is_word_like() => self.expect_word()?,
+            _ => {
+                self.pop_depth();
+                return Err(self.error("expected loop count in repeat"));
+            }
+        };
+
+        let (syntax, body, end_span) = match self.current_token_kind {
+            Some(TokenKind::LeftBrace) => {
+                let (body, left_brace_span, right_brace_span) =
+                    self.parse_brace_enclosed_stmt_seq("syntax error: empty repeat loop body")?;
+                (
+                    RepeatSyntax::Brace {
+                        left_brace_span,
+                        right_brace_span,
+                    },
+                    body,
+                    right_brace_span,
+                )
+            }
+            Some(TokenKind::Semicolon) => {
+                self.advance();
+                self.skip_newlines()?;
+                if !self.is_keyword(Keyword::Do) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'do' after repeat count"));
+                }
+                let do_span = self.current_span;
+                self.advance();
+                self.skip_newlines()?;
+
+                let body_start = self.current_span.start;
+                let body = self.parse_compound_list(Keyword::Done)?;
+                let body_span = Span::from_positions(body_start, self.current_span.start);
+                if body.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty repeat loop body"));
+                }
+                if !self.is_keyword(Keyword::Done) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'done'"));
+                }
+                let done_span = self.current_span;
+                self.advance();
+                (
+                    RepeatSyntax::DoDone { do_span, done_span },
+                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    done_span,
+                )
+            }
+            Some(TokenKind::Newline) => {
+                self.skip_newlines()?;
+                if !self.is_keyword(Keyword::Do) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'do' after repeat count"));
+                }
+                let do_span = self.current_span;
+                self.advance();
+                self.skip_newlines()?;
+
+                let body_start = self.current_span.start;
+                let body = self.parse_compound_list(Keyword::Done)?;
+                let body_span = Span::from_positions(body_start, self.current_span.start);
+                if body.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty repeat loop body"));
+                }
+                if !self.is_keyword(Keyword::Done) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'done'"));
+                }
+                let done_span = self.current_span;
+                self.advance();
+                (
+                    RepeatSyntax::DoDone { do_span, done_span },
+                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    done_span,
+                )
+            }
+            _ => {
+                self.pop_depth();
+                return Err(self.error("expected ';' or '{' after repeat count"));
+            }
+        };
+
+        self.pop_depth();
+        Ok(CompoundCommand::Repeat(RepeatCommand {
+            count,
+            body,
+            syntax,
+            span: start_span.merge(end_span),
+        }))
+    }
+
+    /// Parse a zsh foreach loop.
+    fn parse_foreach(&mut self) -> Result<CompoundCommand> {
+        self.ensure_foreach_loop()?;
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'foreach'
+
+        let (variable, variable_span) = match self.current_name_token() {
+            Some(pair) => pair,
+            _ => {
+                self.pop_depth();
+                return Err(self.error("expected variable name in foreach"));
+            }
+        };
+        self.advance();
+
+        let (words, body, syntax, end_span) = if self.at(TokenKind::LeftParen) {
+            let left_paren_span = self.current_span;
+            self.advance();
+
+            let mut words = Vec::new();
+            while !self.at(TokenKind::RightParen) {
+                match self.current_token_kind {
+                    Some(kind) if kind.is_word_like() => {
+                        let word = self
+                            .current_word()
+                            .ok_or_else(|| self.error("expected foreach word"))?;
+                        self.advance_past_word(&word);
+                        words.push(word);
+                    }
+                    Some(_) | None => {
+                        self.pop_depth();
+                        return Err(self.error("expected ')' after foreach word list"));
+                    }
+                }
+            }
+            if words.is_empty() {
+                self.pop_depth();
+                return Err(self.error("expected word list in foreach"));
+            }
+
+            let right_paren_span = self.current_span;
+            self.advance();
+            if !self.at(TokenKind::LeftBrace) {
+                self.pop_depth();
+                return Err(self.error("expected '{' after foreach word list"));
+            }
+
+            let (body, left_brace_span, right_brace_span) =
+                self.parse_brace_enclosed_stmt_seq("syntax error: empty foreach loop body")?;
+            (
+                words,
+                body,
+                ForeachSyntax::ParenBrace {
+                    left_paren_span,
+                    right_paren_span,
+                    left_brace_span,
+                    right_brace_span,
+                },
+                right_brace_span,
+            )
+        } else if self.is_keyword(Keyword::In) {
+            let in_span = self.current_span;
+            self.advance();
+
+            let mut words = Vec::new();
+            let saw_separator = loop {
+                match self.current_token_kind {
+                    _ if self.current_keyword() == Some(Keyword::Do) => break false,
+                    Some(kind) if kind.is_word_like() => {
+                        let word = self
+                            .current_word()
+                            .ok_or_else(|| self.error("expected foreach word"))?;
+                        self.advance_past_word(&word);
+                        words.push(word);
+                    }
+                    Some(TokenKind::Semicolon) => {
+                        self.advance();
+                        break true;
+                    }
+                    Some(TokenKind::Newline) => {
+                        self.skip_newlines()?;
+                        break true;
+                    }
+                    _ => break false,
+                }
+            };
+            if words.is_empty() {
+                self.pop_depth();
+                return Err(self.error("expected word list in foreach"));
+            }
+            if !saw_separator {
+                self.pop_depth();
+                return Err(self.error("expected ';' or newline before 'do' in foreach"));
+            }
+            if !self.is_keyword(Keyword::Do) {
+                self.pop_depth();
+                return Err(self.error("expected 'do' in foreach"));
+            }
+            let do_span = self.current_span;
+            self.advance();
+            self.skip_newlines()?;
+
+            let body_start = self.current_span.start;
+            let body = self.parse_compound_list(Keyword::Done)?;
+            let body_span = Span::from_positions(body_start, self.current_span.start);
+            if body.is_empty() {
+                self.pop_depth();
+                return Err(self.error("syntax error: empty foreach loop body"));
+            }
+            if !self.is_keyword(Keyword::Done) {
+                self.pop_depth();
+                return Err(self.error("expected 'done'"));
+            }
+            let done_span = self.current_span;
+            self.advance();
+            (
+                words,
+                Self::lower_commands_to_stmt_seq(body, body_span),
+                ForeachSyntax::InDoDone {
+                    in_span,
+                    do_span,
+                    done_span,
+                },
+                done_span,
+            )
+        } else {
+            self.pop_depth();
+            return Err(self.error("expected '(' or 'in' after foreach variable"));
+        };
+
+        self.pop_depth();
+        Ok(CompoundCommand::Foreach(ForeachCommand {
+            variable,
+            variable_span,
+            words,
+            body,
+            syntax,
+            span: start_span.merge(end_span),
+        }))
+    }
+
+    /// Parse select loop: select var in list; do body; done
+    fn parse_select(&mut self) -> Result<CompoundCommand> {
+        self.ensure_select_loop()?;
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'select'
+        self.skip_newlines()?;
+
+        // Expect variable name
+        let (variable, variable_span) = match self.current_name_token() {
+            Some(pair) => pair,
+            _ => {
+                self.pop_depth();
+                return Err(Error::parse("expected variable name in select".to_string()));
+            }
+        };
+        self.advance();
+
+        // Expect 'in' keyword
+        if !self.is_keyword(Keyword::In) {
+            self.pop_depth();
+            return Err(Error::parse("expected 'in' in select".to_string()));
+        }
+        self.advance(); // consume 'in'
+
+        // Parse word list until do/newline/;
+        let mut words = Vec::new();
+        loop {
+            match self.current_token_kind {
+                _ if self.current_keyword() == Some(Keyword::Do) => break,
+                Some(kind) if kind.is_word_like() => {
+                    if let Some(word) = self.current_word() {
+                        self.advance_past_word(&word);
+                        words.push(word);
+                    }
+                }
+                Some(TokenKind::Newline | TokenKind::Semicolon) => {
+                    self.advance();
+                    break;
+                }
+                _ => break,
+            }
+        }
+
+        self.skip_newlines()?;
+
+        // Expect 'do'
+        self.expect_keyword(Keyword::Do)?;
+        self.skip_newlines()?;
+
+        // Parse body
+        let body_start = self.current_span.start;
+        let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
+
+        // Bash requires at least one command in loop body
+        if body.is_empty() {
+            self.pop_depth();
+            return Err(self.error("syntax error: empty select loop body"));
+        }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
+
+        // Expect 'done'
+        self.expect_keyword(Keyword::Done)?;
+
+        self.pop_depth();
+        Ok(CompoundCommand::Select(SelectCommand {
+            variable,
+            variable_span,
+            words,
+            body,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse C-style arithmetic for loop inner: for ((init; cond; step)); do body; done
+    /// Note: depth tracking is done by parse_for which calls this
+    fn parse_arithmetic_for_inner(&mut self, start_span: Span) -> Result<CompoundCommand> {
+        self.ensure_arithmetic_for()?;
+        let left_paren_span = self.current_span;
+        self.advance(); // consume '(('
+
+        let mut paren_depth = 0_i32;
+        let mut segment_start = left_paren_span.end;
+        let mut init_span = None;
+        let mut first_semicolon_span = None;
+        let mut condition_span = None;
+        let mut second_semicolon_span = None;
+
+        let right_paren_span = loop {
+            match self.current_token_kind {
+                Some(TokenKind::DoubleLeftParen) => {
+                    paren_depth += 2;
+                    self.advance();
+                }
+                Some(TokenKind::LeftParen) => {
+                    paren_depth += 1;
+                    self.advance();
+                }
+                Some(TokenKind::ProcessSubIn) | Some(TokenKind::ProcessSubOut) => {
+                    paren_depth += 1;
+                    self.advance();
+                }
+                Some(TokenKind::DoubleRightParen) => {
+                    if paren_depth == 0 {
+                        let right_paren_span = self.current_span;
+                        self.advance();
+                        break right_paren_span;
+                    }
+                    if paren_depth == 1 {
+                        break self.split_nested_arithmetic_close("arithmetic for header")?;
+                    }
+                    paren_depth -= 2;
+                    self.advance();
+                }
+                Some(TokenKind::RightParen) => {
+                    if paren_depth > 0 {
+                        paren_depth -= 1;
+                    }
+                    self.advance();
+                }
+                Some(TokenKind::DoubleSemicolon) if paren_depth == 0 => {
+                    let (first_span, second_span) = Self::split_double_semicolon(self.current_span);
+                    Self::record_arithmetic_for_separator(
+                        first_span,
+                        &mut segment_start,
+                        &mut init_span,
+                        &mut first_semicolon_span,
+                        &mut condition_span,
+                        &mut second_semicolon_span,
+                    )?;
+                    Self::record_arithmetic_for_separator(
+                        second_span,
+                        &mut segment_start,
+                        &mut init_span,
+                        &mut first_semicolon_span,
+                        &mut condition_span,
+                        &mut second_semicolon_span,
+                    )?;
+                    self.advance();
+                }
+                Some(TokenKind::Semicolon) if paren_depth == 0 => {
+                    Self::record_arithmetic_for_separator(
+                        self.current_span,
+                        &mut segment_start,
+                        &mut init_span,
+                        &mut first_semicolon_span,
+                        &mut condition_span,
+                        &mut second_semicolon_span,
+                    )?;
+                    self.advance();
+                }
+                Some(_) => {
+                    self.advance();
+                }
+                None => {
+                    return Err(Error::parse(
+                        "unexpected end of input in for loop".to_string(),
+                    ));
+                }
+            }
+        };
+
+        let first_semicolon_span = first_semicolon_span
+            .ok_or_else(|| Error::parse("expected ';' in arithmetic for header".to_string()))?;
+        let second_semicolon_span = second_semicolon_span.ok_or_else(|| {
+            Error::parse("expected second ';' in arithmetic for header".to_string())
+        })?;
+        let step_span = Self::optional_span(segment_start, right_paren_span.start);
+        let init_ast =
+            self.parse_explicit_arithmetic_span(init_span, "invalid arithmetic for init")?;
+        let condition_ast = self
+            .parse_explicit_arithmetic_span(condition_span, "invalid arithmetic for condition")?;
+        let step_ast =
+            self.parse_explicit_arithmetic_span(step_span, "invalid arithmetic for step")?;
+
+        self.skip_newlines()?;
+
+        // Skip optional semicolon after ))
+        if self.at(TokenKind::Semicolon) {
+            self.advance();
+        }
+        self.skip_newlines()?;
+
+        let (body, end_span) = if self.at(TokenKind::LeftBrace) {
+            let body = self.parse_brace_group()?;
+            let span = Self::compound_span(&body);
+            (
+                Self::lower_commands_to_stmt_seq(
+                    vec![Command::Compound(Box::new(body), Vec::new())],
+                    span,
+                ),
+                self.current_span,
+            )
+        } else {
+            // Expect 'do'
+            self.expect_keyword(Keyword::Do)?;
+            self.skip_newlines()?;
+
+            // Parse body
+            let body_start = self.current_span.start;
+            let body = self.parse_compound_list(Keyword::Done)?;
+            let body_span = Span::from_positions(body_start, self.current_span.start);
+
+            // Bash requires at least one command in loop body
+            if body.is_empty() {
+                return Err(self.error("syntax error: empty for loop body"));
+            }
+
+            // Expect 'done'
+            if !self.is_keyword(Keyword::Done) {
+                return Err(self.error("expected 'done'"));
+            }
+            let done_span = self.current_span;
+            self.advance();
+            (Self::lower_commands_to_stmt_seq(body, body_span), done_span)
+        };
+
+        Ok(CompoundCommand::ArithmeticFor(Box::new(
+            ArithmeticForCommand {
+                left_paren_span,
+                init_span,
+                init_ast,
+                first_semicolon_span,
+                condition_span,
+                condition_ast,
+                second_semicolon_span,
+                step_span,
+                step_ast,
+                right_paren_span,
+                body,
+                span: start_span.merge(end_span),
+            },
+        )))
+    }
+
+    /// Parse a while loop
+    fn parse_while(&mut self) -> Result<CompoundCommand> {
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'while'
+        self.skip_newlines()?;
+
+        // Parse condition
+        let condition_start = self.current_span.start;
+        let condition = self.parse_compound_list(Keyword::Do)?;
+        let condition_span = Span::from_positions(condition_start, self.current_span.start);
+        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
+
+        // Expect 'do'
+        self.expect_keyword(Keyword::Do)?;
+        self.skip_newlines()?;
+
+        // Parse body
+        let body_start = self.current_span.start;
+        let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
+
+        // Bash requires at least one command in loop body
+        if body.is_empty() {
+            self.pop_depth();
+            return Err(self.error("syntax error: empty while loop body"));
+        }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
+
+        // Expect 'done'
+        self.expect_keyword(Keyword::Done)?;
+
+        self.pop_depth();
+        Ok(CompoundCommand::While(WhileCommand {
+            condition,
+            body,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse an until loop
+    fn parse_until(&mut self) -> Result<CompoundCommand> {
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'until'
+        self.skip_newlines()?;
+
+        // Parse condition
+        let condition_start = self.current_span.start;
+        let condition = self.parse_compound_list(Keyword::Do)?;
+        let condition_span = Span::from_positions(condition_start, self.current_span.start);
+        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
+
+        // Expect 'do'
+        self.expect_keyword(Keyword::Do)?;
+        self.skip_newlines()?;
+
+        // Parse body
+        let body_start = self.current_span.start;
+        let body = self.parse_compound_list(Keyword::Done)?;
+        let body_span = Span::from_positions(body_start, self.current_span.start);
+
+        // Bash requires at least one command in loop body
+        if body.is_empty() {
+            self.pop_depth();
+            return Err(self.error("syntax error: empty until loop body"));
+        }
+        let body = Self::lower_commands_to_stmt_seq(body, body_span);
+
+        // Expect 'done'
+        self.expect_keyword(Keyword::Done)?;
+
+        self.pop_depth();
+        Ok(CompoundCommand::Until(UntilCommand {
+            condition,
+            body,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse a case statement: case WORD in pattern) commands ;; ... esac
+    fn parse_case(&mut self) -> Result<CompoundCommand> {
+        let start_span = self.current_span;
+        self.push_depth()?;
+        self.advance(); // consume 'case'
+        self.skip_newlines()?;
+
+        // Get the word to match against
+        let word = self.expect_word()?;
+        self.skip_newlines()?;
+
+        // Expect 'in'
+        self.expect_keyword(Keyword::In)?;
+        self.skip_newlines()?;
+
+        // Parse case items
+        let mut cases = Vec::new();
+        while !self.is_keyword(Keyword::Esac) && self.current_token.is_some() {
+            self.skip_newlines()?;
+            if self.is_keyword(Keyword::Esac) {
+                break;
+            }
+
+            // Parse patterns (pattern1 | pattern2 | ...)
+            // Optional leading (
+            if self.at(TokenKind::LeftParen) {
+                self.advance();
+            }
+
+            let mut patterns = Vec::new();
+            while self.at_word_like() {
+                if let Some(word) = self.current_word() {
+                    self.advance_past_word(&word);
+                    patterns.push(self.pattern_from_word(&word));
+                }
+
+                // Check for | between patterns
+                if self.at(TokenKind::Pipe) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Expect )
+            if !self.at(TokenKind::RightParen) {
+                self.pop_depth();
+                return Err(self.error("expected ')' after case pattern"));
+            }
+            self.advance();
+            self.skip_newlines()?;
+
+            // Parse commands until ;; or esac
+            let body_start = self.current_span.start;
+            let mut commands = Vec::new();
+            while !self.is_case_terminator()
+                && !self.is_keyword(Keyword::Esac)
+                && self.current_token.is_some()
+            {
+                commands.push(self.parse_command_list_required()?);
+                self.skip_newlines()?;
+            }
+
+            let terminator = self.parse_case_terminator();
+            let body_span = Span::from_positions(body_start, self.current_span.start);
+            cases.push(CaseItem {
+                patterns,
+                body: Self::lower_commands_to_stmt_seq(commands, body_span),
+                terminator,
+            });
+            self.skip_newlines()?;
+        }
+
+        // Expect 'esac'
+        self.expect_keyword(Keyword::Esac)?;
+
+        self.pop_depth();
+        Ok(CompoundCommand::Case(CaseCommand {
+            word,
+            cases,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse a time command: time [-p] [command]
+    ///
+    /// The time keyword measures execution time of the following command.
+    /// Note: Shuck only tracks wall-clock time, not CPU user/sys time.
+    fn parse_time(&mut self) -> Result<CompoundCommand> {
+        let start_span = self.current_span;
+        self.advance(); // consume 'time'
+        self.skip_newlines()?;
+
+        // Check for -p flag (POSIX format)
+        let posix_format = if self.at(TokenKind::Word) && self.current_word_str() == Some("-p") {
+            self.advance();
+            self.skip_newlines()?;
+            true
+        } else {
+            false
+        };
+
+        // Parse the command to time (if any)
+        // time with no command is valid in bash (just outputs timing header)
+        let command = self
+            .parse_pipeline()?
+            .map(|command| Box::new(Self::lower_non_sequence_command_to_stmt(command)));
+
+        Ok(CompoundCommand::Time(TimeCommand {
+            posix_format,
+            command,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse a coproc command: `coproc [NAME] command`
+    ///
+    /// If the token after `coproc` is a simple word followed by a compound
+    /// command (`{`, `(`, `while`, `for`, etc.), it is treated as the coproc
+    /// name. Otherwise the command starts immediately and the default name
+    /// "COPROC" is used.
+    fn parse_coproc(&mut self) -> Result<CompoundCommand> {
+        self.ensure_coproc()?;
+        let start_span = self.current_span;
+        self.advance(); // consume 'coproc'
+        self.skip_newlines()?;
+
+        // Determine if next token is a NAME (simple word that is NOT a compound-
+        // command keyword and is followed by a compound command start).
+        let (name, name_span) = if self.at(TokenKind::Word) {
+            let word = self.current_word_str().unwrap().to_string();
+            let word_span = self.current_span;
+            let is_compound_keyword = matches!(
+                word.as_str(),
+                "if" | "for" | "while" | "until" | "case" | "select" | "time" | "coproc"
+            );
+            let next_is_compound_start = matches!(
+                self.peek_next_kind(),
+                Some(TokenKind::LeftBrace | TokenKind::LeftParen)
+            );
+            if !is_compound_keyword && next_is_compound_start {
+                self.advance(); // consume the NAME
+                self.skip_newlines()?;
+                (Name::from(word), Some(word_span))
+            } else {
+                (Name::new_static("COPROC"), None)
+            }
+        } else {
+            (Name::new_static("COPROC"), None)
+        };
+
+        // Parse the command body (could be simple, compound, or pipeline)
+        let body = self.parse_pipeline()?;
+        let body = body.ok_or_else(|| self.error("coproc: missing command"))?;
+        let body = Self::lower_non_sequence_command_to_stmt(body);
+
+        Ok(CompoundCommand::Coproc(CoprocCommand {
+            name,
+            name_span,
+            body: Box::new(body),
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Check if current token is ;; (case terminator)
+    fn is_case_terminator(&self) -> bool {
+        matches!(
+            self.current_token_kind,
+            Some(TokenKind::DoubleSemicolon | TokenKind::SemiAmp | TokenKind::DoubleSemiAmp)
+        )
+    }
+
+    /// Parse case terminator: `;;` (break), `;&` (fallthrough), `;;&` (continue matching)
+    fn parse_case_terminator(&mut self) -> CaseTerminator {
+        match self.current_token_kind {
+            Some(TokenKind::SemiAmp) => {
+                self.advance();
+                CaseTerminator::FallThrough
+            }
+            Some(TokenKind::DoubleSemiAmp) => {
+                self.advance();
+                CaseTerminator::Continue
+            }
+            Some(TokenKind::DoubleSemicolon) => {
+                self.advance();
+                CaseTerminator::Break
+            }
+            _ => CaseTerminator::Break,
+        }
+    }
+
+    /// Parse a subshell (commands in parentheses)
+    fn parse_subshell(&mut self) -> Result<CompoundCommand> {
+        self.push_depth()?;
+        self.advance(); // consume '('
+        self.skip_newlines()?;
+
+        let body_start = self.current_span.start;
+        let mut commands = Vec::new();
+        while !matches!(
+            self.current_token_kind,
+            Some(TokenKind::RightParen | TokenKind::DoubleRightParen) | None
+        ) {
+            self.skip_newlines()?;
+            if matches!(
+                self.current_token_kind,
+                Some(TokenKind::RightParen | TokenKind::DoubleRightParen)
+            ) {
+                break;
+            }
+            commands.push(self.parse_command_list_required()?);
+        }
+
+        if self.at(TokenKind::DoubleRightParen) {
+            // `))` at end of nested subshells: consume as single `)`, leave `)` for parent
+            self.set_current_kind(TokenKind::RightParen, self.current_span);
+        } else if !self.at(TokenKind::RightParen) {
+            self.pop_depth();
+            return Err(Error::parse("expected ')' to close subshell".to_string()));
+        } else {
+            self.advance(); // consume ')'
+        }
+
+        self.pop_depth();
+        Ok(CompoundCommand::Subshell(Self::lower_commands_to_stmt_seq(
+            commands,
+            Span::from_positions(body_start, self.current_span.start),
+        )))
+    }
+
+    /// Parse a brace group
+    fn parse_brace_group(&mut self) -> Result<CompoundCommand> {
+        self.push_depth()?;
+        let (body, left_brace_span, right_brace_span) =
+            self.parse_brace_enclosed_stmt_seq("syntax error: empty brace group")?;
+
+        let compound = if self.dialect.features().zsh_always && self.is_keyword(Keyword::Always) {
+            self.advance();
+            self.skip_newlines()?;
+            if !self.at(TokenKind::LeftBrace) {
+                self.pop_depth();
+                return Err(self.error("expected '{' after always"));
+            }
+            let (always_body, _, always_right_brace_span) =
+                self.parse_brace_enclosed_stmt_seq("syntax error: empty always clause")?;
+            CompoundCommand::Always(AlwaysCommand {
+                body,
+                always_body,
+                span: left_brace_span.merge(always_right_brace_span),
+            })
+        } else {
+            let _ = right_brace_span;
+            CompoundCommand::BraceGroup(body)
+        };
+
+        self.pop_depth();
+        Ok(compound)
+    }
+
+    fn parse_brace_enclosed_stmt_seq(
+        &mut self,
+        empty_error: &str,
+    ) -> Result<(StmtSeq, Span, Span)> {
+        let left_brace_span = self.current_span;
+        self.advance();
+        self.brace_group_depth += 1;
+        self.skip_newlines()?;
+
+        let body_start = self.current_span.start;
+        let mut commands = Vec::new();
+        while !matches!(self.current_token_kind, Some(TokenKind::RightBrace) | None) {
+            self.skip_newlines()?;
+            if self.at(TokenKind::RightBrace) {
+                break;
+            }
+            commands.push(self.parse_command_list_required()?);
+        }
+
+        if !self.at(TokenKind::RightBrace) {
+            self.brace_group_depth -= 1;
+            return Err(Error::parse(
+                "expected '}' to close brace group".to_string(),
+            ));
+        }
+
+        if commands.is_empty() {
+            self.brace_group_depth -= 1;
+            return Err(self.error(empty_error));
+        }
+
+        let right_brace_span = self.current_span;
+        self.advance();
+        self.brace_group_depth -= 1;
+        Ok((
+            Self::lower_commands_to_stmt_seq(
+                commands,
+                Span::from_positions(body_start, right_brace_span.start),
+            ),
+            left_brace_span,
+            right_brace_span,
+        ))
+    }
+
+    fn parse_if_condition_until_body_start(
+        &mut self,
+        allow_brace_body: bool,
+    ) -> Result<Vec<Command>> {
+        let mut commands = Vec::with_capacity(2);
+
+        loop {
+            self.skip_newlines()?;
+
+            if self.is_keyword(Keyword::Then) || (allow_brace_body && self.at(TokenKind::LeftBrace))
+            {
+                break;
+            }
+
+            if self.current_token.is_none() {
+                break;
+            }
+
+            let command = self.parse_command_list_required()?;
+            self.apply_command_effects(&command);
+            commands.push(command);
+        }
+
+        Ok(commands)
+    }
+
+    /// Parse arithmetic command ((expression))
+    /// Parse [[ conditional expression ]]
+    fn parse_conditional(&mut self) -> Result<CompoundCommand> {
+        self.ensure_double_bracket()?;
+        let left_bracket_span = self.current_span;
+        self.advance(); // consume '[['
+        self.skip_conditional_newlines();
+
+        let expression = self.parse_conditional_or(false)?;
+        self.skip_conditional_newlines();
+
+        let right_bracket_span = match self.current_token_kind {
+            Some(TokenKind::DoubleRightBracket) => {
+                let span = self.current_span;
+                self.advance(); // consume ']]'
+                span
+            }
+            None => {
+                return Err(crate::error::Error::parse(
+                    "unexpected end of input in [[ ]]".to_string(),
+                ));
+            }
+            _ => return Err(self.error("expected ']]' to close conditional expression")),
+        };
+
+        Ok(CompoundCommand::Conditional(ConditionalCommand {
+            expression,
+            span: left_bracket_span.merge(right_bracket_span),
+            left_bracket_span,
+            right_bracket_span,
+        }))
+    }
+
+    fn skip_conditional_newlines(&mut self) {
+        while self.at(TokenKind::Newline) {
+            self.advance();
+        }
+    }
+
+    fn parse_conditional_or(&mut self, stop_at_right_paren: bool) -> Result<ConditionalExpr> {
+        let mut expr = self.parse_conditional_and(stop_at_right_paren)?;
+
+        loop {
+            self.skip_conditional_newlines();
+            if !self.at(TokenKind::Or) {
+                break;
+            }
+
+            let op_span = self.current_span;
+            self.advance();
+            let right = self.parse_conditional_and(stop_at_right_paren)?;
+            expr = ConditionalExpr::Binary(ConditionalBinaryExpr {
+                left: Box::new(expr),
+                op: ConditionalBinaryOp::Or,
+                op_span,
+                right: Box::new(right),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_conditional_and(&mut self, stop_at_right_paren: bool) -> Result<ConditionalExpr> {
+        let mut expr = self.parse_conditional_term(stop_at_right_paren)?;
+
+        loop {
+            self.skip_conditional_newlines();
+            if !self.at(TokenKind::And) {
+                break;
+            }
+
+            let op_span = self.current_span;
+            self.advance();
+            let right = self.parse_conditional_term(stop_at_right_paren)?;
+            expr = ConditionalExpr::Binary(ConditionalBinaryExpr {
+                left: Box::new(expr),
+                op: ConditionalBinaryOp::And,
+                op_span,
+                right: Box::new(right),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_conditional_term(&mut self, stop_at_right_paren: bool) -> Result<ConditionalExpr> {
+        self.skip_conditional_newlines();
+
+        if let Some(op) = self.current_conditional_unary_op() {
+            let op_span = self.current_span;
+            self.advance();
+            self.skip_conditional_newlines();
+
+            let expr = if matches!(op, ConditionalUnaryOp::Not) {
+                self.parse_conditional_term(stop_at_right_paren)?
+            } else {
+                if matches!(
+                    op,
+                    ConditionalUnaryOp::VariableSet | ConditionalUnaryOp::ReferenceVariable
+                ) {
+                    let word = self.collect_conditional_context_word(stop_at_right_paren)?;
+                    self.conditional_var_ref_expr(word)
+                } else {
+                    let word = self.parse_conditional_operand_word()?;
+                    ConditionalExpr::Word(word)
+                }
+            };
+
+            return Ok(ConditionalExpr::Unary(ConditionalUnaryExpr {
+                op,
+                op_span,
+                expr: Box::new(expr),
+            }));
+        }
+
+        if self.at(TokenKind::DoubleLeftParen) {
+            self.split_current_double_left_paren();
+        }
+
+        let left = if self.at(TokenKind::LeftParen) {
+            let left_paren_span = self.current_span;
+            self.advance();
+            let expr = self.parse_conditional_or(true)?;
+            self.skip_conditional_newlines();
+            if self.at(TokenKind::DoubleRightParen) {
+                self.split_current_double_right_paren();
+            }
+            if !self.at(TokenKind::RightParen) {
+                return Err(self.error("expected ')' in conditional expression"));
+            }
+            let right_paren_span = self.current_span;
+            self.advance();
+            ConditionalExpr::Parenthesized(ConditionalParenExpr {
+                left_paren_span,
+                expr: Box::new(expr),
+                right_paren_span,
+            })
+        } else {
+            ConditionalExpr::Word(self.parse_conditional_operand_word()?)
+        };
+
+        self.skip_conditional_newlines();
+
+        let Some(op) = self.current_conditional_comparison_op() else {
+            return Ok(left);
+        };
+
+        let op_span = self.current_span;
+        self.advance();
+        self.skip_conditional_newlines();
+
+        let right = match op {
+            ConditionalBinaryOp::RegexMatch => {
+                if self.at(TokenKind::LeftBrace) {
+                    return Err(self.error("expected conditional operand"));
+                }
+                ConditionalExpr::Regex(self.collect_conditional_context_word(stop_at_right_paren)?)
+            }
+            ConditionalBinaryOp::PatternEqShort
+            | ConditionalBinaryOp::PatternEq
+            | ConditionalBinaryOp::PatternNe => {
+                let word = self.collect_conditional_context_word(stop_at_right_paren)?;
+                ConditionalExpr::Pattern(self.pattern_from_word(&word))
+            }
+            _ => ConditionalExpr::Word(self.parse_conditional_operand_word()?),
+        };
+
+        Ok(ConditionalExpr::Binary(ConditionalBinaryExpr {
+            left: Box::new(left),
+            op,
+            op_span,
+            right: Box::new(right),
+        }))
+    }
+
+    fn parse_conditional_operand_word(&mut self) -> Result<Word> {
+        self.skip_conditional_newlines();
+
+        let Some(word) = self
+            .current_word()
+            .or_else(|| self.current_conditional_literal_word())
+        else {
+            return Err(self.error("expected conditional operand"));
+        };
+        self.advance_past_word(&word);
+        Ok(word)
+    }
+
+    fn conditional_var_ref_expr(&self, word: Word) -> ConditionalExpr {
+        self.parse_var_ref_from_word(&word, SubscriptInterpretation::Contextual)
+            .map(Box::new)
+            .map(ConditionalExpr::VarRef)
+            .unwrap_or(ConditionalExpr::Word(word))
+    }
+
+    fn current_conditional_unary_op(&self) -> Option<ConditionalUnaryOp> {
+        if !self.at(TokenKind::Word) {
+            return None;
+        }
+        let word = self.current_word_str()?;
+
+        Some(match word {
+            "!" => ConditionalUnaryOp::Not,
+            "-e" | "-a" => ConditionalUnaryOp::Exists,
+            "-f" => ConditionalUnaryOp::RegularFile,
+            "-d" => ConditionalUnaryOp::Directory,
+            "-c" => ConditionalUnaryOp::CharacterSpecial,
+            "-b" => ConditionalUnaryOp::BlockSpecial,
+            "-p" => ConditionalUnaryOp::NamedPipe,
+            "-S" => ConditionalUnaryOp::Socket,
+            "-L" | "-h" => ConditionalUnaryOp::Symlink,
+            "-k" => ConditionalUnaryOp::Sticky,
+            "-g" => ConditionalUnaryOp::SetGroupId,
+            "-u" => ConditionalUnaryOp::SetUserId,
+            "-G" => ConditionalUnaryOp::GroupOwned,
+            "-O" => ConditionalUnaryOp::UserOwned,
+            "-N" => ConditionalUnaryOp::Modified,
+            "-r" => ConditionalUnaryOp::Readable,
+            "-w" => ConditionalUnaryOp::Writable,
+            "-x" => ConditionalUnaryOp::Executable,
+            "-s" => ConditionalUnaryOp::NonEmptyFile,
+            "-t" => ConditionalUnaryOp::FdTerminal,
+            "-z" => ConditionalUnaryOp::EmptyString,
+            "-n" => ConditionalUnaryOp::NonEmptyString,
+            "-o" => ConditionalUnaryOp::OptionSet,
+            "-v" => ConditionalUnaryOp::VariableSet,
+            "-R" => ConditionalUnaryOp::ReferenceVariable,
+            _ => return None,
+        })
+    }
+
+    fn current_conditional_comparison_op(&self) -> Option<ConditionalBinaryOp> {
+        match self.current_token_kind? {
+            TokenKind::Word => Some(match self.current_word_str()? {
+                "=" => ConditionalBinaryOp::PatternEqShort,
+                "==" => ConditionalBinaryOp::PatternEq,
+                "!=" => ConditionalBinaryOp::PatternNe,
+                "=~" => ConditionalBinaryOp::RegexMatch,
+                "-nt" => ConditionalBinaryOp::NewerThan,
+                "-ot" => ConditionalBinaryOp::OlderThan,
+                "-ef" => ConditionalBinaryOp::SameFile,
+                "-eq" => ConditionalBinaryOp::ArithmeticEq,
+                "-ne" => ConditionalBinaryOp::ArithmeticNe,
+                "-le" => ConditionalBinaryOp::ArithmeticLe,
+                "-ge" => ConditionalBinaryOp::ArithmeticGe,
+                "-lt" => ConditionalBinaryOp::ArithmeticLt,
+                "-gt" => ConditionalBinaryOp::ArithmeticGt,
+                _ => return None,
+            }),
+            TokenKind::RedirectIn => Some(ConditionalBinaryOp::LexicalBefore),
+            TokenKind::RedirectOut => Some(ConditionalBinaryOp::LexicalAfter),
+            _ => None,
+        }
+    }
+
+    fn collect_conditional_context_word(&mut self, stop_at_right_paren: bool) -> Result<Word> {
+        self.skip_conditional_newlines();
+
+        let mut first_word: Option<Word> = None;
+        let mut parts = Vec::new();
+        let mut start = None;
+        let mut end = None;
+        let mut previous_end: Option<Position> = None;
+        let mut composite = false;
+        let mut paren_depth = 0usize;
+
+        loop {
+            self.skip_conditional_newlines();
+
+            match self.current_token_kind {
+                Some(TokenKind::DoubleRightBracket) => break,
+                Some(TokenKind::And) | Some(TokenKind::Or) if paren_depth == 0 => break,
+                Some(TokenKind::RightParen) if stop_at_right_paren && paren_depth == 0 => break,
+                None => break,
+                _ => {}
+            }
+
+            if let Some(prev_end) = previous_end
+                && prev_end.offset < self.current_span.start.offset
+            {
+                let gap_span = Span::from_positions(prev_end, self.current_span.start);
+                let gap_text = gap_span.slice(self.input);
+                if Self::source_text_needs_quote_preserving_decode(gap_text) {
+                    let gap_word = self.decode_word_text_preserving_quotes_if_needed(
+                        gap_text,
+                        gap_span,
+                        gap_span.start,
+                        true,
+                    );
+                    parts.extend(gap_word.parts);
+                } else {
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::source()),
+                        gap_span,
+                    ));
+                }
+                composite = true;
+            }
+
+            match self.current_token_kind {
+                Some(TokenKind::Word | TokenKind::LiteralWord | TokenKind::QuotedWord) => {
+                    let word = self
+                        .current_word()
+                        .ok_or_else(|| self.error("expected conditional operand"))?;
+                    if start.is_none() {
+                        start = Some(word.span.start);
+                    } else {
+                        composite = true;
+                    }
+                    end = Some(word.span.end);
+                    if first_word.is_none() && !composite {
+                        first_word = Some(word.clone());
+                    }
+                    parts.extend(word.parts.clone());
+                    previous_end = Some(self.current_span.end);
+                    self.advance();
+                }
+                Some(TokenKind::LeftParen) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned("(")),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    paren_depth += 1;
+                    composite = true;
+                    self.advance();
+                }
+                Some(TokenKind::DoubleLeftParen) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned("((")),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    paren_depth += 2;
+                    composite = true;
+                    self.advance();
+                }
+                Some(TokenKind::RightParen) => {
+                    if paren_depth == 0 {
+                        break;
+                    }
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned(")")),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    paren_depth = paren_depth.saturating_sub(1);
+                    composite = true;
+                    self.advance();
+                }
+                Some(TokenKind::DoubleRightParen) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned("))")),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    paren_depth = paren_depth.saturating_sub(2);
+                    composite = true;
+                    self.advance();
+                }
+                Some(TokenKind::Pipe) => {
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned("|")),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
+                    self.advance();
+                }
+                Some(TokenKind::And) => {
+                    if paren_depth == 0 {
+                        break;
+                    }
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned("&&")),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
+                    self.advance();
+                }
+                Some(TokenKind::Or) => {
+                    if paren_depth == 0 {
+                        break;
+                    }
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(LiteralText::owned("||")),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
+                    self.advance();
+                }
+                Some(TokenKind::RedirectIn)
+                | Some(TokenKind::RedirectOut)
+                | Some(TokenKind::RedirectReadWrite) => {
+                    let literal = self.input
+                        [self.current_span.start.offset..self.current_span.end.offset]
+                        .to_string();
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(self.literal_text(
+                            literal,
+                            self.current_span.start,
+                            self.current_span.end,
+                        )),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
+                    self.advance();
+                }
+                _ => {
+                    let literal = self.input
+                        [self.current_span.start.offset..self.current_span.end.offset]
+                        .to_string();
+                    if literal.is_empty() {
+                        break;
+                    }
+                    if start.is_none() {
+                        start = Some(self.current_span.start);
+                    }
+                    end = Some(self.current_span.end);
+                    parts.push(WordPartNode::new(
+                        WordPart::Literal(self.literal_text(
+                            literal,
+                            self.current_span.start,
+                            self.current_span.end,
+                        )),
+                        self.current_span,
+                    ));
+                    previous_end = Some(self.current_span.end);
+                    composite = true;
+                    self.advance();
+                }
+            }
+        }
+
+        if !composite && let Some(word) = first_word {
+            return Ok(word);
+        }
+
+        let (start, end) = match (start, end) {
+            (Some(start), Some(end)) => (start, end),
+            _ => return Err(self.error("expected conditional operand")),
+        };
+
+        Ok(self.word_with_parts(parts, Span::from_positions(start, end)))
+    }
+
+    fn parse_arithmetic_command(&mut self) -> Result<CompoundCommand> {
+        self.ensure_arithmetic_command()?;
+        let left_paren_span = self.current_span;
+        self.advance(); // consume '(('
+
+        let mut depth = 0_i32;
+        let right_paren_span = loop {
+            match self.current_token_kind {
+                Some(TokenKind::DoubleLeftParen) => {
+                    depth += 2;
+                    self.advance();
+                }
+                Some(TokenKind::LeftParen) => {
+                    depth += 1;
+                    self.advance();
+                }
+                Some(TokenKind::ProcessSubIn) | Some(TokenKind::ProcessSubOut) => {
+                    depth += 1;
+                    self.advance();
+                }
+                Some(TokenKind::DoubleRightParen) => {
+                    if depth == 0 {
+                        let right_paren_span = self.current_span;
+                        self.advance();
+                        break right_paren_span;
+                    }
+                    if depth == 1 {
+                        break self.split_nested_arithmetic_close("arithmetic command")?;
+                    }
+                    depth -= 2;
+                    self.advance();
+                }
+                Some(TokenKind::RightParen) => {
+                    if depth > 0 {
+                        depth -= 1;
+                    }
+                    self.advance();
+                }
+                Some(_) => {
+                    self.advance();
+                }
+                None => {
+                    return Err(Error::parse(
+                        "unexpected end of input in arithmetic command".to_string(),
+                    ));
+                }
+            }
+        };
+
+        let expr_span = Self::optional_span(left_paren_span.end, right_paren_span.start);
+        let expr_ast =
+            self.parse_explicit_arithmetic_span(expr_span, "invalid arithmetic command")?;
+        Ok(CompoundCommand::Arithmetic(ArithmeticCommand {
+            span: left_paren_span.merge(right_paren_span),
+            left_paren_span,
+            expr_span,
+            expr_ast,
+            right_paren_span,
+        }))
+    }
+
+    fn parse_function_body_command(&mut self, allow_bare_compound: bool) -> Result<Command> {
+        let compound = match self.current_keyword() {
+            Some(Keyword::If) if allow_bare_compound => self.parse_if()?,
+            Some(Keyword::For) if allow_bare_compound => self.parse_for()?,
+            Some(Keyword::Repeat)
+                if allow_bare_compound && self.dialect.features().zsh_repeat_loop =>
+            {
+                self.parse_repeat()?
+            }
+            Some(Keyword::Foreach)
+                if allow_bare_compound && self.dialect.features().zsh_foreach_loop =>
+            {
+                self.parse_foreach()?
+            }
+            Some(Keyword::While) if allow_bare_compound => self.parse_while()?,
+            Some(Keyword::Until) if allow_bare_compound => self.parse_until()?,
+            Some(Keyword::Case) if allow_bare_compound => self.parse_case()?,
+            Some(Keyword::Select) if allow_bare_compound => self.parse_select()?,
+            _ => match self.current_token_kind {
+                Some(TokenKind::LeftBrace) => self.parse_brace_group()?,
+                Some(TokenKind::LeftParen) => self.parse_subshell()?,
+                Some(TokenKind::DoubleLeftBracket) if allow_bare_compound => {
+                    self.parse_conditional()?
+                }
+                Some(TokenKind::DoubleLeftParen) if allow_bare_compound => {
+                    if self.looks_like_command_style_double_paren() {
+                        self.split_current_double_left_paren();
+                        self.parse_subshell()?
+                    } else {
+                        let mut arithmetic_probe = self.clone();
+                        if let Ok(compound) = arithmetic_probe.parse_arithmetic_command() {
+                            *self = arithmetic_probe;
+                            compound
+                        } else {
+                            self.split_current_double_left_paren();
+                            self.parse_subshell()?
+                        }
+                    }
+                }
+                _ => {
+                    return Err(Error::parse(
+                        "expected compound command for function body".to_string(),
+                    ));
+                }
+            },
+        };
+        let redirects = self.parse_trailing_redirects();
+        Ok(Command::Compound(Box::new(compound), redirects))
+    }
+
+    /// Parse function definition with 'function' keyword: function name { body }
+    fn parse_function_keyword(&mut self) -> Result<Command> {
+        self.ensure_function_keyword()?;
+        let start_span = self.current_span;
+        self.advance(); // consume 'function'
+        self.skip_newlines()?;
+
+        // Get function name
+        let Some(name_text) = self
+            .at(TokenKind::Word)
+            .then(|| self.current_source_like_word_text())
+            .flatten()
+        else {
+            return Err(self.error("expected function name"));
+        };
+        let (name, name_span) = (Name::from(name_text.as_ref()), self.current_span);
+        self.advance();
+        let saw_newline_after_name = self.skip_newlines_with_flag()?;
+
+        // Optional () after name
+        let mut name_parens_span = None;
+        let allow_bare_compound = if self.at(TokenKind::LeftParen) {
+            let left_paren_span = self.current_span;
+            self.advance(); // consume '('
+            if !self.at(TokenKind::RightParen) {
+                return Err(Error::parse(
+                    "expected ')' in function definition".to_string(),
+                ));
+            }
+            let right_paren_span = self.current_span;
+            self.advance(); // consume ')'
+            name_parens_span = Some(left_paren_span.merge(right_paren_span));
+            self.skip_newlines_with_flag()?
+        } else {
+            saw_newline_after_name
+        };
+
+        let body = self.parse_function_body_command(allow_bare_compound)?;
+        let body = Self::lower_non_sequence_command_to_stmt(body);
+
+        Ok(Command::Function(FunctionDef {
+            name,
+            name_span,
+            surface: FunctionSurface {
+                function_keyword_span: Some(start_span),
+                name_parens_span,
+            },
+            body: Box::new(body),
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse POSIX-style function definition: name() { body }
+    fn parse_function_posix(&mut self) -> Result<Command> {
+        let start_span = self.current_span;
+        // Get function name
+        let Some(name_text) = self
+            .at(TokenKind::Word)
+            .then(|| self.current_source_like_word_text())
+            .flatten()
+        else {
+            return Err(self.error("expected function name"));
+        };
+        let (name, name_span) = (Name::from(name_text.as_ref()), self.current_span);
+        self.advance();
+
+        // Consume ()
+        if !self.at(TokenKind::LeftParen) {
+            return Err(self.error("expected '(' in function definition"));
+        }
+        let left_paren_span = self.current_span;
+        self.advance(); // consume '('
+
+        if !self.at(TokenKind::RightParen) {
+            return Err(self.error("expected ')' in function definition"));
+        }
+        let right_paren_span = self.current_span;
+        self.advance(); // consume ')'
+        self.skip_newlines()?;
+
+        let body = self.parse_function_body_command(true)?;
+        let body = Self::lower_non_sequence_command_to_stmt(body);
+
+        Ok(Command::Function(FunctionDef {
+            name,
+            name_span,
+            surface: FunctionSurface {
+                function_keyword_span: None,
+                name_parens_span: Some(left_paren_span.merge(right_paren_span)),
+            },
+            body: Box::new(body),
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Parse commands until a terminating keyword
+    fn parse_compound_list(&mut self, terminator: Keyword) -> Result<Vec<Command>> {
+        self.parse_compound_list_until(KeywordSet::single(terminator))
+    }
+
+    /// Parse commands until one of the terminating keywords
+    fn parse_compound_list_until(&mut self, terminators: KeywordSet) -> Result<Vec<Command>> {
+        let mut commands = Vec::with_capacity(4);
+
+        loop {
+            self.skip_newlines()?;
+
+            // Check for terminators
+            if self
+                .current_keyword()
+                .is_some_and(|keyword| terminators.contains(keyword))
+            {
+                break;
+            }
+
+            if self.current_token.is_none() {
+                break;
+            }
+
+            let command = self.parse_command_list_required()?;
+            self.apply_command_effects(&command);
+            commands.push(command);
+        }
+
+        Ok(commands)
+    }
+
+    /// Reserved words that cannot start a simple command.
+    /// These words are only special in command position, not as arguments.
+    /// Check if a word cannot start a command
+    fn is_non_command_keyword(keyword: Keyword) -> bool {
+        NON_COMMAND_KEYWORDS.contains(keyword)
+    }
+
+    /// Check if current token is a specific keyword
+    fn is_keyword(&self, keyword: Keyword) -> bool {
+        self.current_keyword() == Some(keyword)
+    }
+
+    /// Expect a specific keyword
+    fn expect_keyword(&mut self, keyword: Keyword) -> Result<()> {
+        if self.is_keyword(keyword) {
+            self.advance();
+            Ok(())
+        } else {
+            Err(self.error(format!("expected '{}'", keyword)))
+        }
+    }
+    fn parse_simple_command(&mut self) -> Result<Option<SimpleCommand>> {
+        self.tick()?;
+        self.skip_newlines()?;
+        self.check_error_token()?;
+        let start_span = self.current_span;
+
+        let mut assignments = Vec::with_capacity(1);
+        let mut words = Vec::with_capacity(4);
+        let mut redirects = Vec::with_capacity(1);
+
+        loop {
+            self.check_error_token()?;
+            let next_kind_after_right_brace = if self.at(TokenKind::RightBrace) {
+                self.peek_next_kind()
+            } else {
+                None
+            };
+            match self.current_token_kind {
+                Some(kind) if kind.is_word_like() => {
+                    let is_literal = kind == TokenKind::LiteralWord;
+                    let word_text = self.current_source_like_word_text().unwrap();
+
+                    // Stop if this word cannot start a command (like 'then', 'fi', etc.)
+                    if words.is_empty()
+                        && self
+                            .current_keyword()
+                            .is_some_and(Self::is_non_command_keyword)
+                    {
+                        break;
+                    }
+
+                    // Check for assignment (only before the command name, not for literal words)
+                    if words.is_empty()
+                        && !is_literal
+                        && let Some((assignment, needs_advance)) =
+                            self.try_parse_assignment(word_text.as_ref())
+                    {
+                        if needs_advance {
+                            self.advance();
+                        }
+                        assignments.push(assignment);
+                        continue;
+                    }
+
+                    if words.is_empty()
+                        && !is_literal
+                        && let Some(assignment) = self.try_parse_split_indexed_assignment()
+                    {
+                        assignments.push(assignment);
+                        continue;
+                    }
+
+                    // Handle compound array assignment in arg position:
+                    // declare -a arr=(x y z) → arr=(x y z) as single arg
+                    if word_text.ends_with('=') && !words.is_empty() {
+                        let original_word = self.current_word();
+                        let saved_span = self.current_span;
+                        self.advance();
+                        if let Some(word) =
+                            self.try_parse_compound_array_arg(word_text.into_owned(), saved_span)
+                        {
+                            words.push(word);
+                            continue;
+                        }
+                        // Not a compound assignment — treat as regular word
+                        if let Some(word) = original_word {
+                            words.push(word);
+                        }
+                        continue;
+                    }
+
+                    if let Some(word) = self.current_word() {
+                        self.advance_past_word(&word);
+                        words.push(word);
+                    }
+                }
+                Some(TokenKind::LeftParen) if !words.is_empty() => {
+                    let Some(word) = self.current_word() else {
+                        break;
+                    };
+                    self.advance_past_word(&word);
+                    words.push(word);
+                }
+                Some(kind) if Self::is_redirect_kind(kind) => {
+                    if matches!(kind, TokenKind::HereDoc | TokenKind::HereDocStrip) {
+                        self.parse_heredoc_redirect(
+                            kind == TokenKind::HereDocStrip,
+                            &mut redirects,
+                        )?;
+                        continue;
+                    }
+
+                    let (fd_var, fd_var_span) = if Self::redirect_supports_fd_var(kind) {
+                        self.pop_fd_var(&mut words)
+                    } else {
+                        (None, None)
+                    };
+
+                    if self.consume_non_heredoc_redirect(
+                        &mut redirects,
+                        fd_var,
+                        fd_var_span,
+                        true,
+                    )? {
+                        continue;
+                    }
+                    break;
+                }
+                Some(TokenKind::ProcessSubIn) | Some(TokenKind::ProcessSubOut) => {
+                    let word = self.expect_word()?;
+                    words.push(word);
+                }
+                // `{` can appear as a literal argument outside command position.
+                Some(TokenKind::LeftBrace) if !words.is_empty() => {
+                    words.push(Word::literal_with_span("{", self.current_span));
+                    self.advance();
+                }
+                // Inside brace groups, a bare `}` can still be a literal
+                // argument like `echo }`, but only when it's separated from the
+                // preceding token by whitespace and isn't introducing an outer
+                // redirect on the brace group itself.
+                Some(TokenKind::RightBrace)
+                    if !words.is_empty()
+                        && (self.brace_group_depth == 0
+                            || (self.current_token_has_leading_whitespace()
+                                && !next_kind_after_right_brace
+                                    .is_some_and(Self::is_redirect_kind))) =>
+                {
+                    words.push(Word::literal_with_span("}", self.current_span));
+                    self.advance();
+                }
+                Some(TokenKind::Newline)
+                | Some(TokenKind::Semicolon)
+                | Some(TokenKind::Pipe)
+                | Some(TokenKind::And)
+                | Some(TokenKind::Or)
+                | None => break,
+                _ => break,
+            }
+        }
+
+        // Handle assignment-only or redirect-only commands with no command word.
+        if words.is_empty() && (!assignments.is_empty() || !redirects.is_empty()) {
+            return Ok(Some(SimpleCommand {
+                name: Word::literal(""),
+                args: Vec::new(),
+                redirects,
+                assignments,
+                span: start_span.merge(self.current_span),
+            }));
+        }
+
+        if words.is_empty() {
+            return Ok(None);
+        }
+
+        let name = words.remove(0);
+        let args = words;
+
+        Ok(Some(SimpleCommand {
+            name,
+            args,
+            redirects,
+            assignments,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// Extract fd-variable name from `{varname}` pattern in the last word.
+    /// If the last word is a single literal `{identifier}`, pop it and return the name.
+    /// Used for `exec {var}>file` / `exec {var}>&-` syntax.
+    fn pop_fd_var(&self, words: &mut Vec<Word>) -> (Option<Name>, Option<Span>) {
+        if let Some(last) = words.last()
+            && last.parts.len() == 1
+            && let WordPart::Literal(ref s) = last.parts[0].kind
+            && let Some(span) = last.part_span(0)
+            && let text = s.as_str(self.input, span)
+            && text.starts_with('{')
+            && text.ends_with('}')
+            && text.len() > 2
+            && text[1..text.len() - 1]
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_')
+        {
+            let var_name = text[1..text.len() - 1].to_string();
+            let start = last.span.start.advanced_by("{");
+            let span = Span::from_positions(start, start.advanced_by(&var_name));
+            words.pop();
+            return (Some(Name::from(var_name)), Some(span));
+        }
+        (None, None)
+    }
+}
