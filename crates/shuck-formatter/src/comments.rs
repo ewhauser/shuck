@@ -376,8 +376,10 @@ fn compute_sequence_attachment<'a>(
     let limit_end = upper_bound.unwrap_or(usize::MAX);
     let mut child_cursor = 0;
 
-    for index in start_index..items.len() {
+    let mut index = start_index;
+    while index < items.len() {
         if claimed[index] {
+            index += 1;
             continue;
         }
 
@@ -388,6 +390,7 @@ fn compute_sequence_attachment<'a>(
             break;
         }
         if end > limit_end {
+            index += 1;
             continue;
         }
 
@@ -404,6 +407,7 @@ fn compute_sequence_attachment<'a>(
             current.is_some_and(|span| span.start.offset <= start && end <= span.end.offset);
 
         if inside_current {
+            index += 1;
             continue;
         }
 
@@ -414,6 +418,7 @@ fn compute_sequence_attachment<'a>(
             {
                 attachment.trailing[prev_idx].push(comment);
                 claimed_indices.push(index);
+                index += 1;
                 continue;
             }
 
@@ -431,21 +436,46 @@ fn compute_sequence_attachment<'a>(
                 }
                 _ => attachment.ambiguous = true,
             }
+            index += 1;
             continue;
         }
 
         if end <= first_child_start {
-            attachment.leading[0].push(comment);
-            claimed_indices.push(index);
-            continue;
-        }
-
-        if let Some(next_idx) = next {
-            attachment.leading[next_idx].push(comment);
-            claimed_indices.push(index);
+            let run_end = collect_comment_run(items, claimed, index, limit_end, |comment| {
+                comment.span.end.offset <= first_child_start
+            });
+            for run_index in index..run_end {
+                attachment.leading[0].push(items[run_index]);
+                claimed_indices.push(run_index);
+            }
+            index = run_end;
+        } else if let Some(next_idx) = next {
+            let target_prev = prev;
+            let target_next = Some(next_idx);
+            let run_end = collect_comment_run(items, claimed, index, limit_end, |candidate| {
+                let (candidate_prev, candidate_next) = surrounding_children(
+                    child_spans,
+                    candidate.span.start.offset,
+                    candidate.span.end.offset,
+                );
+                candidate_prev == target_prev && candidate_next == target_next
+            });
+            for run_index in index..run_end {
+                attachment.leading[next_idx].push(items[run_index]);
+                claimed_indices.push(run_index);
+            }
+            index = run_end;
         } else if start >= last_child_end {
-            attachment.dangling.push(comment);
-            claimed_indices.push(index);
+            let run_end = collect_comment_run(items, claimed, index, limit_end, |comment| {
+                comment.span.start.offset >= last_child_end
+            });
+            for run_index in index..run_end {
+                attachment.dangling.push(items[run_index]);
+                claimed_indices.push(run_index);
+            }
+            index = run_end;
+        } else {
+            index += 1;
         }
     }
 
@@ -453,6 +483,40 @@ fn compute_sequence_attachment<'a>(
         attachment,
         claimed_indices,
     }
+}
+
+fn collect_comment_run<'a>(
+    items: &[SourceComment<'a>],
+    claimed: &[bool],
+    start_index: usize,
+    limit_end: usize,
+    belongs: impl Fn(SourceComment<'a>) -> bool,
+) -> usize {
+    let mut index = start_index;
+    while index < items.len() {
+        if claimed[index] {
+            break;
+        }
+        let comment = items[index];
+        if comment.inline || comment.span.end.offset > limit_end || !belongs(comment) {
+            break;
+        }
+        index += 1;
+    }
+    index
+}
+
+fn surrounding_children(
+    child_spans: &[Span],
+    start: usize,
+    end: usize,
+) -> (Option<usize>, Option<usize>) {
+    let cursor = child_spans.partition_point(|span| span.end.offset <= start);
+    let prev = cursor.checked_sub(1);
+    let next = child_spans
+        .get(cursor)
+        .and_then(|span| (span.start.offset >= end).then_some(cursor));
+    (prev, next)
 }
 
 fn line_starts(source: &str) -> Vec<usize> {

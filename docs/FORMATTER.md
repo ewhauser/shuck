@@ -42,7 +42,7 @@
 - [ ] Reduce `verbatim(...)` fallback use in `crates/shuck-formatter/src/command.rs`, especially around compound commands and heredoc-adjacent statements.
 - [ ] Finish grouped-command and compound-command layout parity for subshells, brace groups, negated conditions, long boolean lists, and continuation-driven source layouts.
 - [ ] Format more multiline command substitutions structurally, especially `$()` bodies that contain heredocs or compound commands.
-- [ ] Normalize arithmetic, redirect, operator, and continuation spacing so the remaining diffs are policy choices rather than syntax-shape mismatches.
+- [x] Normalize arithmetic, redirect, operator, and continuation spacing so the remaining diffs are policy choices rather than syntax-shape mismatches.
 - [ ] Keep improving `case`, `if`, loop, function, and pipeline layout choices to better match `shfmt`.
 - [ ] Expand mksh-, POSIX-, and zsh-specific formatting coverage beyond the current round-trip-safe baseline.
 
@@ -74,5 +74,6 @@
 
 - The opt-in `shfmt` oracle now compares both targeted fixtures and the five benchmark scripts entirely in memory, with unified diffs truncated to stay readable on large failures.
 - The fixture oracle is green aside from the known `minify` shebang divergence and the `function never split` case when the installed `shfmt` binary lacks `-ns`.
-- The benchmark oracle still fails on all five benchmark scripts, but the remaining diffs are now mostly broader layout and policy gaps rather than malformed output.
+- The latest targeted batch improves arithmetic expansions, backslash-continued simple commands, and leading redirect placement from the benchmark corpus.
+- Remaining benchmark diffs still include the explicitly deferred inline grouped-command and inline `case ... esac` layout cases, plus the unfinished multiline `$()` and comment-run attachment work.
 - Use `make bench-macro-format` for the full formatter corpus and `make bench-macro-format-single BENCH_FILE=/absolute/path/to/script.sh` for a one-off file comparison.

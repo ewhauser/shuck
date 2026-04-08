@@ -1985,7 +1985,7 @@ mod tests {
     fn arithmetic_var_rewrite_unwraps_simple_parameters() {
         assert_eq!(
             format_after_rewrite("echo $(( $a + ${b} ))\n", "arithmetic-vars"),
-            "echo $(( a + b ))\n"
+            "echo $((a + b))\n"
         );
     }
 
@@ -1993,7 +1993,7 @@ mod tests {
     fn arithmetic_var_rewrite_skips_special_parameters() {
         assert_eq!(
             format_with_simplify("echo $(( ${!a} + ${#b} ))\n"),
-            "echo $(( ${!a} + ${#b} ))\n"
+            "echo $((${!a} + ${#b}))\n"
         );
     }
 

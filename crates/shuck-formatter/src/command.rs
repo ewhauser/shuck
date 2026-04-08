@@ -46,6 +46,21 @@ impl FormatNodeRule<Stmt> for FormatStatement {
             write!(formatter, [text("! ")])?;
         }
 
+        let command_span = command_format_span(&stmt.command);
+        let emit_redirects_first = !stmt.redirects.is_empty()
+            && command_span != Span::new()
+            && stmt
+                .redirects
+                .iter()
+                .all(|redirect| redirect.span.start.offset < command_span.start.offset);
+
+        if emit_redirects_first {
+            format_redirect_list(&stmt.redirects, formatter)?;
+            if command_span != Span::new() {
+                write!(formatter, [space()])?;
+            }
+        }
+
         match &stmt.command {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => {
                 format_brace_group(commands, formatter, Some(stmt_span(stmt).end.offset))?;
@@ -56,7 +71,7 @@ impl FormatNodeRule<Stmt> for FormatStatement {
             _ => stmt.command.format().fmt(formatter)?,
         }
 
-        if !stmt.redirects.is_empty() {
+        if !stmt.redirects.is_empty() && !emit_redirects_first {
             write!(formatter, [space()])?;
             format_redirect_list(&stmt.redirects, formatter)?;
         }
@@ -271,40 +286,29 @@ fn format_simple_command(
 
     let has_name =
         !render_word_syntax(&command.name, source, formatter.context().options()).is_empty();
-    let mut first = true;
-
+    let mut pieces = Vec::new();
     for assignment in &command.assignments {
-        if !first {
-            write!(formatter, [space()])?;
-        }
-        write!(
-            formatter,
-            [text(render_assignment(
-                assignment,
-                source,
-                formatter.context().options(),
-            ))]
-        )?;
-        first = false;
+        pieces.push(CommandPiece {
+            span: assignment.span,
+            rendered: render_assignment(assignment, source, formatter.context().options()),
+        });
     }
 
     if has_name {
-        if !first {
-            write!(formatter, [space()])?;
-        }
-        command.name.format().fmt(formatter)?;
-        first = false;
+        pieces.push(CommandPiece {
+            span: command.name.span,
+            rendered: render_word_syntax(&command.name, source, formatter.context().options()),
+        });
     }
 
     for argument in &command.args {
-        if !first {
-            write!(formatter, [space()])?;
-        }
-        argument.format().fmt(formatter)?;
-        first = false;
+        pieces.push(CommandPiece {
+            span: argument.span,
+            rendered: render_word_syntax(argument, source, formatter.context().options()),
+        });
     }
 
-    Ok(())
+    write_command_pieces(&pieces, formatter)
 }
 
 fn format_builtin_command(
@@ -314,6 +318,7 @@ fn format_builtin_command(
     match command {
         BuiltinCommand::Break(command) => format_builtin_like(
             "break",
+            command.span.start,
             &command.assignments,
             command.depth.as_ref(),
             &command.extra_args,
@@ -321,6 +326,7 @@ fn format_builtin_command(
         ),
         BuiltinCommand::Continue(command) => format_builtin_like(
             "continue",
+            command.span.start,
             &command.assignments,
             command.depth.as_ref(),
             &command.extra_args,
@@ -328,6 +334,7 @@ fn format_builtin_command(
         ),
         BuiltinCommand::Return(command) => format_builtin_like(
             "return",
+            command.span.start,
             &command.assignments,
             command.code.as_ref(),
             &command.extra_args,
@@ -335,6 +342,7 @@ fn format_builtin_command(
         ),
         BuiltinCommand::Exit(command) => format_builtin_like(
             "exit",
+            command.span.start,
             &command.assignments,
             command.code.as_ref(),
             &command.extra_args,
@@ -345,6 +353,7 @@ fn format_builtin_command(
 
 fn format_builtin_like(
     name: &str,
+    start: shuck_ast::Position,
     assignments: &[Assignment],
     primary: Option<&shuck_ast::Word>,
     extra_args: &[shuck_ast::Word],
@@ -354,17 +363,29 @@ fn format_builtin_like(
     let options = formatter.context().options();
     let mut pieces = Vec::new();
     for assignment in assignments {
-        pieces.push(render_assignment(assignment, source, options));
+        pieces.push(CommandPiece {
+            span: assignment.span,
+            rendered: render_assignment(assignment, source, options),
+        });
     }
-    pieces.push(name.to_string());
+    pieces.push(CommandPiece {
+        span: Span::from_positions(start, start.advanced_by(name)),
+        rendered: name.to_string(),
+    });
     if let Some(primary) = primary {
-        pieces.push(render_word_syntax(primary, source, options));
+        pieces.push(CommandPiece {
+            span: primary.span,
+            rendered: render_word_syntax(primary, source, options),
+        });
     }
     for argument in extra_args {
-        pieces.push(render_word_syntax(argument, source, options));
+        pieces.push(CommandPiece {
+            span: argument.span,
+            rendered: render_word_syntax(argument, source, options),
+        });
     }
 
-    write!(formatter, [text(pieces.join(" "))])
+    write_command_pieces(&pieces, formatter)
 }
 
 fn format_decl_clause(
@@ -373,53 +394,91 @@ fn format_decl_clause(
 ) -> FormatResult<()> {
     let source = formatter.context().source();
     let options = formatter.context().options().clone();
-    let mut first = true;
+    let mut pieces = Vec::new();
 
     for assignment in &command.assignments {
-        if !first {
-            write!(formatter, [space()])?;
-        }
-        write!(
-            formatter,
-            [text(render_assignment(assignment, source, &options))]
-        )?;
-        first = false;
+        pieces.push(CommandPiece {
+            span: assignment.span,
+            rendered: render_assignment(assignment, source, &options),
+        });
     }
 
-    if !first {
-        write!(formatter, [space()])?;
-    }
-    write!(formatter, [text(command.variant.to_string())])?;
-    first = false;
+    pieces.push(CommandPiece {
+        span: command.variant_span,
+        rendered: command.variant.to_string(),
+    });
 
     for operand in &command.operands {
-        if !first {
-            write!(formatter, [space()])?;
+        pieces.push(CommandPiece {
+            span: decl_operand_span(operand),
+            rendered: render_decl_operand(operand, source, &options),
+        });
+    }
+
+    write_command_pieces(&pieces, formatter)
+}
+
+fn render_decl_operand(
+    operand: &DeclOperand,
+    source: &str,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> String {
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+            render_word_syntax(word, source, options)
         }
-        format_decl_operand(operand, formatter)?;
-        first = false;
+        DeclOperand::Name(name) => render_var_ref(name, source),
+        DeclOperand::Assignment(assignment) => render_assignment(assignment, source, options),
+    }
+}
+
+fn decl_operand_span(operand: &DeclOperand) -> Span {
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
+        DeclOperand::Name(name) => name.span,
+        DeclOperand::Assignment(assignment) => assignment.span,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CommandPiece {
+    span: Span,
+    rendered: String,
+}
+
+fn write_command_pieces(
+    pieces: &[CommandPiece],
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    let source = formatter.context().source();
+    let continuation = continuation_indent_prefix(formatter);
+
+    for (index, piece) in pieces.iter().enumerate() {
+        if index > 0 {
+            let previous = &pieces[index - 1];
+            if source
+                .get(previous.span.end.offset..piece.span.start.offset)
+                .is_some_and(|between| between.contains('\n'))
+            {
+                write!(
+                    formatter,
+                    [text(" \\"), hard_line_break(), text(continuation.clone())]
+                )?;
+            } else {
+                write!(formatter, [space()])?;
+            }
+        }
+        write!(formatter, [text(piece.rendered.clone())])?;
     }
 
     Ok(())
 }
 
-fn format_decl_operand(
-    operand: &DeclOperand,
-    formatter: &mut ShellFormatter<'_, '_>,
-) -> FormatResult<()> {
-    let source = formatter.context().source();
-    match operand {
-        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.format().fmt(formatter),
-        DeclOperand::Name(name) => write!(formatter, [text(render_var_ref(name, source))]),
-        DeclOperand::Assignment(assignment) => {
-            write!(
-                formatter,
-                [text(render_assignment(
-                    assignment,
-                    source,
-                    formatter.context().options(),
-                ))]
-            )
+fn continuation_indent_prefix(formatter: &ShellFormatter<'_, '_>) -> String {
+    match formatter.context().options().indent_style() {
+        shuck_format::IndentStyle::Tab => "\t".to_string(),
+        shuck_format::IndentStyle::Space => {
+            " ".repeat(usize::from(formatter.context().options().indent_width()))
         }
     }
 }

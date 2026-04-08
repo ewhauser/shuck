@@ -435,6 +435,74 @@ mod tests {
     }
 
     #[test]
+    fn formats_arithmetic_expansions_from_ruby_build() {
+        let source = "echo $(( ver[0]*100 + ver[1] ))\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted("echo $((ver[0] * 100 + ver[1]))\n".to_string())
+        );
+    }
+
+    #[test]
+    fn formats_arithmetic_expansions_from_pyenv_python_build() {
+        let source =
+            "for arg in \"${@:$(( $package_type_nargs + 1 ))}\"; do\n  echo \"$arg\"\ndone\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "for arg in \"${@:$((package_type_nargs + 1))}\"; do\n\techo \"$arg\"\ndone\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn preserves_backslash_continued_simple_commands_from_fzf_install() {
+        let source = "create_file \"$bind_file\" \\\n  'function fish_user_key_bindings' \\\n  '  fzf --fish | source' \\\n  'end'\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "create_file \"$bind_file\" \\\n\t'function fish_user_key_bindings' \\\n\t'  fzf --fish | source' \\\n\t'end'\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn preserves_backslash_continued_simple_commands_from_homebrew_install() {
+        let source = "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n    \"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "\"$1\" --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt -rrubygems -e \\\n\t\"abort if Gem::Version.new(RUBY_VERSION) < \\\n              Gem::Version.new('${REQUIRED_RUBY_VERSION}')\" 2>/dev/null\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn preserves_leading_redirect_placement_in_nvm_err_helpers() {
+        let source = "nvm_err() {\n  >&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n  >&2 nvm_echo_with_colors \"$@\"\n}\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "nvm_err() {\n\t>&2 nvm_echo \"$@\"\n}\n\nnvm_err_with_colors() {\n\t>&2 nvm_echo_with_colors \"$@\"\n}\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn preserves_inline_negated_subshell_conditions() {
         let source = "if ! (try_curl \"$url\" || try_wget \"$url\"); then\n\treturn 1\nfi\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
