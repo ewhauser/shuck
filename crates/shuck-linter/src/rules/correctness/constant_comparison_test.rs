@@ -1,3 +1,5 @@
+use shuck_ast::Span;
+
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, SimpleTestOperatorFamily,
     SimpleTestShape, Violation,
@@ -20,11 +22,17 @@ pub fn constant_comparison_test(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter(|fact| {
-            fact.simple_test().is_some_and(simple_test_is_constant)
-                || fact.conditional().is_some_and(conditional_is_constant)
+        .filter_map(|fact| {
+            if let Some(simple_test) = fact.simple_test()
+                && simple_test_is_constant(simple_test)
+            {
+                return Some(simple_test_report_span(simple_test, fact.span()));
+            }
+
+            fact.conditional()
+                .is_some_and(conditional_is_constant)
+                .then_some(fact.span())
         })
-        .map(|fact| fact.span())
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || ConstantComparisonTest);
@@ -45,6 +53,15 @@ fn simple_test_is_constant(fact: &crate::SimpleTestFact<'_>) -> bool {
                 })
         }
         SimpleTestShape::Empty | SimpleTestShape::Truthy | SimpleTestShape::Other => false,
+    }
+}
+
+fn simple_test_report_span(fact: &crate::SimpleTestFact<'_>, fallback: Span) -> Span {
+    match fact.shape() {
+        SimpleTestShape::Unary if fact.operator_family() == SimpleTestOperatorFamily::StringUnary => {
+            fact.operands().get(1).map(|word| word.span).unwrap_or(fallback)
+        }
+        _ => fallback,
     }
 }
 
@@ -107,5 +124,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![2, 3]
         );
+    }
+
+    #[test]
+    fn anchors_unary_simple_tests_on_the_operand() {
+        let source = "\
+#!/bin/bash
+[ -n TEMP_NVM_COLORS ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ConstantComparisonTest),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "TEMP_NVM_COLORS");
     }
 }
