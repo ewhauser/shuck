@@ -37,6 +37,7 @@ impl DeclarationKind {
 #[derive(Debug, Clone)]
 pub struct NormalizedDeclaration<'a> {
     pub kind: DeclarationKind,
+    pub readonly_flag: bool,
     pub span: Span,
     pub redirects: &'a [Redirect],
     pub assignments: &'a [Assignment],
@@ -81,7 +82,7 @@ impl<'a> NormalizedCommand<'a> {
 pub(crate) fn normalize_command<'a>(command: &'a Command, source: &str) -> NormalizedCommand<'a> {
     match command {
         Command::Simple(command) => normalize_simple_command(command, source),
-        Command::Decl(command) => normalize_decl_command(command),
+        Command::Decl(command) => normalize_decl_command(command, source),
         Command::Builtin(command) => {
             let name = builtin_name(command).to_owned();
             NormalizedCommand {
@@ -158,7 +159,7 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
     normalized
 }
 
-fn normalize_decl_command<'a>(command: &'a DeclClause) -> NormalizedCommand<'a> {
+fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> NormalizedCommand<'a> {
     let raw_kind = command.variant.as_ref().to_owned();
     let assignment_operands = command
         .operands
@@ -177,6 +178,7 @@ fn normalize_decl_command<'a>(command: &'a DeclClause) -> NormalizedCommand<'a> 
         body_words: Vec::new(),
         declaration: Some(NormalizedDeclaration {
             kind: declaration_kind(raw_kind),
+            readonly_flag: declaration_has_readonly_flag(command, source),
             span: command.span,
             redirects: &[],
             assignments: &command.assignments,
@@ -194,6 +196,21 @@ fn declaration_kind(raw_kind: String) -> DeclarationKind {
         "typeset" => DeclarationKind::Typeset,
         _ => DeclarationKind::Other(raw_kind),
     }
+}
+
+fn declaration_has_readonly_flag(command: &DeclClause, source: &str) -> bool {
+    matches!(
+        command.variant.as_ref(),
+        "local" | "declare" | "typeset"
+    ) && command.operands.iter().any(|operand| {
+            let DeclOperand::Flag(word) = operand else {
+                return false;
+            };
+
+            static_word_text(word, source).is_some_and(|text| {
+                text.starts_with('-') && text.contains('r')
+            })
+        })
 }
 
 fn empty_normalized_command<'a>(span: Span) -> NormalizedCommand<'a> {
@@ -575,31 +592,51 @@ mod tests {
     #[test]
     fn normalize_command_collects_declaration_kinds_and_assignments() {
         let cases = [
-            ("export foo=$(date)\n", DeclarationKind::Export, vec!["foo"]),
-            ("local foo=$(date)\n", DeclarationKind::Local, vec!["foo"]),
+            (
+                "export foo=$(date)\n",
+                DeclarationKind::Export,
+                vec!["foo"],
+                false,
+            ),
+            (
+                "local foo=$(date)\n",
+                DeclarationKind::Local,
+                vec!["foo"],
+                false,
+            ),
             (
                 "declare -r foo=$(date) bar\n",
                 DeclarationKind::Declare,
                 vec!["foo"],
+                true,
             ),
             (
                 "typeset foo=$(date) bar=$(pwd)\n",
                 DeclarationKind::Typeset,
                 vec!["foo", "bar"],
+                false,
             ),
             (
                 "readonly foo=$(date)\n",
                 DeclarationKind::Other("readonly".to_owned()),
                 vec!["foo"],
+                false,
+            ),
+            (
+                "local -r foo=$(date)\n",
+                DeclarationKind::Local,
+                vec!["foo"],
+                true,
             ),
         ];
 
-        for (source, kind, assignment_names) in cases {
+        for (source, kind, assignment_names, readonly) in cases {
             let command = parse_first_command(source);
             let normalized = normalize_command(&command, source);
             let declaration = normalized.declaration.expect("expected declaration");
 
             assert_eq!(declaration.kind, kind);
+            assert_eq!(declaration.readonly_flag, readonly);
             assert_eq!(
                 declaration
                     .assignment_operands

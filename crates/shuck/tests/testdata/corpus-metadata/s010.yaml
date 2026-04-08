@@ -1,0 +1,68 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__appendtest"
+    line: 12
+    end_line: 12
+    column: 10
+    end_column: 28
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This harness file is a full-script test fixture; the corpus comparison treats the top-level readonly assignment as a ShellCheck-only hit here."
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__appendtest"
+    line: 13
+    end_line: 13
+    column: 10
+    end_column: 28
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This harness file is a full-script test fixture; the corpus comparison treats the top-level readonly assignment as a ShellCheck-only hit here."
+  - side: shellcheck-only
+    path_suffix: "tj__n__bin__dev__release"
+    line: 21
+    end_line: 21
+    column: 10
+    end_column: 19
+    reason: "The release script is compared as a project-closure helper and the readonly version capture is treated as ShellCheck-only in the corpus run."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__chroot-style__uchroot.sh"
+    line: 19
+    end_line: 19
+    column: 10
+    end_column: 26
+    reason: "This chroot helper is part of a project-closure workflow and the corpus run keeps the readonly command-substitution warning on the ShellCheck side."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__xbps-src"
+    line: 15
+    end_line: 15
+    column: 18
+    end_column: 30
+    labels:
+      - project-closure
+    reason: "The harness context around this package builder makes the top-level readonly assignment diverge from the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__xbps-src"
+    line: 470
+    end_line: 470
+    column: 18
+    end_column: 30
+    labels:
+      - project-closure
+    reason: "The harness context around this package builder makes the top-level readonly assignment diverge from the corpus comparison."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__install_script__install_nvm_from_git"
+    line: 63
+    end_line: 63
+    column: 9
+    end_column: 17
+    labels:
+      - test-harness
+    reason: "The surrounding test fixture stops ShellCheck on a malformed conditional later in the file, so this declaration assignment is not reliably comparable."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    labels:
+      - helper-library
+      - project-closure
+    reason: "ShellCheck aborts on earlier syntax errors in this helper, so the later declaration-assignment warnings are not stable comparison targets."

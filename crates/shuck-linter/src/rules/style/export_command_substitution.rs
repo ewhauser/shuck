@@ -24,7 +24,9 @@ pub fn export_command_substitution(checker: &mut Checker) {
         .facts()
         .structural_commands()
         .filter_map(|fact| fact.declaration())
-        .filter(|declaration| matches_s010_declaration_kind(&declaration.kind))
+        .filter(|declaration| {
+            matches_s010_declaration_kind(&declaration.kind) && !declaration.readonly_flag
+        })
         .flat_map(|declaration| declaration.assignment_operands.iter().copied())
         .filter_map(|assignment| {
             let AssignmentValue::Scalar(word) = &assignment.value else {
@@ -90,4 +92,63 @@ demo() {
             vec!["greeting", "temp", "keep_me"]
         );
     }
+
+    #[test]
+    fn ignores_readonly_declaration_assignments() {
+        let source = "\
+#!/bin/bash
+demo() {
+  local -r temp=\"$(date)\"
+  declare -r other=$(date)
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_top_level_readonly_declaration_assignments() {
+        let source = "\
+#!/bin/bash
+readonly temp=\"$(mktemp)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["temp"]
+        );
+    }
+
+    #[test]
+    fn reports_top_level_readonly_variants_from_corpus() {
+        let source = "\
+#!/bin/bash
+readonly archive_dir_create=\"$(mktemp -dt archive_dir_create.XXXXXX)\"
+readonly n_version=\"$(./bin/n --version)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["archive_dir_create", "n_version"]
+        );
+    }
+
 }
