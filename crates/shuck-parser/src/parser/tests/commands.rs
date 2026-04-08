@@ -636,6 +636,44 @@ fn test_zsh_paren_anonymous_function_command_keeps_invocation_args() {
 }
 
 #[test]
+fn test_zsh_top_level_anonymous_function_can_wrap_compact_helper_functions() {
+    let input = "() {\n  local _sublime_linux_paths\n  _sublime_linux_paths=(\"$HOME/bin/sublime_merge\")\n  for _sublime_merge_path in $_sublime_linux_paths; do\n    if [[ -a $_sublime_merge_path ]]; then\n      sm_run() { $_sublime_merge_path \"$@\" >/dev/null 2>&1 &| }\n      ssm_run_sudo() {sudo $_sublime_merge_path \"$@\" >/dev/null 2>&1}\n      alias ssm=ssm_run_sudo\n      alias sm=sm_run\n      break\n    fi\n  done\n}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_anonymous_function(&script.body[0]);
+    assert!(!function.uses_function_keyword());
+    assert!(function.args.is_empty());
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group anonymous function body");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 3);
+
+    let AstCommand::Compound(AstCompoundCommand::For(command)) = &body[2].command else {
+        panic!("expected for loop in anonymous function body");
+    };
+    assert_eq!(command.body.len(), 1);
+
+    let AstCommand::Compound(AstCompoundCommand::If(command)) = &command.body[0].command else {
+        panic!("expected if statement in for loop body");
+    };
+    assert_eq!(command.then_branch.len(), 5);
+    assert!(matches!(command.then_branch[0].command, AstCommand::Function(_)));
+    assert!(matches!(command.then_branch[1].command, AstCommand::Function(_)));
+    assert!(matches!(command.then_branch[2].command, AstCommand::Simple(_)));
+    assert!(matches!(command.then_branch[3].command, AstCommand::Simple(_)));
+    assert!(matches!(
+        command.then_branch[4].command,
+        AstCommand::Builtin(AstBuiltinCommand::Break(_))
+    ));
+}
+
+#[test]
 fn test_zsh_function_keyword_accepts_punctuated_literal_names() {
     let input = "function cfh.() { :; }\nfunction cfh~() { :; }\n";
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
@@ -2015,6 +2053,53 @@ fn test_parse_zsh_top_level_anonymous_function_after_and_list_block() {
     Parser::with_dialect(input, ShellDialect::Zsh)
         .parse()
         .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_anonymous_eval_callback_inside_worker_loop_with_always_followthrough() {
+    let input = "{\n  while zselect -a ready 0 ${(k)_p9k_worker_fds}; do\n    [[ $ready[1] == -r ]] || return\n    for req in ${(ps:\\x1e:)buf}; do\n      _p9k_worker_request_id=${req%%$'\\x1f'*}\n      () { eval $req[$#_p9k_worker_request_id+2,-1] }\n      (( $+_p9k_worker_inflight[$_p9k_worker_request_id] )) && continue\n      print -rn -- d$_p9k_worker_request_id$'\\x1e' || return\n    done\n  done\n} always {\n  kill -- -$_p9k_worker_pgid\n}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Always(command) = compound else {
+        panic!("expected always command");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(command.body.len(), 1);
+    assert_eq!(command.always_body.len(), 1);
+
+    let AstCommand::Compound(AstCompoundCommand::While(while_command)) = &command.body[0].command
+    else {
+        panic!("expected while loop in always body");
+    };
+    assert_eq!(while_command.body.len(), 2);
+
+    let AstCommand::Compound(AstCompoundCommand::For(for_command)) = &while_command.body[1].command
+    else {
+        panic!("expected for loop in while body");
+    };
+    assert_eq!(for_command.body.len(), 4);
+
+    let callback = expect_anonymous_function(&for_command.body[1]);
+    assert!(!callback.uses_function_keyword());
+    assert!(callback.args.is_empty());
+
+    let (callback_compound, callback_redirects) = expect_compound(callback.body.as_ref());
+    let AstCompoundCommand::BraceGroup(callback_body) = callback_compound else {
+        panic!("expected brace-group callback body");
+    };
+    assert!(callback_redirects.is_empty());
+    assert_eq!(callback_body.len(), 1);
+
+    let AstCommand::Simple(command) = &callback_body[0].command else {
+        panic!("expected eval body");
+    };
+    assert_eq!(command.name.render(input), "eval");
+    assert_eq!(command.args.len(), 1);
+    assert_eq!(command.args[0].render(input), "$req[$#_p9k_worker_request_id+2,-1]");
 }
 
 #[test]

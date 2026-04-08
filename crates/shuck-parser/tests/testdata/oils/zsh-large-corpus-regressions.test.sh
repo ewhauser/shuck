@@ -942,14 +942,21 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__sublime-merge__sublime-merge.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__sublime-merge__sublime-merge.plugin.zsh
-# parser gap: parse error: expected compound command for function body
+# surface: top-level anonymous paren function with nested compact helpers
 
-		for _sublime_merge_path in $_sublime_linux_paths; do
-			if [[ -a $_sublime_merge_path ]]; then
-				sm_run() { $_sublime_merge_path "$@" >/dev/null 2>&1 &| }
-				ssm_run_sudo() {sudo $_sublime_merge_path "$@" >/dev/null 2>&1}
-				alias ssm=ssm_run_sudo
-				alias sm=sm_run
+() {
+	local _sublime_linux_paths
+	_sublime_linux_paths=("$HOME/bin/sublime_merge")
+	for _sublime_merge_path in $_sublime_linux_paths; do
+		if [[ -a $_sublime_merge_path ]]; then
+			sm_run() { $_sublime_merge_path "$@" >/dev/null 2>&1 &| }
+			ssm_run_sudo() {sudo $_sublime_merge_path "$@" >/dev/null 2>&1}
+			alias ssm=ssm_run_sudo
+			alias sm=sm_run
+			break
+		fi
+	done
+}
 
 #### ohmyzsh__ohmyzsh__plugins__term_tab__term_tab.plugin.zsh
 
@@ -2472,32 +2479,21 @@ function p9k_configure() {
 #### romkatv__powerlevel10k__internal__worker.zsh
 
 # source: romkatv__powerlevel10k__internal__worker.zsh
-# parser gap: parse error at line 48, column 11: expected command
+# surface: anonymous eval callback inside loop body with always follow-through
 
-  {
-    while zselect -a ready 0 ${(k)_p9k_worker_fds}; do
-      [[ $ready[1] == -r ]] || return
-      for fd in ${ready:1}; do
-        if [[ $fd == 0 ]]; then
-          local buf=
-          [[ -t 0 ]]  # https://www.zsh.org/mla/workers/2020/msg00207.html
-          if sysread -t 0 'buf[$#buf+1]'; then
-            while [[ $buf != *$'\x1e' ]]; do
-              sysread 'buf[$#buf+1]' || return
-            done
-          else
-            (( $? == 4 )) || return
-          fi
-          for req in ${(ps:\x1e:)buf}; do
-            _p9k_worker_request_id=${req%%$'\x1f'*}
-            () { eval $req[$#_p9k_worker_request_id+2,-1] }
-            (( $+_p9k_worker_inflight[$_p9k_worker_request_id] )) && continue
-            print -rn -- d$_p9k_worker_request_id$'\x1e' || return
-          done
-        else
-          local REPLY=
-          while true; do
-            if sysread -i $fd 'REPLY[$#REPLY+1]'; then
+{
+  while zselect -a ready 0 ${(k)_p9k_worker_fds}; do
+    [[ $ready[1] == -r ]] || return
+    for req in ${(ps:\x1e:)buf}; do
+      _p9k_worker_request_id=${req%%$'\x1f'*}
+      () { eval $req[$#_p9k_worker_request_id+2,-1] }
+      (( $+_p9k_worker_inflight[$_p9k_worker_request_id] )) && continue
+      print -rn -- d$_p9k_worker_request_id$'\x1e' || return
+    done
+  done
+} always {
+  kill -- -$_p9k_worker_pgid
+}
 
 #### zsh-users__zsh-autosuggestions__src__bind.zsh
 

@@ -411,9 +411,17 @@
     "expectation": "parse_ok",
     "reason": "zsh multi-name function keyword headers with trailing parens now parse in zsh mode"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__sublime-merge__sublime-merge.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh top-level anonymous paren function wrappers now parse in zsh mode"
+  },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__virtualenvwrapper__virtualenvwrapper.plugin.zsh": {
     "expectation": "parse_ok",
     "reason": "zsh anonymous function commands now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__internal__worker.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh anonymous paren eval callbacks now parse in loop bodies"
   },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__autoenv__autoenv.plugin.zsh": {
     "expectation": "parse_ok",
