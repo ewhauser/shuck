@@ -632,6 +632,15 @@ impl<'a> GraphBuilder<'a> {
                             .push((head, EdgeKind::CaseContinue));
                     }
                 }
+                CaseTerminator::ContinueMatching => {
+                    fallthrough_from = arm_seq.exits.clone();
+                    for block in &fallthrough_from {
+                        self.successors
+                            .entry(*block)
+                            .or_default()
+                            .push((head, EdgeKind::CaseContinue));
+                    }
+                }
             }
         }
 

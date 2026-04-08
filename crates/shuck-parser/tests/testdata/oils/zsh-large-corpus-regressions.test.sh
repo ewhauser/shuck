@@ -2120,6 +2120,46 @@ for 1 2 3; do
   print -r -- "$1|$2|$3"
 done
 
+#### minimization__zsh_case_suffix_group
+
+case "$mode" in
+  plugin::(disable|enable|load))
+    print -r -- "$mode"
+    ;;
+esac
+
+#### minimization__zsh_case_numeric_range
+
+case "$jobspec" in
+  <->)
+    print -r -- "$jobspec"
+    ;;
+esac
+
+#### minimization__zsh_case_wrapper_alternatives
+
+case $line in
+  (#* | <->..<->)
+    print -nP %F{blue}
+    ;;
+esac
+
+#### minimization__zsh_case_group_suffix
+
+case "$OSTYPE" in
+  (darwin|freebsd)*)
+    print -r -- "$OSTYPE"
+    ;;
+esac
+
+#### minimization__zsh_case_semipipe
+
+case $2 in
+  cygwin_nt-10.0-i686)   bin='cygwin32/bin'  ;|
+  cygwin_nt-10.0-x86_64) bin='cygwin64/bin'  ;|
+  *)                     print -r -- "${bin:-fallback}" ;;
+esac
+
 #### ohmyzsh__ohmyzsh__tools__upgrade.sh
 
 # source: ohmyzsh__ohmyzsh__tools__upgrade.sh

@@ -11,6 +11,33 @@ enum ForHeaderSurface {
     },
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ZshCaseScanState {
+    position: Position,
+    paren_depth: usize,
+    bracket_depth: usize,
+    brace_depth: usize,
+    in_single: bool,
+    in_double: bool,
+    in_backtick: bool,
+    escaped: bool,
+}
+
+impl ZshCaseScanState {
+    fn new(position: Position) -> Self {
+        Self {
+            position,
+            paren_depth: 0,
+            bracket_depth: 0,
+            brace_depth: 0,
+            in_single: false,
+            in_double: false,
+            in_backtick: false,
+            escaped: false,
+        }
+    }
+}
+
 impl<'a> Parser<'a> {
     fn apply_simple_command_effects(&mut self, command: &SimpleCommand) {
         let Some(name) = self.literal_word_text(&command.name) else {
@@ -100,6 +127,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::Pipe
                 | TokenKind::DoubleSemicolon
                 | TokenKind::SemiAmp
+                | TokenKind::SemiPipe
                 | TokenKind::DoubleSemiAmp
         )
     }
@@ -1717,33 +1745,13 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            // Parse patterns (pattern1 | pattern2 | ...)
-            // Optional leading (
-            if self.at(TokenKind::LeftParen) {
-                self.advance();
-            }
-
-            let mut patterns = Vec::new();
-            while self.at_word_like() {
-                if let Some(word) = self.current_word() {
-                    self.advance_past_word(&word);
-                    patterns.push(self.pattern_from_word(&word));
+            let patterns = match self.parse_case_patterns() {
+                Ok(patterns) => patterns,
+                Err(err) => {
+                    self.pop_depth();
+                    return Err(err);
                 }
-
-                // Check for | between patterns
-                if self.at(TokenKind::Pipe) {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-
-            // Expect )
-            if !self.at(TokenKind::RightParen) {
-                self.pop_depth();
-                return Err(self.error("expected ')' after case pattern"));
-            }
-            self.advance();
+            };
             self.skip_newlines()?;
 
             // Parse commands until ;; or esac
@@ -1776,6 +1784,386 @@ impl<'a> Parser<'a> {
             cases,
             span: start_span.merge(self.current_span),
         }))
+    }
+
+    fn parse_case_patterns(&mut self) -> Result<Vec<Pattern>> {
+        if self.dialect == ShellDialect::Zsh {
+            self.parse_zsh_case_patterns()
+        } else {
+            self.parse_posix_case_patterns()
+        }
+    }
+
+    fn parse_posix_case_patterns(&mut self) -> Result<Vec<Pattern>> {
+        if self.at(TokenKind::LeftParen) {
+            self.advance();
+        }
+
+        let mut patterns = Vec::new();
+        while self.at_word_like() {
+            if let Some(word) = self.current_word() {
+                self.advance_past_word(&word);
+                patterns.push(self.pattern_from_word(&word));
+            }
+
+            if self.at(TokenKind::Pipe) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        if !self.at(TokenKind::RightParen) {
+            return Err(self.error("expected ')' after case pattern"));
+        }
+        self.advance();
+
+        Ok(patterns)
+    }
+
+    fn parse_zsh_case_patterns(&mut self) -> Result<Vec<Pattern>> {
+        let (pattern_spans, delimiter_span) = self.scan_zsh_case_pattern_spans()?;
+        let patterns = pattern_spans
+            .into_iter()
+            .map(|span| self.pattern_from_zsh_case_span(span))
+            .collect::<Vec<_>>();
+
+        while self.current_token.is_some()
+            && self.current_span.start.offset < delimiter_span.end.offset
+        {
+            self.advance();
+        }
+
+        Ok(patterns)
+    }
+
+    fn scan_zsh_case_pattern_spans(&self) -> Result<(Vec<Span>, Span)> {
+        let start = self.current_span.start;
+        let Some((spans, delimiter_span)) = self.try_scan_zsh_case_pattern_spans(start) else {
+            return Err(self.error("expected ')' after case pattern"));
+        };
+        if spans.is_empty() {
+            return Err(self.error("expected ')' after case pattern"));
+        }
+        Ok((spans, delimiter_span))
+    }
+
+    fn try_scan_zsh_case_pattern_spans(&self, start: Position) -> Option<(Vec<Span>, Span)> {
+        if self.input[start.offset..].starts_with('(')
+            && let Some(wrapper_close) = self.scan_zsh_case_group_close(start)
+            && self.case_wrapper_close_is_arm_delimiter(wrapper_close)
+        {
+            let inner_start = start.advanced_by("(");
+            let inner_span = Span::from_positions(inner_start, wrapper_close.start);
+            let patterns = self.split_zsh_case_pattern_alternatives(inner_span)?;
+            return Some((patterns, wrapper_close));
+        }
+
+        let delimiter_span = self.scan_zsh_case_arm_delimiter(start)?;
+        let header_span = Span::from_positions(start, delimiter_span.start);
+        let patterns = self.split_zsh_case_pattern_alternatives(header_span)?;
+        Some((patterns, delimiter_span))
+    }
+
+    fn case_wrapper_close_is_arm_delimiter(&self, close_span: Span) -> bool {
+        let rest = &self.input[close_span.end.offset..];
+        let same_line = rest.find('\n').map_or(rest, |index| &rest[..index]);
+        same_line.trim().is_empty()
+    }
+
+    fn split_zsh_case_pattern_alternatives(&self, span: Span) -> Option<Vec<Span>> {
+        let mut state = ZshCaseScanState::new(span.start);
+        let mut chars = self.input[span.start.offset..span.end.offset]
+            .chars()
+            .peekable();
+        let mut part_start = span.start;
+        let mut parts = Vec::new();
+
+        while let Some(ch) = chars.peek().copied() {
+            if state.escaped {
+                state.escaped = false;
+                Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                continue;
+            }
+
+            match ch {
+                '\\' if !state.in_single => {
+                    state.escaped = true;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '\'' if !state.in_double && !state.in_backtick => {
+                    state.in_single = !state.in_single;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '"' if !state.in_single && !state.in_backtick => {
+                    state.in_double = !state.in_double;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '`' if !state.in_single && !state.in_double => {
+                    state.in_backtick = !state.in_backtick;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '[' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0 =>
+                {
+                    state.bracket_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '[' if !state.in_single && !state.in_double && !state.in_backtick => {
+                    state.bracket_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                ']' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth > 0 =>
+                {
+                    state.bracket_depth -= 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '{' if !state.in_single && !state.in_double && !state.in_backtick => {
+                    state.brace_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '}' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.brace_depth > 0 =>
+                {
+                    state.brace_depth -= 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '(' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0
+                    && state.brace_depth == 0 =>
+                {
+                    state.paren_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                ')' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0
+                    && state.brace_depth == 0
+                    && state.paren_depth > 0 =>
+                {
+                    state.paren_depth -= 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '|' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0
+                    && state.brace_depth == 0
+                    && state.paren_depth == 0 =>
+                {
+                    let end = state.position;
+                    let _ = Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                    parts.push(
+                        self.trim_zsh_case_pattern_span(Span::from_positions(part_start, end))?,
+                    );
+                    part_start = state.position;
+                }
+                _ => {
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+            }
+        }
+
+        parts.push(
+            self.trim_zsh_case_pattern_span(Span::from_positions(part_start, state.position))?,
+        );
+        Some(parts)
+    }
+
+    fn trim_zsh_case_pattern_span(&self, span: Span) -> Option<Span> {
+        let text = span.slice(self.input);
+        let trimmed_start = text.len() - text.trim_start_matches(char::is_whitespace).len();
+        let trimmed_end = text.trim_end_matches(char::is_whitespace).len();
+        if trimmed_end <= trimmed_start {
+            return None;
+        }
+        let start = span.start.advanced_by(&text[..trimmed_start]);
+        let end = span.start.advanced_by(&text[..trimmed_end]);
+        Some(Span::from_positions(start, end))
+    }
+
+    fn scan_zsh_case_group_close(&self, start: Position) -> Option<Span> {
+        let mut state = ZshCaseScanState::new(start);
+        let mut chars = self.input[start.offset..].chars().peekable();
+
+        if Self::next_word_char_unwrap(&mut chars, &mut state.position) != '(' {
+            return None;
+        }
+        state.paren_depth = 1;
+
+        while let Some(ch) = chars.peek().copied() {
+            let ch_start = state.position;
+
+            if state.escaped {
+                state.escaped = false;
+                Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                continue;
+            }
+
+            match ch {
+                '\\' if !state.in_single => {
+                    state.escaped = true;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '\'' if !state.in_double && !state.in_backtick => {
+                    state.in_single = !state.in_single;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '"' if !state.in_single && !state.in_backtick => {
+                    state.in_double = !state.in_double;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '`' if !state.in_single && !state.in_double => {
+                    state.in_backtick = !state.in_backtick;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '[' if !state.in_single && !state.in_double && !state.in_backtick => {
+                    state.bracket_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                ']' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth > 0 =>
+                {
+                    state.bracket_depth -= 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '{' if !state.in_single && !state.in_double && !state.in_backtick => {
+                    state.brace_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '}' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.brace_depth > 0 =>
+                {
+                    state.brace_depth -= 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '(' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0
+                    && state.brace_depth == 0 =>
+                {
+                    state.paren_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                ')' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0
+                    && state.brace_depth == 0
+                    && state.paren_depth > 0 =>
+                {
+                    let _ = Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                    state.paren_depth -= 1;
+                    if state.paren_depth == 0 {
+                        return Some(Span::from_positions(ch_start, state.position));
+                    }
+                }
+                _ => {
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn scan_zsh_case_arm_delimiter(&self, start: Position) -> Option<Span> {
+        let mut state = ZshCaseScanState::new(start);
+        let mut chars = self.input[start.offset..].chars().peekable();
+
+        while let Some(ch) = chars.peek().copied() {
+            let ch_start = state.position;
+
+            if state.escaped {
+                state.escaped = false;
+                Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                continue;
+            }
+
+            match ch {
+                '\\' if !state.in_single => {
+                    state.escaped = true;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '\'' if !state.in_double && !state.in_backtick => {
+                    state.in_single = !state.in_single;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '"' if !state.in_single && !state.in_backtick => {
+                    state.in_double = !state.in_double;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '`' if !state.in_single && !state.in_double => {
+                    state.in_backtick = !state.in_backtick;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '[' if !state.in_single && !state.in_double && !state.in_backtick => {
+                    state.bracket_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                ']' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth > 0 =>
+                {
+                    state.bracket_depth -= 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '{' if !state.in_single && !state.in_double && !state.in_backtick => {
+                    state.brace_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '}' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.brace_depth > 0 =>
+                {
+                    state.brace_depth -= 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                '(' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0
+                    && state.brace_depth == 0 =>
+                {
+                    state.paren_depth += 1;
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+                ')' if !state.in_single
+                    && !state.in_double
+                    && !state.in_backtick
+                    && state.bracket_depth == 0
+                    && state.brace_depth == 0 =>
+                {
+                    let _ = Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                    if state.paren_depth == 0 {
+                        return Some(Span::from_positions(ch_start, state.position));
+                    }
+                    state.paren_depth -= 1;
+                }
+                _ => {
+                    Self::next_word_char_unwrap(&mut chars, &mut state.position);
+                }
+            }
+        }
+
+        None
     }
 
     /// Parse a time command: time [-p] [command]
@@ -1863,15 +2251,21 @@ impl<'a> Parser<'a> {
         matches!(
             self.current_token_kind,
             Some(TokenKind::DoubleSemicolon | TokenKind::SemiAmp | TokenKind::DoubleSemiAmp)
-        )
+        ) || (self.dialect == ShellDialect::Zsh
+            && self.current_token_kind == Some(TokenKind::SemiPipe))
     }
 
-    /// Parse case terminator: `;;` (break), `;&` (fallthrough), `;;&` (continue matching)
+    /// Parse case terminator: `;;` (break), `;&` (fallthrough),
+    /// `;;&` / `;|` (continue matching)
     fn parse_case_terminator(&mut self) -> CaseTerminator {
         match self.current_token_kind {
             Some(TokenKind::SemiAmp) => {
                 self.advance();
                 CaseTerminator::FallThrough
+            }
+            Some(TokenKind::SemiPipe) => {
+                self.advance();
+                CaseTerminator::ContinueMatching
             }
             Some(TokenKind::DoubleSemiAmp) => {
                 self.advance();

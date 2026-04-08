@@ -1291,6 +1291,168 @@ fn test_case_patterns_consume_segmented_tokens_directly() {
 }
 
 #[test]
+fn test_zsh_case_accepts_suffix_bare_group_pattern() {
+    let input = concat!(
+        "case \"$mode\" in\n",
+        "  plugin::(disable|enable|load)) print ok ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    let pattern = &command.cases[0].patterns[0];
+    assert_eq!(
+        pattern.render_syntax(input),
+        "plugin::(disable|enable|load)"
+    );
+    assert!(matches!(&pattern.parts[0].kind, PatternPart::Literal(_)));
+    let PatternPart::Group { kind, patterns } = &pattern.parts[1].kind else {
+        panic!("expected zsh bare group");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["disable", "enable", "load"]
+    );
+}
+
+#[test]
+fn test_zsh_case_accepts_numeric_range_pattern() {
+    let input = concat!("case \"$jobspec\" in\n", "  <->) print ok ;;\n", "esac\n",);
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(command.cases[0].patterns[0].render_syntax(input), "<->");
+}
+
+#[test]
+fn test_zsh_case_accepts_wrapper_alternatives_with_whitespace() {
+    let input = concat!(
+        "case $line in\n",
+        "  (#* | <->..<->)\n",
+        "    print -nP %F{blue}\n",
+        "    ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(
+        command.cases[0]
+            .patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["#*", "<->..<->"]
+    );
+}
+
+#[test]
+fn test_zsh_case_accepts_start_group_with_suffix() {
+    let input = concat!(
+        "case \"$OSTYPE\" in\n",
+        "  (darwin|freebsd)*) print ok ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    let pattern = &command.cases[0].patterns[0];
+    assert_eq!(pattern.render_syntax(input), "(darwin|freebsd)*");
+    assert!(matches!(
+        &pattern.parts[0].kind,
+        PatternPart::Group {
+            kind: PatternGroupKind::ExactlyOne,
+            ..
+        }
+    ));
+    assert!(matches!(&pattern.parts[1].kind, PatternPart::AnyString));
+}
+
+#[test]
+fn test_zsh_case_preserves_semipipe_terminator() {
+    let input = concat!(
+        "case $2 in\n",
+        "  cygwin_nt-10.0-i686) bin='cygwin32/bin' ;|\n",
+        "  *) print ok ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(
+        command.cases[0].terminator,
+        CaseTerminator::ContinueMatching
+    );
+}
+
+#[test]
+fn test_non_zsh_dialects_reject_zsh_case_group_and_semipipe_forms() {
+    let group_case = concat!(
+        "case \"$OSTYPE\" in\n",
+        "  (darwin|freebsd)*) print ok ;;\n",
+        "esac\n",
+    );
+    let semipipe_case = concat!(
+        "case $2 in\n",
+        "  cygwin*) bin='cygwin32/bin' ;|\n",
+        "  *) print ok ;;\n",
+        "esac\n",
+    );
+
+    for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
+        assert!(
+            Parser::with_dialect(group_case, dialect).parse().is_err(),
+            "expected {dialect:?} to reject zsh bare case groups",
+        );
+        assert!(
+            Parser::with_dialect(semipipe_case, dialect)
+                .parse()
+                .is_err(),
+            "expected {dialect:?} to reject zsh ;| case terminators",
+        );
+    }
+}
+
+#[test]
 fn test_parse_conditional_builds_structured_logical_ast() {
     let script = Parser::new("[[ ! (foo && bar) ]]\n").parse().unwrap().file;
 

@@ -1083,6 +1083,8 @@ pub enum CaseTerminator {
     FallThrough,
     /// `;;&` — continue checking remaining patterns
     Continue,
+    /// `;|` — continue scanning remaining patterns in zsh
+    ContinueMatching,
 }
 
 /// A single case item.
@@ -3919,6 +3921,10 @@ mod tests {
         assert_eq!(CaseTerminator::Break, CaseTerminator::Break);
         assert_eq!(CaseTerminator::FallThrough, CaseTerminator::FallThrough);
         assert_eq!(CaseTerminator::Continue, CaseTerminator::Continue);
+        assert_eq!(
+            CaseTerminator::ContinueMatching,
+            CaseTerminator::ContinueMatching
+        );
         assert_ne!(CaseTerminator::Break, CaseTerminator::FallThrough);
     }
 

@@ -11,6 +11,7 @@ pub enum TokenKind {
     DoubleSemicolon,
     SemiAmp,
     DoubleSemiAmp,
+    SemiPipe,
     Pipe,
     PipeBoth,
     And,

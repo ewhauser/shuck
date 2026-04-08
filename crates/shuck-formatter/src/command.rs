@@ -2562,6 +2562,7 @@ fn case_terminator(terminator: CaseTerminator) -> &'static str {
         CaseTerminator::Break => ";;",
         CaseTerminator::FallThrough => ";&",
         CaseTerminator::Continue => ";;&",
+        CaseTerminator::ContinueMatching => ";|",
     }
 }
 

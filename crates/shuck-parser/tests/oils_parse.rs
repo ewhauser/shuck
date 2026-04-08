@@ -354,6 +354,13 @@ fn expectation_for(
     file_path: &str,
     case_name: &str,
 ) -> Expectation {
+    if ZSH_DEFAULT_PARSE_ERR_FILES.contains(&file_path) {
+        return expectations
+            .get(file_path)
+            .map(|entry| entry.expectation)
+            .unwrap_or(Expectation::Skip);
+    }
+
     let case_key = format!("{file_path}::{case_name}");
     expectations
         .get(&case_key)

@@ -11,10 +11,17 @@ enum PatternSegment<'a> {
     Word(&'a WordPartNode),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PatternParseMode {
+    Standard,
+    ZshCase,
+}
+
 struct PatternParser<'a> {
     input: &'a str,
     segments: Vec<PatternSegment<'a>>,
     full_span: Span,
+    mode: PatternParseMode,
 }
 
 enum WordTargetBoundary {
@@ -31,10 +38,23 @@ struct ParsedWordTarget {
 
 impl<'a> PatternParser<'a> {
     fn new(input: &'a str, word: &'a Word) -> Self {
-        Self::from_word_parts(input, &word.parts, word.span)
+        Self::from_word_parts_with_mode(input, &word.parts, word.span, PatternParseMode::Standard)
     }
 
     fn from_word_parts(input: &'a str, parts: &'a [WordPartNode], full_span: Span) -> Self {
+        Self::from_word_parts_with_mode(input, parts, full_span, PatternParseMode::Standard)
+    }
+
+    fn with_mode(input: &'a str, word: &'a Word, mode: PatternParseMode) -> Self {
+        Self::from_word_parts_with_mode(input, &word.parts, word.span, mode)
+    }
+
+    fn from_word_parts_with_mode(
+        input: &'a str,
+        parts: &'a [WordPartNode],
+        full_span: Span,
+        mode: PatternParseMode,
+    ) -> Self {
         let mut segments = Vec::with_capacity(parts.len());
 
         for part in parts {
@@ -51,6 +71,7 @@ impl<'a> PatternParser<'a> {
             input,
             segments,
             full_span,
+            mode,
         }
     }
 
@@ -112,6 +133,18 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
+                    if let Some((group, next_cursor)) = self.try_parse_zsh_case_group(*cursor) {
+                        self.flush_literal(
+                            &mut parts,
+                            &mut literal,
+                            &mut literal_start,
+                            literal_end,
+                        );
+                        parts.push(group);
+                        *cursor = next_cursor;
+                        continue;
+                    }
+
                     if let Some((char_class, next_cursor)) = self.try_parse_char_class(*cursor) {
                         self.flush_literal(
                             &mut parts,
@@ -157,6 +190,53 @@ impl<'a> PatternParser<'a> {
                 Span::from_positions(start, cursor.position)
             },
             parts,
+        }
+    }
+
+    fn try_parse_zsh_case_group(
+        &self,
+        cursor: PatternCursor,
+    ) -> Option<(PatternPartNode, PatternCursor)> {
+        if self.mode != PatternParseMode::ZshCase {
+            return None;
+        }
+
+        let opener = self.peek_literal_char(cursor)?;
+        if self.is_escaped(cursor) || opener != '(' {
+            return None;
+        }
+
+        let start = cursor.position;
+        let mut next_cursor = cursor;
+        self.consume_literal_char(&mut next_cursor)?;
+
+        let mut patterns = vec![self.parse_until(&mut next_cursor, true)];
+        if self.peek_group_delimiter(next_cursor) != Some('|') {
+            return None;
+        }
+
+        loop {
+            if self.peek_group_delimiter(next_cursor) == Some('|') {
+                self.consume_literal_char(&mut next_cursor)?;
+                patterns.push(self.parse_until(&mut next_cursor, true));
+                continue;
+            }
+
+            if self.peek_group_delimiter(next_cursor) == Some(')') {
+                let (_, close_span) = self.consume_literal_char(&mut next_cursor)?;
+                return Some((
+                    PatternPartNode::new(
+                        PatternPart::Group {
+                            kind: PatternGroupKind::ExactlyOne,
+                            patterns,
+                        },
+                        Span::from_positions(start, close_span.end),
+                    ),
+                    next_cursor,
+                ));
+            }
+
+            return None;
         }
     }
 
@@ -417,6 +497,16 @@ impl<'a> PatternParser<'a> {
 impl<'a> Parser<'a> {
     pub(super) fn pattern_from_word(&self, word: &Word) -> Pattern {
         PatternParser::new(self.input, word).parse()
+    }
+
+    pub(super) fn pattern_from_zsh_case_span(&mut self, span: Span) -> Pattern {
+        let text = span.slice(self.input);
+        let word = if Self::source_text_needs_quote_preserving_decode(text) {
+            self.decode_fragment_word_text(text, span, span.start, true)
+        } else {
+            self.decode_word_text(text, span, span.start, true)
+        };
+        PatternParser::with_mode(self.input, &word, PatternParseMode::ZshCase).parse()
     }
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {

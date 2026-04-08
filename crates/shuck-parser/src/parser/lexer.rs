@@ -878,6 +878,9 @@ impl<'a> Lexer<'a> {
                         self.consume_ascii_chars(2);
                         Some(LexedToken::punctuation(TokenKind::DoubleSemicolon)) // ;;
                     }
+                } else if self.second_char() == Some('|') {
+                    self.consume_ascii_chars(2);
+                    Some(LexedToken::punctuation(TokenKind::SemiPipe)) // ;|
                 } else if self.second_char() == Some('&') {
                     self.consume_ascii_chars(2);
                     Some(LexedToken::punctuation(TokenKind::SemiAmp)) // ;&
@@ -3725,6 +3728,24 @@ EOF
             .collect::<Vec<_>>();
         assert!(tokens.contains(&(TokenKind::DoubleSemicolon, None)));
         assert!(tokens.contains(&(TokenKind::Word, Some("esac".to_string()))));
+    }
+
+    #[test]
+    fn test_case_arm_with_zsh_semipipe_terminator_lexes_as_single_token() {
+        let input = concat!(
+            "case $2 in\n",
+            "  cygwin*) bin='cygwin32/bin' ;|\n",
+            "esac\n",
+        );
+
+        let mut lexer = Lexer::new(input);
+        let tokens = std::iter::from_fn(|| lexer.next_lexed_token())
+            .map(|token| (token.kind, token_text(&token, input)))
+            .collect::<Vec<_>>();
+
+        assert!(tokens.contains(&(TokenKind::SemiPipe, None)));
+        assert!(!tokens.contains(&(TokenKind::Semicolon, None)));
+        assert!(!tokens.contains(&(TokenKind::Pipe, None)));
     }
 
     #[test]
