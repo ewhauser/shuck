@@ -93,9 +93,9 @@ enum WordVisitKind {
     Conditional,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct DeferredFunction {
-    function: FunctionDef,
+    function: *const FunctionDef,
     scope: ScopeId,
     flow: FlowState,
 }
@@ -190,10 +190,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn visit_stmt_seq(&mut self, commands: &StmtSeq, flow: FlowState) -> Vec<RecordedCommand> {
-        commands
-            .iter()
-            .map(|stmt| self.visit_stmt(stmt, flow))
-            .collect()
+        let mut recorded = Vec::with_capacity(commands.len());
+        self.visit_stmt_seq_into(commands, flow, &mut recorded);
+        recorded
+    }
+
+    fn visit_stmt_seq_into(
+        &mut self,
+        commands: &StmtSeq,
+        flow: FlowState,
+        recorded: &mut Vec<RecordedCommand>,
+    ) {
+        recorded.reserve(commands.len());
+        for stmt in commands.iter() {
+            recorded.push(self.visit_stmt(stmt, flow));
+        }
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt, flow: FlowState) -> RecordedCommand {
@@ -235,11 +246,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let mut nested_regions = Vec::new();
         let command_has_name = simple_command_has_name(command, self.source);
         for assignment in &command.assignments {
-            nested_regions.extend(if command_has_name {
-                self.visit_assignment_value(assignment, flow)
+            if command_has_name {
+                self.visit_assignment_value_into(assignment, flow, &mut nested_regions);
             } else {
-                self.visit_assignment(assignment, None, BindingAttributes::empty(), flow)
-            });
+                self.visit_assignment_into(
+                    assignment,
+                    None,
+                    BindingAttributes::empty(),
+                    flow,
+                    &mut nested_regions,
+                );
+            }
         }
 
         self.visit_word_into(
@@ -341,12 +358,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
         for assignment in assignments {
-            nested_regions.extend(self.visit_assignment(
+            self.visit_assignment_into(
                 assignment,
                 None,
                 BindingAttributes::empty(),
                 flow,
-            ));
+                &mut nested_regions,
+            );
         }
         if let Some(word) = primary_word {
             self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
@@ -363,12 +381,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     fn visit_decl(&mut self, command: &shuck_ast::DeclClause, flow: FlowState) -> RecordedCommand {
         let mut nested_regions = Vec::new();
         for assignment in &command.assignments {
-            nested_regions.extend(self.visit_assignment(
+            self.visit_assignment_into(
                 assignment,
                 None,
                 BindingAttributes::empty(),
                 flow,
-            ));
+                &mut nested_regions,
+            );
         }
 
         let builtin = declaration_builtin(&command.variant);
@@ -405,12 +424,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     } else {
                         BindingKind::Declaration(builtin)
                     };
-                    nested_regions.extend(self.visit_assignment(
+                    self.visit_assignment_into(
                         assignment,
                         Some((kind, scope)),
                         attributes,
                         flow,
-                    ));
+                        &mut nested_regions,
+                    );
                 }
             }
         }
@@ -476,7 +496,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             recorded.push(self.visit_stmt(stmt, nested));
         }
 
-        let first = Box::new(recorded.remove(0));
+        let mut recorded = recorded.into_iter();
+        let first = Box::new(
+            recorded
+                .next()
+                .expect("logical lists have at least one command"),
+        );
         let rest = operators.into_iter().zip(recorded).collect();
 
         RecordedCommand {
@@ -590,13 +615,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
             CompoundCommand::ArithmeticFor(command) => {
-                let mut nested_regions =
-                    self.visit_optional_arithmetic_expr(command.init_ast.as_ref(), flow);
-                nested_regions.extend(
-                    self.visit_optional_arithmetic_expr(command.condition_ast.as_ref(), flow),
+                let mut nested_regions = Vec::new();
+                self.visit_optional_arithmetic_expr_into(
+                    command.init_ast.as_ref(),
+                    flow,
+                    &mut nested_regions,
                 );
-                nested_regions
-                    .extend(self.visit_optional_arithmetic_expr(command.step_ast.as_ref(), flow));
+                self.visit_optional_arithmetic_expr_into(
+                    command.condition_ast.as_ref(),
+                    flow,
+                    &mut nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_into(
+                    command.step_ast.as_ref(),
+                    flow,
+                    &mut nested_regions,
+                );
                 RecordedCommand {
                     span: command.span,
                     nested_regions,
@@ -750,20 +784,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 nested_regions: Vec::new(),
                 kind: RecordedCommandKind::BraceGroup {
                     body: {
-                        let mut body = self.visit_stmt_seq(
-                            &command.body,
-                            FlowState {
-                                in_block: true,
-                                ..flow
-                            },
-                        );
-                        body.extend(self.visit_stmt_seq(
-                            &command.always_body,
-                            FlowState {
-                                in_block: true,
-                                ..flow
-                            },
-                        ));
+                        let block_flow = FlowState {
+                            in_block: true,
+                            ..flow
+                        };
+                        let mut body =
+                            Vec::with_capacity(command.body.len() + command.always_body.len());
+                        self.visit_stmt_seq_into(&command.body, block_flow, &mut body);
+                        self.visit_stmt_seq_into(&command.always_body, block_flow, &mut body);
                         body
                     },
                 },
@@ -827,7 +855,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             body_span(&function.body),
         );
         self.deferred_functions.push(DeferredFunction {
-            function: function.clone(),
+            function: function as *const FunctionDef,
             scope,
             flow,
         });
@@ -840,22 +868,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_assignment(
+    fn visit_assignment_into(
         &mut self,
         assignment: &Assignment,
         declaration_kind: Option<(BindingKind, ScopeId)>,
         mut attributes: BindingAttributes,
         flow: FlowState,
-    ) -> Vec<IsolatedRegion> {
-        let mut nested_regions = Vec::new();
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
         self.visit_var_ref_subscript_words(
             Some(&assignment.target.name),
             assignment.target.subscript.as_ref(),
             WordVisitKind::Expansion,
             flow,
-            &mut nested_regions,
+            nested_regions,
         );
-        nested_regions.extend(self.visit_assignment_value(assignment, flow));
+        self.visit_assignment_value_into(assignment, flow, nested_regions);
         let (kind, scope) = declaration_kind.unwrap_or_else(|| {
             let kind = if assignment.append {
                 BindingKind::AppendAssignment
@@ -897,29 +925,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if let Some(hint) = indirect_target_hint(assignment, self.source) {
             self.indirect_target_hints.insert(binding, hint);
         }
-        nested_regions
     }
 
-    fn visit_assignment_value(
+    fn visit_assignment_value_into(
         &mut self,
         assignment: &Assignment,
         flow: FlowState,
-    ) -> Vec<IsolatedRegion> {
-        let mut nested_regions = Vec::new();
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
         match &assignment.value {
             AssignmentValue::Scalar(word) => {
-                self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
+                self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
             }
             AssignmentValue::Compound(array) => {
-                self.visit_array_expr_into(
-                    array,
-                    WordVisitKind::Expansion,
-                    flow,
-                    &mut nested_regions,
-                );
+                self.visit_array_expr_into(array, WordVisitKind::Expansion, flow, nested_regions);
             }
         }
-        nested_regions
     }
 
     fn visit_words(
@@ -1120,7 +1141,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if !uses_associative_word_semantics
             && let Some(expression) = subscript.arithmetic_ast.as_ref()
         {
-            nested_regions.extend(self.visit_optional_arithmetic_expr(Some(expression), flow));
+            self.visit_optional_arithmetic_expr_into(Some(expression), flow, nested_regions);
             return;
         }
 
@@ -1164,20 +1185,25 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | WordPart::ProcessSubstitution { body, .. } => {
                 let scope =
                     self.push_scope(ScopeKind::CommandSubstitution, self.current_scope(), span);
-                let commands = self.visit_stmt_seq(
+                let mut commands = Vec::with_capacity(body.len());
+                self.visit_stmt_seq_into(
                     body,
                     FlowState {
                         in_subshell: true,
                         ..flow
                     },
+                    &mut commands,
                 );
                 self.pop_scope(scope);
                 self.mark_scope_completed(scope);
                 nested_regions.push(IsolatedRegion { scope, commands });
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
-                nested_regions
-                    .extend(self.visit_optional_arithmetic_expr(expression_ast.as_ref(), flow));
+                self.visit_optional_arithmetic_expr_into(
+                    expression_ast.as_ref(),
+                    flow,
+                    nested_regions,
+                );
             }
             WordPart::Parameter(parameter) => {
                 self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
@@ -1304,10 +1330,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     span,
                 );
-                nested_regions
-                    .extend(self.visit_optional_arithmetic_expr(offset_ast.as_ref(), flow));
-                nested_regions
-                    .extend(self.visit_optional_arithmetic_expr(length_ast.as_ref(), flow));
+                self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
+                self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
             }
             WordPart::ArraySlice {
                 reference,
@@ -1326,10 +1350,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     span,
                 );
-                nested_regions
-                    .extend(self.visit_optional_arithmetic_expr(offset_ast.as_ref(), flow));
-                nested_regions
-                    .extend(self.visit_optional_arithmetic_expr(length_ast.as_ref(), flow));
+                self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
+                self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
             }
             WordPart::Transformation { reference, .. } => {
                 self.visit_var_ref_reference(
@@ -1436,10 +1458,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         nested_regions,
                         span,
                     );
-                    nested_regions
-                        .extend(self.visit_optional_arithmetic_expr(offset_ast.as_ref(), flow));
-                    nested_regions
-                        .extend(self.visit_optional_arithmetic_expr(length_ast.as_ref(), flow));
+                    self.visit_optional_arithmetic_expr_into(
+                        offset_ast.as_ref(),
+                        flow,
+                        nested_regions,
+                    );
+                    self.visit_optional_arithmetic_expr_into(
+                        length_ast.as_ref(),
+                        flow,
+                        nested_regions,
+                    );
                 }
                 BourneParameterExpansion::Operation {
                     reference,
@@ -1644,20 +1672,32 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         expr: Option<&ArithmeticExprNode>,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
-        expr.map(|expr| self.visit_arithmetic_expr(expr, flow))
-            .unwrap_or_default()
+        let mut nested_regions = Vec::new();
+        self.visit_optional_arithmetic_expr_into(expr, flow, &mut nested_regions);
+        nested_regions
     }
 
-    fn visit_arithmetic_expr(
+    fn visit_optional_arithmetic_expr_into(
+        &mut self,
+        expr: Option<&ArithmeticExprNode>,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if let Some(expr) = expr {
+            self.visit_arithmetic_expr_into(expr, flow, nested_regions);
+        }
+    }
+
+    fn visit_arithmetic_expr_into(
         &mut self,
         expr: &ArithmeticExprNode,
         flow: FlowState,
-    ) -> Vec<IsolatedRegion> {
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
         match &expr.kind {
-            ArithmeticExpr::Number(_) => Vec::new(),
+            ArithmeticExpr::Number(_) => {}
             ArithmeticExpr::Variable(name) => {
                 self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
-                Vec::new()
             }
             ArithmeticExpr::Indexed { name, index } => {
                 self.add_reference(
@@ -1665,53 +1705,59 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     ReferenceKind::ArithmeticRead,
                     arithmetic_name_span(expr.span, name),
                 );
-                self.visit_arithmetic_expr(index, flow)
+                self.visit_arithmetic_expr_into(index, flow, nested_regions);
             }
             ArithmeticExpr::ShellWord(word) => {
-                self.visit_word(word, WordVisitKind::Expansion, flow)
+                self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
             }
             ArithmeticExpr::Parenthesized { expression } => {
-                self.visit_arithmetic_expr(expression, flow)
+                self.visit_arithmetic_expr_into(expression, flow, nested_regions);
             }
             ArithmeticExpr::Unary { op, expr: inner } => {
                 if matches!(
                     op,
                     ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
                 ) {
-                    self.visit_arithmetic_update(inner, flow)
+                    self.visit_arithmetic_update_into(inner, flow, nested_regions);
                 } else {
-                    self.visit_arithmetic_expr(inner, flow)
+                    self.visit_arithmetic_expr_into(inner, flow, nested_regions);
                 }
             }
             ArithmeticExpr::Postfix { expr: inner, .. } => {
-                self.visit_arithmetic_update(inner, flow)
+                self.visit_arithmetic_update_into(inner, flow, nested_regions);
             }
             ArithmeticExpr::Binary { left, right, .. } => {
-                let mut nested_regions = self.visit_arithmetic_expr(left, flow);
-                nested_regions.extend(self.visit_arithmetic_expr(right, flow));
-                nested_regions
+                self.visit_arithmetic_expr_into(left, flow, nested_regions);
+                self.visit_arithmetic_expr_into(right, flow, nested_regions);
             }
             ArithmeticExpr::Conditional {
                 condition,
                 then_expr,
                 else_expr,
             } => {
-                let mut nested_regions = self.visit_arithmetic_expr(condition, flow);
-                nested_regions.extend(self.visit_arithmetic_expr(then_expr, flow));
-                nested_regions.extend(self.visit_arithmetic_expr(else_expr, flow));
-                nested_regions
+                self.visit_arithmetic_expr_into(condition, flow, nested_regions);
+                self.visit_arithmetic_expr_into(then_expr, flow, nested_regions);
+                self.visit_arithmetic_expr_into(else_expr, flow, nested_regions);
             }
             ArithmeticExpr::Assignment { target, op, value } => {
-                self.visit_arithmetic_assignment(target, expr.span, *op, value, flow)
+                self.visit_arithmetic_assignment_into(
+                    target,
+                    expr.span,
+                    *op,
+                    value,
+                    flow,
+                    nested_regions,
+                );
             }
         }
     }
 
-    fn visit_arithmetic_update(
+    fn visit_arithmetic_update_into(
         &mut self,
         expr: &ArithmeticExprNode,
         flow: FlowState,
-    ) -> Vec<IsolatedRegion> {
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
         match &expr.kind {
             ArithmeticExpr::Variable(name) => {
                 self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
@@ -1722,10 +1768,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     expr.span,
                     BindingAttributes::empty(),
                 );
-                Vec::new()
             }
             ArithmeticExpr::Indexed { name, index } => {
-                let nested_regions = self.visit_arithmetic_expr(index, flow);
+                self.visit_arithmetic_expr_into(index, flow, nested_regions);
                 let span = arithmetic_name_span(expr.span, name);
                 self.add_reference(name, ReferenceKind::ArithmeticRead, span);
                 self.add_binding(
@@ -1735,21 +1780,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                     BindingAttributes::ARRAY,
                 );
-                nested_regions
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 
-    fn visit_arithmetic_assignment(
+    fn visit_arithmetic_assignment_into(
         &mut self,
         target: &ArithmeticLvalue,
         target_span: Span,
         op: ArithmeticAssignOp,
         value: &ArithmeticExprNode,
         flow: FlowState,
-    ) -> Vec<IsolatedRegion> {
-        let mut nested_regions = self.visit_arithmetic_lvalue_indices(target, flow);
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
         let (name, attributes) = match target {
             ArithmeticLvalue::Variable(name) => (name, BindingAttributes::empty()),
             ArithmeticLvalue::Indexed { name, .. } => (name, BindingAttributes::ARRAY),
@@ -1758,7 +1803,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if !matches!(op, ArithmeticAssignOp::Assign) {
             self.add_reference(name, ReferenceKind::ArithmeticRead, name_span);
         }
-        nested_regions.extend(self.visit_arithmetic_expr(value, flow));
+        self.visit_arithmetic_expr_into(value, flow, nested_regions);
         self.add_binding(
             name,
             BindingKind::ArithmeticAssignment,
@@ -1766,17 +1811,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             name_span,
             attributes,
         );
-        nested_regions
     }
 
-    fn visit_arithmetic_lvalue_indices(
+    fn visit_arithmetic_lvalue_indices_into(
         &mut self,
         target: &ArithmeticLvalue,
         flow: FlowState,
-    ) -> Vec<IsolatedRegion> {
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
         match target {
-            ArithmeticLvalue::Variable(_) => Vec::new(),
-            ArithmeticLvalue::Indexed { index, .. } => self.visit_arithmetic_expr(index, flow),
+            ArithmeticLvalue::Variable(_) => {}
+            ArithmeticLvalue::Indexed { index, .. } => {
+                self.visit_arithmetic_expr_into(index, flow, nested_regions);
+            }
         }
     }
 
@@ -2187,7 +2234,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             let deferred_functions = std::mem::take(&mut self.deferred_functions);
             for deferred in deferred_functions {
                 self.rebuild_scope_stack(deferred.scope);
-                let commands = self.visit_function_body(&deferred.function, deferred.flow);
+                // SAFETY: deferred function pointers always refer to nodes inside the borrowed AST
+                // passed into `build`, and we only dereference them while that AST is still alive.
+                let function = unsafe { &*deferred.function };
+                let commands = self.visit_function_body(function, deferred.flow);
                 self.recorded_function_bodies
                     .insert(deferred.scope, commands);
                 self.mark_scope_completed(deferred.scope);
