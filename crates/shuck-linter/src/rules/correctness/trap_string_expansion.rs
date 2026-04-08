@@ -59,6 +59,7 @@ fn collect_double_quoted_expansion_spans(
                 collect_double_quoted_expansion_spans(parts, true, spans);
             }
             WordPart::Variable(_)
+            | WordPart::Parameter(_)
             | WordPart::CommandSubstitution { .. }
             | WordPart::ArithmeticExpansion { .. }
             | WordPart::ParameterExpansion { .. }

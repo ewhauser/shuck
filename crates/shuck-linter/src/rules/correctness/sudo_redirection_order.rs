@@ -1,6 +1,6 @@
-use shuck_ast::{Redirect, RedirectKind};
+use shuck_ast::RedirectKind;
 
-use crate::rules::common::{command::WrapperKind, span, word::static_word_text};
+use crate::rules::common::command::WrapperKind;
 use crate::{Checker, Rule, Violation};
 
 pub struct SudoRedirectionOrder;
@@ -16,7 +16,6 @@ impl Violation for SudoRedirectionOrder {
 }
 
 pub fn sudo_redirection_order(checker: &mut Checker) {
-    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
@@ -26,13 +25,14 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
         })
         .filter(|fact| !fact.effective_name_is("tee"))
         .flat_map(|fact| {
-            fact.redirects()
-                .iter()
-                .filter(|redirect| {
-                    redirects_output_to_file(redirect)
-                        && !redirect_target_is_dev_null(redirect, source)
-                })
-                .map(span::redirect_target_span)
+            fact.redirect_facts().iter().filter_map(|redirect| {
+                (redirects_output_to_file(redirect.redirect().kind)
+                    && !redirect
+                        .analysis()
+                        .is_some_and(|analysis| analysis.is_definitely_dev_null()))
+                .then(|| redirect.target_span())
+                .flatten()
+            })
         })
         .collect::<Vec<_>>();
 
@@ -41,23 +41,15 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
     }
 }
 
-fn redirects_output_to_file(redirect: &Redirect) -> bool {
+fn redirects_output_to_file(kind: RedirectKind) -> bool {
     matches!(
-        redirect.kind,
+        kind,
         RedirectKind::Output
             | RedirectKind::Clobber
             | RedirectKind::Append
             | RedirectKind::ReadWrite
             | RedirectKind::OutputBoth
     )
-}
-
-fn redirect_target_is_dev_null(redirect: &Redirect, source: &str) -> bool {
-    redirect
-        .word_target()
-        .and_then(|word| static_word_text(word, source))
-        .as_deref()
-        == Some("/dev/null")
 }
 
 #[cfg(test)]

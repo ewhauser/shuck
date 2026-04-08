@@ -1,5 +1,3 @@
-use crate::rules::common::expansion::analyze_redirect_target;
-use crate::rules::common::query::{self, CommandWalkOptions, visit_command_redirects};
 use crate::{Checker, Rule, Violation};
 
 pub struct ArithmeticRedirectionTarget;
@@ -15,28 +13,19 @@ impl Violation for ArithmeticRedirectionTarget {
 }
 
 pub fn arithmetic_redirection_target(checker: &mut Checker) {
-    let mut spans = Vec::new();
-
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit| {
-            let _command = visit.command;
-            visit_command_redirects(visit, &mut |redirect| {
-                let Some(target) = redirect.word_target() else {
-                    return;
-                };
-
-                if analyze_redirect_target(redirect, checker.source())
-                    .is_some_and(|analysis| analysis.expansion.hazards.arithmetic_expansion)
-                {
-                    spans.push(target.span);
-                }
-            });
-        },
-    );
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .flat_map(|fact| {
+            fact.redirect_facts().iter().filter_map(|redirect| {
+                redirect
+                    .analysis()
+                    .filter(|analysis| analysis.expansion.hazards.arithmetic_expansion)
+                    .and_then(|_| redirect.target_span())
+            })
+        })
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(ArithmeticRedirectionTarget, span);

@@ -24,9 +24,10 @@ pub use facts::{
     ConditionalFact, ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
     ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts, ForHeaderFact, LinterFacts,
     ListFact, ListOperatorFact, LoopHeaderWordFact, PipelineFact, PipelineSegmentFact,
-    PrintfCommandFacts, ReadCommandFacts, SelectHeaderFact, SimpleTestFact,
-    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SudoFamilyCommandFacts,
-    SudoFamilyInvoker, UnsetCommandFacts, XargsCommandFacts,
+    PrintfCommandFacts, ReadCommandFacts, RedirectFact, SelectHeaderFact, SimpleTestFact,
+    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SubstitutionFact,
+    SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
+    XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};

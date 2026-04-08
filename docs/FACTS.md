@@ -356,20 +356,20 @@ The redirect and substitution fact family should precompute:
 
 Action items:
 
-- [ ] Precompute redirect analysis for every redirect target once.
-- [ ] Precompute command-substitution classification once per substitution span.
-- [ ] Attach substitution facts to the containing word fact or command fact.
-- [ ] Reuse redirect facts for both direct redirect rules and substitution
+- [x] Precompute redirect analysis for every redirect target once.
+- [x] Precompute command-substitution classification once per substitution span.
+- [x] Attach substitution facts to the containing word fact or command fact.
+- [x] Reuse redirect facts for both direct redirect rules and substitution
       rules.
-- [ ] Remove rule-local nested substitution rescans.
+- [x] Remove rule-local nested substitution rescans.
 
 Rules to migrate onto redirect and substitution facts:
 
-- [ ] `C015` `SudoRedirectionOrder`
-- [ ] `C050` `ArithmeticRedirectionTarget`
-- [ ] `C057` `SubstWithRedirect`
-- [ ] `C058` `SubstWithRedirectErr`
-- [ ] `S004` `UnquotedCommandSubstitution`
+- [x] `C015` `SudoRedirectionOrder`
+- [x] `C050` `ArithmeticRedirectionTarget`
+- [x] `C057` `SubstWithRedirect`
+- [x] `C058` `SubstWithRedirectErr`
+- [x] `S004` `UnquotedCommandSubstitution`
   For the substitution inventory inside subscript words and nested words.
 
 ### Initiative 7: Surface Trivia And Literal Fragment Facts
@@ -448,7 +448,7 @@ Needs migration to `LinterFacts`:
 - [ ] `S001` `UnquotedExpansion`
 - [ ] `S002` `ReadWithoutRaw`
 - [x] `S003` `LoopFromCommandOutput`
-- [ ] `S004` `UnquotedCommandSubstitution`
+- [x] `S004` `UnquotedCommandSubstitution`
 - [ ] `S005` `LegacyBackticks`
 - [ ] `S006` `LegacyArithmeticExpansion`
 - [ ] `S007` `PrintfFormatVariable`
@@ -461,7 +461,7 @@ Needs migration to `LinterFacts`:
 - [x] `C010` `ChainedTestBranches`
 - [x] `C011` `LineOrientedInput`
 - [x] `C013` `FindOutputLoop`
-- [ ] `C015` `SudoRedirectionOrder`
+- [x] `C015` `SudoRedirectionOrder`
 - [x] `C017` `ConstantComparisonTest`
 - [x] `C018` `LoopControlOutsideLoop`
 - [x] `C019` `LiteralUnaryStringTest`
@@ -472,10 +472,10 @@ Needs migration to `LinterFacts`:
 - [x] `C046` `PipeToKill`
 - [ ] `C047` `InvalidExitStatus`
 - [ ] `C048` `CasePatternVar`
-- [ ] `C050` `ArithmeticRedirectionTarget`
+- [x] `C050` `ArithmeticRedirectionTarget`
 - [ ] `C055` `PatternWithVariable`
-- [ ] `C057` `SubstWithRedirect`
-- [ ] `C058` `SubstWithRedirectErr`
+- [x] `C057` `SubstWithRedirect`
+- [x] `C058` `SubstWithRedirectErr`
 - [x] `C007` `FindOutputToXargs`
 
 ## Suggested Rollout
@@ -498,7 +498,7 @@ Needs migration to `LinterFacts`:
 
 - [ ] Implement test and conditional facts.
 - [ ] Implement loop, list, and pipeline facts.
-- [ ] Implement redirect and substitution facts.
+- [x] Implement redirect and substitution facts.
 - [ ] Migrate the corresponding correctness rules.
 
 ### Phase 4: Bespoke Walker Retirement

@@ -1,11 +1,5 @@
-use shuck_ast::{ArrayElem, Assignment, AssignmentValue, Command, DeclOperand, Word};
-
-use crate::rules::common::span;
-use crate::rules::common::word::classify_word;
-use crate::rules::common::{
-    expansion::ExpansionContext,
-    query::{self, CommandWalkOptions},
-};
+use crate::SubstitutionHostKind;
+use crate::rules::common::query::CommandSubstitutionKind;
 use crate::{Checker, Rule, Violation};
 
 pub struct UnquotedCommandSubstitution;
@@ -21,74 +15,30 @@ impl Violation for UnquotedCommandSubstitution {
 }
 
 pub fn unquoted_command_substitution(checker: &mut Checker) {
-    let source = checker.source();
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .flat_map(|fact| {
+            fact.substitution_facts()
+                .iter()
+                .filter(|substitution| substitution.kind() == CommandSubstitutionKind::Command)
+                .filter(|substitution| substitution.unquoted_in_host())
+                .filter(|substitution| {
+                    matches!(
+                        substitution.host_kind(),
+                        SubstitutionHostKind::CommandArgument
+                            | SubstitutionHostKind::AssignmentTargetSubscript
+                            | SubstitutionHostKind::DeclarationNameSubscript
+                            | SubstitutionHostKind::ArrayKeySubscript
+                    )
+                })
+                .map(|substitution| substitution.span())
+        })
+        .collect::<Vec<_>>();
 
-    query::walk_commands(
-        &checker.ast().body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-        &mut |visit| {
-            query::visit_expansion_words(visit, source, &mut |word, context| {
-                if context != ExpansionContext::CommandArgument {
-                    return;
-                }
-
-                report_command_substitution_word(checker, word, source);
-            });
-
-            visit_command_subscript_words(visit.command, source, &mut |word| {
-                report_command_substitution_word(checker, word, source);
-            });
-        },
-    );
-}
-
-fn report_command_substitution_word(checker: &mut Checker, word: &Word, source: &str) {
-    let classification = classify_word(word, source);
-    if classification.has_command_substitution() {
-        for span in span::unquoted_command_substitution_part_spans(word) {
-            checker.report_dedup(UnquotedCommandSubstitution, span);
-        }
-    }
-}
-
-fn visit_command_subscript_words(command: &Command, source: &str, visitor: &mut impl FnMut(&Word)) {
-    for assignment in query::command_assignments(command) {
-        visit_assignment_subscript_words(assignment, source, visitor);
-    }
-
-    for operand in query::declaration_operands(command) {
-        match operand {
-            DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => {}
-            DeclOperand::Name(reference) => {
-                query::visit_var_ref_subscript_words_with_source(reference, source, visitor);
-            }
-            DeclOperand::Assignment(assignment) => {
-                visit_assignment_subscript_words(assignment, source, visitor);
-            }
-        }
-    }
-}
-
-fn visit_assignment_subscript_words(
-    assignment: &Assignment,
-    source: &str,
-    visitor: &mut impl FnMut(&Word),
-) {
-    query::visit_var_ref_subscript_words_with_source(&assignment.target, source, visitor);
-
-    let AssignmentValue::Compound(array) = &assignment.value else {
-        return;
-    };
-
-    for element in &array.elements {
-        match element {
-            ArrayElem::Sequential(_) => {}
-            ArrayElem::Keyed { key, .. } | ArrayElem::KeyedAppend { key, .. } => {
-                query::visit_subscript_words(Some(key), source, visitor);
-            }
-        }
+    for span in spans {
+        checker.report_dedup(UnquotedCommandSubstitution, span);
     }
 }
 
@@ -152,6 +102,26 @@ stamp=$(printf ok)
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(printf hi)"]
+        );
+    }
+
+    #[test]
+    fn reports_declaration_name_and_array_key_subscript_substitutions() {
+        let source = "\
+declare arr[$(printf decl-name)]
+declare -A map=([$(printf key)]=1)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf decl-name)", "$(printf key)"]
         );
     }
 }

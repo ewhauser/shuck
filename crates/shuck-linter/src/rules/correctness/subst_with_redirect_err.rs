@@ -1,5 +1,4 @@
-use crate::rules::common::expansion::classify_substitution;
-use crate::rules::common::query::{self, CommandSubstitutionKind, visit_command_words};
+use crate::rules::common::query::CommandSubstitutionKind;
 use crate::{Checker, Rule, Violation};
 
 pub struct SubstWithRedirectErr;
@@ -15,22 +14,18 @@ impl Violation for SubstWithRedirectErr {
 }
 
 pub fn subst_with_redirect_err(checker: &mut Checker) {
-    let source = checker.source();
-    let mut spans = Vec::new();
-    for fact in checker.facts().commands() {
-        visit_command_words(fact.visit(), source, &mut |word| {
-            for substitution in query::iter_word_command_substitutions(word) {
-                if substitution.kind != CommandSubstitutionKind::Command {
-                    continue;
-                }
-
-                let classification = classify_substitution(substitution, source);
-                if classification.stdout_is_discarded() {
-                    spans.push(classification.span);
-                }
-            }
-        });
-    }
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .flat_map(|fact| {
+            fact.substitution_facts()
+                .iter()
+                .filter(|substitution| substitution.kind() == CommandSubstitutionKind::Command)
+                .filter(|substitution| substitution.stdout_is_discarded())
+                .map(|substitution| substitution.span())
+        })
+        .collect::<Vec<_>>();
 
     for span in spans {
         checker.report(SubstWithRedirectErr, span);

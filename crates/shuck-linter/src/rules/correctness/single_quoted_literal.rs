@@ -1,8 +1,9 @@
 use crate::rules::common::query;
 use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef, ParameterOp, Pattern, PatternPart,
-    Redirect, SimpleCommand, Span, Stmt, StmtSeq, Word, WordPart, WordPartNode,
+    Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command,
+    CompoundCommand, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, FunctionDef,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Redirect, SimpleCommand, Span,
+    Stmt, StmtSeq, Word, WordPart, WordPartNode,
 };
 
 use super::syntax::{assignment_target_name, simple_test_operands, static_word_text};
@@ -365,6 +366,15 @@ fn collect_word_parts(
                     query::visit_arithmetic_words(expression_ast, &mut |word| {
                         collect_word(word, facts, source, spans, context);
                     });
+                }
+            }
+            WordPart::Parameter(parameter) => {
+                if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                    operator,
+                    ..
+                }) = &parameter.syntax
+                {
+                    collect_parameter_operator_patterns(operator, facts, source, spans, context);
                 }
             }
             WordPart::ParameterExpansion { operator, .. } => {

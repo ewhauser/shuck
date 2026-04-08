@@ -806,6 +806,13 @@ fn collect_source_template_parts(
                     return false;
                 }
             }
+            WordPart::Parameter(parameter)
+                if bash_runtime_vars_enabled
+                    && parameter_is_current_source_file(parameter, source) =>
+            {
+                *saw_dynamic = true;
+                parts.push(TemplatePart::SourceFile);
+            }
             WordPart::ArrayAccess(reference)
                 if bash_runtime_vars_enabled && is_bash_source_index_ref(reference, source) =>
             {
@@ -843,6 +850,32 @@ fn positional_index(name: &Name) -> Option<usize> {
 
 fn is_bash_source_var(name: &Name) -> bool {
     name.as_str() == "BASH_SOURCE"
+}
+
+fn parameter_is_current_source_file(parameter: &ParameterExpansion, source: &str) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            is_current_source_reference(reference, source)
+        }
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::PrefixMatch { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Operation { .. }
+            | BourneParameterExpansion::Transformation { .. },
+        )
+        | ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn is_current_source_reference(reference: &VarRef, source: &str) -> bool {
+    is_bash_source_var(&reference.name)
+        && reference
+            .subscript
+            .as_ref()
+            .is_none_or(|subscript| subscript_is_semantic_zero(subscript, source))
 }
 
 fn is_bash_source_index_ref(reference: &VarRef, source: &str) -> bool {
@@ -964,6 +997,7 @@ fn current_source_file_word(word: &Word, source: &str) -> bool {
 fn is_current_source_part(part: &WordPart, source: &str) -> bool {
     match part {
         WordPart::Variable(name) => is_bash_source_var(name),
+        WordPart::Parameter(parameter) => parameter_is_current_source_file(parameter, source),
         WordPart::ArrayAccess(reference) => is_bash_source_index_ref(reference, source),
         WordPart::DoubleQuoted { parts, .. } => {
             matches!(parts.as_slice(), [part] if is_current_source_part(&part.kind, source))

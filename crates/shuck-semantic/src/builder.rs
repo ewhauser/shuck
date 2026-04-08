@@ -2393,11 +2393,24 @@ fn collect_indirect_pattern_parts(
                 }
             }
             WordPart::Variable(_) if !*saw_variable => *saw_variable = true,
+            WordPart::Parameter(parameter)
+                if !*saw_variable && parameter_is_indirect_pattern_variable(parameter) =>
+            {
+                *saw_variable = true;
+            }
             _ => return false,
         }
     }
 
     true
+}
+
+fn parameter_is_indirect_pattern_variable(parameter: &ParameterExpansion) -> bool {
+    matches!(
+        &parameter.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.subscript.is_none()
+    )
 }
 
 fn parse_indirect_target_name(text: &str) -> Option<(&str, bool)> {

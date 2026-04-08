@@ -9,19 +9,22 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    AssignmentValue, BinaryCommand, BinaryOp, BuiltinCommand, Command, CompoundCommand,
-    ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File, ForCommand,
-    Redirect, SelectCommand, Span, Stmt, StmtSeq, Word, WordPart,
+    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, AssignmentValue, BinaryCommand, BinaryOp,
+    BuiltinCommand, Command, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
+    ConditionalUnaryOp, DeclOperand, File, ForCommand, Pattern, PatternPart, Redirect,
+    RedirectKind, SelectCommand, Span, Stmt, StmtSeq, Word, WordPart, WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
 
 use crate::FileContext;
 use crate::context::ContextRegionKind;
-use crate::rules::common::expansion::ExpansionContext;
+use crate::rules::common::expansion::{
+    ExpansionContext, RedirectTargetAnalysis, SubstitutionOutputIntent, analyze_redirect_target,
+};
 use crate::rules::common::{
     command::{self, NormalizedCommand, WrapperKind},
-    query::{self, CommandVisit, CommandWalkOptions},
+    query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
     span,
     word::{
         TestOperandClass, WordClassification, WordQuote, classify_conditional_operand,
@@ -292,6 +295,89 @@ impl<'a> ConditionalFact<'a> {
             }
             _ => None,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RedirectFact<'a> {
+    redirect: &'a Redirect,
+    target_span: Option<Span>,
+    analysis: Option<RedirectTargetAnalysis>,
+}
+
+impl<'a> RedirectFact<'a> {
+    pub fn redirect(&self) -> &'a Redirect {
+        self.redirect
+    }
+
+    pub fn target_span(&self) -> Option<Span> {
+        self.target_span
+    }
+
+    pub fn analysis(&self) -> Option<RedirectTargetAnalysis> {
+        self.analysis
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubstitutionHostKind {
+    CommandArgument,
+    AssignmentTargetSubscript,
+    DeclarationNameSubscript,
+    ArrayKeySubscript,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SubstitutionFact {
+    span: Span,
+    kind: CommandSubstitutionKind,
+    stdout_intent: SubstitutionOutputIntent,
+    has_stdout_redirect: bool,
+    host_word_span: Span,
+    host_kind: SubstitutionHostKind,
+    unquoted_in_host: bool,
+}
+
+impl SubstitutionFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> CommandSubstitutionKind {
+        self.kind
+    }
+
+    pub fn stdout_intent(&self) -> SubstitutionOutputIntent {
+        self.stdout_intent
+    }
+
+    pub fn has_stdout_redirect(&self) -> bool {
+        self.has_stdout_redirect
+    }
+
+    pub fn host_word_span(&self) -> Span {
+        self.host_word_span
+    }
+
+    pub fn host_kind(&self) -> SubstitutionHostKind {
+        self.host_kind
+    }
+
+    pub fn unquoted_in_host(&self) -> bool {
+        self.unquoted_in_host
+    }
+
+    pub fn stdout_is_captured(&self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Captured
+    }
+
+    pub fn stdout_is_discarded(&self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Discarded
+    }
+
+    pub fn stdout_is_rerouted(&self) -> bool {
+        self.stdout_intent == SubstitutionOutputIntent::Rerouted
     }
 }
 
@@ -694,6 +780,8 @@ pub struct CommandFact<'a> {
     visit: CommandVisit<'a>,
     nested_word_command: bool,
     normalized: NormalizedCommand<'a>,
+    redirect_facts: Box<[RedirectFact<'a>]>,
+    substitution_facts: Box<[SubstitutionFact]>,
     options: CommandOptionFacts<'a>,
     simple_test: Option<SimpleTestFact<'a>>,
     conditional: Option<ConditionalFact<'a>>,
@@ -726,6 +814,14 @@ impl<'a> CommandFact<'a> {
 
     pub fn redirects(&self) -> &'a [Redirect] {
         self.visit.redirects
+    }
+
+    pub fn redirect_facts(&self) -> &[RedirectFact<'a>] {
+        &self.redirect_facts
+    }
+
+    pub fn substitution_facts(&self) -> &[SubstitutionFact] {
+        &self.substitution_facts
     }
 
     pub fn normalized(&self) -> &NormalizedCommand<'a> {
@@ -913,6 +1009,7 @@ impl<'a> LinterFactsBuilder<'a> {
             if !nested_word_command {
                 structural_command_indices.push(index);
             }
+            let redirect_facts = build_redirect_facts(visit.redirects, self.source);
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
             let simple_test =
                 build_simple_test_fact(visit.command, self.source, self._file_context);
@@ -922,10 +1019,17 @@ impl<'a> LinterFactsBuilder<'a> {
                 visit,
                 nested_word_command,
                 normalized,
+                redirect_facts,
+                substitution_facts: Vec::new().into_boxed_slice(),
                 options,
                 simple_test,
                 conditional,
             });
+        }
+
+        let substitution_facts = build_substitution_facts(&commands, &command_index, self.source);
+        for (fact, substitutions) in commands.iter_mut().zip(substitution_facts) {
+            fact.substitution_facts = substitutions;
         }
 
         let for_headers = build_for_header_facts(&commands, &command_index, self.source);
@@ -943,6 +1047,658 @@ impl<'a> LinterFactsBuilder<'a> {
             pipelines,
             lists,
         }
+    }
+}
+
+fn build_redirect_facts<'a>(redirects: &'a [Redirect], source: &str) -> Box<[RedirectFact<'a>]> {
+    redirects
+        .iter()
+        .map(|redirect| RedirectFact {
+            redirect,
+            target_span: redirect.word_target().map(|word| word.span),
+            analysis: analyze_redirect_target(redirect, source),
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn build_substitution_facts<'a>(
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+    source: &str,
+) -> Vec<Box<[SubstitutionFact]>> {
+    commands
+        .iter()
+        .map(|fact| build_command_substitution_facts(fact, commands, command_index, source))
+        .collect()
+}
+
+fn build_command_substitution_facts<'a>(
+    fact: &CommandFact<'a>,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+    source: &str,
+) -> Box<[SubstitutionFact]> {
+    let mut substitutions = Vec::new();
+    let mut substitution_index = FxHashMap::default();
+
+    visit_command_words_for_substitutions(fact.command(), fact.redirects(), source, &mut |word| {
+        collect_or_update_word_substitution_facts(
+            word,
+            SubstitutionHostKind::Other,
+            commands,
+            command_index,
+            source,
+            &mut substitutions,
+            &mut substitution_index,
+        );
+    });
+
+    visit_command_argument_words_for_substitutions(fact.command(), source, &mut |word| {
+        collect_or_update_word_substitution_facts(
+            word,
+            SubstitutionHostKind::CommandArgument,
+            commands,
+            command_index,
+            source,
+            &mut substitutions,
+            &mut substitution_index,
+        );
+    });
+
+    visit_command_subscript_words_for_substitutions(fact.command(), source, &mut |kind, word| {
+        collect_or_update_word_substitution_facts(
+            word,
+            kind,
+            commands,
+            command_index,
+            source,
+            &mut substitutions,
+            &mut substitution_index,
+        );
+    });
+
+    substitutions.into_boxed_slice()
+}
+
+fn collect_or_update_word_substitution_facts<'a>(
+    word: &Word,
+    host_kind: SubstitutionHostKind,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+    source: &str,
+    substitutions: &mut Vec<SubstitutionFact>,
+    substitution_index: &mut FxHashMap<FactSpan, usize>,
+) {
+    let mut occurrences = Vec::new();
+    collect_word_substitution_occurrences(&word.parts, false, &mut occurrences);
+
+    for occurrence in occurrences {
+        let key = FactSpan::new(occurrence.span);
+        if let Some(&index) = substitution_index.get(&key) {
+            substitutions[index].host_word_span = word.span;
+            substitutions[index].host_kind = host_kind;
+            substitutions[index].unquoted_in_host = occurrence.unquoted_in_host;
+            continue;
+        }
+
+        let (stdout_intent, has_stdout_redirect) =
+            classify_substitution_body(occurrence.body, commands, command_index, source);
+        substitution_index.insert(key, substitutions.len());
+        substitutions.push(SubstitutionFact {
+            span: occurrence.span,
+            kind: occurrence.kind,
+            stdout_intent,
+            has_stdout_redirect,
+            host_word_span: word.span,
+            host_kind,
+            unquoted_in_host: occurrence.unquoted_in_host,
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SubstitutionOccurrence<'a> {
+    body: &'a StmtSeq,
+    span: Span,
+    kind: CommandSubstitutionKind,
+    unquoted_in_host: bool,
+}
+
+fn collect_word_substitution_occurrences<'a>(
+    parts: &'a [WordPartNode],
+    quoted: bool,
+    occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_word_substitution_occurrences(parts, true, occurrences);
+            }
+            WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                visit_arithmetic_words_in_expression(expression_ast.as_ref(), quoted, occurrences);
+            }
+            WordPart::CommandSubstitution { body, .. } => {
+                occurrences.push(SubstitutionOccurrence {
+                    body,
+                    span: part.span,
+                    kind: CommandSubstitutionKind::Command,
+                    unquoted_in_host: !quoted,
+                });
+            }
+            WordPart::ProcessSubstitution { body, is_input } => {
+                occurrences.push(SubstitutionOccurrence {
+                    body,
+                    span: part.span,
+                    kind: if *is_input {
+                        CommandSubstitutionKind::ProcessInput
+                    } else {
+                        CommandSubstitutionKind::ProcessOutput
+                    },
+                    unquoted_in_host: !quoted,
+                });
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. } => {}
+        }
+    }
+}
+
+fn visit_arithmetic_words_in_expression<'a>(
+    expression: Option<&'a ArithmeticExprNode>,
+    quoted: bool,
+    occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
+) {
+    let Some(expression) = expression else {
+        return;
+    };
+
+    collect_arithmetic_word_substitution_occurrences(expression, quoted, occurrences);
+}
+
+fn collect_arithmetic_word_substitution_occurrences<'a>(
+    expression: &'a ArithmeticExprNode,
+    quoted: bool,
+    occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
+) {
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => {
+            collect_arithmetic_word_substitution_occurrences(index, quoted, occurrences);
+        }
+        ArithmeticExpr::ShellWord(word) => {
+            collect_word_substitution_occurrences(&word.parts, quoted, occurrences);
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_arithmetic_word_substitution_occurrences(expression, quoted, occurrences);
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_arithmetic_word_substitution_occurrences(expr, quoted, occurrences);
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_word_substitution_occurrences(left, quoted, occurrences);
+            collect_arithmetic_word_substitution_occurrences(right, quoted, occurrences);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_word_substitution_occurrences(condition, quoted, occurrences);
+            collect_arithmetic_word_substitution_occurrences(then_expr, quoted, occurrences);
+            collect_arithmetic_word_substitution_occurrences(else_expr, quoted, occurrences);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_arithmetic_lvalue_substitution_occurrences(target, quoted, occurrences);
+            collect_arithmetic_word_substitution_occurrences(value, quoted, occurrences);
+        }
+    }
+}
+
+fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
+    target: &'a ArithmeticLvalue,
+    quoted: bool,
+    occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => {
+            collect_arithmetic_word_substitution_occurrences(index, quoted, occurrences);
+        }
+    }
+}
+
+fn classify_substitution_body<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_index: &FxHashMap<*const Command, usize>,
+    source: &str,
+) -> (SubstitutionOutputIntent, bool) {
+    let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
+    let mut has_stdout_redirect = false;
+
+    for visit in query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    ) {
+        let state = if let Some(&index) = command_index.get(&command_ptr(visit.command)) {
+            classify_redirect_facts(commands[index].redirect_facts())
+        } else {
+            let redirect_facts = build_redirect_facts(visit.redirects, source);
+            classify_redirect_facts(&redirect_facts)
+        };
+
+        has_stdout_redirect |= state.has_stdout_redirect;
+        stdout_intent = Some(match stdout_intent {
+            Some(current) if current == state.stdout_intent => current,
+            Some(_) => SubstitutionOutputIntent::Mixed,
+            None => state.stdout_intent,
+        });
+    }
+
+    (
+        stdout_intent.unwrap_or(SubstitutionOutputIntent::Captured),
+        has_stdout_redirect,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputSink {
+    Captured,
+    DevNull,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RedirectState {
+    stdout_intent: SubstitutionOutputIntent,
+    has_stdout_redirect: bool,
+}
+
+fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
+    let mut fds = FxHashMap::from_iter([(1, OutputSink::Captured), (2, OutputSink::Other)]);
+    let mut has_stdout_redirect = false;
+
+    for redirect in redirects {
+        match redirect.redirect().kind {
+            RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
+                let sink = redirect_file_sink(redirect);
+                let fd = redirect.redirect().fd.unwrap_or(1);
+                has_stdout_redirect |= fd == 1;
+                fds.insert(fd, sink);
+            }
+            RedirectKind::OutputBoth => {
+                let sink = redirect_file_sink(redirect);
+                has_stdout_redirect = true;
+                fds.insert(1, sink);
+                fds.insert(2, sink);
+            }
+            RedirectKind::DupOutput => {
+                let fd = redirect.redirect().fd.unwrap_or(1);
+                let sink = redirect_dup_output_sink(redirect, &fds);
+                has_stdout_redirect |= fd == 1;
+                fds.insert(fd, sink);
+            }
+            RedirectKind::Input
+            | RedirectKind::ReadWrite
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::DupInput => {}
+        }
+    }
+
+    let stdout_sink = *fds.get(&1).unwrap_or(&OutputSink::Other);
+    let stderr_sink = *fds.get(&2).unwrap_or(&OutputSink::Other);
+    let stdout_intent = if matches!(stdout_sink, OutputSink::Captured)
+        || matches!(stderr_sink, OutputSink::Captured)
+    {
+        SubstitutionOutputIntent::Captured
+    } else if matches!(stdout_sink, OutputSink::DevNull) {
+        SubstitutionOutputIntent::Discarded
+    } else {
+        SubstitutionOutputIntent::Rerouted
+    };
+
+    RedirectState {
+        stdout_intent,
+        has_stdout_redirect,
+    }
+}
+
+fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {
+    match redirect.analysis() {
+        Some(analysis) if analysis.is_definitely_dev_null() => OutputSink::DevNull,
+        Some(_) => OutputSink::Other,
+        None => OutputSink::Other,
+    }
+}
+
+fn redirect_dup_output_sink(
+    redirect: &RedirectFact<'_>,
+    fds: &FxHashMap<i32, OutputSink>,
+) -> OutputSink {
+    let Some(fd) = redirect
+        .analysis()
+        .and_then(|analysis| analysis.numeric_descriptor_target)
+    else {
+        return OutputSink::Other;
+    };
+
+    *fds.get(&fd).unwrap_or(&OutputSink::Other)
+}
+
+fn visit_command_words_for_substitutions(
+    command: &Command,
+    redirects: &[Redirect],
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
+    match command {
+        Command::Simple(command) => {
+            visit_assignments_for_substitutions(&command.assignments, source, visitor);
+            visitor(&command.name);
+            visit_words_for_substitutions(&command.args, visitor);
+        }
+        Command::Builtin(command) => {
+            visit_builtin_words_for_substitutions(command, source, visitor)
+        }
+        Command::Decl(command) => {
+            visit_assignments_for_substitutions(&command.assignments, source, visitor);
+            for operand in &command.operands {
+                visit_decl_operand_words_for_substitutions(operand, source, visitor);
+            }
+        }
+        Command::Binary(_) | Command::Function(_) => {}
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    visit_words_for_substitutions(words, visitor);
+                }
+            }
+            CompoundCommand::Case(command) => {
+                visitor(&command.word);
+                for case in &command.cases {
+                    visit_patterns_for_substitutions(&case.patterns, visitor);
+                }
+            }
+            CompoundCommand::Select(command) => {
+                visit_words_for_substitutions(&command.words, visitor)
+            }
+            CompoundCommand::Conditional(command) => {
+                visit_conditional_words_for_substitutions(&command.expression, source, visitor);
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Time(_)
+            | CompoundCommand::Coproc(_) => {}
+        },
+    }
+
+    for redirect in redirects {
+        visitor(redirect_scan_word(redirect));
+    }
+}
+
+fn visit_command_argument_words_for_substitutions(
+    command: &Command,
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
+    match command {
+        Command::Simple(command) => {
+            if static_word_text(&command.name, source).as_deref() == Some("trap") {
+                return;
+            }
+            visit_words_for_substitutions(&command.args, visitor);
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                visit_words_for_substitutions(&command.extra_args, visitor);
+            }
+            BuiltinCommand::Continue(command) => {
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                visit_words_for_substitutions(&command.extra_args, visitor);
+            }
+            BuiltinCommand::Return(command) => {
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                visit_words_for_substitutions(&command.extra_args, visitor);
+            }
+            BuiltinCommand::Exit(command) => {
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                visit_words_for_substitutions(&command.extra_args, visitor);
+            }
+        },
+        Command::Decl(command) => {
+            for operand in &command.operands {
+                if let DeclOperand::Dynamic(word) = operand {
+                    visitor(word);
+                }
+            }
+        }
+        Command::Binary(_) | Command::Compound(_) | Command::Function(_) => {}
+    }
+}
+
+fn visit_command_subscript_words_for_substitutions(
+    command: &Command,
+    source: &str,
+    visitor: &mut impl FnMut(SubstitutionHostKind, &Word),
+) {
+    for assignment in query::command_assignments(command) {
+        query::visit_var_ref_subscript_words_with_source(&assignment.target, source, &mut |word| {
+            visitor(SubstitutionHostKind::AssignmentTargetSubscript, word);
+        });
+
+        if let AssignmentValue::Compound(array) = &assignment.value {
+            for element in &array.elements {
+                if let shuck_ast::ArrayElem::Keyed { key, .. }
+                | shuck_ast::ArrayElem::KeyedAppend { key, .. } = element
+                {
+                    query::visit_subscript_words(Some(key), source, &mut |word| {
+                        visitor(SubstitutionHostKind::ArrayKeySubscript, word);
+                    });
+                }
+            }
+        }
+    }
+
+    for operand in query::declaration_operands(command) {
+        match operand {
+            DeclOperand::Name(reference) => {
+                query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+                    visitor(SubstitutionHostKind::DeclarationNameSubscript, word);
+                });
+            }
+            DeclOperand::Assignment(assignment) => {
+                query::visit_var_ref_subscript_words_with_source(
+                    &assignment.target,
+                    source,
+                    &mut |word| {
+                        visitor(SubstitutionHostKind::AssignmentTargetSubscript, word);
+                    },
+                );
+
+                if let AssignmentValue::Compound(array) = &assignment.value {
+                    for element in &array.elements {
+                        if let shuck_ast::ArrayElem::Keyed { key, .. }
+                        | shuck_ast::ArrayElem::KeyedAppend { key, .. } = element
+                        {
+                            query::visit_subscript_words(Some(key), source, &mut |word| {
+                                visitor(SubstitutionHostKind::ArrayKeySubscript, word);
+                            });
+                        }
+                    }
+                }
+            }
+            DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => {}
+        }
+    }
+}
+
+fn visit_assignments_for_substitutions(
+    assignments: &[shuck_ast::Assignment],
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
+    for assignment in assignments {
+        query::visit_var_ref_subscript_words_with_source(&assignment.target, source, visitor);
+
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => visitor(word),
+            AssignmentValue::Compound(array) => {
+                for element in &array.elements {
+                    match element {
+                        shuck_ast::ArrayElem::Sequential(word) => visitor(word),
+                        shuck_ast::ArrayElem::Keyed { key, value }
+                        | shuck_ast::ArrayElem::KeyedAppend { key, value } => {
+                            query::visit_subscript_words(Some(key), source, visitor);
+                            visitor(value);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn visit_builtin_words_for_substitutions(
+    command: &BuiltinCommand,
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
+    match command {
+        BuiltinCommand::Break(command) => {
+            visit_assignments_for_substitutions(&command.assignments, source, visitor);
+            if let Some(word) = &command.depth {
+                visitor(word);
+            }
+            visit_words_for_substitutions(&command.extra_args, visitor);
+        }
+        BuiltinCommand::Continue(command) => {
+            visit_assignments_for_substitutions(&command.assignments, source, visitor);
+            if let Some(word) = &command.depth {
+                visitor(word);
+            }
+            visit_words_for_substitutions(&command.extra_args, visitor);
+        }
+        BuiltinCommand::Return(command) => {
+            visit_assignments_for_substitutions(&command.assignments, source, visitor);
+            if let Some(word) = &command.code {
+                visitor(word);
+            }
+            visit_words_for_substitutions(&command.extra_args, visitor);
+        }
+        BuiltinCommand::Exit(command) => {
+            visit_assignments_for_substitutions(&command.assignments, source, visitor);
+            if let Some(word) = &command.code {
+                visitor(word);
+            }
+            visit_words_for_substitutions(&command.extra_args, visitor);
+        }
+    }
+}
+
+fn visit_decl_operand_words_for_substitutions(
+    operand: &DeclOperand,
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => visitor(word),
+        DeclOperand::Name(reference) => {
+            query::visit_var_ref_subscript_words_with_source(reference, source, visitor);
+        }
+        DeclOperand::Assignment(assignment) => {
+            visit_assignments_for_substitutions(std::slice::from_ref(assignment), source, visitor);
+        }
+    }
+}
+
+fn visit_words_for_substitutions(words: &[Word], visitor: &mut impl FnMut(&Word)) {
+    for word in words {
+        visitor(word);
+    }
+}
+
+fn visit_patterns_for_substitutions(patterns: &[Pattern], visitor: &mut impl FnMut(&Word)) {
+    for pattern in patterns {
+        visit_pattern_for_substitutions(pattern, visitor);
+    }
+}
+
+fn visit_pattern_for_substitutions(pattern: &Pattern, visitor: &mut impl FnMut(&Word)) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                visit_patterns_for_substitutions(patterns, visitor)
+            }
+            PatternPart::Word(word) => visitor(word),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+fn visit_conditional_words_for_substitutions(
+    expression: &ConditionalExpr,
+    source: &str,
+    visitor: &mut impl FnMut(&Word),
+) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            visit_conditional_words_for_substitutions(&expr.left, source, visitor);
+            visit_conditional_words_for_substitutions(&expr.right, source, visitor);
+        }
+        ConditionalExpr::Unary(expr) => {
+            visit_conditional_words_for_substitutions(&expr.expr, source, visitor);
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            visit_conditional_words_for_substitutions(&expr.expr, source, visitor);
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => visitor(word),
+        ConditionalExpr::Pattern(pattern) => visit_pattern_for_substitutions(pattern, visitor),
+        ConditionalExpr::VarRef(reference) => {
+            query::visit_var_ref_subscript_words_with_source(reference, source, visitor);
+        }
+    }
+}
+
+fn redirect_scan_word(redirect: &Redirect) -> &Word {
+    match redirect.word_target() {
+        Some(word) => word,
+        None => &redirect.heredoc().expect("expected heredoc redirect").body,
     }
 }
 
@@ -1667,9 +2423,10 @@ mod tests {
 
     use super::{
         ConditionalNodeFact, ConditionalOperatorFamily, LinterFacts, SimpleTestOperatorFamily,
-        SimpleTestShape, SimpleTestSyntax, SudoFamilyInvoker,
+        SimpleTestShape, SimpleTestSyntax, SubstitutionHostKind, SudoFamilyInvoker,
     };
     use crate::rules::common::command::WrapperKind;
+    use crate::rules::common::expansion::SubstitutionOutputIntent;
     use crate::{ShellDialect, classify_file_context};
 
     fn with_facts(
@@ -1916,6 +2673,135 @@ mod tests {
         );
         assert!(exit.has_static_status());
         assert!(exit.is_numeric_literal);
+    }
+
+    #[test]
+    fn builds_redirect_facts_with_cached_target_analysis() {
+        let source = "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let command = facts
+                .structural_commands()
+                .find(|fact| fact.effective_name_is("echo"))
+                .expect("expected echo fact");
+
+            let redirects = command.redirect_facts();
+            assert_eq!(redirects.len(), 3);
+
+            let descriptor_dup = &redirects[0];
+            assert!(
+                descriptor_dup
+                    .analysis()
+                    .is_some_and(|analysis| analysis.is_descriptor_dup())
+            );
+            assert_eq!(
+                descriptor_dup
+                    .analysis()
+                    .and_then(|analysis| analysis.numeric_descriptor_target),
+                Some(3)
+            );
+
+            let dev_null = &redirects[1];
+            assert_eq!(
+                dev_null.target_span().map(|span| span.slice(source)),
+                Some("/dev/null")
+            );
+            assert!(
+                dev_null
+                    .analysis()
+                    .is_some_and(|analysis| analysis.is_definitely_dev_null())
+            );
+
+            let arithmetic = &redirects[2];
+            assert_eq!(
+                arithmetic.target_span().map(|span| span.slice(source)),
+                Some("\"$((i++))\"")
+            );
+            assert!(
+                arithmetic
+                    .analysis()
+                    .is_some_and(|analysis| { analysis.expansion.hazards.arithmetic_expansion })
+            );
+        });
+    }
+
+    #[test]
+    fn builds_substitution_facts_with_intent_and_host_kinds() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' $(printf arg) \"$(printf quoted)\"
+name[$(printf assign)]=1
+declare arr[$(printf decl-name)]
+declare -A map=([$(printf key)]=1)
+out=$(printf hi > out.txt)
+drop=$(printf hi >/dev/null 2>&1)
+mixed=$(jq -r . <<< \"$status\" || die >&2)
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.stdout_intent(),
+                        fact.host_kind(),
+                        fact.unquoted_in_host(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert!(substitutions.contains(&(
+                "$(printf arg)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::CommandArgument,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf quoted)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::CommandArgument,
+                false,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf assign)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::AssignmentTargetSubscript,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf decl-name)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::DeclarationNameSubscript,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf key)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::ArrayKeySubscript,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf hi > out.txt)".to_owned(),
+                SubstitutionOutputIntent::Rerouted,
+                SubstitutionHostKind::Other,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf hi >/dev/null 2>&1)".to_owned(),
+                SubstitutionOutputIntent::Discarded,
+                SubstitutionHostKind::Other,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(jq -r . <<< \"$status\" || die >&2)".to_owned(),
+                SubstitutionOutputIntent::Mixed,
+                SubstitutionHostKind::Other,
+                true,
+            )));
+        });
     }
 
     #[test]
