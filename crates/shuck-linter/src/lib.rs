@@ -424,6 +424,28 @@ echo $bar
     }
 
     #[test]
+    fn unused_assignment_ignores_plain_underscore_bindings() {
+        let diagnostics = lint_for_rule("#!/bin/bash\n_=1\n", Rule::UnusedAssignment);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_ignores_underscore_read_targets() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+printf 'x y\n' | while read -r _ value; do
+  printf '%s\n' \"$value\"
+done
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unused_assignment_reports_read_target_name_span() {
         let source = "#!/bin/sh\nread -r foo\n";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
@@ -1030,6 +1052,47 @@ print_red
 show() { echo \"$flag\"; }
 flag=1
 show
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn callee_subshell_reads_keep_caller_assignments_live() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+install_package() {
+  (
+    printf '%s\\n' \"$archive_format\" \"${configure[@]}\"
+  )
+}
+install_readline() {
+  archive_format='tar.gz'
+  configure=( ./configure --disable-dependency-tracking )
+  install_package
+}
+install_readline
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn completion_reply_assignments_are_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+_pyenv() {
+  COMPREPLY=()
+  local word=\"${COMP_WORDS[COMP_CWORD]}\"
+  COMPREPLY=( $(compgen -W \"$(printf 'a b')\" -- \"$word\") )
+}
+complete -F _pyenv pyenv
 ",
             &LinterSettings::for_rule(Rule::UnusedAssignment),
         );

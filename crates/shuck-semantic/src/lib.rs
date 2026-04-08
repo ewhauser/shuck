@@ -1585,6 +1585,37 @@ main \"$@\"
     }
 
     #[test]
+    fn callee_subshell_reads_keep_caller_assignments_live() {
+        let source = "\
+#!/bin/bash
+install_package() {
+  (
+    printf '%s\\n' \"$archive_format\" \"${configure[@]}\"
+  )
+}
+install_readline() {
+  archive_format='tar.gz'
+  configure=( ./configure --disable-dependency-tracking )
+  install_package
+}
+install_readline
+";
+        let mut model = model(source);
+        let unused = reportable_unused_names(&mut model);
+
+        assert!(
+            !unused.contains(&Name::from("archive_format")),
+            "unused: {:?}",
+            unused
+        );
+        assert!(
+            !unused.contains(&Name::from("configure")),
+            "unused: {:?}",
+            unused
+        );
+    }
+
+    #[test]
     fn later_file_scope_helper_reads_keep_caller_local_assignment_live() {
         let source = "\
 main() {
@@ -1957,6 +1988,32 @@ echo ok
             .collect::<Vec<_>>();
         assert!(!unused.contains(&"IFS"));
         assert!(unused.contains(&"unused"));
+    }
+
+    #[test]
+    fn bash_completion_runtime_vars_are_treated_as_live() {
+        let source = "\
+#!/bin/bash
+_pyenv() {
+  COMPREPLY=()
+  local word=\"${COMP_WORDS[COMP_CWORD]}\"
+  COMPREPLY=( $(compgen -W \"$(printf 'a b')\" -- \"$word\") )
+}
+complete -F _pyenv pyenv
+";
+        let mut model = model(source);
+        model.dataflow();
+
+        let unused = model
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unused.contains(&"COMPREPLY"));
+
+        let uninitialized = uninitialized_names(&mut model);
+        assert!(!uninitialized.contains(&"COMP_WORDS".to_string()));
+        assert!(!uninitialized.contains(&"COMP_CWORD".to_string()));
     }
 
     #[test]

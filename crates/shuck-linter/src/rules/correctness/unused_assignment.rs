@@ -20,6 +20,10 @@ pub fn unused_assignment(checker: &mut Checker) {
     for &binding_id in checker.semantic().unused_assignments() {
         let binding = checker.semantic().binding(binding_id);
 
+        if binding.name.as_str() == "_" {
+            continue;
+        }
+
         if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
             continue;
         }

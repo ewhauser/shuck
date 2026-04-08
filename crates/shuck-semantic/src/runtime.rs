@@ -25,9 +25,12 @@ const BASH_PREINITIALIZED: &[&str] = &[
     "OSTYPE",
     "HISTCONTROL",
     "HISTSIZE",
+    "COMP_WORDS",
+    "COMP_CWORD",
 ];
 
 const ALWAYS_USED_BINDINGS: &[&str] = &["IFS"];
+const BASH_ALWAYS_USED_BINDINGS: &[&str] = &["COMPREPLY"];
 const EMPTY_IMPLICIT_READS: &[&str] = &[];
 const READ_IMPLICIT_READS: &[&str] = &["IFS"];
 
@@ -37,6 +40,7 @@ pub(crate) struct RuntimePrelude {
     common_preinitialized: &'static [&'static str],
     bash_preinitialized: &'static [&'static str],
     always_used_bindings: &'static [&'static str],
+    bash_always_used_bindings: &'static [&'static str],
 }
 
 impl RuntimePrelude {
@@ -46,6 +50,7 @@ impl RuntimePrelude {
             common_preinitialized: COMMON_PREINITIALIZED,
             bash_preinitialized: BASH_PREINITIALIZED,
             always_used_bindings: ALWAYS_USED_BINDINGS,
+            bash_always_used_bindings: BASH_ALWAYS_USED_BINDINGS,
         }
     }
 
@@ -60,6 +65,7 @@ impl RuntimePrelude {
 
     pub(crate) fn is_always_used_binding(&self, name: &Name) -> bool {
         contains_name(self.always_used_bindings, name)
+            || (self.bash_enabled && contains_name(self.bash_always_used_bindings, name))
     }
 
     pub(crate) fn implicit_reads_for_simple_command(

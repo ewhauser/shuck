@@ -387,8 +387,12 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
             context.call_sites,
             names.len(),
         );
-        let interprocedural =
-            compute_interprocedural_read_sets(&read_plans, &callers_by_callee, names.len());
+        let interprocedural = compute_interprocedural_read_sets(
+            &read_plans,
+            &callers_by_callee,
+            context.scopes,
+            names.len(),
+        );
         Some((read_plans, interprocedural))
     };
 
@@ -1261,13 +1265,18 @@ fn build_scope_read_plans(
 fn compute_interprocedural_read_sets(
     read_plans: &[ScopeReadPlan],
     callers_by_callee: &[Vec<CallerReadSite>],
+    scopes: &[Scope],
     name_count: usize,
 ) -> InterproceduralReadSets {
+    let nested_child_scopes = nested_non_function_child_scopes(scopes);
     let mut transitive_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
     loop {
         let mut changed = false;
         for (scope_index, plan) in read_plans.iter().enumerate() {
             let mut reads = plan.direct_reads.clone();
+            for &child_scope in &nested_child_scopes[scope_index] {
+                reads.union_with(&transitive_reads[child_scope.index()]);
+            }
             for call in &plan.calls {
                 reads.union_with(&transitive_reads[call.callee_scope.index()]);
             }
@@ -1316,6 +1325,20 @@ fn compute_interprocedural_read_sets(
         escape_reads,
         future_reads,
     }
+}
+
+fn nested_non_function_child_scopes(scopes: &[Scope]) -> Vec<Vec<ScopeId>> {
+    let mut children = vec![Vec::new(); scopes.len()];
+    for scope in scopes {
+        let Some(parent) = scope.parent else {
+            continue;
+        };
+        if matches!(scope.kind, ScopeKind::Function(_)) {
+            continue;
+        }
+        children[parent.index()].push(scope.id);
+    }
+    children
 }
 
 fn build_future_read_summaries(
