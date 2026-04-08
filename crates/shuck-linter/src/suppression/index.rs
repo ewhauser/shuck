@@ -565,4 +565,19 @@ echo $foo
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 6));
     }
+
+    #[test]
+    fn scopes_shellcheck_disable_to_the_next_function_body() {
+        let source = "\
+# shellcheck disable=SC2059
+plugin_current_command() {
+  printf \"$terminal_format\" \"$plugin\" \"$version\" \"$description\" 1>&2
+}
+printf \"$later\" value
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::PrintfFormatVariable, 3));
+        assert!(index.is_suppressed(Rule::PrintfFormatVariable, 5));
+    }
 }
