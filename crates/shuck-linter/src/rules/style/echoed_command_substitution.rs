@@ -1,4 +1,7 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::{
+    Checker, CommandSubstitutionKind, ExpansionContext, Rule, SubstitutionHostKind, Violation,
+    WordFactContext,
+};
 pub struct EchoedCommandSubstitution;
 
 impl Violation for EchoedCommandSubstitution {
@@ -17,19 +20,27 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("echo"))
-        .filter_map(|fact| {
-            let [word] = fact.body_args() else {
-                return None;
-            };
-            checker
-                .facts()
-                .word_fact(
-                    word.span,
-                    WordFactContext::Expansion(ExpansionContext::CommandArgument),
-                )
-                .filter(|fact| fact.classification().has_plain_command_substitution())
+        .flat_map(|fact| {
+            fact.substitution_facts()
+                .iter()
+                .filter(|substitution| {
+                    substitution.kind() == CommandSubstitutionKind::Command
+                        && matches!(
+                            substitution.host_kind(),
+                            SubstitutionHostKind::CommandArgument
+                        )
+                })
+                .filter_map(|substitution| {
+                    checker
+                        .facts()
+                        .word_fact(
+                            substitution.host_word_span(),
+                            WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                        )
+                        .filter(|fact| fact.classification().has_plain_command_substitution())
+                        .map(|_| substitution.host_word_span())
+                })
         })
-        .flat_map(|fact| fact.command_substitution_spans().iter().copied())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || EchoedCommandSubstitution);
@@ -55,6 +66,23 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1]
         );
-        assert_eq!(diagnostics[0].span.slice(source), "$(date)");
+        assert_eq!(diagnostics[0].span.slice(source), "\"$(date)\"");
+    }
+
+    #[test]
+    fn reports_plain_substitutions_in_any_echo_argument() {
+        let source = "echo prefix $(date)\necho \"$(date)\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(date)", "\"$(date)\""]
+        );
     }
 }
