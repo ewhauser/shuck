@@ -58,9 +58,7 @@ fn simple_test_is_constant(fact: &crate::SimpleTestFact<'_>) -> bool {
 }
 
 fn simple_test_unary_affix_span(fact: &crate::SimpleTestFact<'_>) -> Option<Span> {
-    let Some(operand) = fact.operands().get(1) else {
-        return None;
-    };
+    let operand = fact.operands().get(1)?;
 
     word_scalar_affix_span(operand)
 }

@@ -2793,9 +2793,9 @@ impl<'a> Parser<'a> {
 
         let mut rest = Vec::with_capacity(1);
 
-        loop {
+        'tail: {
             let Some(kind) = self.current_token_kind else {
-                break;
+                break 'tail;
             };
             let operator = match kind {
                 TokenKind::And => Some((ListOperator::And, false)),
@@ -2813,7 +2813,7 @@ impl<'a> Parser<'a> {
                 _ => None,
             };
             let Some((operator, allow_empty_tail)) = operator else {
-                break;
+                break 'tail;
             };
             let operator_span = self.current_span;
             self.advance();
@@ -2827,7 +2827,7 @@ impl<'a> Parser<'a> {
                         command,
                     });
                 }
-                break;
+                break 'tail;
             }
 
             rest.push(CommandListItem {
@@ -2845,7 +2845,6 @@ impl<'a> Parser<'a> {
                     unreachable!()
                 },
             });
-            break;
         }
 
         if rest.is_empty() {

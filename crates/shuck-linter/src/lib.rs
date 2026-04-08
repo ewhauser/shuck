@@ -974,7 +974,7 @@ printf '%s %s %s %s %s %s %s\\n' \
   \"$__FOO\"
 printf '%s %s\\n' \"$foo\" \"$Foo_BAR\"
 ";
-        let diagnostics = lint_for_rule(&source, Rule::UndefinedVariable);
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
         assert_eq!(diagnostics.len(), 2);
         assert!(

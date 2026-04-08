@@ -30,7 +30,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             continue;
         }
 
-        report_word_expansions(&mut spans, &mut safe_values, &fact, context);
+        report_word_expansions(&mut spans, &mut safe_values, fact, context);
     }
 
     drop(safe_values);

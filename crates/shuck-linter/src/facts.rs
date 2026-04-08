@@ -3323,13 +3323,13 @@ impl<'a> SurfaceFragmentCollector<'a> {
             Command::Compound(command) => self.collect_compound(command),
             Command::Function(function) => {
                 for entry in &function.header.entries {
-                    self.collect_word(&entry.word, context.clone());
+                    self.collect_word(&entry.word, context);
                 }
                 self.collect_command(&function.body);
             }
             Command::AnonymousFunction(function) => {
                 for word in &function.args {
-                    self.collect_word(word, context.clone());
+                    self.collect_word(word, context);
                 }
                 self.collect_command(&function.body);
             }
@@ -3339,16 +3339,16 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_simple_command(&mut self, command: &SimpleCommand, context: SurfaceScanContext<'_>) {
-        self.collect_assignments(&command.assignments, context.clone());
-        self.collect_word(&command.name, context.clone());
+        self.collect_assignments(&command.assignments, context);
+        self.collect_word(&command.name, context);
 
         let variable_set_operand = simple_command_variable_set_operand(command, self.source);
         for word in &command.args {
             let word_context =
                 if variable_set_operand.is_some_and(|operand| std::ptr::eq(word, operand)) {
-                    context.clone().variable_set_operand()
+                    context.variable_set_operand()
                 } else {
-                    context.clone()
+                    context
                 };
             self.collect_word(word, word_context);
         }
@@ -3358,30 +3358,30 @@ impl<'a> SurfaceFragmentCollector<'a> {
         let context = SurfaceScanContext::default();
         match command {
             BuiltinCommand::Break(command) => {
-                self.collect_assignments(&command.assignments, context.clone());
+                self.collect_assignments(&command.assignments, context);
                 if let Some(word) = &command.depth {
-                    self.collect_word(word, context.clone());
+                    self.collect_word(word, context);
                 }
                 self.collect_words(&command.extra_args, context);
             }
             BuiltinCommand::Continue(command) => {
-                self.collect_assignments(&command.assignments, context.clone());
+                self.collect_assignments(&command.assignments, context);
                 if let Some(word) = &command.depth {
-                    self.collect_word(word, context.clone());
+                    self.collect_word(word, context);
                 }
                 self.collect_words(&command.extra_args, context);
             }
             BuiltinCommand::Return(command) => {
-                self.collect_assignments(&command.assignments, context.clone());
+                self.collect_assignments(&command.assignments, context);
                 if let Some(word) = &command.code {
-                    self.collect_word(word, context.clone());
+                    self.collect_word(word, context);
                 }
                 self.collect_words(&command.extra_args, context);
             }
             BuiltinCommand::Exit(command) => {
-                self.collect_assignments(&command.assignments, context.clone());
+                self.collect_assignments(&command.assignments, context);
                 if let Some(word) = &command.code {
-                    self.collect_word(word, context.clone());
+                    self.collect_word(word, context);
                 }
                 self.collect_words(&command.extra_args, context);
             }
@@ -3390,22 +3390,20 @@ impl<'a> SurfaceFragmentCollector<'a> {
 
     fn collect_decl_command(&mut self, command: &DeclClause) {
         let context = SurfaceScanContext::default();
-        self.collect_assignments(&command.assignments, context.clone());
+        self.collect_assignments(&command.assignments, context);
         for operand in &command.operands {
             match operand {
                 DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                    self.collect_word(word, context.clone());
+                    self.collect_word(word, context);
                 }
                 DeclOperand::Name(reference) => {
                     query::visit_var_ref_subscript_words_with_source(
                         reference,
                         self.source,
-                        &mut |word| self.collect_word(word, context.clone()),
+                        &mut |word| self.collect_word(word, context),
                     );
                 }
-                DeclOperand::Assignment(assignment) => {
-                    self.collect_assignment(assignment, context.clone())
-                }
+                DeclOperand::Assignment(assignment) => self.collect_assignment(assignment, context),
             }
         }
     }
@@ -3479,7 +3477,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
 
     fn collect_assignments(&mut self, assignments: &[Assignment], context: SurfaceScanContext<'_>) {
         for assignment in assignments {
-            self.collect_assignment(assignment, context.clone());
+            self.collect_assignment(assignment, context);
         }
     }
 
@@ -3488,19 +3486,19 @@ impl<'a> SurfaceFragmentCollector<'a> {
         query::visit_var_ref_subscript_words_with_source(
             &assignment.target,
             self.source,
-            &mut |word| self.collect_word(word, context.clone()),
+            &mut |word| self.collect_word(word, context),
         );
         match &assignment.value {
-            AssignmentValue::Scalar(word) => self.collect_word(word, context.clone()),
+            AssignmentValue::Scalar(word) => self.collect_word(word, context),
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
                     match element {
-                        ArrayElem::Sequential(word) => self.collect_word(word, context.clone()),
+                        ArrayElem::Sequential(word) => self.collect_word(word, context),
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
                             query::visit_subscript_words(Some(key), self.source, &mut |word| {
-                                self.collect_word(word, context.clone());
+                                self.collect_word(word, context);
                             });
-                            self.collect_word(value, context.clone());
+                            self.collect_word(value, context);
                         }
                     }
                 }
@@ -3510,13 +3508,13 @@ impl<'a> SurfaceFragmentCollector<'a> {
 
     fn collect_words(&mut self, words: &[Word], context: SurfaceScanContext<'_>) {
         for word in words {
-            self.collect_word(word, context.clone());
+            self.collect_word(word, context);
         }
     }
 
     fn collect_patterns(&mut self, patterns: &[Pattern], context: SurfaceScanContext<'_>) {
         for pattern in patterns {
-            self.collect_pattern(pattern, context.clone());
+            self.collect_pattern(pattern, context);
         }
     }
 
@@ -3559,12 +3557,8 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         variable_set_operand: context.variable_set_operand,
                     });
                 }
-                WordPart::DoubleQuoted { parts, .. } => {
-                    self.collect_word_parts(parts, context.clone())
-                }
-                WordPart::ZshQualifiedGlob(glob) => {
-                    self.collect_zsh_qualified_glob(glob, context.clone())
-                }
+                WordPart::DoubleQuoted { parts, .. } => self.collect_word_parts(parts, context),
+                WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
                 WordPart::ArithmeticExpansion {
                     syntax: ArithmeticExpansionSyntax::LegacyBracket,
                     expression_ast,
@@ -3575,14 +3569,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         .push(LegacyArithmeticFragmentFact { span: part.span });
                     if let Some(expression_ast) = expression_ast.as_ref() {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
-                            self.collect_word(word, context.clone());
+                            self.collect_word(word, context);
                         });
                     }
                 }
                 WordPart::ArithmeticExpansion { expression_ast, .. } => {
                     if let Some(expression_ast) = expression_ast.as_ref() {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
-                            self.collect_word(word, context.clone());
+                            self.collect_word(word, context);
                         });
                     }
                 }
@@ -3604,16 +3598,16 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         ..
                     }) = &parameter.syntax
                     {
-                        self.collect_parameter_operator_patterns(operator, context.clone());
+                        self.collect_parameter_operator_patterns(operator, context);
                     }
                 }
                 WordPart::ParameterExpansion { operator, .. } => {
-                    self.collect_parameter_operator_patterns(operator, context.clone());
+                    self.collect_parameter_operator_patterns(operator, context);
                 }
                 WordPart::IndirectExpansion {
                     operator: Some(operator),
                     ..
-                } => self.collect_parameter_operator_patterns(operator, context.clone()),
+                } => self.collect_parameter_operator_patterns(operator, context),
                 WordPart::Literal(_)
                 | WordPart::Variable(_)
                 | WordPart::Length(_)
@@ -3632,10 +3626,8 @@ impl<'a> SurfaceFragmentCollector<'a> {
     fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
         for (part, _) in pattern.parts_with_spans() {
             match part {
-                PatternPart::Group { patterns, .. } => {
-                    self.collect_patterns(patterns, context.clone())
-                }
-                PatternPart::Word(word) => self.collect_word(word, context.clone()),
+                PatternPart::Group { patterns, .. } => self.collect_patterns(patterns, context),
+                PatternPart::Word(word) => self.collect_word(word, context),
                 PatternPart::Literal(_)
                 | PatternPart::AnyString
                 | PatternPart::AnyChar
@@ -3651,7 +3643,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
     ) {
         for segment in &glob.segments {
             if let ZshGlobSegment::Pattern(pattern) = segment {
-                self.collect_pattern(pattern, context.clone());
+                self.collect_pattern(pattern, context);
             }
         }
     }
@@ -3659,11 +3651,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
     fn collect_redirects(&mut self, redirects: &[Redirect], context: SurfaceScanContext<'_>) {
         for redirect in redirects {
             match redirect.word_target() {
-                Some(word) => self.collect_word(word, context.clone()),
+                Some(word) => self.collect_word(word, context),
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
-                        self.collect_word(&heredoc.body, context.clone());
+                        self.collect_word(&heredoc.body, context);
                     }
                 }
             }
@@ -3677,7 +3669,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
     ) {
         match expression {
             ConditionalExpr::Binary(expr) => {
-                self.collect_conditional_expr(&expr.left, context.clone());
+                self.collect_conditional_expr(&expr.left, context);
                 self.collect_conditional_expr(&expr.right, context);
             }
             ConditionalExpr::Unary(expr) => {
@@ -3699,7 +3691,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 query::visit_var_ref_subscript_words_with_source(
                     reference,
                     self.source,
-                    &mut |word| self.collect_word(word, context.clone()),
+                    &mut |word| self.collect_word(word, context),
                 );
             }
         }
