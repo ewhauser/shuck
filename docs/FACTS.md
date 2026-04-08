@@ -124,11 +124,11 @@ Rules that now primarily read shared `LinterFacts` families:
 - `C057` `SubstWithRedirect`
 - `C058` `SubstWithRedirectErr`
 
-Rules that still mix semantic and linter facts:
+Rules that mix semantic and linter facts:
 
 - `C063` `OverwrittenFunction`
-  Overwrite detection still comes from semantic facts; the remaining `unset`
-  suppression path uses command facts.
+  Precise overwrite pairing still comes from semantic facts; the remaining
+  suppression paths use command facts and file-context classification.
 
 ### Implemented Layer
 
@@ -439,12 +439,9 @@ Already primarily fact-backed through `SemanticModel`:
 - [x] `C001` `UnusedAssignment`
 - [x] `C002` `DynamicSourcePath`
 - [x] `C006` `UndefinedVariable`
+- [x] `C063` `OverwrittenFunction`
 - [x] `C014` `LocalTopLevel`
 - [x] `C124` `UnreachableAfterExit`
-
-Partially fact-backed and still worth tightening:
-
-- [ ] `C063` `OverwrittenFunction`
 
 Needs migration to `LinterFacts`:
 
@@ -558,16 +555,22 @@ Verification checklist:
 
 Recent verification on April 7, 2026:
 
+- `cargo check -p shuck-linter --all-targets` passed.
 - `cargo test -p shuck-linter` passed.
 - `cargo test -p shuck` passed.
 - `cargo bench -p shuck-benchmark --bench linter -- --baseline=main --noplot`
-  passed against a detached pre-change baseline worktree with only the
-  compile-only `ZshQualifiedGlob` fix applied.
-  The aggregate `linter/all` case stayed within noise at roughly
-  `-2.27% .. -0.29%`, `fzf-install`, `homebrew-install`, `ruby-build`, and
-  `nvm` stayed within noise, and `pyenv-python-build` improved by roughly
-  `-6.42% .. -1.82%`.
-- `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=S001,S007,S008,S009,S010,C008,C021,C047,C048,C055,C063`
-  was attempted against the shared corpus cache.
-  The run is still blocked by existing large-corpus zsh parse failures and one
-  harness worker-thread exit outside the scope of this roadmap.
+  passed against a detached clean `main` worktree at `4ae102f`.
+  Relative to that newer upstream baseline, `linter/all` regressed by roughly
+  `+4.80% .. +22.56%`, `fzf-install` improved by roughly
+  `-3.11% .. -1.85%`, `homebrew-install` stayed within noise, `ruby-build`
+  regressed by roughly `+12.71% .. +45.64%`,
+  `pyenv-python-build` regressed by roughly `+12.54% .. +19.78%`, and `nvm`
+  regressed by roughly `+14.39% .. +20.14%`.
+  This comparison includes one unrelated upstream `main` commit beyond the
+  `codex/facts-closeout` branch point.
+- `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C063 SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10 SHUCK_LARGE_CORPUS_KEEP_GOING=1`
+  was rerun against the shared corpus cache.
+  The sampled `C063` comparison now reports no compatibility divergences.
+  The run is still blocked by existing large-corpus zsh parse failures
+  (10 fixtures across 79 zsh inputs) and one patch corpus-noise fixture
+  outside the scope of this roadmap.

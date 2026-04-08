@@ -364,6 +364,94 @@ impl SemanticModel {
         &self.call_graph
     }
 
+    pub fn precompute_overwritten_functions(&self) -> Vec<OverwrittenFunction> {
+        if self.functions.is_empty() {
+            return Vec::new();
+        }
+
+        let cfg = build_control_flow_graph(
+            &self.recorded_program,
+            &self.command_bindings,
+            &self.command_references,
+        );
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let binding_blocks = build_binding_block_index(cfg.blocks(), self.bindings.len());
+        let mut reachability = ReachabilityCache::new(&cfg);
+        let mut overwritten = Vec::new();
+
+        for (name, bindings) in &self.functions {
+            let mut bindings_by_scope = FxHashMap::<ScopeId, Vec<BindingId>>::default();
+            for &binding in bindings {
+                bindings_by_scope
+                    .entry(self.binding(binding).scope)
+                    .or_default()
+                    .push(binding);
+            }
+
+            for scope_bindings in bindings_by_scope.values_mut() {
+                scope_bindings.sort_by_key(|binding| self.binding(*binding).span.start.offset);
+
+                for pair in scope_bindings.windows(2) {
+                    let first = pair[0];
+                    let second = pair[1];
+                    let Some(first_blocks) =
+                        reachable_binding_blocks(first, &binding_blocks, &unreachable)
+                    else {
+                        continue;
+                    };
+                    let Some(second_blocks) =
+                        reachable_binding_blocks(second, &binding_blocks, &unreachable)
+                    else {
+                        continue;
+                    };
+
+                    if !blocks_have_path(&first_blocks, &second_blocks, &mut reachability) {
+                        continue;
+                    }
+
+                    let first_called = self.call_sites_for(name).iter().any(|site| {
+                        self.visible_binding(name, site.span)
+                            .is_some_and(|binding| binding.id == first)
+                            && {
+                                let site_blocks = cfg
+                                    .block_ids_for_span(site.span)
+                                    .iter()
+                                    .copied()
+                                    .filter(|block| !unreachable.contains(block))
+                                    .collect::<Vec<_>>();
+                                !site_blocks.is_empty()
+                                    && blocks_have_path(
+                                        &first_blocks,
+                                        &site_blocks,
+                                        &mut reachability,
+                                    )
+                                    && blocks_have_path(
+                                        &site_blocks,
+                                        &second_blocks,
+                                        &mut reachability,
+                                    )
+                            }
+                    });
+
+                    overwritten.push(OverwrittenFunction {
+                        name: name.clone(),
+                        first,
+                        second,
+                        first_called,
+                    });
+                }
+            }
+        }
+
+        overwritten.sort_by_key(|overwritten| {
+            (
+                self.binding(overwritten.first).span.start.offset,
+                self.binding(overwritten.second).span.start.offset,
+            )
+        });
+        overwritten
+    }
+
     pub fn declarations(&self) -> &[Declaration] {
         &self.declarations
     }
@@ -636,6 +724,79 @@ fn build_indirect_targets_by_reference(
         }
     }
     targets_by_reference
+}
+
+fn build_binding_block_index(blocks: &[BasicBlock], binding_count: usize) -> Vec<Vec<BlockId>> {
+    let mut binding_blocks = vec![Vec::new(); binding_count];
+    for block in blocks {
+        for &binding in &block.bindings {
+            binding_blocks[binding.index()].push(block.id);
+        }
+    }
+    binding_blocks
+}
+
+fn reachable_binding_blocks(
+    binding: BindingId,
+    binding_blocks: &[Vec<BlockId>],
+    unreachable: &FxHashSet<BlockId>,
+) -> Option<Vec<BlockId>> {
+    let blocks = binding_blocks
+        .get(binding.index())
+        .into_iter()
+        .flat_map(|blocks| blocks.iter())
+        .copied()
+        .filter(|block| !unreachable.contains(block))
+        .collect::<Vec<_>>();
+
+    (!blocks.is_empty()).then_some(blocks)
+}
+
+fn blocks_have_path(
+    starts: &[BlockId],
+    ends: &[BlockId],
+    reachability: &mut ReachabilityCache<'_>,
+) -> bool {
+    starts.iter().copied().any(|start| {
+        ends.iter()
+            .copied()
+            .any(|end| reachability.reaches(start, end))
+    })
+}
+
+struct ReachabilityCache<'a> {
+    cfg: &'a ControlFlowGraph,
+    cache: FxHashMap<BlockId, FxHashSet<BlockId>>,
+}
+
+impl<'a> ReachabilityCache<'a> {
+    fn new(cfg: &'a ControlFlowGraph) -> Self {
+        Self {
+            cfg,
+            cache: FxHashMap::default(),
+        }
+    }
+
+    fn reaches(&mut self, start: BlockId, end: BlockId) -> bool {
+        self.cache
+            .entry(start)
+            .or_insert_with(|| {
+                let mut visited = FxHashSet::default();
+                let mut stack = vec![start];
+
+                while let Some(block) = stack.pop() {
+                    if !visited.insert(block) {
+                        continue;
+                    }
+                    for (successor, _) in self.cfg.successors(block) {
+                        stack.push(*successor);
+                    }
+                }
+
+                visited
+            })
+            .contains(&end)
+    }
 }
 
 fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool {
@@ -1017,6 +1178,68 @@ f() { echo again; }
         assert!(model.call_graph().reachable.contains("g"));
         assert_eq!(model.call_graph().overwritten.len(), 1);
         assert_eq!(model.call_graph().overwritten[0].name, "f");
+    }
+
+    #[test]
+    fn precise_overwritten_functions_track_real_overwrites() {
+        let source = "\
+f() { echo hi; }
+f() { echo again; }
+";
+        let model = model(source);
+        let overwritten = model.precompute_overwritten_functions();
+
+        assert_eq!(overwritten.len(), 1);
+        assert_eq!(overwritten[0].name, "f");
+        assert!(!overwritten[0].first_called);
+    }
+
+    #[test]
+    fn precise_overwritten_functions_preserve_calls_before_redefinition() {
+        let source = "\
+f() { echo hi; }
+f
+f() { echo again; }
+";
+        let model = model(source);
+        let overwritten = model.precompute_overwritten_functions();
+
+        assert_eq!(overwritten.len(), 1);
+        assert!(overwritten[0].first_called);
+    }
+
+    #[test]
+    fn precise_overwritten_functions_ignore_mutually_exclusive_branches() {
+        let source = "\
+if cond; then
+  helper() { return 0; }
+else
+  helper() { return 1; }
+fi
+helper
+";
+        let model = model(source);
+
+        assert!(model.precompute_overwritten_functions().is_empty());
+    }
+
+    #[test]
+    fn precise_overwritten_functions_do_not_merge_distinct_helper_scopes() {
+        let source = "\
+factory_one() {
+  helper() { return 0; }
+  helper
+}
+factory_two() {
+  helper() { return 1; }
+  helper
+}
+factory_one
+factory_two
+";
+        let model = model(source);
+
+        assert!(model.precompute_overwritten_functions().is_empty());
     }
 
     #[test]

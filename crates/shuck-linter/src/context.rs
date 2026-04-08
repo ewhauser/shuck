@@ -147,8 +147,7 @@ pub fn classify_file_context(
 
     if lines.iter().any(|line| {
         let trimmed = line.trimmed;
-        trimmed.starts_with("source ")
-            || trimmed.starts_with(". ")
+        starts_project_closure_command(trimmed)
             || trimmed
                 .strip_prefix('#')
                 .is_some_and(|body| body.trim_start().starts_with("shellcheck source="))
@@ -236,6 +235,13 @@ fn path_tokens(path: &Path) -> Vec<String> {
 fn matches_directive(body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
     lower.starts_with("shellcheck ") || lower == "shellcheck" || lower.starts_with("shuck:")
+}
+
+fn starts_project_closure_command(trimmed: &str) -> bool {
+    trimmed.starts_with("source ")
+        || trimmed.starts_with(". ")
+        || trimmed.starts_with("\\source ")
+        || trimmed.starts_with("\\. ")
 }
 
 fn autoconf_markers_present(source: &str) -> bool {
@@ -418,6 +424,22 @@ source ./lib.sh
         assert!(context.has_tag(FileContextTag::TestHarness));
         assert!(context.has_tag(FileContextTag::ProjectClosure));
         assert!(context.has_tag(FileContextTag::DirectiveHandling));
+    }
+
+    #[test]
+    fn classifies_escaped_source_commands_as_project_closure() {
+        let source = "\
+\\. ./lib.sh
+helper() { :; }
+";
+        let context = classify_file_context(
+            source,
+            Some(Path::new("/tmp/project/tests/helper_swap_test.sh")),
+            ShellDialect::Bash,
+        );
+
+        assert!(context.has_tag(FileContextTag::ProjectClosure));
+        assert!(context.has_tag(FileContextTag::TestHarness));
     }
 
     #[test]
