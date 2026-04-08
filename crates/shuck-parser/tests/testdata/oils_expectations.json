@@ -198,5 +198,9 @@
   "oils/var-sub.test.sh::Here doc with bad \"$@\" delimiter": {
     "expectation": "parse_err",
     "reason": "non-static heredoc delimiters are rejected during parsing"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh": {
+    "expectation": "skip",
+    "reason": "zsh-only regression snippets are covered by the zsh-mode parser corpus test"
   }
 }
