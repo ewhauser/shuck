@@ -119,15 +119,33 @@ If the category module already exists, just add a new `#[test_case]` line to the
 
 Create `crates/shuck-linter/src/rules/{category}/{rule_name}.rs`.
 
-Follow this pattern:
+**Critical design principle:** Rules must be cheap filters over pre-computed facts. Do NOT add
+direct AST walks, traversal helpers, command normalization, test operand reconstruction, or
+word/redirect/substitution classification in rule files. If a rule needs new structural data,
+add it to `LinterFacts` in `crates/shuck-linter/src/facts.rs` and consume it from there.
+
+### Two data sources
+
+Rules access data through two paths:
+
+1. **`checker.facts()`** — Pre-computed `LinterFacts`. This is the primary data source for most
+   rules. Facts normalize commands, extract options, classify words, analyze tests, and index
+   structural patterns (pipelines, loops, redirects, substitutions). Prefer facts for anything
+   structural or command-oriented.
+
+2. **`checker.semantic()`** — The `SemanticModel`. Use this for variable binding/reference
+   analysis (unused assignments, undefined variables, scope queries, call graphs). These rules
+   iterate semantic collections directly.
+
+### Violation struct pattern
 
 ```rust
 use crate::{Checker, Rule, Violation};
 
 pub struct RuleName {
     // Fields that provide context for the diagnostic message.
-    // Common: `name: String` for variable names, `kind: String` for command types.
-    // Use no fields if the message is always the same.
+    // Common: `name: String` for variable names.
+    // Use no fields if the message is always the same (preferred).
 }
 
 impl Violation for RuleName {
@@ -137,15 +155,8 @@ impl Violation for RuleName {
 
     fn message(&self) -> String {
         // Concise, lowercase message describing the violation.
-        // Include context from fields: format!("variable `{}` is ...", self.name)
-        format!("description of what's wrong")
+        "description of what's wrong".to_owned()
     }
-}
-
-pub fn rule_name(checker: &mut Checker) {
-    // Query the semantic model for the data this rule needs.
-    // Filter out false positives.
-    // Report violations via checker.report(violation, span).
 }
 ```
 
@@ -154,9 +165,192 @@ Register the module in the category's `mod.rs`:
 pub mod rule_name;
 ```
 
-### Querying the semantic model
+### Pattern A: Fact-based rules (most rules)
 
-The checker holds `&SemanticModel`. Key query methods:
+Filter pre-computed facts, collect spans, report. This is the standard pattern.
+
+**Command facts** — for rules about specific commands (read, printf, exit, find, xargs, sudo, etc.):
+```rust
+pub fn read_without_raw(checker: &mut Checker) {
+    let spans = checker
+        .facts()
+        .structural_commands()                              // iterator over CommandFact
+        .filter(|fact| fact.effective_name_is("read"))      // normalized name (unwraps env/command/sudo)
+        .filter(|fact| {
+            fact.options()
+                .read()                                     // pre-parsed ReadCommandFacts
+                .is_some_and(|read| !read.uses_raw_input)
+        })
+        .filter_map(|fact| fact.body_name_word().map(|word| word.span))
+        .collect::<Vec<_>>();
+
+    checker.report_all(spans, || ReadWithoutRaw);
+}
+```
+
+**Pipeline facts** — for rules about piped command sequences:
+```rust
+pub fn find_output_to_xargs(checker: &mut Checker) {
+    let spans = checker
+        .facts()
+        .pipelines()                                        // &[PipelineFact]
+        .iter()
+        .flat_map(|pipeline| unsafe_find_to_xargs_spans(checker, pipeline))
+        .collect::<Vec<_>>();
+
+    checker.report_all_dedup(spans, || FindOutputToXargs);
+}
+
+fn unsafe_find_to_xargs_spans(checker: &Checker<'_>, pipeline: &PipelineFact<'_>) -> Vec<Span> {
+    pipeline.segments().windows(2).filter_map(|pair| {
+        let left = checker.facts().command_for_stmt(pair[0].stmt())?;   // cross-reference
+        let right = checker.facts().command_for_stmt(pair[1].stmt())?;
+
+        if !pair[0].effective_name_is("find") || !pair[1].effective_name_is("xargs") {
+            return None;
+        }
+        if left.options().find().is_some_and(|f| f.has_print0)
+            && right.options().xargs().is_some_and(|x| x.uses_null_input) {
+            return None;  // null-delimited pair is safe
+        }
+        Some(left.body_span())
+    }).collect()
+}
+```
+
+**Loop header facts** — for rules about for/select loop iteration lists:
+```rust
+pub fn find_output_loop(checker: &mut Checker) {
+    let spans = checker
+        .facts()
+        .for_headers()                                      // &[ForHeaderFact]
+        .iter()
+        .flat_map(|header| header.words().iter())
+        .filter(|word| word.contains_find_substitution())   // pre-computed
+        .map(|word| word.span())
+        .collect::<Vec<_>>();
+
+    checker.report_all(spans, || FindOutputLoop);
+}
+```
+
+**Test/conditional facts** — for rules about `[...]` and `[[...]]` tests:
+```rust
+pub fn constant_comparison_test(checker: &mut Checker) {
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| {
+            fact.simple_test().is_some_and(simple_test_is_constant)     // SimpleTestFact
+                || fact.conditional().is_some_and(conditional_is_constant) // ConditionalFact
+        })
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
+
+    checker.report_all(spans, || ConstantComparisonTest);
+}
+```
+
+**Redirect facts** — for rules about redirections on specific commands:
+```rust
+pub fn sudo_redirection_order(checker: &mut Checker) {
+    let spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| fact.has_wrapper(WrapperKind::SudoFamily))
+        .flat_map(|fact| {
+            fact.redirect_facts().iter().filter_map(|redirect| {
+                (redirects_output(redirect.redirect().kind)
+                    && !redirect.analysis()
+                        .is_some_and(|a| a.is_definitely_dev_null()))
+                .then(|| redirect.target_span()).flatten()
+            })
+        })
+        .collect::<Vec<_>>();
+
+    checker.report_all_dedup(spans, || SudoRedirectionOrder);
+}
+```
+
+**Surface fragment facts** — for lexer-level patterns (backticks, single quotes, etc.):
+```rust
+// Access via checker.facts().backtick_fragments(), .single_quoted_fragments(), etc.
+```
+
+**Word facts** — for rules about word expansion contexts:
+```rust
+// Access via checker.facts().word_facts(), .expansion_word_facts(context), .case_subject_facts()
+```
+
+### Key fact access methods
+
+| Method | Returns | Use for |
+|--------|---------|---------|
+| `facts.commands()` | All command facts | General command matching |
+| `facts.structural_commands()` | Top-level commands (iterator) | Commands not inside substitutions |
+| `facts.pipelines()` | Pipeline facts | Multi-command pipe analysis |
+| `facts.for_headers()` / `facts.select_headers()` | Loop list facts | Loop iteration patterns |
+| `facts.lists()` | List operator facts | Mixed `&&`/`\|\|` detection |
+| `facts.word_facts()` | Word expansion facts | Quoting/expansion analysis |
+| `facts.expansion_word_facts(ctx)` | Words in specific context | Context-filtered word analysis |
+| `facts.case_subject_facts()` | Case subject word facts | Case statement analysis |
+| `facts.single_quoted_fragments()` | Single-quoted spans | Literal-in-quotes detection |
+| `facts.backtick_fragments()` | Backtick substitution spans | Legacy syntax detection |
+| `facts.command_for_stmt(stmt)` | Command fact by AST node | Cross-referencing pipelines/loops |
+| `facts.command_for_command(cmd)` | Command fact by Command | Lookup from AST reference |
+| `facts.word_fact(span, ctx)` | Word fact by span+context | Targeted word lookup |
+
+### CommandFact key methods
+
+| Method | Returns | Use for |
+|--------|---------|---------|
+| `fact.effective_name_is(name)` | bool | Normalized name check (unwraps wrappers) |
+| `fact.has_wrapper(kind)` | bool | Check for sudo/env/command wrapping |
+| `fact.options()` | CommandOptionFacts | Pre-parsed command-specific options |
+| `fact.body_name_word()` | Option<&Word> | The body command's name word (for span) |
+| `fact.body_span()` | Span | Span of the body command |
+| `fact.span()` | Span | Full command span |
+| `fact.redirect_facts()` | &[RedirectFact] | Pre-analyzed redirections |
+| `fact.simple_test()` | Option<&SimpleTestFact> | `[...]` test structure |
+| `fact.conditional()` | Option<&ConditionalFact> | `[[...]]` test structure |
+| `fact.substitution_facts()` | &[SubstitutionFact] | Command substitution metadata |
+
+### CommandOptionFacts (pre-parsed per-command data)
+
+| Method | Returns | Use for |
+|--------|---------|---------|
+| `.read()` | Option<ReadCommandFacts> | `read -r` detection |
+| `.printf()` | Option<PrintfCommandFacts> | Format word extraction |
+| `.unset()` | Option<UnsetCommandFacts> | Function mode, operand words |
+| `.find()` | Option<FindCommandFacts> | `-print0` detection |
+| `.xargs()` | Option<XargsCommandFacts> | `-0`/`--null` detection |
+| `.exit()` | Option<ExitCommandFacts> | Status word and staticness |
+| `.sudo_family()` | Option<SudoFamilyCommandFacts> | Invoker type (sudo/doas/run0) |
+
+### Pattern B: Semantic-based rules (binding/reference rules)
+
+For rules that analyze variable assignments and references, iterate semantic collections directly:
+
+```rust
+pub fn unused_assignment(checker: &mut Checker) {
+    for &binding_id in checker.semantic().unused_assignments() {
+        let binding = checker.semantic().binding(binding_id);
+
+        if !is_reportable(binding.kind, binding.attributes) { continue; }
+        if binding.attributes.contains(BindingAttributes::EXPORTED) { continue; }
+        if matches!(binding.kind, BindingKind::Nameref) { continue; }
+
+        checker.report(
+            UnusedAssignment { name: binding.name.to_string() },
+            binding.span,
+        );
+    }
+}
+```
+
+### Semantic model methods (for Pattern B only)
 
 | Method | Returns | Use for |
 |--------|---------|---------|
@@ -172,11 +366,7 @@ The checker holds `&SemanticModel`. Key query methods:
 | `semantic.call_graph()` | Reachable/uncalled functions | Dead function detection |
 | `semantic.scope_kind(id)` | File/Function/Subshell/Pipeline | Scope-aware rules |
 
-Binding has: `name`, `kind` (Assignment, FunctionDefinition, LoopVariable, etc.), `span`, `scope`, `references`, `attributes` (EXPORTED, READONLY, LOCAL, etc.)
-
-Reference has: `name`, `kind` (Expansion, ParameterExpansion, ArithmeticRead, etc.), `span`, `scope`
-
-### Common filtering patterns
+### Common semantic filtering
 
 ```rust
 // Skip exported variables (consumed by child processes)
@@ -192,6 +382,21 @@ if matches!(binding.kind, BindingKind::Nameref) { continue; }
 if matches!(binding.kind, BindingKind::Imported) { continue; }
 ```
 
+### Anti-patterns to avoid
+
+- **No direct AST walks in rule files.** Don't call `walk_commands`, `iter_commands`, or
+  recurse through child nodes. If you need structural data, add it to `LinterFacts`.
+- **No command normalization in rules.** Use `fact.effective_name_is()` and
+  `fact.has_wrapper()` — names are already normalized through env/command/sudo wrappers.
+- **No option parsing in rules.** Use `fact.options().read()`, `.find()`, `.xargs()`, etc.
+  If a new command needs option analysis, add it to `CommandOptionFacts` in `facts.rs`.
+- **No word expansion analysis in rules.** Use pre-computed `WordFact` with its expansion
+  analysis, operand class, and static text. Add new word analysis to `facts.rs` if needed.
+- **No test operand reconstruction.** Use `SimpleTestFact` and `ConditionalFact` with their
+  pre-computed shapes, operator families, and operand classes.
+- **No imports from `crate::rules::common::*` in rule files.** Rule-facing shared types come
+  from the crate root (re-exported from common modules).
+
 ## Step 5: Wire into checker dispatch
 
 **File:** `crates/shuck-linter/src/checker.rs`
@@ -199,7 +404,7 @@ if matches!(binding.kind, BindingKind::Imported) { continue; }
 Add the rule invocation to the appropriate phase method:
 
 ```rust
-fn check_bindings(&mut self) {
+fn check_command_facts(&mut self) {
     // ... existing rules ...
     if self.is_rule_enabled(Rule::NewRuleName) {
         rules::category::rule_name::rule_name(self);
@@ -209,20 +414,28 @@ fn check_bindings(&mut self) {
 
 ### Choosing the checker phase
 
-Match the rule to the phase based on what semantic data it primarily queries:
+Match the rule to the phase based on what data it primarily consumes:
 
 | Phase | Use when the rule... | Examples |
 |-------|---------------------|----------|
-| `check_bindings` | Iterates over variable bindings (assignments) | Unused assignment, overwritten variable |
-| `check_references` | Iterates over variable references (uses) | Undefined variable, unquoted expansion |
-| `check_scopes` | Checks scope-level properties | Scope leaks, variable shadowing |
-| `check_declarations` | Checks `declare`/`local`/`export` commands | Bad declaration flags, conflicting attrs |
-| `check_call_sites` | Checks function call patterns | Uncalled functions, wrong arg counts |
-| `check_source_refs` | Checks `source`/`.` commands | Dynamic source paths |
-| `check_commands` | Walks the AST structurally | Syntax-level patterns, command structure |
-| `check_flow` | Needs CFG/dataflow analysis | Dead code, uninitialized reads |
+| `check_bindings` | Iterates semantic bindings (assignments) | UnusedAssignment |
+| `check_references` | Iterates semantic references (variable uses) | UndefinedVariable |
+| `check_scopes` | Checks scope-level properties | (reserved) |
+| `check_declarations` | Checks `declare`/`local`/`export` | LocalTopLevel |
+| `check_call_sites` | Checks function call patterns | OverwrittenFunction |
+| `check_source_refs` | Checks `source`/`.` commands | DynamicSourcePath |
+| `check_command_facts` | Filters command facts (name, options, structure) | ReadWithoutRaw, InvalidExitStatus, PrintfFormatVariable |
+| `check_word_and_expansion_facts` | Filters word/expansion facts | UnquotedExpansion, TrapStringExpansion, CasePatternVar |
+| `check_loop_list_and_pipeline_facts` | Filters pipeline/loop/list facts | FindOutputToXargs, FindOutputLoop, LoopFromCommandOutput |
+| `check_redirect_and_substitution_facts` | Filters redirect/substitution facts | SudoRedirectionOrder, SubstWithRedirect |
+| `check_surface_fragment_facts` | Filters lexer-level fragment facts | LegacyBackticks, SingleQuotedLiteral |
+| `check_test_and_conditional_facts` | Filters test/conditional facts | ConstantComparisonTest, QuotedBashRegex |
+| `check_flow` | Needs CFG/dataflow analysis | UnreachableAfterExit |
 
-When in doubt, `check_bindings` for rules about assignments, `check_references` for rules about variable uses, `check_commands` for structural/AST rules.
+**Decision guide:** If the rule iterates `checker.semantic().*`, use one of the first six
+phases. If it iterates `checker.facts().*`, pick the fact-category phase that matches.
+Most new rules will use one of the fact-based phases (`check_command_facts` through
+`check_test_and_conditional_facts`).
 
 ## Step 6: Create the test fixture
 
