@@ -30,3 +30,9 @@ S010 assign command output before declaring `build_root`
   |
 9 |   typeset build_root=$(pwd)
   |
+
+S010 assign command output before declaring `keep_me`
+  --> <source>:10:12
+   |
+10 |   readonly keep_me=$(date)
+   |

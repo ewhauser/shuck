@@ -24,15 +24,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
         .facts()
         .structural_commands()
         .filter_map(|fact| fact.declaration())
-        .filter(|declaration| {
-            matches!(
-                declaration.kind,
-                DeclarationKind::Export
-                    | DeclarationKind::Local
-                    | DeclarationKind::Declare
-                    | DeclarationKind::Typeset
-            )
-        })
+        .filter(|declaration| matches_s010_declaration_kind(&declaration.kind))
         .flat_map(|declaration| declaration.assignment_operands.iter().copied())
         .filter_map(|assignment| {
             let AssignmentValue::Scalar(word) = &assignment.value else {
@@ -60,6 +52,16 @@ pub fn export_command_substitution(checker: &mut Checker) {
     }
 }
 
+fn matches_s010_declaration_kind(kind: &DeclarationKind) -> bool {
+    matches!(
+        kind,
+        DeclarationKind::Export
+            | DeclarationKind::Local
+            | DeclarationKind::Declare
+            | DeclarationKind::Typeset
+    ) || matches!(kind, DeclarationKind::Other(name) if name == "readonly")
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
@@ -72,6 +74,7 @@ mod tests {
 export greeting=$(printf '%s\\n' hi)
 demo() {
   local temp=\"$(date)\"
+  readonly keep_me=$(date)
 }
 ";
         let diagnostics = test_snippet(
@@ -84,7 +87,7 @@ demo() {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["greeting", "temp"]
+            vec!["greeting", "temp", "keep_me"]
         );
     }
 }

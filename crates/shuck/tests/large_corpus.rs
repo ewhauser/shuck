@@ -2029,6 +2029,16 @@ fn run_shuck_with_parse_dialect(
     };
 
     let indexer = shuck_indexer::Indexer::new(&source, &output);
+    let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+    let directives =
+        shuck_linter::parse_directives(&source, indexer.comment_index(), &shellcheck_map);
+    let suppression_index = (!directives.is_empty()).then(|| {
+        shuck_linter::SuppressionIndex::new(
+            &directives,
+            &output.file,
+            shuck_linter::first_statement_line(&output.file).unwrap_or(u32::MAX),
+        )
+    });
     let linter_settings = linter_settings
         .clone()
         .with_shell(shuck_linter::ShellDialect::from_name(shell));
@@ -2037,7 +2047,7 @@ fn run_shuck_with_parse_dialect(
         &source,
         &indexer,
         &linter_settings,
-        None,
+        suppression_index.as_ref(),
         Some(&fixture.path),
         source_path_resolver,
     );
@@ -3032,6 +3042,34 @@ mod tests {
 
         assert_eq!(codes, vec![2034, 2086]);
         assert!(!filtered.parse_aborted);
+    }
+
+    #[test]
+    fn run_shuck_respects_shellcheck_disable_directives() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture_path = tempdir.path().join("fixture.sh");
+        let source = "\
+# shellcheck shell=bash disable=SC2155
+demo() {
+  local value=$(date)
+}
+";
+        fs::write(&fixture_path, source).unwrap();
+
+        let fixture = LargeCorpusFixture {
+            path: fixture_path.clone(),
+            cache_rel_path: PathBuf::from("fixture.sh"),
+            shell: "bash".into(),
+            source_hash: hash_bytes(source.as_bytes()),
+        };
+        let run = run_shuck(
+            &fixture,
+            &shuck_linter::LinterSettings::for_rule(shuck_linter::Rule::ExportCommandSubstitution),
+            None,
+        );
+
+        assert!(run.parse_error.is_none());
+        assert!(run.diagnostics.is_empty());
     }
 
     #[test]
