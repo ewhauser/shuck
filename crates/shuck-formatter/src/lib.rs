@@ -74,6 +74,12 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
+impl From<shuck_format::FormatError> for FormatError {
+    fn from(error: shuck_format::FormatError) -> Self {
+        Self::Internal(error.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, FormatError>;
 
 pub fn format_source(
@@ -115,12 +121,8 @@ fn format_file(
     let comments = flatten_comments(&file);
     let comments = comments::Comments::from_ast(source, &comments);
     let context = context::ShellFormatContext::new(resolved, source, comments);
-    let formatted = format!(context, [file.format()])
-        .map_err(|error| FormatError::Internal(error.to_string()))?;
-    let mut output = formatted
-        .print()
-        .map_err(|error| FormatError::Internal(error.to_string()))?
-        .into_code();
+    let formatted = format!(context, [file.format()])?;
+    let mut output = formatted.print()?.into_code();
     ensure_single_trailing_newline(&mut output);
 
     if output == source {
