@@ -1,0 +1,13 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__ldd__ldd.in"
+    line: 4
+    column: 4
+    end_column: 30
+    reason: "This template literal compare is classified by ShellCheck under a different comparison warning family, so C017 keeps its current SC2157-focused scope instead of absorbing it."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__vulkan-icd__build.sh"
+    line: 12
+    column: 4
+    end_column: 20
+    reason: "This is the same template-literal comparison pattern as the ldd case, and keeping it reviewed avoids broadening C017 beyond the unary string-test parity target."
