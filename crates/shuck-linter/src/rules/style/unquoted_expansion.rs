@@ -1,3 +1,5 @@
+use shuck_ast::WordPart;
+
 use crate::{
     Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
     WordFact,
@@ -19,17 +21,15 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
     let mut safe_values = SafeValueIndex::build(checker.semantic(), checker.facts(), source);
 
-    let facts = checker
-        .facts()
-        .word_facts()
-        .iter()
-        .filter_map(|fact| Some((fact, fact.expansion_context()?)))
-        .filter(|(_, context)| should_check_context(*context, checker.shell()))
-        .map(|(fact, context)| (fact.clone(), context))
-        .collect::<Vec<_>>();
-
     let mut spans = Vec::new();
-    for (fact, context) in facts {
+    for fact in checker.facts().word_facts() {
+        let Some(context) = fact.expansion_context() else {
+            continue;
+        };
+        if !should_check_context(context, checker.shell()) {
+            continue;
+        }
+
         report_word_expansions(&mut spans, &mut safe_values, &fact, context);
     }
 
@@ -53,10 +53,12 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
 fn report_word_expansions(
     spans: &mut Vec<shuck_ast::Span>,
     safe_values: &mut SafeValueIndex<'_>,
-    fact: &WordFact,
+    fact: &WordFact<'_>,
     context: ExpansionContext,
 ) {
-    if !fact.analysis().has_scalar_expansion() {
+    let scalar_spans = fact.scalar_expansion_spans();
+    let array_spans = fact.unquoted_array_expansion_spans();
+    if scalar_spans.is_empty() && !contains_unquoted_star_parameter(fact) {
         return;
     }
     if context == ExpansionContext::CommandName && !fact.has_literal_affixes() {
@@ -64,10 +66,11 @@ fn report_word_expansions(
     }
     let query = SafeValueQuery::from_context(context)
         .expect("checked expansion context should map to a safe-value query");
-    let scalar_spans = fact.scalar_expansion_spans();
 
     for (part, part_span) in fact.word().parts_with_spans() {
-        if !scalar_spans.contains(&part_span) {
+        let report_unquoted_star = array_spans.contains(&part_span)
+            && matches!(part, WordPart::Variable(name) if name.as_str() == "*");
+        if !scalar_spans.contains(&part_span) && !report_unquoted_star {
             continue;
         }
         if safe_values.part_is_safe(part, part_span, query) {
@@ -76,6 +79,13 @@ fn report_word_expansions(
 
         spans.push(part_span);
     }
+}
+
+fn contains_unquoted_star_parameter(fact: &WordFact<'_>) -> bool {
+    fact.word().parts_with_spans().any(|(part, span)| {
+        fact.unquoted_array_expansion_spans().contains(&span)
+            && matches!(part, WordPart::Variable(name) if name.as_str() == "*")
+    })
 }
 
 #[cfg(test)]
