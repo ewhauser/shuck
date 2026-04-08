@@ -266,7 +266,7 @@ See `CLAUDE.md` for the full policy.
 ## Code Style
 
 - **Rust edition 2024**, stable toolchain
-- Default `rustfmt` and `clippy` settings (no custom config files)
+- Repo-pinned `rustfmt` settings via `rustfmt.toml`, plus default `clippy` settings
 - **Error handling**: `anyhow` for error propagation with `.context()`, `thiserror` for domain-specific error enums
 - **Suppression codes**: Shuck uses `SH-NNN` format; ShellCheck `SCNNNN` format is also accepted in suppression directives
 
