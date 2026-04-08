@@ -1,0 +1,34 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 2734
+    column: 14
+    end_column: 23
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This trap handler is part of a helper script target, and the corpus comparison does not surface the same ShellCheck warning at this site. Keeping it reviewed avoids broadening C008 beyond the trap-action cases ShellCheck and Shuck already agree on."
+  - side: shuck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__install"
+    line: 296
+    column: 17
+    end_column: 21
+    reason: "This trap body expands a status flag in a script helper, and it is treated as a reviewed divergence because the current corpus target does not produce a matching ShellCheck diagnostic here."
+  - side: shuck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__install"
+    line: 382
+    column: 13
+    end_column: 17
+    reason: "This is the same trap-action pattern as the earlier site in this file, and it is kept reviewed for the same reason rather than widening C008."
+  - side: shuck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__install"
+    line: 408
+    column: 19
+    end_column: 23
+    reason: "This trap-body expansion is intentionally reviewed as part of the same file-local helper pattern, not treated as a new open rule bug."
+  - side: shuck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__install"
+    line: 425
+    column: 19
+    end_column: 23
+    reason: "This is another instance of the same trap helper pattern, and it stays reviewed so C008 remains focused on the core trap-expansion rule."
