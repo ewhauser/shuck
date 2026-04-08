@@ -505,6 +505,7 @@ impl WordFact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubstitutionHostKind {
     CommandArgument,
+    DeclarationAssignmentValue,
     AssignmentTargetSubscript,
     DeclarationNameSubscript,
     ArrayKeySubscript,
@@ -1988,6 +1989,18 @@ fn build_command_substitution_facts<'a>(
         );
     });
 
+    visit_declaration_assignment_words_for_substitutions(fact.command(), &mut |word| {
+        collect_or_update_word_substitution_facts(
+            word,
+            SubstitutionHostKind::DeclarationAssignmentValue,
+            commands,
+            command_index,
+            source,
+            &mut substitutions,
+            &mut substitution_index,
+        );
+    });
+
     visit_command_subscript_words_for_substitutions(fact.command(), source, &mut |kind, word| {
         collect_or_update_word_substitution_facts(
             word,
@@ -2393,6 +2406,25 @@ fn visit_command_argument_words_for_substitutions(
             }
         }
         Command::Binary(_) | Command::Compound(_) | Command::Function(_) => {}
+    }
+}
+
+fn visit_declaration_assignment_words_for_substitutions(
+    command: &Command,
+    visitor: &mut impl FnMut(&Word),
+) {
+    let Command::Decl(command) = command else {
+        return;
+    };
+
+    for operand in &command.operands {
+        let DeclOperand::Assignment(assignment) = operand else {
+            continue;
+        };
+
+        if let AssignmentValue::Scalar(word) = &assignment.value {
+            visitor(word);
+        }
     }
 }
 
@@ -4330,8 +4362,10 @@ command run0 --version
         let source = "\
 #!/bin/bash
 printf '%s\\n' $(printf arg) \"$(printf quoted)\"
+local decl_assign=$(printf decl-assign)
 name[$(printf assign)]=1
 declare arr[$(printf decl-name)]
+declare other=$(printf decl-assign-2)
 declare -A map=([$(printf key)]=1)
 out=$(printf hi > out.txt)
 drop=$(printf hi >/dev/null 2>&1)
@@ -4357,6 +4391,12 @@ mixed=$(jq -r . <<< \"$status\" || die >&2)
                 "$(printf arg)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf decl-assign)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::DeclarationAssignmentValue,
                 true,
             )));
             assert!(substitutions.contains(&(

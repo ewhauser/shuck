@@ -27,6 +27,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
                     matches!(
                         substitution.host_kind(),
                         SubstitutionHostKind::CommandArgument
+                            | SubstitutionHostKind::DeclarationAssignmentValue
                             | SubstitutionHostKind::AssignmentTargetSubscript
                             | SubstitutionHostKind::DeclarationNameSubscript
                             | SubstitutionHostKind::ArrayKeySubscript
@@ -119,6 +120,26 @@ declare -A map=([$(printf key)]=1)
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(printf decl-name)", "$(printf key)"]
+        );
+    }
+
+    #[test]
+    fn reports_declaration_assignment_value_substitutions() {
+        let source = "\
+local name=$(printf local)
+declare other=$(printf declare)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf local)", "$(printf declare)"]
         );
     }
 }
