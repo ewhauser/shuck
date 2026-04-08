@@ -220,6 +220,7 @@ where
 pub struct FileCacheKey {
     pub file_last_modified_ms: u128,
     pub file_permissions_mode: u32,
+    pub file_size_bytes: u64,
 }
 
 impl FileCacheKey {
@@ -246,6 +247,7 @@ impl FileCacheKey {
         Ok(Self {
             file_last_modified_ms,
             file_permissions_mode,
+            file_size_bytes: metadata.len(),
         })
     }
 }
@@ -489,6 +491,7 @@ mod tests {
             FileCacheKey {
                 file_last_modified_ms: 1,
                 file_permissions_mode: 0o644,
+                file_size_bytes: 2,
             },
             "ok".to_string(),
         );
@@ -504,6 +507,7 @@ mod tests {
             &FileCacheKey {
                 file_last_modified_ms: 1,
                 file_permissions_mode: 0o644,
+                file_size_bytes: 2,
             },
         );
 
@@ -530,6 +534,7 @@ mod tests {
             FileCacheKey {
                 file_last_modified_ms: 1,
                 file_permissions_mode: 0o644,
+                file_size_bytes: 5,
             },
             "stale".to_string(),
         );
@@ -554,6 +559,7 @@ mod tests {
             FileCacheKey {
                 file_last_modified_ms: 2,
                 file_permissions_mode: 0o644,
+                file_size_bytes: 5,
             },
             "fresh".to_string(),
         );
@@ -565,6 +571,46 @@ mod tests {
 
         assert!(!stored.files.contains_key(Path::new("stale.sh")));
         assert!(stored.files.contains_key(Path::new("fresh.sh")));
+    }
+
+    #[test]
+    fn cache_key_miss_when_only_file_size_changes() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_root = tempdir.path().join("cache");
+        let storage_root = tempdir.path().join("project");
+        fs::create_dir_all(&storage_root).unwrap();
+        let canonical_root = fs::canonicalize(&storage_root).unwrap();
+        let settings = TestSettings {
+            strict: true,
+            label: "alpha".to_string(),
+        };
+
+        let mut cache =
+            PackageCache::<String>::open(&cache_root, canonical_root.clone(), "0.1.0", &settings)
+                .unwrap();
+        cache.insert(
+            PathBuf::from("script.sh"),
+            FileCacheKey {
+                file_last_modified_ms: 1,
+                file_permissions_mode: 0o644,
+                file_size_bytes: 2,
+            },
+            "ok".to_string(),
+        );
+        cache.persist().unwrap();
+
+        let mut reopened =
+            PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
+        let value = reopened.get(
+            Path::new("script.sh"),
+            &FileCacheKey {
+                file_last_modified_ms: 1,
+                file_permissions_mode: 0o644,
+                file_size_bytes: 3,
+            },
+        );
+
+        assert!(value.is_none());
     }
 
     #[test]
@@ -587,6 +633,7 @@ mod tests {
             FileCacheKey {
                 file_last_modified_ms: 1,
                 file_permissions_mode: 0o644,
+                file_size_bytes: 2,
             },
             "ok".to_string(),
         );
