@@ -373,11 +373,17 @@ echo $bar
 
         let echo_foo = match &output.file.body[1].command {
             Command::Simple(command) => command.span,
-            other => panic!("expected simple command, got {other:?}"),
+            other => {
+                debug_assert!(false, "expected simple command, got {other:?}");
+                return;
+            }
         };
         let echo_bar = match &output.file.body[2].command {
             Command::Simple(command) => command.span,
-            other => panic!("expected simple command, got {other:?}"),
+            other => {
+                debug_assert!(false, "expected simple command, got {other:?}");
+                return;
+            }
         };
 
         let mut diagnostics = vec![

@@ -67,6 +67,12 @@ impl CommentIndex {
 
         let mut counts = vec![0usize; line_index.line_count()];
         for comment in &indexed_comments {
+            debug_assert!(
+                (1..=counts.len()).contains(&comment.line),
+                "comment line {} out of bounds for {} indexed lines",
+                comment.line,
+                counts.len()
+            );
             counts[comment.line - 1] += 1;
         }
 

@@ -125,6 +125,11 @@ pub struct SemanticModel {
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
+    // These analyses are computed lazily and invalidated when
+    // `set_synthetic_reads` changes the dataflow inputs. That resettable cache
+    // behavior is why the public accessors currently take `&mut self` instead
+    // of using a one-shot shared cell. If we need parallel shared analysis
+    // later, this is the seam to revisit with an interior-mutable cache.
     cfg: Option<ControlFlowGraph>,
     dataflow: Option<DataflowResult>,
     precise_unused_assignments: Option<Vec<BindingId>>,

@@ -193,6 +193,8 @@ impl FormatCommand {
         match (self.respect_gitignore, self.no_respect_gitignore) {
             (false, false) | (true, false) => true,
             (false, true) => false,
+            // Clap's `overrides_with` on these paired flags keeps only the
+            // last occurrence, so both booleans cannot remain set here.
             (true, true) => unreachable!("clap should make this impossible"),
         }
     }
@@ -201,6 +203,8 @@ impl FormatCommand {
         match (self.force_exclude, self.no_force_exclude) {
             (false, false) | (false, true) => false,
             (true, false) => true,
+            // Clap's `overrides_with` on these paired flags keeps only the
+            // last occurrence, so both booleans cannot remain set here.
             (true, true) => unreachable!("clap should make this impossible"),
         }
     }
@@ -211,6 +215,9 @@ fn tri_state_bool(positive: bool, negative: bool) -> Option<bool> {
         (false, false) => None,
         (true, false) => Some(true),
         (false, true) => Some(false),
+        // The caller wires every positive/negative flag pair with
+        // `overrides_with`, so clap normalizes repeated input down to at most
+        // one active boolean before we derive the tri-state value.
         (true, true) => unreachable!("clap should make this impossible"),
     }
 }
