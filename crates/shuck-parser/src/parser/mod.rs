@@ -15166,22 +15166,31 @@ EOF
 
     #[test]
     fn test_non_zsh_dialects_do_not_special_case_trailing_glob_qualifiers() {
-        let source = "print **/*(.om[1,3])\n";
+        for syntax in ["*(.)", "*(/)", "*(N)", "**/*(.om[1,3])", "foo*(^-)"] {
+            let source = format!("print {syntax}\n");
 
-        for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
-            let output = Parser::with_dialect(source, dialect).parse().unwrap();
-            let AstCommand::Simple(command) = &output.file.body[0].command else {
-                panic!("expected simple command");
-            };
+            for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
+                let output = Parser::with_dialect(&source, dialect).parse().unwrap();
+                let AstCommand::Simple(command) = &output.file.body[0].command else {
+                    panic!("expected simple command");
+                };
 
-            assert_eq!(command.args[0].span.slice(source), "**/*(.om[1,3])");
-            assert!(!matches!(
-                command.args[0].parts.as_slice(),
-                [WordPartNode {
-                    kind: WordPart::ZshQualifiedGlob(_),
-                    ..
-                }]
-            ));
+                assert_eq!(
+                    command.args[0].span.slice(&source),
+                    syntax,
+                    "expected non-zsh dialect {dialect:?} to preserve {syntax:?} as a plain word",
+                );
+                assert!(
+                    !matches!(
+                        command.args[0].parts.as_slice(),
+                        [WordPartNode {
+                            kind: WordPart::ZshQualifiedGlob(_),
+                            ..
+                        }]
+                    ),
+                    "unexpected zsh-qualified glob node for {syntax:?} in {dialect:?}",
+                );
+            }
         }
     }
 
