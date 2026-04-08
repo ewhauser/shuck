@@ -741,6 +741,7 @@ impl<'a> Parser<'a> {
         let mut paren_depth = 0_i32;
         let mut in_single = false;
         let mut in_double = false;
+        let mut in_backtick = false;
         let mut escaped = false;
 
         for (index, ch) in inner.char_indices() {
@@ -760,6 +761,7 @@ impl<'a> Parser<'a> {
                 '\\' if !in_single => escaped = true,
                 '\'' if !in_double => in_single = !in_single,
                 '"' if !in_single => in_double = !in_double,
+                '`' if !in_single => in_backtick = !in_backtick,
                 '[' if !in_single && !in_double => bracket_depth += 1,
                 ']' if !in_single && !in_double && bracket_depth > 0 => bracket_depth -= 1,
                 '{' if !in_single && !in_double => brace_depth += 1,
@@ -769,6 +771,7 @@ impl<'a> Parser<'a> {
                 ch if ch.is_whitespace()
                     && !in_single
                     && !in_double
+                    && !in_backtick
                     && bracket_depth == 0
                     && brace_depth == 0
                     && paren_depth == 0 =>
@@ -802,6 +805,7 @@ impl<'a> Parser<'a> {
         let mut paren_depth = 0_i32;
         let mut in_single = false;
         let mut in_double = false;
+        let mut in_backtick = false;
         let mut escaped = false;
 
         for (index, ch) in raw.char_indices().skip(1) {
@@ -814,6 +818,7 @@ impl<'a> Parser<'a> {
                 '\\' if !in_single => escaped = true,
                 '\'' if !in_double => in_single = !in_single,
                 '"' if !in_single => in_double = !in_double,
+                '`' if !in_single => in_backtick = !in_backtick,
                 '[' if !in_single && !in_double => bracket_depth += 1,
                 ']' if !in_single && !in_double => {
                     if bracket_depth == 0 && brace_depth == 0 && paren_depth == 0 {

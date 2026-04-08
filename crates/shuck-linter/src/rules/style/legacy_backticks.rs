@@ -43,4 +43,27 @@ mod tests {
             vec!["`date`", "`uname`"]
         );
     }
+
+    #[test]
+    fn ignores_escaped_backticks_inside_double_quotes() {
+        let source =
+            "echo \"\\`run\\`'s command \\`%s\\` exited with code 127, indicating 'Command not found'.\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn anchors_a_plain_backtick_substitution_once() {
+        let source = "commands=(`pyenv-commands --sh`)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["`pyenv-commands --sh`"]
+        );
+    }
 }

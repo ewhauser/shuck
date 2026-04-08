@@ -741,6 +741,35 @@ fn test_escaped_backticks_inside_double_quotes_stay_literal() {
 }
 
 #[test]
+fn test_unquoted_backtick_substitution_can_contain_spaces() {
+    let input = "commands=(`pyenv-commands --sh`)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment");
+    };
+
+    assert_eq!(array.elements.len(), 1);
+    let ArrayElem::Sequential(word) = &array.elements[0] else {
+        panic!("expected sequential element");
+    };
+
+    assert_eq!(word.render(input), "`pyenv-commands --sh`");
+    let WordPart::CommandSubstitution { body, syntax } = &word.parts[0].kind else {
+        panic!("expected backtick substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::Backtick);
+    assert_eq!(body.len(), 1);
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "pyenv-commands");
+    assert_eq!(inner.args[0].render(input), "--sh");
+}
+
+#[test]
 fn test_brace_syntax_marks_unquoted_expansion_candidates() {
     let list_input = "{a,b}";
     let list = Parser::parse_word_string(list_input);

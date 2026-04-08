@@ -1628,11 +1628,13 @@ impl<'a> Parser<'a> {
         let mut brace_depth = 0_i32;
         let mut in_single = false;
         let mut in_double = false;
+        let mut in_backtick = false;
         let mut escaped = false;
 
         while let Some(&ch) = chars.peek() {
             if !in_single
                 && !in_double
+                && !in_backtick
                 && paren_depth == 0
                 && brace_depth == 0
                 && matches!(ch, ' ' | '\t' | '\n' | ';' | '|' | '&' | '>' | '<' | ')')
@@ -1652,6 +1654,7 @@ impl<'a> Parser<'a> {
                 '\\' if !in_single => escaped = true,
                 '\'' if !in_double => in_single = !in_single,
                 '"' if !in_single => in_double = !in_double,
+                '`' if !in_single => in_backtick = !in_backtick,
                 '(' if !in_single && !in_double => paren_depth += 1,
                 ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
                 '{' if !in_single && !in_double => brace_depth += 1,
