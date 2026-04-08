@@ -256,15 +256,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         {
             let callee = Name::from(name.as_str());
             let scope = self.current_scope();
-            self.call_sites
-                .entry(callee.clone())
-                .or_default()
-                .push(CallSite {
-                    callee: callee.clone(),
-                    span: command.span,
-                    scope,
-                    arg_count: command.args.len(),
-                });
+            let call_site = CallSite {
+                callee: callee.clone(),
+                span: command.span,
+                scope,
+                arg_count: command.args.len(),
+            };
+            match self.call_sites.get_mut(callee.as_str()) {
+                Some(v) => v.push(call_site),
+                None => {
+                    self.call_sites.insert(callee.clone(), vec![call_site]);
+                }
+            }
 
             self.classify_special_simple_command(&callee, command, flow);
         }
@@ -387,7 +390,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_name_only_declaration_operand(
                         builtin,
                         &flags,
-                        name.name.clone(),
+                        &name.name,
                         name.span,
                     );
                 }
@@ -525,7 +528,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     .map(|words| self.visit_words(words, WordVisitKind::Expansion, flow))
                     .unwrap_or_default();
                 self.add_binding(
-                    command.variable.clone(),
+                    &command.variable,
                     BindingKind::LoopVariable,
                     self.current_scope(),
                     command.variable_span,
@@ -563,7 +566,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 let nested_regions =
                     self.visit_words(&command.words, WordVisitKind::Expansion, flow);
                 self.add_binding(
-                    command.variable.clone(),
+                    &command.variable,
                     BindingKind::LoopVariable,
                     self.current_scope(),
                     command.variable_span,
@@ -684,7 +687,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 let nested_regions =
                     self.visit_words(&command.words, WordVisitKind::Expansion, flow);
                 self.add_binding(
-                    command.variable.clone(),
+                    &command.variable,
                     BindingKind::LoopVariable,
                     self.current_scope(),
                     command.variable_span,
@@ -809,7 +812,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_function(&mut self, function: &FunctionDef, flow: FlowState) -> RecordedCommand {
         self.add_binding(
-            function.name.clone(),
+            &function.name,
             BindingKind::FunctionDefinition,
             self.current_scope(),
             function.name_span,
@@ -865,7 +868,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         attributes |= assignment_binding_attributes(assignment);
 
         let binding = self.add_binding(
-            assignment.target.name.clone(),
+            &assignment.target.name,
             kind,
             scope,
             assignment.target.name_span,
@@ -1053,7 +1056,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
         span: Span,
     ) {
-        self.add_reference(reference.name.clone(), reference_kind, span);
+        self.add_reference(&reference.name, reference_kind, span);
         self.visit_var_ref_subscript_words(
             reference.subscript.as_ref(),
             if matches!(reference_kind, ReferenceKind::ConditionalOperand) {
@@ -1111,7 +1114,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             WordPart::Variable(name) => {
                 self.add_reference(
-                    name.clone(),
+                    name,
                     if matches!(kind, WordVisitKind::Conditional) {
                         ReferenceKind::ConditionalOperand
                     } else {
@@ -1220,7 +1223,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             WordPart::PrefixMatch { prefix, .. } => {
                 self.add_reference(
-                    prefix.clone(),
+                    prefix,
                     if matches!(kind, WordVisitKind::Conditional) {
                         ReferenceKind::ConditionalOperand
                     } else {
@@ -1231,7 +1234,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             WordPart::IndirectExpansion { name, .. } => {
                 let id = self.add_reference(
-                    name.clone(),
+                    name,
                     if matches!(kind, WordVisitKind::Conditional) {
                         ReferenceKind::ConditionalOperand
                     } else {
@@ -1352,7 +1355,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
                 BourneParameterExpansion::Indirect { name, .. } => {
                     let id = self.add_reference(
-                        name.clone(),
+                        name,
                         if matches!(kind, WordVisitKind::Conditional) {
                             ReferenceKind::ConditionalOperand
                         } else {
@@ -1364,7 +1367,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
                 BourneParameterExpansion::PrefixMatch { prefix, .. } => {
                     self.add_reference(
-                        prefix.clone(),
+                        prefix,
                         if matches!(kind, WordVisitKind::Conditional) {
                             ReferenceKind::ConditionalOperand
                         } else {
@@ -1604,12 +1607,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         match &expr.kind {
             ArithmeticExpr::Number(_) => Vec::new(),
             ArithmeticExpr::Variable(name) => {
-                self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, expr.span);
+                self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
                 Vec::new()
             }
             ArithmeticExpr::Indexed { name, index } => {
                 self.add_reference(
-                    name.clone(),
+                    name,
                     ReferenceKind::ArithmeticRead,
                     arithmetic_name_span(expr.span, name),
                 );
@@ -1662,9 +1665,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> Vec<IsolatedRegion> {
         match &expr.kind {
             ArithmeticExpr::Variable(name) => {
-                self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, expr.span);
+                self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
                 self.add_binding(
-                    name.clone(),
+                    name,
                     BindingKind::ArithmeticAssignment,
                     self.current_scope(),
                     expr.span,
@@ -1675,9 +1678,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ArithmeticExpr::Indexed { name, index } => {
                 let nested_regions = self.visit_arithmetic_expr(index, flow);
                 let span = arithmetic_name_span(expr.span, name);
-                self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, span);
+                self.add_reference(name, ReferenceKind::ArithmeticRead, span);
                 self.add_binding(
-                    name.clone(),
+                    name,
                     BindingKind::ArithmeticAssignment,
                     self.current_scope(),
                     span,
@@ -1704,11 +1707,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         };
         let name_span = arithmetic_name_span(target_span, name);
         if !matches!(op, ArithmeticAssignOp::Assign) {
-            self.add_reference(name.clone(), ReferenceKind::ArithmeticRead, name_span);
+            self.add_reference(name, ReferenceKind::ArithmeticRead, name_span);
         }
         nested_regions.extend(self.visit_arithmetic_expr(value, flow));
         self.add_binding(
-            name.clone(),
+            name,
             BindingKind::ArithmeticAssignment,
             self.current_scope(),
             name_span,
@@ -1738,7 +1741,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             "read" => {
                 for (argument, span) in iter_read_targets(&command.args, self.source) {
                     self.add_binding(
-                        argument,
+                        &argument,
                         BindingKind::ReadTarget,
                         self.current_scope(),
                         span,
@@ -1749,8 +1752,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.runtime
                         .implicit_reads_for_simple_command(name, &command.args, self.source)
                 {
+                    let implicit_name = Name::from(*implicit_read);
                     self.add_reference_if_bound(
-                        Name::from(*implicit_read),
+                        &implicit_name,
                         ReferenceKind::ImplicitRead,
                         command.span,
                     );
@@ -1760,7 +1764,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if let Some((argument, span)) = explicit_mapfile_target(&command.args, self.source)
                 {
                     self.add_binding(
-                        argument,
+                        &argument,
                         BindingKind::MapfileTarget,
                         self.current_scope(),
                         span,
@@ -1771,7 +1775,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             "printf" => {
                 if let Some((argument, span)) = printf_v_target(&command.args, self.source) {
                     self.add_binding(
-                        argument,
+                        &argument,
                         BindingKind::PrintfTarget,
                         self.current_scope(),
                         span,
@@ -1782,7 +1786,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             "getopts" => {
                 if let Some((argument, span)) = getopts_target(&command.args, self.source) {
                     self.add_binding(
-                        argument,
+                        &argument,
                         BindingKind::GetoptsTarget,
                         self.current_scope(),
                         span,
@@ -1883,12 +1887,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         builtin: DeclarationBuiltin,
         flags: &FxHashSet<char>,
-        name: Name,
+        name: &Name,
         span: Span,
     ) {
         let (scope, attributes) = self.declaration_scope_and_attributes(builtin, flags);
         let local_like = attributes.contains(BindingAttributes::LOCAL);
-        let existing = self.resolve_reference(&name, scope, span.start.offset);
+        let existing = self.resolve_reference(name, scope, span.start.offset);
 
         if let Some(existing) = existing {
             let existing_scope = self.bindings[existing.index()].scope;
@@ -1909,7 +1913,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn add_binding(
         &mut self,
-        name: Name,
+        name: &Name,
         kind: BindingKind,
         scope: ScopeId,
         span: Span,
@@ -1925,14 +1929,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             references: Vec::new(),
             attributes,
         });
-        self.binding_index.entry(name.clone()).or_default().push(id);
-        self.scopes[scope.index()]
-            .bindings
-            .entry(name.clone())
-            .or_default()
-            .push(id);
+        match self.binding_index.get_mut(name.as_str()) {
+            Some(v) => v.push(id),
+            None => {
+                self.binding_index.insert(name.clone(), vec![id]);
+            }
+        }
+        match self.scopes[scope.index()].bindings.get_mut(name.as_str()) {
+            Some(v) => v.push(id),
+            None => {
+                self.scopes[scope.index()]
+                    .bindings
+                    .insert(name.clone(), vec![id]);
+            }
+        }
         if matches!(kind, BindingKind::FunctionDefinition) {
-            self.functions.entry(name).or_default().push(id);
+            match self.functions.get_mut(name.as_str()) {
+                Some(v) => v.push(id),
+                None => {
+                    self.functions.insert(name.clone(), vec![id]);
+                }
+            }
         }
         if let Some(command) = self.command_stack.last().copied() {
             self.command_bindings
@@ -1946,15 +1963,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         id
     }
 
-    fn add_reference(&mut self, name: Name, kind: ReferenceKind, span: Span) -> ReferenceId {
+    fn add_reference(&mut self, name: &Name, kind: ReferenceKind, span: Span) -> ReferenceId {
         let id = ReferenceId(self.references.len() as u32);
         let scope = self.current_scope();
-        let resolved = self.resolve_reference(&name, scope, span.start.offset);
-        let predefined_runtime = resolved.is_none() && self.runtime.is_preinitialized(&name);
+        let resolved = self.resolve_reference(name, scope, span.start.offset);
+        let predefined_runtime = resolved.is_none() && self.runtime.is_preinitialized(name);
 
         self.references.push(Reference {
             id,
-            name,
+            name: name.clone(),
             kind,
             scope,
             span,
@@ -1981,9 +1998,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         id
     }
 
-    fn add_reference_if_bound(&mut self, name: Name, kind: ReferenceKind, span: Span) {
+    fn add_reference_if_bound(&mut self, name: &Name, kind: ReferenceKind, span: Span) {
         if self
-            .resolve_reference(&name, self.current_scope(), span.start.offset)
+            .resolve_reference(name, self.current_scope(), span.start.offset)
             .is_some()
         {
             self.add_reference(name, kind, span);
@@ -2022,7 +2039,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             .collect::<Vec<_>>();
 
         while let Some(name) = worklist.pop() {
-            if !reachable.insert(name.clone()) {
+            if reachable.contains(name.as_str()) {
                 continue;
             }
             for sites in self.call_sites.values() {
@@ -2032,6 +2049,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     }
                 }
             }
+            reachable.insert(name);
         }
 
         let uncalled = self
