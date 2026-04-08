@@ -4,6 +4,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
+use colored::{ColoredString, Colorize};
 use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
 use shuck_indexer::Indexer;
@@ -131,29 +132,67 @@ pub(crate) fn check(args: CheckCommand) -> Result<ExitStatus> {
 
 fn print_report(report: &CheckReport) -> Result<()> {
     let mut stdout = BufWriter::new(io::stdout().lock());
+    print_report_to(
+        &mut stdout,
+        report,
+        colored::control::SHOULD_COLORIZE.should_colorize(),
+    )?;
+    Ok(())
+}
+
+fn print_report_to(writer: &mut dyn Write, report: &CheckReport, use_color: bool) -> Result<()> {
     for diagnostic in &report.diagnostics {
-        match &diagnostic.kind {
-            DisplayedDiagnosticKind::ParseError => writeln!(
-                stdout,
-                "{}:{}:{}: parse error {}",
-                diagnostic.path.display(),
-                diagnostic.line,
-                diagnostic.column,
-                diagnostic.message
-            )?,
-            DisplayedDiagnosticKind::Lint { code, severity } => writeln!(
-                stdout,
-                "{}:{}:{}: {}[{}] {}",
-                diagnostic.path.display(),
-                diagnostic.line,
-                diagnostic.column,
-                severity,
-                code,
-                diagnostic.message
-            )?,
-        }
+        writeln!(writer, "{}", format_diagnostic(diagnostic, use_color))?;
     }
     Ok(())
+}
+
+fn format_diagnostic(diagnostic: &DisplayedDiagnostic, use_color: bool) -> String {
+    let path = paint(diagnostic.path.display().to_string(), use_color, |value| {
+        value.bold()
+    });
+    let line = paint(diagnostic.line.to_string(), use_color, |value| value.cyan());
+    let column = paint(diagnostic.column.to_string(), use_color, |value| {
+        value.cyan()
+    });
+
+    match &diagnostic.kind {
+        DisplayedDiagnosticKind::ParseError => {
+            let label = paint("parse error".to_owned(), use_color, |value| {
+                value.red().bold()
+            });
+            format!("{path}:{line}:{column}: {label} {}", diagnostic.message)
+        }
+        DisplayedDiagnosticKind::Lint { code, severity } => {
+            let severity = format_severity(severity, use_color);
+            let code = paint(code.clone(), use_color, |value| value.cyan().bold());
+            format!(
+                "{path}:{line}:{column}: {severity}[{code}] {}",
+                diagnostic.message
+            )
+        }
+    }
+}
+
+fn format_severity(severity: &str, use_color: bool) -> String {
+    paint(severity.to_owned(), use_color, |value| match severity {
+        "error" => value.red().bold(),
+        "warning" => value.yellow().bold(),
+        "info" => value.blue().bold(),
+        _ => value.bold(),
+    })
+}
+
+fn paint(
+    value: String,
+    use_color: bool,
+    style: impl FnOnce(ColoredString) -> ColoredString,
+) -> String {
+    if use_color {
+        style(value.normal()).to_string()
+    } else {
+        value
+    }
 }
 
 fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
@@ -425,5 +464,58 @@ mod tests {
 
         assert_eq!(c014.len(), 1);
         assert_eq!(c014[0].path, PathBuf::from("bashy.bash"));
+    }
+
+    #[test]
+    fn report_output_includes_ansi_styles_when_enabled() {
+        colored::control::set_override(true);
+
+        let report = CheckReport {
+            diagnostics: vec![DisplayedDiagnostic {
+                path: PathBuf::from("script.sh"),
+                line: 3,
+                column: 14,
+                message: "example message".to_owned(),
+                kind: DisplayedDiagnosticKind::Lint {
+                    code: "C014".to_owned(),
+                    severity: "warning".to_owned(),
+                },
+            }],
+            cache_hits: 0,
+            cache_misses: 0,
+        };
+
+        let mut output = Vec::new();
+        print_report_to(&mut output, &report, true).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("\u{1b}["));
+        assert!(output.contains("warning"));
+        assert!(output.contains("C014"));
+
+        colored::control::unset_override();
+    }
+
+    #[test]
+    fn report_output_stays_plain_when_colors_are_disabled() {
+        let report = CheckReport {
+            diagnostics: vec![DisplayedDiagnostic {
+                path: PathBuf::from("script.sh"),
+                line: 2,
+                column: 7,
+                message: "unterminated construct".to_owned(),
+                kind: DisplayedDiagnosticKind::ParseError,
+            }],
+            cache_hits: 0,
+            cache_misses: 0,
+        };
+
+        let mut output = Vec::new();
+        print_report_to(&mut output, &report, false).unwrap();
+
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "script.sh:2:7: parse error unterminated construct\n"
+        );
     }
 }

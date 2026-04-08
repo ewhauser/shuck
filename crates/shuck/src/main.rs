@@ -2,11 +2,15 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use clap::Parser;
+use colored::Colorize;
 
 use shuck::args::Args;
 use shuck::{ExitStatus, run};
 
 fn main() -> ExitCode {
+    #[cfg(windows)]
+    assert!(colored::control::set_virtual_terminal(true).is_ok());
+
     let args = Args::parse();
     match run(args) {
         Ok(status) => status.into(),
@@ -24,9 +28,9 @@ fn report_error(err: &anyhow::Error) -> ExitCode {
     }
 
     let mut stderr = std::io::stderr().lock();
-    let _ = writeln!(stderr, "shuck: {err}");
+    let _ = writeln!(stderr, "{}: {err}", "shuck".red().bold());
     for cause in err.chain().skip(1) {
-        let _ = writeln!(stderr, "  caused by: {cause}");
+        let _ = writeln!(stderr, "  {} {cause}", "Cause:".bold());
     }
 
     ExitStatus::Error.into()

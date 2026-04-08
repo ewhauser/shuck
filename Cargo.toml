@@ -28,6 +28,7 @@ sha2 = "0.11"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+colored = "3"
 globset = "0.4"
 ignore = "0.4"
 

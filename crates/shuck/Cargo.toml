@@ -12,6 +12,7 @@ categories = ["command-line-utilities", "development-tools"]
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+colored = { workspace = true }
 globset = { workspace = true }
 ignore = { workspace = true }
 serde = { workspace = true }
