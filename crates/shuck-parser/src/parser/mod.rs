@@ -2072,9 +2072,21 @@ impl<'a> Parser<'a> {
     }
 
     fn advance_past_word(&mut self, word: &Word) {
+        let stop_after_synthetic = self
+            .current_token
+            .as_ref()
+            .is_some_and(|token| token.flags.is_synthetic());
         while self.current_token.is_some() && self.current_span.start.offset < word.span.end.offset
         {
             self.advance();
+            if stop_after_synthetic
+                && self
+                    .current_token
+                    .as_ref()
+                    .is_none_or(|token| !token.flags.is_synthetic())
+            {
+                break;
+            }
         }
     }
 
@@ -4980,7 +4992,15 @@ impl<'a> Parser<'a> {
         let should_expand = std::mem::take(&mut self.expand_next_word);
         self.advance_raw();
         if should_expand {
-            self.maybe_expand_current_alias_chain();
+            if self
+                .current_token
+                .as_ref()
+                .is_some_and(|token| token.flags.is_synthetic())
+            {
+                self.expand_next_word = true;
+            } else {
+                self.maybe_expand_current_alias_chain();
+            }
         }
     }
 
@@ -5999,17 +6019,19 @@ impl<'a> Parser<'a> {
 
         if self.at(TokenKind::Word)
             && let Some(word) = self.current_source_like_word_text()
-            // Check for POSIX-style function: name() { body }
-            // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
-            && !word.contains('=')
-            && !word.contains('[')
             && self.peek_next_is(TokenKind::LeftParen)
         {
             let mut probe = self.clone();
             probe.advance();
             probe.advance();
             if probe.at(TokenKind::RightParen) {
-                return self.parse_function_posix().map(Some);
+                // Check for POSIX-style function: name() { body }
+                // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
+                if !word.contains('=') && !word.contains('[') {
+                    return self.parse_function_posix().map(Some);
+                }
+            } else if word.contains('$') && !word.contains('=') {
+                return Err(self.error("unexpected '(' after command word"));
             }
         }
 
@@ -12130,6 +12152,15 @@ mod tests {
     }
 
     #[test]
+    fn test_adjacent_left_paren_after_command_word_is_a_parse_error() {
+        let parser = Parser::new("foo$identity('z')\n");
+        assert!(
+            parser.parse().is_err(),
+            "a command word followed immediately by '(' should be rejected"
+        );
+    }
+
+    #[test]
     fn test_function_body_rejects_time_command() {
         let parser = Parser::new("f() time { :; }\n");
         assert!(
@@ -15106,6 +15137,35 @@ greet subject
 
         assert!(!name_text.is_source_backed());
         assert!(!arg_text.is_source_backed());
+    }
+
+    #[test]
+    fn test_alias_expansion_with_trailing_space_waits_until_replay_finishes() {
+        let input = "\
+shopt -s expand_aliases
+alias e_='for i in 1 2 3; do echo '
+e_ $i; done
+";
+        let script = Parser::new(input).parse().unwrap().file;
+
+        let Some(stmt) = script.body.last() else {
+            panic!("expected final command to be a for loop");
+        };
+        let (compound, _) = expect_compound(stmt);
+        let AstCompoundCommand::For(command) = compound else {
+            panic!("expected final command to be a for loop");
+        };
+
+        assert_eq!(command.variable, "i");
+        assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
+
+        let Some(body_stmt) = command.body.first() else {
+            panic!("expected loop body command");
+        };
+        let body_command = expect_simple(body_stmt);
+        assert_eq!(body_command.name.render(input), "echo");
+        assert_eq!(body_command.args.len(), 1);
+        assert_eq!(body_command.args[0].render(input), "$i");
     }
 
     #[test]

@@ -14,7 +14,7 @@ use shuck_ast::{
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, ParameterExpansionSyntax,
     ParameterOp, Pattern, PatternPart, Redirect, RedirectKind, SelectCommand, SimpleCommand, Span,
-    Stmt, StmtSeq, Word, WordPart, WordPartNode, ZshGlobSegment,
+    Stmt, StmtSeq, Word, WordPart, WordPartNode, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_semantic::SemanticModel;
@@ -1669,6 +1669,19 @@ impl<'a> WordFactCollector<'a> {
         }
     }
 
+    fn collect_zsh_qualified_glob_context_words(
+        &mut self,
+        glob: &ZshQualifiedGlob,
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+    ) {
+        for segment in &glob.segments {
+            if let ZshGlobSegment::Pattern(pattern) = segment {
+                self.collect_pattern_context_words(pattern, context, host_kind);
+            }
+        }
+    }
+
     fn collect_conditional_expansion_words(&mut self, expression: &ConditionalExpr) {
         match expression {
             ConditionalExpr::Binary(expr) => {
@@ -1715,17 +1728,11 @@ impl<'a> WordFactCollector<'a> {
     ) {
         for part in parts {
             match &part.kind {
-                WordPart::ZshQualifiedGlob(glob) => {
-                    for segment in &glob.segments {
-                        if let ZshGlobSegment::Pattern(pattern) = segment {
-                            self.collect_pattern_context_words(
-                                pattern,
-                                WordFactContext::Expansion(ExpansionContext::ParameterPattern),
-                                host_kind,
-                            );
-                        }
-                    }
-                }
+                WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob_context_words(
+                    glob,
+                    WordFactContext::Expansion(ExpansionContext::ParameterPattern),
+                    host_kind,
+                ),
                 WordPart::DoubleQuoted { parts, .. } => {
                     self.collect_word_parameter_patterns(parts, host_kind)
                 }
@@ -3173,11 +3180,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     self.collect_word_parts(parts, context.clone())
                 }
                 WordPart::ZshQualifiedGlob(glob) => {
-                    for segment in &glob.segments {
-                        if let ZshGlobSegment::Pattern(pattern) = segment {
-                            self.collect_pattern(pattern, context.clone());
-                        }
-                    }
+                    self.collect_zsh_qualified_glob(glob, context.clone())
                 }
                 WordPart::ArithmeticExpansion {
                     syntax: ArithmeticExpansionSyntax::LegacyBracket,
@@ -3254,6 +3257,18 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 | PatternPart::AnyString
                 | PatternPart::AnyChar
                 | PatternPart::CharClass(_) => {}
+            }
+        }
+    }
+
+    fn collect_zsh_qualified_glob(
+        &mut self,
+        glob: &ZshQualifiedGlob,
+        context: SurfaceScanContext,
+    ) {
+        for segment in &glob.segments {
+            if let ZshGlobSegment::Pattern(pattern) = segment {
+                self.collect_pattern(pattern, context.clone());
             }
         }
     }
