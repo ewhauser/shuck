@@ -39,6 +39,9 @@ pub fn undefined_variable(checker: &mut Checker) {
         if is_shell_special_parameter(reference.name.as_str()) {
             continue;
         }
+        if is_environment_style_name(reference.name.as_str()) {
+            continue;
+        }
 
         checker.report(
             UndefinedVariable {
@@ -53,4 +56,11 @@ pub fn undefined_variable(checker: &mut Checker) {
 fn is_shell_special_parameter(name: &str) -> bool {
     matches!(name, "@" | "*" | "#" | "?" | "-" | "$" | "!" | "0")
         || (!name.is_empty() && name.chars().all(|char| char.is_ascii_digit()))
+}
+
+fn is_environment_style_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '_')
 }

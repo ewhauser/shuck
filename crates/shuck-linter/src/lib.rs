@@ -920,32 +920,28 @@ printf '%s %s %s\\n' \"$1\" \"$@\" \"$#\"
     }
 
     #[test]
-    fn undefined_variable_still_reports_bash_runtime_vars_in_sh_scripts() {
-        let source = runtime_prelude_source("#!/bin/sh");
+    fn undefined_variable_ignores_environment_style_names() {
+        let source = "\
+#!/bin/sh
+printf '%s %s %s %s %s %s %s\\n' \
+  \"$FOO\" \
+  \"$PATH\" \
+  \"$UID\" \
+  \"$XDG_CONFIG_HOME\" \
+  \"$OPTARG\" \
+  \"$OPTIND\" \
+  \"$__FOO\"
+printf '%s %s\\n' \"$foo\" \"$Foo_BAR\"
+";
         let diagnostics = lint_for_rule(&source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 12);
-        for name in [
-            "LINENO",
-            "FUNCNAME",
-            "BASH_SOURCE",
-            "BASH_LINENO",
-            "RANDOM",
-            "BASH_REMATCH",
-            "READLINE_LINE",
-            "BASH_VERSION",
-            "BASH_VERSINFO",
-            "OSTYPE",
-            "HISTCONTROL",
-            "HISTSIZE",
-        ] {
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.message.contains(name)),
-                "missing diagnostic for {name}"
-            );
-        }
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("foo")));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("Foo_BAR"))
+        );
     }
 
     #[test]
