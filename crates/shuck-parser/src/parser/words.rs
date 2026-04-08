@@ -1126,11 +1126,7 @@ impl<'a> Parser<'a> {
                 '"' if !in_single && !in_backtick => in_double = !in_double,
                 '`' if !in_single && !in_double => in_backtick = !in_backtick,
                 '[' if !in_single && !in_double && !in_backtick => bracket_depth += 1,
-                ']' if !in_single
-                    && !in_double
-                    && !in_backtick
-                    && bracket_depth > 0 =>
-                {
+                ']' if !in_single && !in_double && !in_backtick && bracket_depth > 0 => {
                     bracket_depth -= 1;
                 }
                 '{' if !in_single && !in_double && !in_backtick => brace_depth += 1,
@@ -1160,7 +1156,8 @@ impl<'a> Parser<'a> {
         explicit_kind: Option<ArrayKind>,
     ) -> (ArrayExpr, Span) {
         if let Some(closing_span) = self.scan_compound_array_close(open_paren_span) {
-            let inner = self.input[open_paren_span.end.offset..closing_span.start.offset].to_string();
+            let inner =
+                self.input[open_paren_span.end.offset..closing_span.start.offset].to_string();
             while self.current_token.is_some()
                 && self.current_span.start.offset < closing_span.end.offset
             {

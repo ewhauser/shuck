@@ -793,7 +793,6 @@ fn large_corpus_zsh_fixtures_parse() {
         );
     }
 
-    let all_fixture_refs: Vec<_> = fixtures.iter().collect();
     let zsh_fixtures: Vec<_> = fixtures
         .iter()
         .filter(|fixture| fixture_selected_for_large_corpus_zsh_parse(fixture))
@@ -803,15 +802,8 @@ fn large_corpus_zsh_fixtures_parse() {
         return;
     }
 
-    let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&all_fixture_refs));
-    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
     let failure_collection = collect_fixture_failures(&zsh_fixtures, cfg.keep_going, |fixture| {
-        evaluate_fixture_zsh_parse(
-            fixture,
-            cfg.shuck_timeout,
-            &linter_settings,
-            Arc::clone(&shuck_path_resolver),
-        )
+        evaluate_fixture_zsh_parse(fixture, cfg.shuck_timeout)
     });
     let timeout_cap_note = if failure_collection.timeout_cap_reached {
         format!(
@@ -1139,27 +1131,21 @@ fn evaluate_fixture_compatibility(
 fn evaluate_fixture_zsh_parse(
     fixture: &LargeCorpusFixture,
     shuck_timeout: Duration,
-    linter_settings: &shuck_linter::LinterSettings,
-    shuck_path_resolver: Arc<LargeCorpusPathResolver>,
 ) -> FixtureEvaluation {
     let mut evaluation = FixtureEvaluation::default();
-    let shuck_run = match run_shuck_for_effective_large_corpus_shell_with_timeout(
-        fixture,
-        linter_settings,
-        shuck_timeout,
-        shuck_path_resolver,
-    ) {
-        Ok(run) => run,
-        Err(err) => {
-            evaluation.harness_failure = Some(FixtureFailure {
-                kind: fixture_failure_kind_for_message(&err, "shuck"),
-                message: format_fixture_failure(&fixture.path, &[err]),
-            });
-            return evaluation;
-        }
-    };
+    let parse_result =
+        match parse_fixture_for_effective_large_corpus_shell_with_timeout(fixture, shuck_timeout) {
+            Ok(result) => result,
+            Err(err) => {
+                evaluation.harness_failure = Some(FixtureFailure {
+                    kind: fixture_failure_kind_for_message(&err, "shuck"),
+                    message: format_fixture_failure(&fixture.path, &[err]),
+                });
+                return evaluation;
+            }
+        };
 
-    if let Some(err) = shuck_run.parse_error {
+    if let Err(err) = parse_result {
         evaluation.harness_failure = Some(FixtureFailure {
             kind: FixtureFailureKind::Other,
             message: format_fixture_failure(&fixture.path, &[format!("shuck parse error: {err}")]),
@@ -2116,21 +2102,6 @@ fn run_shuck(
     )
 }
 
-fn run_shuck_for_effective_large_corpus_shell(
-    fixture: &LargeCorpusFixture,
-    linter_settings: &shuck_linter::LinterSettings,
-    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
-) -> ShuckRun {
-    let shell = effective_large_corpus_shell(fixture);
-    run_shuck_with_parse_dialect(
-        fixture,
-        linter_settings,
-        source_path_resolver,
-        parser_dialect_for_large_corpus_shell(shell),
-        shell,
-    )
-}
-
 fn run_shuck_with_timeout(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
@@ -2150,22 +2121,20 @@ fn run_shuck_with_timeout(
     })
 }
 
-fn run_shuck_for_effective_large_corpus_shell_with_timeout(
+fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
     fixture: &LargeCorpusFixture,
-    linter_settings: &shuck_linter::LinterSettings,
     timeout: Duration,
-    source_path_resolver: Arc<LargeCorpusPathResolver>,
-) -> Result<ShuckRun, String> {
+) -> Result<Result<(), String>, String> {
     let fixture = fixture.clone();
-    let linter_settings = linter_settings.clone();
-    let source_path_resolver = Arc::clone(&source_path_resolver);
     run_with_timeout("shuck", timeout, move || {
-        run_shuck_for_effective_large_corpus_shell(
-            &fixture,
-            &linter_settings,
-            Some(source_path_resolver.as_ref()
-                as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)),
-        )
+        let source =
+            fs::read_to_string(&fixture.path).map_err(|err| format!("read error: {err}"))?;
+        let shell = effective_large_corpus_shell(&fixture);
+        let parse_dialect = parser_dialect_for_large_corpus_shell(shell);
+        shuck_parser::parser::Parser::with_dialect(&source, parse_dialect)
+            .parse()
+            .map(|_| ())
+            .map_err(|err| err.to_string())
     })
 }
 

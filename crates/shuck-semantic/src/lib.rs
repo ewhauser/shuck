@@ -426,6 +426,19 @@ impl SemanticModel {
         })
     }
 
+    fn can_use_heuristic_unused_assignments_with_linear_cfg(&self, cfg: &ControlFlowGraph) -> bool {
+        self.references.is_empty()
+            && self.synthetic_reads.is_empty()
+            && self.entry_bindings.is_empty()
+            && self.indirect_targets_by_reference.is_empty()
+            && self.call_sites.is_empty()
+            && cfg.blocks().len() <= 1
+            && !self.heuristic_unused_assignments.iter().any(|binding_id| {
+                self.runtime
+                    .is_always_used_binding(&self.bindings[binding_id.index()].name)
+            })
+    }
+
     pub fn unresolved_references(&self) -> &[ReferenceId] {
         &self.unresolved
     }
@@ -796,6 +809,11 @@ impl SemanticModel {
                     &self.command_bindings,
                     &self.command_references,
                 ));
+            }
+            if self.can_use_heuristic_unused_assignments_with_linear_cfg(self.cfg.as_ref().unwrap())
+            {
+                self.precise_unused_assignments = Some(self.heuristic_unused_assignments.clone());
+                return self.precise_unused_assignments.as_deref().unwrap();
             }
             let cfg = self.cfg.as_ref().unwrap();
             let context = self.dataflow_context(cfg);
@@ -1833,6 +1851,25 @@ f
             let mut model = model(source);
             assert_dead_code_parity(&mut model);
         }
+    }
+
+    #[test]
+    fn precompute_unused_assignments_skips_dataflow_for_linear_duplicate_assignments() {
+        let mut model = model(
+            "\
+emoji[grinning]=1
+emoji[smile]=2
+",
+        );
+
+        let precise = model.precompute_unused_assignments().to_vec();
+
+        assert!(model.cfg.is_some());
+        assert!(model.dataflow.is_none());
+        assert_eq!(binding_names(&model, &precise), vec!["emoji", "emoji"]);
+
+        let exact = model.dataflow().unused_assignment_ids().to_vec();
+        assert_eq!(precise, exact);
     }
 
     #[test]

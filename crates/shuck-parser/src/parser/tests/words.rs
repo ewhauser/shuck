@@ -2995,6 +2995,7 @@ fn test_zsh_repeat_do_done_preserves_structure_and_spans() {
             assert_eq!(do_span.slice(source), "do");
             assert_eq!(done_span.slice(source), "done");
         }
+        RepeatSyntax::Direct => panic!("expected do/done repeat syntax"),
         RepeatSyntax::Brace { .. } => panic!("expected do/done repeat syntax"),
     }
 
@@ -3028,6 +3029,7 @@ fn test_zsh_repeat_brace_preserves_structure_and_spans() {
             assert_eq!(left_brace_span.slice(source), "{");
             assert_eq!(right_brace_span.slice(source), "}");
         }
+        RepeatSyntax::Direct => panic!("expected brace repeat syntax"),
         RepeatSyntax::DoDone { .. } => panic!("expected brace repeat syntax"),
     }
 
@@ -3326,7 +3328,10 @@ fn test_parse_zsh_array_assignment_with_word_target_and_glob_qualifier() {
     let AssignmentValue::Compound(array) = &command.assignments[0].value else {
         panic!("expected compound assignment value");
     };
-    assert_eq!(array.span.slice(source), "( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )");
+    assert_eq!(
+        array.span.slice(source),
+        "( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )"
+    );
 }
 
 #[test]
@@ -3340,7 +3345,10 @@ fn test_parse_zsh_assignment_with_nested_subscript_pattern_range() {
     let AssignmentValue::Compound(array) = &command.assignments[0].value else {
         panic!("expected compound assignment value");
     };
-    assert_eq!(array.span.slice(source), "($in_alias[$in_alias[(i)<1->],-1])");
+    assert_eq!(
+        array.span.slice(source),
+        "($in_alias[$in_alias[(i)<1->],-1])"
+    );
 }
 
 #[test]
@@ -3697,6 +3705,95 @@ fi
     let start = usize::from(comment.range.start());
     let end = usize::from(comment.range.end());
     assert_eq!(&source[start..end], "# keep this branch for later");
+}
+
+#[test]
+fn test_parse_zsh_repeat_with_inline_simple_command_body() {
+    let source = "repeat $difference do left_column+=(.); done\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_repeat_with_direct_assignment_body() {
+    let source =
+        "repeat $((num_right_lines - num_left_lines)) left_segments=(newline $left_segments)\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_function_keyword_with_spaced_empty_brace_body() {
+    let source = "function battery_time_remaining() { } # Not available on android\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_compact_function_body_with_background_pipe_and_trailing_semicolon() {
+    let source = "function clipcopy() { cat \"${1:-/dev/stdin}\" | wl-copy &>/dev/null &|; }\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_parameter_default_with_prompt_escape_text() {
+    let source = "color_green=${BATTERY_COLOR_GREEN:-%F{green}}\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_force_append_redirect() {
+    let source = "print -lr -- ${p}${^*} >>| $SCD_HISTFILE\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_assignment_with_escaped_literal_parameter_template_in_double_quotes() {
+    let source = "IFS=$'\\1' _p9k__param_pat+=\"${(@)${(@o)parameters[(I)POWERLEVEL9K_*]}:/(#m)*/\\${${(q)MATCH}-$IFS\\}}\"\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_anonymous_function_invocation_with_nested_replacement_word() {
+    let source = r#"if [[ -t 1 ]]; then
+  if (( ${+__p9k_use_osc133_c_cmdline} )); then
+    () {
+      emulate -L zsh -o extended_glob -o no_multibyte
+      local MATCH MBEGIN MEND
+      builtin printf '\e]133;C;cmdline_url=%s\a' "${1//(#m)[^a-zA-Z0-9"\/:_.-!'()~"]/%${(l:2::0:)$(([##16]#MATCH))}}"
+    } "$1"
+  else
+    builtin print -n '\e]133;C;\a'
+  fi
+fi
+"#;
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_standalone_anonymous_function_invocation_with_nested_replacement_word() {
+    let source = r#"() {
+  emulate -L zsh -o extended_glob -o no_multibyte
+  local MATCH MBEGIN MEND
+  builtin printf '\e]133;C;cmdline_url=%s\a' "${1//(#m)[^a-zA-Z0-9"\/:_.-!'()~"]/%${(l:2::0:)$(([##16]#MATCH))}}"
+} "$1"
+"#;
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
 }
 
 #[test]

@@ -845,6 +845,7 @@ pub enum RepeatSyntax {
         do_span: Span,
         done_span: Span,
     },
+    Direct,
     Brace {
         left_brace_span: Span,
         right_brace_span: Span,

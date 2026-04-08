@@ -1629,9 +1629,10 @@ impl<'a> Parser<'a> {
     }
 
     fn current_zsh_glob_word_from_source(&mut self) -> Option<Word> {
-        if !matches!(self.current_token_kind, Some(TokenKind::LeftParen))
-            && !self.current_token_kind.is_some_and(TokenKind::is_word_like)
-        {
+        if !matches!(
+            self.current_token_kind,
+            Some(TokenKind::LeftParen | TokenKind::Word)
+        ) {
             return None;
         }
 
@@ -2133,6 +2134,7 @@ impl<'a> Parser<'a> {
                         do_span: do_span.rebased(base),
                         done_span: done_span.rebased(base),
                     },
+                    RepeatSyntax::Direct => RepeatSyntax::Direct,
                     RepeatSyntax::Brace {
                         left_brace_span,
                         right_brace_span,
@@ -4517,10 +4519,6 @@ impl<'a> Parser<'a> {
         let current_end = self.current_span.end.offset;
         self.peek_next()
             .is_some_and(|token| token.span.start.offset == current_end)
-    }
-
-    fn current_brace_body_context(&self) -> Option<BraceBodyContext> {
-        self.brace_body_stack.last().copied()
     }
 
     fn at_in_set(&self, set: TokenSet) -> bool {

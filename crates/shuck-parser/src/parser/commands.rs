@@ -114,6 +114,18 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| self.error("expected command"))
     }
 
+    fn skip_command_separators(&mut self) -> Result<()> {
+        loop {
+            self.skip_newlines()?;
+            if self.at(TokenKind::Semicolon) {
+                self.advance();
+                continue;
+            }
+            break;
+        }
+        Ok(())
+    }
+
     fn is_recovery_separator(kind: TokenKind) -> bool {
         matches!(
             kind,
@@ -305,6 +317,12 @@ impl<'a> Parser<'a> {
                 {
                     break;
                 }
+                if matches!(
+                    self.current_token_kind,
+                    Some(TokenKind::Semicolon | TokenKind::Newline)
+                ) {
+                    self.advance();
+                }
                 rest.push(CommandListItem {
                     operator: op,
                     operator_span,
@@ -395,6 +413,62 @@ impl<'a> Parser<'a> {
         let compound = parser(self)?;
         let redirects = self.parse_trailing_redirects();
         Ok(Some(Command::Compound(Box::new(compound), redirects)))
+    }
+
+    fn current_starts_prefix_redirect_compound(&self) -> bool {
+        match self.current_keyword() {
+            Some(Keyword::If)
+            | Some(Keyword::For)
+            | Some(Keyword::While)
+            | Some(Keyword::Until)
+            | Some(Keyword::Case)
+            | Some(Keyword::Select)
+            | Some(Keyword::Time)
+            | Some(Keyword::Coproc) => true,
+            Some(Keyword::Repeat) => self.dialect.features().zsh_repeat_loop,
+            Some(Keyword::Foreach) => self.dialect.features().zsh_foreach_loop,
+            Some(Keyword::Function) => false,
+            None => matches!(
+                self.current_token_kind,
+                Some(
+                    TokenKind::DoubleLeftBracket
+                        | TokenKind::DoubleLeftParen
+                        | TokenKind::LeftParen
+                        | TokenKind::LeftBrace
+                )
+            ),
+            _ => false,
+        }
+    }
+
+    fn parse_prefix_redirected_compound_command(&mut self) -> Result<Option<Command>> {
+        if !self.current_token_kind.is_some_and(Self::is_redirect_kind) {
+            return Ok(None);
+        }
+
+        let checkpoint = self.clone();
+        let mut redirects = self.parse_trailing_redirects();
+        if redirects.is_empty() || !self.current_starts_prefix_redirect_compound() {
+            *self = checkpoint;
+            return Ok(None);
+        }
+
+        let Some(mut command) = self.parse_command()? else {
+            *self = checkpoint;
+            return Ok(None);
+        };
+
+        match &mut command {
+            Command::Compound(_, trailing) => {
+                redirects.append(trailing);
+                *trailing = redirects;
+                Ok(Some(command))
+            }
+            _ => {
+                *self = checkpoint;
+                Ok(None)
+            }
+        }
     }
 
     fn classify_flow_control_name(&self, word: &Word) -> Option<FlowControlBuiltinKind> {
@@ -626,6 +700,14 @@ impl<'a> Parser<'a> {
             self.ensure_foreach_loop()?;
         }
 
+        if let Some(command) = self.parse_prefix_redirected_compound_command()? {
+            return Ok(Some(command));
+        }
+
+        if let Some(command) = self.try_parse_zsh_attached_parens_function()? {
+            return Ok(Some(command));
+        }
+
         // Check for compound commands and function keyword
         match self.current_keyword() {
             Some(Keyword::If) => return self.parse_compound_with_redirects(|s| s.parse_if()),
@@ -760,17 +842,23 @@ impl<'a> Parser<'a> {
                 let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
                 let then_branch_span = Span::from_positions(then_start, self.current_span.start);
 
-                if then_branch.is_empty() {
-                    self.pop_depth();
-                    return Err(self.error("syntax error: empty then clause"));
-                }
+                let then_branch = if then_branch.is_empty() {
+                    if self.dialect == ShellDialect::Zsh && self.is_keyword(Keyword::Elif) {
+                        Self::stmt_seq_with_span(then_branch_span, Vec::new())
+                    } else {
+                        self.pop_depth();
+                        return Err(self.error("syntax error: empty then clause"));
+                    }
+                } else {
+                    Self::lower_commands_to_stmt_seq(then_branch, then_branch_span)
+                };
 
                 (
                     IfSyntax::ThenFi {
                         then_span,
                         fi_span: Span::new(),
                     },
-                    Self::lower_commands_to_stmt_seq(then_branch, then_branch_span),
+                    then_branch,
                     false,
                 )
             };
@@ -1217,6 +1305,30 @@ impl<'a> Parser<'a> {
         };
 
         let (syntax, body, end_span) = match self.current_token_kind {
+            _ if self.is_keyword(Keyword::Do) => {
+                let do_span = self.current_span;
+                self.advance();
+                self.skip_newlines()?;
+
+                let body_start = self.current_span.start;
+                let body = self.parse_compound_list(Keyword::Done)?;
+                let body_span = Span::from_positions(body_start, self.current_span.start);
+                if body.is_empty() {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty repeat loop body"));
+                }
+                if !self.is_keyword(Keyword::Done) {
+                    self.pop_depth();
+                    return Err(self.error("expected 'done'"));
+                }
+                let done_span = self.current_span;
+                self.advance();
+                (
+                    RepeatSyntax::DoDone { do_span, done_span },
+                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    done_span,
+                )
+            }
             Some(TokenKind::LeftBrace) => {
                 let (body, left_brace_span, right_brace_span) = self
                     .parse_brace_enclosed_stmt_seq(
@@ -1292,8 +1404,14 @@ impl<'a> Parser<'a> {
                 )
             }
             _ => {
-                self.pop_depth();
-                return Err(self.error("expected ';' or '{' after repeat count"));
+                let command = self.parse_single_stmt_command()?;
+                let stmt = Self::lower_non_sequence_command_to_stmt(command);
+                let span = stmt.span;
+                (
+                    RepeatSyntax::Direct,
+                    Self::stmt_seq_with_span(span, vec![stmt]),
+                    span,
+                )
             }
         };
 
@@ -1709,7 +1827,7 @@ impl<'a> Parser<'a> {
         let body_span = Span::from_positions(body_start, self.current_span.start);
 
         // Bash requires at least one command in loop body
-        if body.is_empty() {
+        if body.is_empty() && self.dialect != ShellDialect::Zsh {
             self.pop_depth();
             return Err(self.error("syntax error: empty while loop body"));
         }
@@ -1749,7 +1867,7 @@ impl<'a> Parser<'a> {
         let body_span = Span::from_positions(body_start, self.current_span.start);
 
         // Bash requires at least one command in loop body
-        if body.is_empty() {
+        if body.is_empty() && self.dialect != ShellDialect::Zsh {
             self.pop_depth();
             return Err(self.error("syntax error: empty until loop body"));
         }
@@ -2403,12 +2521,12 @@ impl<'a> Parser<'a> {
         self.advance();
         self.brace_group_depth += 1;
         self.brace_body_stack.push(context);
-        self.skip_newlines()?;
+        self.skip_command_separators()?;
 
         let body_start = self.current_span.start;
         let mut commands = Vec::new();
         while !matches!(self.current_token_kind, Some(TokenKind::RightBrace) | None) {
-            self.skip_newlines()?;
+            self.skip_command_separators()?;
             if self.at(TokenKind::RightBrace) {
                 break;
             }
@@ -2568,7 +2686,7 @@ impl<'a> Parser<'a> {
             return true;
         }
 
-        if self.dialect != ShellDialect::Zsh || self.current_brace_body_context().is_none() {
+        if self.dialect != ShellDialect::Zsh {
             return true;
         }
 
@@ -2703,6 +2821,22 @@ impl<'a> Parser<'a> {
         }
 
         if self.at(TokenKind::DoubleLeftParen) {
+            if self.dialect == ShellDialect::Zsh {
+                let left_paren_span = self.current_span;
+                if let Some(right_paren_span) = self.scan_arithmetic_command_close(left_paren_span)
+                {
+                    let span = left_paren_span.merge(right_paren_span);
+                    let text = span.slice(self.input).to_string();
+                    while self.current_token.is_some()
+                        && self.current_span.start.offset < right_paren_span.end.offset
+                    {
+                        self.advance();
+                    }
+                    return Ok(ConditionalExpr::Word(
+                        self.parse_word_with_context(&text, span, span.start, true),
+                    ));
+                }
+            }
             self.split_current_double_left_paren();
         }
 
@@ -3377,9 +3511,14 @@ impl<'a> Parser<'a> {
         let word = self
             .current_word()
             .ok_or_else(|| self.error("expected function name"))?;
-        let static_name = self.literal_word_text(&word).map(Name::from);
+        let entry = self.function_header_entry_from_word(word.clone());
         self.advance_past_word(&word);
-        Ok(FunctionHeaderEntry { word, static_name })
+        Ok(entry)
+    }
+
+    fn function_header_entry_from_word(&self, word: Word) -> FunctionHeaderEntry {
+        let static_name = self.literal_word_text(&word).map(Name::from);
+        FunctionHeaderEntry { word, static_name }
     }
 
     fn parse_function_parens_span(&mut self) -> Result<Span> {
@@ -3403,6 +3542,15 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
 
         if let Some(compound) = self.try_parse_compact_function_brace_body()? {
+            let redirects = self.parse_trailing_redirects();
+            return Ok(Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                Box::new(compound),
+                redirects,
+            )));
+        }
+
+        if self.at(TokenKind::LeftBrace) {
+            let compound = self.parse_brace_group(BraceBodyContext::Function)?;
             let redirects = self.parse_trailing_redirects();
             return Ok(Self::lower_non_sequence_command_to_stmt(Command::Compound(
                 Box::new(compound),
@@ -3456,6 +3604,15 @@ impl<'a> Parser<'a> {
                     });
                 }
                 break 'tail;
+            }
+
+            if allow_empty_tail
+                && matches!(
+                    self.current_token_kind,
+                    Some(TokenKind::Semicolon | TokenKind::Newline)
+                )
+            {
+                self.advance();
             }
 
             rest.push(CommandListItem {
@@ -3580,6 +3737,15 @@ impl<'a> Parser<'a> {
         let entry = self.parse_function_header_entry()?;
         let trailing_parens_span = self.parse_function_parens_span()?;
 
+        self.finish_parse_function_posix(start_span, entry, trailing_parens_span)
+    }
+
+    fn finish_parse_function_posix(
+        &mut self,
+        start_span: Span,
+        entry: FunctionHeaderEntry,
+        trailing_parens_span: Span,
+    ) -> Result<Command> {
         let body = if self.dialect == ShellDialect::Zsh {
             self.parse_zsh_function_body_stmt()?
         } else {
@@ -3597,6 +3763,41 @@ impl<'a> Parser<'a> {
             body: Box::new(body),
             span: start_span.merge(self.current_span),
         }))
+    }
+
+    fn try_parse_zsh_attached_parens_function(&mut self) -> Result<Option<Command>> {
+        if self.dialect != ShellDialect::Zsh || !self.at_word_like() {
+            return Ok(None);
+        }
+
+        let Some(word_text) = self.current_source_like_word_text() else {
+            return Ok(None);
+        };
+        let Some(header_text) = word_text.as_ref().strip_suffix("()") else {
+            return Ok(None);
+        };
+        if header_text.is_empty() || header_text.contains('=') {
+            return Ok(None);
+        }
+
+        let mut probe = self.clone();
+        probe.advance();
+        probe.skip_newlines()?;
+        if !probe.at(TokenKind::LeftBrace) {
+            return Ok(None);
+        }
+
+        let start_span = self.current_span;
+        let header_span =
+            Span::from_positions(start_span.start, start_span.start.advanced_by(header_text));
+        let parens_span = Span::from_positions(header_span.end, start_span.end);
+        let header_word =
+            self.parse_word_with_context(header_text, header_span, header_span.start, true);
+        let entry = self.function_header_entry_from_word(header_word);
+        self.advance();
+
+        self.finish_parse_function_posix(start_span, entry, parens_span)
+            .map(Some)
     }
 
     fn parse_anonymous_paren_function(&mut self) -> Result<Command> {
@@ -3627,7 +3828,7 @@ impl<'a> Parser<'a> {
         let mut commands = Vec::with_capacity(4);
 
         loop {
-            self.skip_newlines()?;
+            self.skip_command_separators()?;
 
             // Check for terminators
             if self

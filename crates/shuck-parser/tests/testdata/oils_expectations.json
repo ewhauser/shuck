@@ -231,6 +231,14 @@
     "expectation": "parse_ok",
     "reason": "zsh parameter word targets inside array assignments now parse in this fixture"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__z__z.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh parameter replacements with quoted backslashes now parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__scd__scd": {
+    "expectation": "parse_ok",
+    "reason": "zsh prefix redirects and force-append redirects now parse in this fixture"
+  },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__scd__scd.plugin.zsh": {
     "expectation": "parse_ok",
     "reason": "zsh compact function brace bodies are supported"

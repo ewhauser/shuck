@@ -918,6 +918,10 @@ fn format_repeat(
                 finish_block("done", formatter)
             }
         }
+        RepeatSyntax::Direct => {
+            write!(formatter, [space()])?;
+            format_inline_stmts(&command.body, formatter)
+        }
         RepeatSyntax::Brace { .. } => {
             write!(formatter, [space()])?;
             format_brace_group(&command.body, formatter, Some(command.span.end.offset))

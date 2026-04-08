@@ -612,6 +612,13 @@ fn test_empty_while_body_rejected() {
 }
 
 #[test]
+fn test_zsh_empty_while_body_is_allowed() {
+    Parser::with_dialect("while sleep 1; do; done\n", ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
 fn test_empty_for_body_rejected() {
     let parser = Parser::new("for i in 1 2 3; do\ndone");
     assert!(parser.parse().is_err(), "empty for body should be rejected");
@@ -1736,7 +1743,8 @@ fn test_parse_zsh_command_substitution_with_comments_containing_apostrophes() {
 
 #[test]
 fn test_parse_zsh_while_body_with_arithmetic_command_and_and_list() {
-    let input = "while true; do\n  sysread -s1 c || return\n  (( #c < 256 / $1 * $1 )) && break\n done\n";
+    let input =
+        "while true; do\n  sysread -s1 c || return\n  (( #c < 256 / $1 * $1 )) && break\n done\n";
     Parser::with_dialect(input, ShellDialect::Zsh)
         .parse()
         .unwrap();
@@ -1808,7 +1816,8 @@ fn test_parse_zsh_for_loop_with_newline_before_in_clause() {
 
 #[test]
 fn test_parse_zsh_for_loop_with_glob_qualified_word_list_item() {
-    let input = "for plugin in $root/plugins/[^[:space:]]##(/N); do\n  print -r -- $plugin\n done\n";
+    let input =
+        "for plugin in $root/plugins/[^[:space:]]##(/N); do\n  print -r -- $plugin\n done\n";
     Parser::with_dialect(input, ShellDialect::Zsh)
         .parse()
         .unwrap();
@@ -1820,6 +1829,271 @@ fn test_parse_zsh_if_with_comment_only_else_clause() {
     Parser::with_dialect(input, ShellDialect::Zsh)
         .parse()
         .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_if_with_empty_then_before_elif() {
+    let input = "if false; then\nelif [[ $arg = $'\\x7d' ]]; then\n  print ok\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_redirect_prefixed_while_loop() {
+    let input = "<$SCD_IGNORE while read p; do\n  print -r -- $p\n done\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_conditional_group_with_arithmetic_subexpression() {
+    let input = "until [[ $i -gt 99 || ( $i -ge $((length - ellen)) || $dir == $part ) && ( (( ${#expn} == 1 )) || $dir = $expn ) ]]; do\n  :\ndone\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_anonymous_function_after_and_list() {
+    let input = "(( ${+ZSHZ_DEBUG} )) && () {\n  print ok\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_dynamic_posix_function_definition_in_if_branch() {
+    let input = "if [[ $cur_widget == zle-* ]]; then\n  _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_case_arm_with_dynamic_function_definition() {
+    let input = "case $widget_type in\n  *)\n    if [[ $cur_widget == zle-* ]] && (( ! ${+widgets[$cur_widget]} )); then\n      _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n      zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n    else\n      print -r -- >&2 unhandled\n    fi\n    ;;\nesac\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_case_statement_with_eval_wrapped_widget_rebindings() {
+    let input = "case ${widgets[$cur_widget]:-\"\"} in\n  user:_zsh_highlight_widget_*);;\n  user:*) zle -N $prefix-$cur_widget ${widgets[$cur_widget]#*:}\n          eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget ${(q)prefix}-${(q)cur_widget} -- \\\"\\$@\\\" }\"\n          zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n  completion:*) zle -C $prefix-$cur_widget ${${(s.:.)widgets[$cur_widget]}[2,3]}\n                eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget ${(q)prefix}-${(q)cur_widget} -- \\\"\\$@\\\" }\"\n                zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n  builtin) eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget .${(q)cur_widget} -- \\\"\\$@\\\" }\"\n           zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n  *)\n     if [[ $cur_widget == zle-* ]] && (( ! ${+widgets[$cur_widget]} )); then\n       _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n       zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n     else\n       print -r -- >&2 \"zsh-syntax-highlighting: unhandled ZLE widget ${(qq)cur_widget}\"\n       print -r -- >&2 \"zsh-syntax-highlighting: (This is sometimes caused by doing \\`bindkey <keys> ${(q-)cur_widget}\\` without creating the ${(qq)cur_widget} widget with \\`zle -N\\` or \\`zle -C\\`.)\"\n     fi\nesac\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_if_with_anonymous_function_invocation_and_quoted_arg() {
+    let input = "if [[ -t 1 ]]; then\n  if (( ${+__p9k_use_osc133_c_cmdline} )); then\n    () {\n      builtin printf '%s' \"$1\"\n    } \"$1\"\n  else\n    builtin print -n fallback\n  fi\nfi\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_top_level_anonymous_function_after_and_list_block() {
+    let input = "(( ${+ZSHZ_DEBUG} )) && () {\n  if is-at-least 5.4.0; then\n    local x\n    for x in ${=ZSHZ[FUNCTIONS]}; do\n      functions -W $x\n    done\n  fi\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_function_with_multiline_and_list_after_alias_lookup() {
+    let input = "zsh-z_plugin_unload() {\n  emulate -L zsh\n\n  add-zsh-hook -D precmd _zshz_precmd\n  add-zsh-hook -d chpwd _zshz_chpwd\n\n  local x\n  for x in ${=ZSHZ[FUNCTIONS]}; do\n    (( ${+functions[$x]} )) && unfunction $x\n  done\n\n  unset ZSHZ\n\n  fpath=( \"${(@)fpath:#${0:A:h}}\" )\n\n  (( ${+aliases[${ZSHZ_CMD:-${_Z_CMD:-z}}]} )) &&\n    unalias ${ZSHZ_CMD:-${_Z_CMD:-z}}\n\n  unfunction $0\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_precmd_function_with_inline_case_arm_and_subshell_background() {
+    let input = "_zshz_precmd() {\n  setopt LOCAL_OPTIONS UNSET\n  [[ $PWD == \"$HOME\" ]] || (( ZSHZ[DIRECTORY_REMOVED] )) && return\n\n  local exclude\n  for exclude in ${(@)ZSHZ_EXCLUDE_DIRS:-${(@)_Z_EXCLUDE_DIRS}}; do\n    case $PWD in\n      ${exclude}|${exclude}/*) return ;;\n    esac\n  done\n\n  if [[ $OSTYPE == (cygwin|msys) ]]; then\n    zshz --add \"$PWD\"\n  else\n    (zshz --add \"$PWD\" &)\n  fi\n\n  : $RANDOM\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_for_loop_over_parameter_keys() {
+    let input = "f() {\n  local -A opts\n  for opt in ${(k)opts}; do\n    case $opt in\n      -l) output_format='list' ;;\n    esac\n  done\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_until_loop_with_nested_parameter_lengths() {
+    let input = "f() {\n  local cd=/foo/bar/foo/bar q='bar' q_chars=1\n  until (( ( ${#cd:h} - ${#${${cd:h}//${~q}/}} ) != q_chars )); do\n    cd=${cd:h}\n  done\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_if_with_last_argument_slice_and_opt_subscripts() {
+    let input = "f() {\n  local -A opts\n  if [[ ${@: -1} == /* ]] && (( ! $+opts[-e] && ! $+opts[-l] )); then\n    [[ -d ${@: -1} ]] && print ${@: -1} && return\n  fi\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_parameter_replacements_with_quoted_backslashes() {
+    let input = "f() {\n  local path_field escaped_path_field\n  escaped_path_field=${path_field//'\\'/'\\\\'}\n  escaped_path_field=${escaped_path_field//'`'/'\\`'}\n  escaped_path_field=${escaped_path_field//'('/'\\('}\n  escaped_path_field=${escaped_path_field//')'/'\\)'}\n  escaped_path_field=${escaped_path_field//'['/'\\['}\n  escaped_path_field=${escaped_path_field//']'/'\\]'}\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_find_matches_helper_function() {
+    let input = "_zshz_find_matches() {\n  setopt LOCAL_OPTIONS NO_EXTENDED_GLOB\n\n  local fnd=$1 method=$2 format=$3\n\n  local -a existing_paths\n  local line dir path_field rank_field time_field rank dx escaped_path_field\n  local -A matches imatches\n  local best_match ibest_match hi_rank=-9999999999 ihi_rank=-9999999999\n\n  for line in $lines; do\n    if [[ ! -d ${line%%\\|*} ]]; then\n      for dir in ${(@)ZSHZ_KEEP_DIRS}; do\n        if [[ ${line%%\\|*} == ${dir}/* ||\n              ${line%%\\|*} == $dir     ||\n              $dir == '/' ]]; then\n          existing_paths+=( $line )\n        fi\n      done\n    else\n      existing_paths+=( $line )\n    fi\n  done\n  lines=( $existing_paths )\n\n  for line in $lines; do\n    path_field=${line%%\\|*}\n    rank_field=${${line%\\|*}#*\\|}\n    time_field=${line##*\\|}\n\n    case $method in\n      rank) rank=$rank_field ;;\n      time) (( rank = time_field - EPOCHSECONDS )) ;;\n      *)\n        (( dx = EPOCHSECONDS - time_field ))\n        rank=$(( 10000 * rank_field * (3.75/( (0.0001 * dx + 1) + 0.25)) ))\n        ;;\n    esac\n\n    local q=${fnd//[[:space:]]/\\*}\n\n    local path_field_normalized=$path_field\n    if (( ZSHZ_TRAILING_SLASH )); then\n      path_field_normalized=${path_field%/}/\n    fi\n\n    if [[ $ZSHZ_CASE == 'smart' && ${1:l} == $1 &&\n          ${path_field_normalized:l} == ${~q:l} ]]; then\n      imatches[$path_field]=$rank\n    elif [[ $ZSHZ_CASE != 'ignore' && $path_field_normalized == ${~q} ]]; then\n      matches[$path_field]=$rank\n    elif [[ $ZSHZ_CASE != 'smart' && ${path_field_normalized:l} == ${~q:l} ]]; then\n      imatches[$path_field]=$rank\n    fi\n\n    escaped_path_field=${path_field//'\\\\'/'\\\\\\\\'}\n    escaped_path_field=${escaped_path_field//'`'/'\\`'}\n    escaped_path_field=${escaped_path_field//'('/'\\('}\n    escaped_path_field=${escaped_path_field//')'/'\\)'}\n    escaped_path_field=${escaped_path_field//'['/'\\['}\n    escaped_path_field=${escaped_path_field//']'/'\\]'}\n\n    if (( matches[$escaped_path_field] )) &&\n       (( matches[$escaped_path_field] > hi_rank )); then\n      best_match=$path_field\n      hi_rank=${matches[$escaped_path_field]}\n    elif (( imatches[$escaped_path_field] )) &&\n         (( imatches[$escaped_path_field] > ihi_rank )); then\n      ibest_match=$path_field\n      ihi_rank=${imatches[$escaped_path_field]}\n      ZSHZ[CASE_INSENSITIVE]=1\n    fi\n  done\n\n  [[ -z $best_match && -z $ibest_match ]] && return 1\n\n  if [[ -n $best_match ]]; then\n    _zshz_output matches best_match $format\n  elif [[ -n $ibest_match ]]; then\n    _zshz_output imatches ibest_match $format\n  fi\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_nested_find_matches_helper_function() {
+    let input = "zshz() {\n  local -a lines\n  _zshz_find_matches() {\n    setopt LOCAL_OPTIONS NO_EXTENDED_GLOB\n\n    local fnd=$1 method=$2 format=$3\n    local -a existing_paths\n    local line dir path_field rank_field time_field rank dx escaped_path_field\n    local -A matches imatches\n    local best_match ibest_match hi_rank=-9999999999 ihi_rank=-9999999999\n\n    for line in $lines; do\n      if [[ ! -d ${line%%\\|*} ]]; then\n        for dir in ${(@)ZSHZ_KEEP_DIRS}; do\n          if [[ ${line%%\\|*} == ${dir}/* ||\n                ${line%%\\|*} == $dir     ||\n                $dir == '/' ]]; then\n            existing_paths+=( $line )\n          fi\n        done\n      else\n        existing_paths+=( $line )\n      fi\n    done\n    lines=( $existing_paths )\n\n    for line in $lines; do\n      path_field=${line%%\\|*}\n      rank_field=${${line%\\|*}#*\\|}\n      time_field=${line##*\\|}\n\n      case $method in\n        rank) rank=$rank_field ;;\n        time) (( rank = time_field - EPOCHSECONDS )) ;;\n        *)\n          (( dx = EPOCHSECONDS - time_field ))\n          rank=$(( 10000 * rank_field * (3.75/( (0.0001 * dx + 1) + 0.25)) ))\n          ;;\n      esac\n\n      local q=${fnd//[[:space:]]/\\*}\n\n      local path_field_normalized=$path_field\n      if (( ZSHZ_TRAILING_SLASH )); then\n        path_field_normalized=${path_field%/}/\n      fi\n\n      if [[ $ZSHZ_CASE == 'smart' && ${1:l} == $1 &&\n            ${path_field_normalized:l} == ${~q:l} ]]; then\n        imatches[$path_field]=$rank\n      elif [[ $ZSHZ_CASE != 'ignore' && $path_field_normalized == ${~q} ]]; then\n        matches[$path_field]=$rank\n      elif [[ $ZSHZ_CASE != 'smart' && ${path_field_normalized:l} == ${~q:l} ]]; then\n        imatches[$path_field]=$rank\n      fi\n\n      escaped_path_field=${path_field//'\\\\'/'\\\\\\\\'}\n      escaped_path_field=${escaped_path_field//'`'/'\\`'}\n      escaped_path_field=${escaped_path_field//'('/'\\('}\n      escaped_path_field=${escaped_path_field//')'/'\\)'}\n      escaped_path_field=${escaped_path_field//'['/'\\['}\n      escaped_path_field=${escaped_path_field//']'/'\\]'}\n\n      if (( matches[$escaped_path_field] )) &&\n         (( matches[$escaped_path_field] > hi_rank )); then\n        best_match=$path_field\n        hi_rank=${matches[$escaped_path_field]}\n      elif (( imatches[$escaped_path_field] )) &&\n           (( imatches[$escaped_path_field] > ihi_rank )); then\n        ibest_match=$path_field\n        ihi_rank=${imatches[$escaped_path_field]}\n        ZSHZ[CASE_INSENSITIVE]=1\n      fi\n    done\n\n    [[ -z $best_match && -z $ibest_match ]] && return 1\n\n    if [[ -n $best_match ]]; then\n      _zshz_output matches best_match $format\n    elif [[ -n $ibest_match ]]; then\n      _zshz_output imatches ibest_match $format\n    fi\n  }\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_nested_function_after_brace_fd_redirect_helper() {
+    let input = "zshz() {\n  _zshz_add_or_remove_path() {\n    case $action in\n      --add)\n        exec {tmpfd}>|\"$tempfile\"\n        ;;\n    esac\n  }\n\n  _zshz_find_matches() {\n    for line in $lines; do\n      :\n    done\n  }\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_nested_function_after_full_brace_fd_helper() {
+    let input = "zshz() {\n  _zshz_add_or_remove_path() {\n    local tempfile=\"${datafile}.${RANDOM}\"\n    integer tmpfd\n    case $action in\n      --add)\n        exec {tmpfd}>|\"$tempfile\"\n        _zshz_update_datafile $tmpfd \"$*\"\n        local ret=$?\n        ;;\n      --remove)\n        exec {tmpfd}>|\"$tempfile\"\n        print -u $tmpfd -l -- $lines\n        local ret=$?\n        ;;\n    esac\n\n    if (( tmpfd != 0 )); then\n      exec {tmpfd}>&-\n    fi\n  }\n\n  _zshz_find_matches() {\n    for line in $lines; do\n      :\n    done\n  }\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_nested_function_after_same_line_brace_group() {
+    let input = "zshz() {\n  [[ -f $datafile ]] || { mkdir -p \"${datafile:h}\" && touch \"$datafile\" }\n\n  _zshz_find_matches() {\n    for line in $lines; do\n      :\n    done\n  }\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_nested_function_after_complex_array_assignments() {
+    let input = "zshz() {\n  lines=( ${(f)\"$(< $datafile)\"} )\n  lines=( ${(M)lines:#/*\\|[[:digit:]]##[.,]#[[:digit:]]#\\|[[:digit:]]##} )\n\n  _zshz_find_matches() {\n    for line in $lines; do\n      :\n    done\n  }\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_anonymous_debug_block_followed_by_plugin_unload_function() {
+    let input = "(( ${+ZSHZ_DEBUG} )) && () {\n  if is-at-least 5.4.0; then\n    local x\n    for x in ${=ZSHZ[FUNCTIONS]}; do\n      functions -W $x\n    done\n  fi\n}\n\nzsh-z_plugin_unload() {\n  emulate -L zsh\n\n  add-zsh-hook -D precmd _zshz_precmd\n  add-zsh-hook -d chpwd _zshz_chpwd\n\n  local x\n  for x in ${=ZSHZ[FUNCTIONS]}; do\n    (( ${+functions[$x]} )) && unfunction $x\n  done\n\n  unset ZSHZ\n\n  fpath=( \"${(@)fpath:#${0:A:h}}\" )\n\n  (( ${+aliases[${ZSHZ_CMD:-${_Z_CMD:-z}}]} )) &&\n    unalias ${ZSHZ_CMD:-${_Z_CMD:-z}}\n\n  unfunction $0\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_widget_binding_function_with_rebinding_loop() {
+    let input = "_zsh_highlight_bind_widgets()\n{\n  setopt localoptions noksharrays\n  typeset -F SECONDS\n  local prefix=orig-s$SECONDS-r$RANDOM\n\n  zmodload zsh/zleparameter 2>/dev/null || {\n    print -r -- >&2 'zsh-syntax-highlighting: failed loading zsh/zleparameter.'\n    return 1\n  }\n\n  local -U widgets_to_bind\n  widgets_to_bind=(${${(k)widgets}:#(.*|run-help|which-command|beep|set-local-history|yank|yank-pop)})\n  widgets_to_bind+=(zle-line-finish)\n  widgets_to_bind+=(zle-isearch-update)\n\n  local cur_widget\n  for cur_widget in $widgets_to_bind; do\n    case ${widgets[$cur_widget]:-\"\"} in\n      user:_zsh_highlight_widget_*);;\n      user:*) zle -N $prefix-$cur_widget ${widgets[$cur_widget]#*:}\n              eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget ${(q)prefix}-${(q)cur_widget} -- \\\"\\$@\\\" }\"\n              zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n      completion:*) zle -C $prefix-$cur_widget ${${(s.:.)widgets[$cur_widget]}[2,3]}\n                    eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget ${(q)prefix}-${(q)cur_widget} -- \\\"\\$@\\\" }\"\n                    zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n      builtin) eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget .${(q)cur_widget} -- \\\"\\$@\\\" }\"\n               zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n      *)\n         if [[ $cur_widget == zle-* ]] && (( ! ${+widgets[$cur_widget]} )); then\n           _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n           zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n         else\n           print -r -- >&2 \"zsh-syntax-highlighting: unhandled ZLE widget ${(qq)cur_widget}\"\n           print -r -- >&2 \"zsh-syntax-highlighting: (This is sometimes caused by doing \\`bindkey <keys> ${(q-)cur_widget}\\` without creating the ${(qq)cur_widget} widget with \\`zle -N\\` or \\`zle -C\\`.)\"\n         fi\n    esac\n  done\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_widget_binding_loop_inside_function_without_prelude() {
+    let input = "_zsh_highlight_bind_widgets()\n{\n  local cur_widget\n  for cur_widget in $widgets_to_bind; do\n    case ${widgets[$cur_widget]:-\"\"} in\n      user:_zsh_highlight_widget_*);;\n      user:*) zle -N $prefix-$cur_widget ${widgets[$cur_widget]#*:}\n              eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget ${(q)prefix}-${(q)cur_widget} -- \\\"\\$@\\\" }\"\n              zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n      completion:*) zle -C $prefix-$cur_widget ${${(s.:.)widgets[$cur_widget]}[2,3]}\n                    eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget ${(q)prefix}-${(q)cur_widget} -- \\\"\\$@\\\" }\"\n                    zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n      builtin) eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget .${(q)cur_widget} -- \\\"\\$@\\\" }\"\n               zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n      *)\n         if [[ $cur_widget == zle-* ]] && (( ! ${+widgets[$cur_widget]} )); then\n           _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n           zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n         else\n           print -r -- >&2 \"zsh-syntax-highlighting: unhandled ZLE widget ${(qq)cur_widget}\"\n         fi\n    esac\n  done\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_for_loop_case_arm_with_dynamic_function_definition() {
+    let input = "for cur_widget in $widgets_to_bind; do\n  case ${widgets[$cur_widget]:-\"\"} in\n    *)\n       if [[ $cur_widget == zle-* ]] && (( ! ${+widgets[$cur_widget]} )); then\n         _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n         zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n       else\n         print -r -- >&2 \"zsh-syntax-highlighting: unhandled ZLE widget ${(qq)cur_widget}\"\n       fi\n  esac\n done\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_function_case_with_builtin_eval_arm_before_dynamic_function_arm() {
+    let input = "_zsh_highlight_bind_widgets()\n{\n  local cur_widget\n  for cur_widget in $widgets_to_bind; do\n    case ${widgets[$cur_widget]:-\"\"} in\n      builtin) eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget .${(q)cur_widget} -- \\\"\\$@\\\" }\"\n               zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget;;\n      *)\n         if [[ $cur_widget == zle-* ]] && (( ! ${+widgets[$cur_widget]} )); then\n           _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n           zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n         else\n           print -r -- >&2 \"zsh-syntax-highlighting: unhandled ZLE widget ${(qq)cur_widget}\"\n         fi\n    esac\n  done\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_function_body_with_eval_string_before_dynamic_function_definition() {
+    let input = "_zsh_highlight_bind_widgets()\n{\n  eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget .${(q)cur_widget} -- \\\"\\$@\\\" }\"\n  zle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget\n  _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n  zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_function_body_with_dynamic_function_definition_without_eval_prefix() {
+    let input = "_zsh_highlight_bind_widgets()\n{\n  _zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\n  zle -N $cur_widget _zsh_highlight_widget_$cur_widget\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_top_level_dynamic_function_definition_followed_by_command() {
+    let input = "_zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\nzle -N $cur_widget _zsh_highlight_widget_$cur_widget\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_nested_dynamic_function_leaves_following_command_and_outer_brace_visible() {
+    let input = "_zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\nzle -N $cur_widget _zsh_highlight_widget_$cur_widget\n";
+    let output = Parser::with_dialect(&format!("outer() {{\n{input}}}\n"), ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&output.body[0]);
+    let (compound, _) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert_eq!(body.len(), 2);
+    assert!(matches!(body[0].command, AstCommand::Function(_)));
+    assert!(matches!(body[1].command, AstCommand::Simple(_)));
+}
+
+#[test]
+fn test_parse_zsh_eval_string_before_dynamic_function_definition_at_top_level() {
+    let input = "eval \"_zsh_highlight_widget_${(q)prefix}-${(q)cur_widget}() { _zsh_highlight_call_widget .${(q)cur_widget} -- \\\"\\$@\\\" }\"\nzle -N $cur_widget _zsh_highlight_widget_$prefix-$cur_widget\n_zsh_highlight_widget_${cur_widget}() { :; _zsh_highlight }\nzle -N $cur_widget _zsh_highlight_widget_$cur_widget\n";
+    let output = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    assert_eq!(output.file.body.len(), 4);
+    match &output.file.body[2].command {
+        AstCommand::Function(_) => {}
+        _ => panic!("expected third statement to be a function definition"),
+    };
 }
 
 #[test]
