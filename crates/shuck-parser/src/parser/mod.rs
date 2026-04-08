@@ -3618,7 +3618,7 @@ impl<'a> Parser<'a> {
     /// Consume one unit of fuel, returning an error if exhausted
     fn tick(&mut self) -> Result<()> {
         if self.fuel == 0 {
-            let used = self.max_fuel;
+            let used = self.max_fuel - self.fuel;
             return Err(Error::parse(format!(
                 "parser fuel exhausted ({} operations, max {})",
                 used, self.max_fuel
