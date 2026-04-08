@@ -15,7 +15,7 @@ use shuck_format::{
 
 use crate::FormatNodeRule;
 use crate::prelude::{AsFormat, ShellFormatter};
-use crate::word::{render_pattern_syntax, render_word_syntax};
+use crate::word::{render_pattern_syntax, render_word_syntax, render_word_syntax_to_buf};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FormatCommand;
@@ -1515,10 +1515,22 @@ pub(crate) fn render_assignment(
     source: &str,
     options: &crate::options::ResolvedShellFormatOptions,
 ) -> String {
-    let mut rendered = render_assignment_head(assignment, source);
+    let mut rendered = String::new();
+    render_assignment_to_buf(assignment, source, options, &mut rendered);
+    rendered
+}
+
+pub(crate) fn render_assignment_to_buf(
+    assignment: &Assignment,
+    source: &str,
+    options: &crate::options::ResolvedShellFormatOptions,
+    rendered: &mut String,
+) {
+    let start = rendered.len();
+    render_assignment_head_to_buf(assignment, source, rendered);
     match &assignment.value {
         AssignmentValue::Scalar(value) => {
-            rendered.push_str(&render_word_syntax(value, source, options));
+            render_word_syntax_to_buf(value, source, options, rendered);
         }
         AssignmentValue::Compound(array) => {
             rendered.push('(');
@@ -1526,54 +1538,61 @@ pub(crate) fn render_assignment(
                 if index > 0 {
                     rendered.push(' ');
                 }
-                rendered.push_str(&render_array_elem(value, source, options));
+                render_array_elem_to_buf(value, source, options, rendered);
             }
             rendered.push(')');
         }
     }
-    trim_unescaped_trailing_whitespace(&rendered).to_string()
+    trim_unescaped_trailing_whitespace_in_place(rendered, start);
 }
 
-fn render_array_elem(
+fn render_array_elem_to_buf(
     element: &ArrayElem,
     source: &str,
     options: &crate::options::ResolvedShellFormatOptions,
-) -> String {
+    rendered: &mut String,
+) {
     match element {
-        ArrayElem::Sequential(word) => render_word_syntax(word, source, options),
+        ArrayElem::Sequential(word) => render_word_syntax_to_buf(word, source, options, rendered),
         ArrayElem::Keyed { key, value } => {
-            render_keyed_array_elem(key, value, source, options, "=")
+            render_keyed_array_elem_to_buf(key, value, source, options, "=", rendered)
         }
         ArrayElem::KeyedAppend { key, value } => {
-            render_keyed_array_elem(key, value, source, options, "+=")
+            render_keyed_array_elem_to_buf(key, value, source, options, "+=", rendered)
         }
     }
 }
 
-fn render_keyed_array_elem(
+fn render_keyed_array_elem_to_buf(
     key: &Subscript,
     value: &Word,
     source: &str,
     options: &crate::options::ResolvedShellFormatOptions,
     operator: &str,
-) -> String {
-    let rendered_key = render_subscript(key, source);
-    let rendered_value = render_word_syntax(value, source, options);
-    let mut rendered =
-        String::with_capacity(rendered_key.len() + rendered_value.len() + operator.len() + 2);
+    rendered: &mut String,
+) {
     rendered.push('[');
-    rendered.push_str(&rendered_key);
+    render_subscript_to_buf(key, source, rendered);
     rendered.push(']');
     rendered.push_str(operator);
-    rendered.push_str(&rendered_value);
-    rendered
+    render_word_syntax_to_buf(value, source, options, rendered);
 }
 
 pub(crate) fn render_assignment_head(assignment: &Assignment, source: &str) -> String {
-    let mut rendered = assignment.target.name.to_string();
+    let mut rendered = String::new();
+    render_assignment_head_to_buf(assignment, source, &mut rendered);
+    rendered
+}
+
+pub(crate) fn render_assignment_head_to_buf(
+    assignment: &Assignment,
+    source: &str,
+    rendered: &mut String,
+) {
+    rendered.push_str(assignment.target.name.as_str());
     if let Some(index) = &assignment.target.subscript {
         rendered.push('[');
-        rendered.push_str(&render_subscript(index, source));
+        render_subscript_to_buf(index, source, rendered);
         rendered.push(']');
     }
     if assignment.append {
@@ -1581,7 +1600,6 @@ pub(crate) fn render_assignment_head(assignment: &Assignment, source: &str) -> S
     } else {
         rendered.push('=');
     }
-    rendered
 }
 
 fn format_standalone_multiline_compound_assignment(
@@ -1654,21 +1672,34 @@ pub(crate) fn multiline_compound_assignment_lines(
 }
 
 pub(crate) fn render_var_ref(reference: &VarRef, source: &str) -> String {
-    let mut rendered = reference.name.to_string();
-    if let Some(subscript) = &reference.subscript {
-        rendered.push('[');
-        rendered.push_str(&render_subscript(subscript, source));
-        rendered.push(']');
-    }
+    let mut rendered = String::new();
+    render_var_ref_to_buf(reference, source, &mut rendered);
     rendered
 }
 
+pub(crate) fn render_var_ref_to_buf(reference: &VarRef, source: &str, rendered: &mut String) {
+    rendered.push_str(reference.name.as_str());
+    if let Some(subscript) = &reference.subscript {
+        rendered.push('[');
+        render_subscript_to_buf(subscript, source, rendered);
+        rendered.push(']');
+    }
+}
+
+#[allow(dead_code)]
 pub(crate) fn render_subscript(subscript: &Subscript, source: &str) -> String {
+    let mut rendered = String::new();
+    render_subscript_to_buf(subscript, source, &mut rendered);
+    rendered
+}
+
+pub(crate) fn render_subscript_to_buf(subscript: &Subscript, source: &str, rendered: &mut String) {
     if let Some(selector) = subscript.selector() {
-        return selector.as_char().to_string();
+        rendered.push(selector.as_char());
+        return;
     }
 
-    render_source_text(subscript.syntax_source_text(), source)
+    render_source_text_to_buf(subscript.syntax_source_text(), source, rendered);
 }
 
 fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
@@ -1696,12 +1727,24 @@ fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
     &text[..end]
 }
 
+#[allow(dead_code)]
 pub(crate) fn render_source_text(text: &SourceText, source: &str) -> String {
+    let mut rendered = String::new();
+    render_source_text_to_buf(text, source, &mut rendered);
+    rendered
+}
+
+pub(crate) fn render_source_text_to_buf(text: &SourceText, source: &str, rendered: &mut String) {
     if text.is_source_backed() && text.span().end.offset > source.len() {
-        String::new()
+        return;
     } else {
-        text.slice(source).to_string()
+        rendered.push_str(text.slice(source));
     }
+}
+
+fn trim_unescaped_trailing_whitespace_in_place(text: &mut String, start: usize) {
+    let end = start + trim_unescaped_trailing_whitespace(&text[start..]).len();
+    text.truncate(end);
 }
 
 pub(crate) fn has_heredoc(stmt: &Stmt) -> bool {

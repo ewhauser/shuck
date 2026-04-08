@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::mem;
 
 use shuck_ast::{
@@ -5,9 +6,9 @@ use shuck_ast::{
     BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem, Command, CompoundCommand,
     ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
     ConditionalUnaryExpr, CoprocCommand, DeclClause, DeclOperand, File, ForCommand, ForSyntax,
-    ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, Redirect, RedirectKind,
-    RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq, StmtTerminator,
-    TimeCommand, UntilCommand, WhileCommand, Word,
+    ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, Pattern, Redirect,
+    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
+    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word,
 };
 use shuck_format::{IndentStyle, LineEnding};
 
@@ -16,13 +17,14 @@ use crate::ast_format::flatten_comments;
 use crate::command::{
     binary_operator, case_item_was_inline_in_source, case_terminator, command_format_span,
     group_open_suffix, group_was_inline_in_source, has_heredoc, line_gap_break_count,
-    multiline_compound_assignment_lines, render_assignment, render_assignment_head,
-    render_background_operator, render_var_ref, rendered_stmt_end_line, should_render_verbatim,
-    slice_span, stmt_attachment_span, stmt_has_trailing_comment, stmt_span, stmt_verbatim_span,
+    multiline_compound_assignment_lines, render_assignment_head_to_buf, render_assignment_to_buf,
+    render_background_operator, render_var_ref_to_buf, rendered_stmt_end_line,
+    should_render_verbatim, slice_span, stmt_attachment_span, stmt_has_trailing_comment, stmt_span,
+    stmt_verbatim_span,
 };
 use crate::comments::{Comments, SourceComment, SourceMap};
 use crate::options::ResolvedShellFormatOptions;
-use crate::word::{render_pattern_syntax, render_word_syntax};
+use crate::word::{render_pattern_syntax_to_buf, render_word_syntax_to_buf};
 
 pub(crate) fn format_file_streaming(
     source: &str,
@@ -64,6 +66,7 @@ struct ShellStreamFormatter<'source> {
     comments: Comments<'source>,
     source_map: SourceMap<'source>,
     output: String,
+    scratch: String,
     indent_level: usize,
     line_start: bool,
     pending_heredocs: Vec<PendingHeredoc>,
@@ -81,6 +84,7 @@ impl<'source> ShellStreamFormatter<'source> {
             source_map: comments.source_map().clone(),
             comments,
             output: String::with_capacity(source.len()),
+            scratch: String::new(),
             indent_level: 0,
             line_start: true,
             pending_heredocs: Vec::new(),
@@ -124,6 +128,57 @@ impl<'source> ShellStreamFormatter<'source> {
         let result = f(self);
         self.indent_level = self.indent_level.saturating_sub(1);
         result
+    }
+
+    fn take_scratch_buffer(&mut self) -> String {
+        let mut scratch = mem::take(&mut self.scratch);
+        scratch.clear();
+        scratch
+    }
+
+    fn restore_scratch_buffer(&mut self, scratch: String) {
+        self.scratch = scratch;
+    }
+
+    fn write_rendered(
+        &mut self,
+        render: impl FnOnce(&mut String, &'source str, &ResolvedShellFormatOptions),
+    ) {
+        let mut scratch = self.take_scratch_buffer();
+        render(&mut scratch, self.source, &self.options);
+        self.write_text(&scratch);
+        self.restore_scratch_buffer(scratch);
+    }
+
+    fn write_display(&mut self, value: impl std::fmt::Display) {
+        self.write_rendered(|scratch, _, _| {
+            let _ = write!(scratch, "{value}");
+        });
+    }
+
+    fn write_indent_units(&mut self, levels: usize) {
+        if levels == 0 {
+            return;
+        }
+
+        if self.line_start {
+            self.write_indent();
+        }
+
+        match self.options.indent_style() {
+            IndentStyle::Tab => {
+                for _ in 0..levels {
+                    self.output.push('\t');
+                }
+            }
+            IndentStyle::Space => {
+                for _ in 0..(levels * usize::from(self.options.indent_width())) {
+                    self.output.push(' ');
+                }
+            }
+        }
+
+        self.line_start = false;
     }
 
     fn write_text(&mut self, text: &str) {
@@ -212,8 +267,48 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn write_word(&mut self, word: &Word) {
-        let rendered = render_word_syntax(word, self.source, self.options());
-        self.write_text(&rendered);
+        self.write_rendered(|scratch, source, options| {
+            render_word_syntax_to_buf(word, source, options, scratch);
+        });
+    }
+
+    fn write_pattern(&mut self, pattern: &Pattern) {
+        self.write_rendered(|scratch, source, options| {
+            render_pattern_syntax_to_buf(pattern, source, options, scratch);
+        });
+    }
+
+    fn write_var_ref(&mut self, reference: &VarRef) {
+        self.write_rendered(|scratch, source, _| {
+            render_var_ref_to_buf(reference, source, scratch);
+        });
+    }
+
+    fn write_assignment(&mut self, assignment: &Assignment) {
+        self.write_rendered(|scratch, source, options| {
+            render_assignment_to_buf(assignment, source, options, scratch);
+        });
+    }
+
+    fn write_assignment_head(&mut self, assignment: &Assignment) {
+        self.write_rendered(|scratch, source, _| {
+            render_assignment_head_to_buf(assignment, source, scratch);
+        });
+    }
+
+    fn write_rendered_name_if_nonempty(
+        &mut self,
+        rendered_name: &str,
+        previous_end: Option<usize>,
+        name_span: Span,
+    ) -> Option<usize> {
+        if rendered_name.is_empty() {
+            previous_end
+        } else {
+            self.write_command_gap(previous_end, name_span.start.offset);
+            self.write_text(rendered_name);
+            Some(name_span.end.offset)
+        }
     }
 
     fn write_comment(&mut self, comment: &SourceComment<'_>) {
@@ -470,12 +565,14 @@ impl<'source> ShellStreamFormatter<'source> {
 
     fn format_simple_command(&mut self, command: &SimpleCommand) -> Result<()> {
         let source = self.source();
-        let rendered_name = render_word_syntax(&command.name, source, self.options());
+        let mut rendered_name = self.take_scratch_buffer();
+        render_word_syntax_to_buf(&command.name, source, self.options(), &mut rendered_name);
         if command.args.is_empty()
             && command.assignments.len() == 1
             && rendered_name.is_empty()
             && multiline_compound_assignment_lines(&command.assignments[0], source).is_some()
         {
+            self.restore_scratch_buffer(rendered_name);
             return self.format_standalone_multiline_compound_assignment(&command.assignments[0]);
         }
 
@@ -485,11 +582,9 @@ impl<'source> ShellStreamFormatter<'source> {
             self.write_assignment(assignment);
             previous_end = Some(assignment.span.end.offset);
         }
-        if !rendered_name.is_empty() {
-            self.write_command_gap(previous_end, command.name.span.start.offset);
-            self.write_text(&rendered_name);
-            previous_end = Some(command.name.span.end.offset);
-        }
+        previous_end =
+            self.write_rendered_name_if_nonempty(&rendered_name, previous_end, command.name.span);
+        self.restore_scratch_buffer(rendered_name);
         for argument in &command.args {
             self.write_command_gap(previous_end, argument.span.start.offset);
             self.write_word(argument);
@@ -585,7 +680,6 @@ impl<'source> ShellStreamFormatter<'source> {
         let Some(previous_end) = previous_end else {
             return;
         };
-        let continuation = continuation_indent_prefix(self.options());
         if self
             .source()
             .get(previous_end..next_start)
@@ -593,7 +687,7 @@ impl<'source> ShellStreamFormatter<'source> {
         {
             self.write_text(" \\");
             self.newline();
-            self.write_text(&continuation);
+            self.write_indent_units(1);
         } else {
             self.write_space();
         }
@@ -602,19 +696,10 @@ impl<'source> ShellStreamFormatter<'source> {
     fn write_decl_operand(&mut self, operand: &DeclOperand) {
         match operand {
             DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => self.write_word(word),
-            DeclOperand::Name(name) => self.write_text(&render_var_ref(name, self.source())),
+            DeclOperand::Name(name) => self.write_var_ref(name),
             DeclOperand::Assignment(assignment) => self.write_assignment(assignment),
         }
     }
-
-    fn write_assignment(&mut self, assignment: &Assignment) {
-        self.write_text(&render_assignment(
-            assignment,
-            self.source(),
-            self.options(),
-        ));
-    }
-
     fn format_binary_command(&mut self, command: &BinaryCommand) -> Result<()> {
         match command.op {
             BinaryOp::Pipe | BinaryOp::PipeAll => self.format_pipeline(command),
@@ -999,22 +1084,19 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn format_case_item(&mut self, item: &CaseItem, upper_bound: Option<usize>) -> Result<()> {
-        let source = self.source();
         let base_indent =
             usize::from(!self.options().compact_layout() && self.options().switch_case_indent());
-        let mut pattern = String::new();
-        for (index, word) in item.patterns.iter().enumerate() {
-            if index > 0 {
-                pattern.push_str(" | ");
-            }
-            pattern.push_str(&render_pattern_syntax(word, source, self.options()));
-        }
-        pattern.push(')');
 
         if base_indent > 0 {
             self.write_case_prefix(base_indent);
         }
-        self.write_text(&pattern);
+        for (index, word) in item.patterns.iter().enumerate() {
+            if index > 0 {
+                self.write_text(" | ");
+            }
+            self.write_pattern(word);
+        }
+        self.write_text(")");
 
         if item.body.is_empty() {
             self.write_space();
@@ -1087,9 +1169,8 @@ impl<'source> ShellStreamFormatter<'source> {
         let rendered = self
             .source()
             .get(command.span.start.offset..command.span.end.offset)
-            .unwrap_or_default()
-            .to_string();
-        self.write_text(&rendered);
+            .unwrap_or_default();
+        self.write_text(rendered);
         Ok(())
     }
 
@@ -1104,15 +1185,13 @@ impl<'source> ShellStreamFormatter<'source> {
             .step_span
             .map(|span| span.slice(source))
             .unwrap_or("");
-        let mut header = String::with_capacity(init.len() + condition.len() + step.len() + 14);
-        header.push_str("for ((");
-        header.push_str(init);
-        header.push(';');
-        header.push_str(condition);
-        header.push(';');
-        header.push_str(step);
-        header.push_str(")); do");
-        self.write_text(&header);
+        self.write_text("for ((");
+        self.write_text(init);
+        self.write_text(";");
+        self.write_text(condition);
+        self.write_text(";");
+        self.write_text(step);
+        self.write_text(")); do");
         self.format_body_with_upper_bound(&command.body, Some(command.span.end.offset))?;
         self.finish_block("done");
         Ok(())
@@ -1185,36 +1264,29 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn format_named_function_header(&mut self, function: &FunctionDef) {
-        let source = self.source();
-        let rendered_entries = {
-            let options = self.options();
-            function
-                .header
-                .entries
-                .iter()
-                .map(|entry| render_word_syntax(&entry.word, source, options))
-                .collect::<Vec<_>>()
-        };
-        let classic_single_name = function.header.entries.len() == 1
-            && function.header.entries[0].static_name.is_some()
-            && function.header.entries[0]
-                .static_name
-                .as_ref()
-                .is_some_and(|name| name.as_str() == rendered_entries[0]);
+        if function.header.entries.len() == 1
+            && let Some(name) = function.header.entries[0].static_name.as_ref()
+        {
+            let mut rendered_entry = self.take_scratch_buffer();
+            render_word_syntax_to_buf(
+                &function.header.entries[0].word,
+                self.source(),
+                self.options(),
+                &mut rendered_entry,
+            );
+            let classic_single_name = name.as_str() == rendered_entry;
+            self.restore_scratch_buffer(rendered_entry);
 
-        if classic_single_name {
-            if function.uses_function_keyword() {
-                self.write_text("function ");
+            if classic_single_name {
+                if function.uses_function_keyword() {
+                    self.write_text("function ");
+                }
+                self.write_text(name.as_str());
+                if function.has_trailing_parens() {
+                    self.write_text("()");
+                }
+                return;
             }
-            let name = function.header.entries[0]
-                .static_name
-                .as_ref()
-                .expect("classic function header should have a static name");
-            self.write_text(name.as_ref());
-            if function.has_trailing_parens() {
-                self.write_text("()");
-            }
-            return;
         }
 
         if function.uses_function_keyword() {
@@ -1223,11 +1295,11 @@ impl<'source> ShellStreamFormatter<'source> {
                 self.write_space();
             }
         }
-        for (index, rendered) in rendered_entries.iter().enumerate() {
+        for (index, entry) in function.header.entries.iter().enumerate() {
             if index > 0 {
                 self.write_space();
             }
-            self.write_text(rendered);
+            self.write_word(&entry.word);
         }
         if function.has_trailing_parens() {
             self.write_text("()");
@@ -1340,14 +1412,13 @@ impl<'source> ShellStreamFormatter<'source> {
             self.write_space();
         }
         self.write_text(open);
-        let open_suffix = {
+        let open_suffix_span = {
             let source_map = self.source_map();
-            group_open_suffix(commands.as_slice(), source_map, open_char)
-                .map(|(span, suffix)| (span, suffix.to_string()))
+            group_open_suffix(commands.as_slice(), source_map, open_char).map(|(span, _)| span)
         };
-        if let Some((span, suffix)) = open_suffix {
+        if let Some(span) = open_suffix_span {
             self.comments_mut().claim_in_span(span);
-            self.write_text(&suffix);
+            self.write_text(span.slice(self.source()));
         }
         self.format_body_with_upper_bound(commands, upper_bound)?;
         self.finish_block(close);
@@ -1383,7 +1454,7 @@ impl<'source> ShellStreamFormatter<'source> {
             .fd
             .filter(|fd| should_render_explicit_fd(*fd, redirect.kind))
         {
-            self.write_text(&fd.to_string());
+            self.write_display(fd);
         }
 
         self.write_text(match redirect.kind {
@@ -1400,16 +1471,20 @@ impl<'source> ShellStreamFormatter<'source> {
             RedirectKind::OutputBoth => "&>",
         });
 
-        let target = match (redirect.word_target(), redirect.heredoc()) {
-            (Some(word), None) => render_word_syntax(word, source, &options),
-            (None, Some(heredoc)) => render_word_syntax(&heredoc.delimiter.raw, source, &options),
-            (None, None) => String::new(),
+        let mut target = self.take_scratch_buffer();
+        match (redirect.word_target(), redirect.heredoc()) {
+            (Some(word), None) => render_word_syntax_to_buf(word, source, &options, &mut target),
+            (None, Some(heredoc)) => {
+                render_word_syntax_to_buf(&heredoc.delimiter.raw, source, &options, &mut target)
+            }
+            (None, None) => {}
             (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
-        };
+        }
         if needs_space_before_target(redirect.kind, &target, options.space_redirects()) {
             self.write_space();
         }
         self.write_text(&target);
+        self.restore_scratch_buffer(target);
     }
 
     fn queue_heredocs(&mut self, redirects: &[Redirect]) {
@@ -1436,11 +1511,11 @@ impl<'source> ShellStreamFormatter<'source> {
     ) -> Result<()> {
         let source = self.source();
         let Some(lines) = multiline_compound_assignment_lines(assignment, source) else {
-            self.write_text(&render_assignment(assignment, source, self.options()));
+            self.write_assignment(assignment);
             return Ok(());
         };
 
-        self.write_text(&render_assignment_head(assignment, source));
+        self.write_assignment_head(assignment);
         self.write_text("(");
         self.newline();
         self.with_indent(|formatter| {
@@ -1523,15 +1598,11 @@ impl<'source> ShellStreamFormatter<'source> {
                 Ok(())
             }
             ConditionalExpr::Pattern(pattern) => {
-                self.write_text(&render_pattern_syntax(
-                    pattern,
-                    self.source(),
-                    self.options(),
-                ));
+                self.write_pattern(pattern);
                 Ok(())
             }
             ConditionalExpr::VarRef(reference) => {
-                self.write_text(&render_var_ref(reference, self.source()));
+                self.write_var_ref(reference);
                 Ok(())
             }
         }
@@ -1562,20 +1633,7 @@ impl<'source> ShellStreamFormatter<'source> {
         if levels == 0 {
             return;
         }
-
-        match self.options().indent_style() {
-            IndentStyle::Tab => self.write_text(&"\t".repeat(levels)),
-            IndentStyle::Space => {
-                self.write_text(&" ".repeat(levels * usize::from(self.options().indent_width())))
-            }
-        }
-    }
-}
-
-fn continuation_indent_prefix(options: &ResolvedShellFormatOptions) -> String {
-    match options.indent_style() {
-        IndentStyle::Tab => "\t".to_string(),
-        IndentStyle::Space => " ".repeat(usize::from(options.indent_width())),
+        self.write_indent_units(levels);
     }
 }
 
