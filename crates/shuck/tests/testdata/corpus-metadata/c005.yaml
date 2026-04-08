@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "C005 intentionally treats dollar-like and backtick-like text inside single quotes as a quote mistake, even in helper scripts, generated files, and project-local wrappers where ShellCheck stays silent on SC2016. The remaining corpus hits are all the same policy shape, so one broad reviewed divergence cleanly captures the stricter Shuck behavior without hiding a separate implementation bug."
