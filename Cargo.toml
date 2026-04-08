@@ -18,6 +18,8 @@ categories = ["command-line-utilities", "development-tools"]
 # Error handling
 thiserror = "2"
 anyhow = "1"
+etcetera = "0.8"
+rayon = "1.10"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -27,7 +29,7 @@ compact_str = "0.8"
 sha2 = "0.11"
 
 # CLI
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 colored = "3"
 globset = "0.4"
 ignore = "0.4"

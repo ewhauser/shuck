@@ -48,6 +48,9 @@ shuck check --unsafe-fixes .
 
 # Skip the cache
 shuck check --no-cache .
+
+# Override the cache location
+shuck --cache-dir .tmp/shuck-cache check .
 ```
 
 ### Format
@@ -72,6 +75,7 @@ shuck format --minify script.sh
 ### Clean caches
 
 ```sh
+# Remove cache entries for the current project
 shuck clean .
 ```
 
@@ -206,9 +210,11 @@ Gitignore and `.ignore` files are respected by default. Use `--no-respect-gitign
 
 ## Caching
 
-Shuck caches lint and format results per file under `.shuck_cache/` at the project root. Cache entries are keyed by file content hash and invalidated automatically when files change. Entries older than 30 days are pruned. Add `.shuck_cache/` to your `.gitignore`.
+Shuck caches lint and format results per file in a shared cache root outside the project tree by default. The default location follows the OS cache directory convention, which is typically `~/Library/Caches/shuck` on macOS and `$XDG_CACHE_HOME/shuck` or `~/.cache/shuck` on Linux.
 
-Disable caching with `--no-cache` or remove caches with `shuck clean`.
+Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
+
+Disable caching with `--no-cache` or remove the current project's cache entries with `shuck clean`.
 
 ## License
 

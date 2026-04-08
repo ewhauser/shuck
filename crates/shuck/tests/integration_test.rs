@@ -1,8 +1,24 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::tempdir;
+use walkdir::WalkDir;
+
+fn cache_dir(root: &Path) -> PathBuf {
+    root.join("shared-cache")
+}
+
+fn configure_env_cache(cmd: &mut Command, root: &Path) {
+    cmd.env("SHUCK_CACHE_DIR", cache_dir(root));
+}
+
+fn configure_default_cache_env(cmd: &mut Command, root: &Path) {
+    cmd.env_remove("SHUCK_CACHE_DIR");
+    cmd.env("HOME", root.join("home"));
+    cmd.env("XDG_CACHE_HOME", root.join("xdg-cache"));
+}
 
 #[test]
 fn help_shows_commands() {
@@ -21,6 +37,7 @@ fn check_good_file_succeeds() {
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert().success().stdout("");
 }
@@ -31,6 +48,7 @@ fn check_broken_file_reports_parse_error() {
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert()
         .code(1)
@@ -50,6 +68,7 @@ fn check_skips_ignored_directories_when_defaulting_to_current_directory() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert().success().stdout("");
 }
@@ -60,26 +79,26 @@ fn check_no_cache_does_not_write_cache_tree() {
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .args(["check", "--no-cache"]);
     cmd.assert().success();
 
     assert!(!tempdir.path().join(".shuck_cache").exists());
+    assert!(!cache_dir(tempdir.path()).exists());
 }
 
 #[test]
-fn check_writes_versioned_bin_cache_file() {
+fn check_writes_versioned_bin_cache_file_via_env_override() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert().success();
 
-    let version_dir = tempdir
-        .path()
-        .join(".shuck_cache")
-        .join(env!("CARGO_PKG_VERSION"));
+    let version_dir = cache_dir(tempdir.path()).join(env!("CARGO_PKG_VERSION"));
     assert!(version_dir.is_dir());
 
     let entries = fs::read_dir(&version_dir)
@@ -94,6 +113,58 @@ fn check_writes_versioned_bin_cache_file() {
 }
 
 #[test]
+fn check_writes_versioned_bin_cache_file_via_cli_arg() {
+    let tempdir = tempdir().unwrap();
+    let cache_dir = tempdir.path().join("cli-cache");
+    fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path())
+        .arg("--cache-dir")
+        .arg(&cache_dir)
+        .arg("check");
+    cmd.assert().success();
+
+    let version_dir = cache_dir.join(env!("CARGO_PKG_VERSION"));
+    assert!(version_dir.is_dir());
+
+    let entries = fs::read_dir(&version_dir)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].path().extension().and_then(|ext| ext.to_str()),
+        Some("bin")
+    );
+}
+
+#[test]
+fn check_default_cache_uses_os_cache_dir_and_not_local_tree() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_default_cache_env(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.assert().success();
+
+    assert!(!tempdir.path().join(".shuck_cache").exists());
+    let cache_files = WalkDir::new(tempdir.path())
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("bin"))
+        .collect::<Vec<_>>();
+    assert_eq!(cache_files.len(), 1);
+    assert!(
+        !cache_files[0]
+            .path()
+            .starts_with(tempdir.path().join(".shuck_cache"))
+    );
+}
+
+#[test]
 fn format_good_file_succeeds_and_preserves_contents() {
     let tempdir = tempdir().unwrap();
     let script = tempdir.path().join("ok.sh");
@@ -101,6 +172,7 @@ fn format_good_file_succeeds_and_preserves_contents() {
     fs::write(&script, source).unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("format");
     cmd.assert().success().stdout("");
 
@@ -113,12 +185,14 @@ fn format_check_and_diff_are_clean_for_valid_input() {
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
     let mut check = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut check, tempdir.path());
     check
         .current_dir(tempdir.path())
         .args(["format", "--check"]);
     check.assert().success().stdout("");
 
     let mut diff = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut diff, tempdir.path());
     diff.current_dir(tempdir.path()).args(["format", "--diff"]);
     diff.assert().success().stdout("");
 }
@@ -129,12 +203,14 @@ fn format_check_and_diff_report_changes_for_noncanonical_input() {
     fs::write(tempdir.path().join("fn.sh"), "foo(){\necho hi\n}\n").unwrap();
 
     let mut check = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut check, tempdir.path());
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
     check.assert().code(1).stdout("");
 
     let mut diff = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut diff, tempdir.path());
     diff.current_dir(tempdir.path())
         .args(["format", "--diff", "--function-next-line"]);
     diff.assert()
@@ -149,6 +225,7 @@ fn format_broken_file_reports_parse_error() {
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path()).arg("format");
     cmd.assert()
         .code(2)
@@ -292,12 +369,14 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
     fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
 
     let mut walked = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut walked, tempdir.path());
     walked
         .current_dir(tempdir.path())
         .args(["format", "--exclude", "ignored.sh"]);
     walked.assert().success().stdout("");
 
     let mut explicit = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut explicit, tempdir.path());
     explicit
         .current_dir(tempdir.path())
         .args(["format", "--exclude", "ignored.sh", "ignored.sh"]);
@@ -307,6 +386,7 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
         .stdout(predicate::str::contains("ignored.sh:2:"));
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut forced, tempdir.path());
     forced.current_dir(tempdir.path()).args([
         "format",
         "--exclude",
@@ -324,10 +404,12 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
     fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
 
     let mut default_walk = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut default_walk, tempdir.path());
     default_walk.current_dir(tempdir.path()).arg("format");
     default_walk.assert().success().stdout("");
 
     let mut no_respect = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut no_respect, tempdir.path());
     no_respect
         .current_dir(tempdir.path())
         .args(["format", "--no-respect-gitignore"]);
@@ -337,6 +419,7 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
         .stdout(predicate::str::contains("ignored.sh:2:"));
 
     let mut explicit = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut explicit, tempdir.path());
     explicit
         .current_dir(tempdir.path())
         .args(["format", "ignored.sh"]);
@@ -346,6 +429,7 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
         .stdout(predicate::str::contains("ignored.sh:2:"));
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut forced, tempdir.path());
     forced
         .current_dir(tempdir.path())
         .args(["format", "--force-exclude", "ignored.sh"]);
@@ -364,6 +448,7 @@ fn format_honors_project_config_and_cli_overrides_it() {
     fs::write(&script, "foo(){\necho hi\n}\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .args(["format", "--function-next-line"]);
     cmd.assert().success().stdout("");
@@ -393,6 +478,7 @@ fn format_prefers_nested_project_config_for_explicit_files() {
     fs::write(&script, "foo(){\necho hi\n}\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .args(["format", "nested/fn.sh"]);
     cmd.assert().success().stdout("");
@@ -409,10 +495,12 @@ fn format_cache_invalidates_when_formatter_options_change() {
     fs::write(tempdir.path().join("fn.sh"), "foo(){\necho hi\n}\n").unwrap();
 
     let mut initial = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut initial, tempdir.path());
     initial.current_dir(tempdir.path()).arg("format");
     initial.assert().success().stdout("");
 
     let mut check = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut check, tempdir.path());
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
@@ -425,17 +513,20 @@ fn clean_removes_existing_cache_tree() {
     fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
     let mut check = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut check, tempdir.path());
     check.current_dir(tempdir.path()).arg("check");
     check.assert().success();
-    assert!(tempdir.path().join(".shuck_cache").exists());
+    assert!(cache_dir(tempdir.path()).exists());
 
     let mut clean = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut clean, tempdir.path());
     clean.current_dir(tempdir.path()).arg("clean");
     clean
         .assert()
         .success()
         .stdout(predicate::str::contains("cache cleared"));
 
+    assert!(!cache_dir(tempdir.path()).exists());
     assert!(!tempdir.path().join(".shuck_cache").exists());
 }
 
@@ -444,9 +535,72 @@ fn clean_succeeds_when_cache_tree_is_absent() {
     let tempdir = tempdir().unwrap();
 
     let mut clean = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut clean, tempdir.path());
     clean.current_dir(tempdir.path()).arg("clean");
     clean
         .assert()
         .success()
         .stdout(predicate::str::contains("cache cleared"));
+}
+
+#[test]
+fn clean_removes_legacy_local_cache_directory_during_transition() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".shuck_cache").join("stale")).unwrap();
+
+    let mut clean = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut clean, tempdir.path());
+    clean.current_dir(tempdir.path()).arg("clean");
+    clean.assert().success();
+
+    assert!(!tempdir.path().join(".shuck_cache").exists());
+}
+
+#[test]
+fn clean_only_removes_selected_project_entries_from_shared_cache() {
+    let tempdir = tempdir().unwrap();
+    let cache_dir = tempdir.path().join("shared-cache");
+    let project_a = tempdir.path().join("project-a");
+    let project_b = tempdir.path().join("project-b");
+    fs::create_dir_all(&project_a).unwrap();
+    fs::create_dir_all(&project_b).unwrap();
+    fs::write(project_a.join("a.sh"), "#!/bin/bash\necho a\n").unwrap();
+    fs::write(project_b.join("b.sh"), "#!/bin/bash\necho b\n").unwrap();
+
+    let mut check_a = Command::cargo_bin("shuck").unwrap();
+    check_a
+        .current_dir(&project_a)
+        .arg("--cache-dir")
+        .arg(&cache_dir)
+        .arg("check");
+    check_a.assert().success();
+
+    let mut check_b = Command::cargo_bin("shuck").unwrap();
+    check_b
+        .current_dir(&project_b)
+        .arg("--cache-dir")
+        .arg(&cache_dir)
+        .arg("check");
+    check_b.assert().success();
+
+    let version_dir = cache_dir.join(env!("CARGO_PKG_VERSION"));
+    let initial_entries = fs::read_dir(&version_dir)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(initial_entries.len(), 2);
+
+    let mut clean_a = Command::cargo_bin("shuck").unwrap();
+    clean_a
+        .current_dir(&project_a)
+        .arg("--cache-dir")
+        .arg(&cache_dir)
+        .arg("clean");
+    clean_a.assert().success();
+
+    let remaining_entries = fs::read_dir(&version_dir)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(remaining_entries.len(), 1);
 }

@@ -1,5 +1,6 @@
 pub mod args;
 
+mod cache;
 mod commands;
 mod config;
 mod discover;
@@ -30,21 +31,22 @@ impl From<ExitStatus> for ExitCode {
 }
 
 pub fn run(args: Args) -> Result<ExitStatus> {
-    match args.command {
-        Command::Check(command) => commands::check::check(command),
-        Command::Format(command) => format(command),
-        Command::Clean(command) => commands::clean::clean(command),
+    let Args { cache_dir, command } = args;
+    match command {
+        Command::Check(command) => commands::check::check(command, cache_dir.as_deref()),
+        Command::Format(command) => format(command, cache_dir.as_deref()),
+        Command::Clean(command) => commands::clean::clean(command, cache_dir.as_deref()),
     }
 }
 
-fn format(mut args: FormatCommand) -> Result<ExitStatus> {
+fn format(mut args: FormatCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
     let stdin = is_stdin(&args.files, args.stdin_filename.as_deref());
     args.files = resolve_default_files(args.files, stdin);
 
     if stdin {
         commands::format_stdin::format_stdin(args)
     } else {
-        commands::format::format(args)
+        commands::format::format(args, cache_dir)
     }
 }
 

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use colored::{ColoredString, Colorize};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
 use shuck_indexer::Indexer;
@@ -16,6 +17,7 @@ use shuck_parser::{Error as ParseError, parser::Parser};
 
 use crate::ExitStatus;
 use crate::args::CheckCommand;
+use crate::cache::resolve_cache_root;
 use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,9 +125,24 @@ impl CachedLintDiagnostic {
     }
 }
 
-pub(crate) fn check(args: CheckCommand) -> Result<ExitStatus> {
+#[derive(Debug, Clone)]
+struct PendingFileCheck {
+    file: DiscoveredFile,
+    file_key: FileCacheKey,
+}
+
+#[derive(Debug, Clone)]
+struct FileCheckResult {
+    file: DiscoveredFile,
+    file_key: FileCacheKey,
+    cache_data: CheckCacheData,
+    diagnostics: Vec<DisplayedDiagnostic>,
+}
+
+pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
-    let report = run_check_with_cwd(&args, &cwd)?;
+    let cache_root = resolve_cache_root(&cwd, cache_dir)?;
+    let report = run_check_with_cwd(&args, &cwd, &cache_root)?;
     print_report(&report)?;
     Ok(report.exit_status())
 }
@@ -195,14 +212,22 @@ fn paint(
     }
 }
 
-fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
+fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Result<CheckReport> {
     if args.fix || args.unsafe_fixes {
         return Err(anyhow!(
             "--fix and --unsafe-fixes are not supported until the analyzer is wired"
         ));
     }
 
-    let files = discover_files(&args.paths, cwd, &DiscoveryOptions::default())?;
+    let files = discover_files(
+        &args.paths,
+        cwd,
+        &DiscoveryOptions {
+            parallel: true,
+            cache_root: Some(cache_root.to_path_buf()),
+            ..DiscoveryOptions::default()
+        },
+    )?;
     let mut groups: BTreeMap<ProjectRoot, Vec<DiscoveredFile>> = BTreeMap::new();
     for file in files {
         groups
@@ -226,13 +251,14 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
             None
         } else {
             Some(PackageCache::<CheckCacheData>::open(
-                &project_root.storage_root,
+                cache_root,
                 project_root.canonical_root.clone(),
                 env!("CARGO_PKG_VERSION"),
                 &cache_key,
             )?)
         };
 
+        let mut pending = Vec::new();
         for file in files {
             let file_key = FileCacheKey::from_path(&file.absolute_path)?;
             if let Some(cache) = cache.as_mut()
@@ -256,81 +282,23 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
                 continue;
             }
 
-            let source = fs::read_to_string(&file.absolute_path)?;
-            let inferred_shell = ShellDialect::infer(&source, Some(&file.absolute_path));
-            let parse_dialect = match inferred_shell {
-                ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
-                    shuck_parser::ShellDialect::Posix
-                }
-                ShellDialect::Mksh => shuck_parser::ShellDialect::Mksh,
-                ShellDialect::Zsh => shuck_parser::ShellDialect::Zsh,
-                ShellDialect::Unknown | ShellDialect::Bash => shuck_parser::ShellDialect::Bash,
-            };
-            let cached = match Parser::with_dialect(&source, parse_dialect).parse() {
-                Ok(output) => {
-                    let indexer = Indexer::new(&source, &output);
-                    let directives =
-                        parse_directives(&source, indexer.comment_index(), &shellcheck_map);
-                    let suppression_index = (!directives.is_empty()).then(|| {
-                        SuppressionIndex::new(
-                            &directives,
-                            &output.file,
-                            first_statement_line(&output.file).unwrap_or(u32::MAX),
-                        )
-                    });
-                    let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
-                    let diagnostics = shuck_linter::lint_file_at_path(
-                        &output.file,
-                        &source,
-                        &indexer,
-                        &linter_settings,
-                        suppression_index.as_ref(),
-                        Some(&file.absolute_path),
-                    );
+            pending.push(PendingFileCheck { file, file_key });
+        }
 
-                    for diagnostic in &diagnostics {
-                        report.diagnostics.push(DisplayedDiagnostic {
-                            path: file.display_path.clone(),
-                            line: diagnostic.span.start.line,
-                            column: diagnostic.span.start.column,
-                            message: diagnostic.message.clone(),
-                            kind: DisplayedDiagnosticKind::Lint {
-                                code: diagnostic.code().to_owned(),
-                                severity: diagnostic.severity.as_str().to_owned(),
-                            },
-                        });
-                    }
+        let results = pending
+            .into_par_iter()
+            .map(|pending| analyze_file(pending, &base_linter_settings, &shellcheck_map))
+            .collect::<Vec<_>>();
 
-                    CheckCacheData::Success(
-                        diagnostics
-                            .iter()
-                            .map(CachedLintDiagnostic::from_diagnostic)
-                            .collect(),
-                    )
-                }
-                Err(ParseError::Parse {
-                    message,
-                    line,
-                    column,
-                }) => {
-                    report.diagnostics.push(DisplayedDiagnostic {
-                        path: file.display_path,
-                        line,
-                        column,
-                        message: message.clone(),
-                        kind: DisplayedDiagnosticKind::ParseError,
-                    });
-
-                    CheckCacheData::ParseError(ParseCacheFailure {
-                        message,
-                        line,
-                        column,
-                    })
-                }
-            };
-
+        for result in results {
+            let result = result?;
+            report.diagnostics.extend(result.diagnostics);
             if let Some(cache) = cache.as_mut() {
-                cache.insert(file.relative_path, file_key, cached);
+                cache.insert(
+                    result.file.relative_path.clone(),
+                    result.file_key,
+                    result.cache_data,
+                );
             }
             report.cache_misses += 1;
         }
@@ -349,6 +317,93 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path) -> Result<CheckReport> {
     });
 
     Ok(report)
+}
+
+fn analyze_file(
+    pending: PendingFileCheck,
+    base_linter_settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+) -> Result<FileCheckResult> {
+    let source = fs::read_to_string(&pending.file.absolute_path)?;
+    let inferred_shell = ShellDialect::infer(&source, Some(&pending.file.absolute_path));
+    let parse_dialect = match inferred_shell {
+        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
+            shuck_parser::ShellDialect::Posix
+        }
+        ShellDialect::Mksh => shuck_parser::ShellDialect::Mksh,
+        ShellDialect::Zsh => shuck_parser::ShellDialect::Zsh,
+        ShellDialect::Unknown | ShellDialect::Bash => shuck_parser::ShellDialect::Bash,
+    };
+
+    let (cache_data, diagnostics) = match Parser::with_dialect(&source, parse_dialect).parse() {
+        Ok(output) => {
+            let indexer = Indexer::new(&source, &output);
+            let directives = parse_directives(&source, indexer.comment_index(), shellcheck_map);
+            let suppression_index = (!directives.is_empty()).then(|| {
+                SuppressionIndex::new(
+                    &directives,
+                    &output.file,
+                    first_statement_line(&output.file).unwrap_or(u32::MAX),
+                )
+            });
+            let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
+            let diagnostics = shuck_linter::lint_file_at_path(
+                &output.file,
+                &source,
+                &indexer,
+                &linter_settings,
+                suppression_index.as_ref(),
+                Some(&pending.file.absolute_path),
+            );
+
+            (
+                CheckCacheData::Success(
+                    diagnostics
+                        .iter()
+                        .map(CachedLintDiagnostic::from_diagnostic)
+                        .collect(),
+                ),
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| DisplayedDiagnostic {
+                        path: pending.file.display_path.clone(),
+                        line: diagnostic.span.start.line,
+                        column: diagnostic.span.start.column,
+                        message: diagnostic.message.clone(),
+                        kind: DisplayedDiagnosticKind::Lint {
+                            code: diagnostic.code().to_owned(),
+                            severity: diagnostic.severity.as_str().to_owned(),
+                        },
+                    })
+                    .collect(),
+            )
+        }
+        Err(ParseError::Parse {
+            message,
+            line,
+            column,
+        }) => (
+            CheckCacheData::ParseError(ParseCacheFailure {
+                message: message.clone(),
+                line,
+                column,
+            }),
+            vec![DisplayedDiagnostic {
+                path: pending.file.display_path.clone(),
+                line,
+                column,
+                message,
+                kind: DisplayedDiagnosticKind::ParseError,
+            }],
+        ),
+    };
+
+    Ok(FileCheckResult {
+        file: pending.file,
+        file_key: pending.file_key,
+        cache_data,
+        diagnostics,
+    })
 }
 
 fn push_cached_lint_diagnostics(
@@ -376,6 +431,10 @@ mod tests {
 
     use super::*;
 
+    fn cache_root(cwd: &Path) -> PathBuf {
+        cwd.join("cache")
+    }
+
     fn make_file_read_only(path: &Path) {
         let mut permissions = fs::metadata(path).unwrap().permissions();
         permissions.set_readonly(true);
@@ -396,7 +455,12 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
-        let report = run_check_with_cwd(&check_args(false), tempdir.path()).unwrap();
+        let report = run_check_with_cwd(
+            &check_args(false),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
 
         assert_eq!(report.exit_status(), ExitStatus::Failure);
         assert_eq!(report.diagnostics.len(), 1);
@@ -409,8 +473,18 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
-        let first = run_check_with_cwd(&check_args(false), tempdir.path()).unwrap();
-        let second = run_check_with_cwd(&check_args(false), tempdir.path()).unwrap();
+        let first = run_check_with_cwd(
+            &check_args(false),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        let second = run_check_with_cwd(
+            &check_args(false),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
 
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
@@ -424,14 +498,24 @@ mod tests {
         let script = tempdir.path().join("script.sh");
         fs::write(&script, "#!/bin/bash\necho ok\n").unwrap();
 
-        let first = run_check_with_cwd(&check_args(false), tempdir.path()).unwrap();
+        let first = run_check_with_cwd(
+            &check_args(false),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
 
         fs::write(&script, "#!/bin/bash\nif true\n").unwrap();
         make_file_read_only(&script);
 
-        let second = run_check_with_cwd(&check_args(false), tempdir.path()).unwrap();
+        let second = run_check_with_cwd(
+            &check_args(false),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
         assert_eq!(second.diagnostics.len(), 1);
@@ -442,7 +526,12 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
-        let report = run_check_with_cwd(&check_args(true), tempdir.path()).unwrap();
+        let report = run_check_with_cwd(
+            &check_args(true),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
 
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
@@ -455,7 +544,12 @@ mod tests {
         fs::write(tempdir.path().join("posix.sh"), "local foo=bar\n").unwrap();
         fs::write(tempdir.path().join("bashy.bash"), "local foo=bar\n").unwrap();
 
-        let report = run_check_with_cwd(&check_args(true), tempdir.path()).unwrap();
+        let report = run_check_with_cwd(
+            &check_args(true),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
         let c014 = report
             .diagnostics
             .iter()
@@ -464,6 +558,84 @@ mod tests {
 
         assert_eq!(c014.len(), 1);
         assert_eq!(c014[0].path, PathBuf::from("bashy.bash"));
+    }
+
+    #[test]
+    fn mixes_cache_hits_and_misses_in_a_single_run() {
+        let tempdir = tempdir().unwrap();
+        let first = tempdir.path().join("first.sh");
+        let second = tempdir.path().join("second.sh");
+        fs::write(&first, "#!/bin/bash\necho ok\n").unwrap();
+        fs::write(&second, "#!/bin/bash\necho ok\n").unwrap();
+
+        let cache_root = cache_root(tempdir.path());
+        let initial = run_check_with_cwd(&check_args(false), tempdir.path(), &cache_root).unwrap();
+        assert_eq!(initial.cache_hits, 0);
+        assert_eq!(initial.cache_misses, 2);
+
+        fs::write(&second, "#!/bin/bash\nif true\n").unwrap();
+
+        let rerun = run_check_with_cwd(&check_args(false), tempdir.path(), &cache_root).unwrap();
+        assert_eq!(rerun.cache_hits, 1);
+        assert_eq!(rerun.cache_misses, 1);
+        assert_eq!(rerun.diagnostics.len(), 1);
+        assert_eq!(rerun.diagnostics[0].path, PathBuf::from("second.sh"));
+    }
+
+    #[test]
+    fn sorts_diagnostics_deterministically_after_parallel_run() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("z.sh"), "#!/bin/bash\nif true\n").unwrap();
+        fs::write(tempdir.path().join("a.bash"), "local foo=bar\n").unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        let paths = report
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.path.clone())
+            .collect::<Vec<_>>();
+
+        let mut sorted_paths = paths.clone();
+        sorted_paths.sort();
+        assert_eq!(paths, sorted_paths);
+        assert_eq!(paths.first(), Some(&PathBuf::from("a.bash")));
+        assert_eq!(paths.last(), Some(&PathBuf::from("z.sh")));
+    }
+
+    #[test]
+    fn duplicate_explicit_file_and_directory_inputs_are_deduplicated() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("dup.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+        let args = CheckCommand {
+            paths: vec![PathBuf::from("."), PathBuf::from("dup.sh")],
+            ..check_args(true)
+        };
+        let report =
+            run_check_with_cwd(&args, tempdir.path(), &cache_root(tempdir.path())).unwrap();
+
+        assert_eq!(report.cache_hits, 0);
+        assert_eq!(report.cache_misses, 1);
+        assert_eq!(report.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn skips_a_configured_cache_directory_inside_the_walked_tree() {
+        let tempdir = tempdir().unwrap();
+        let cache_root = tempdir.path().join("custom-cache");
+        fs::create_dir_all(&cache_root).unwrap();
+        fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        fs::write(cache_root.join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+        let report = run_check_with_cwd(&check_args(false), tempdir.path(), &cache_root).unwrap();
+
+        assert!(report.diagnostics.is_empty());
+        assert!(!tempdir.path().join(".shuck_cache").exists());
     }
 
     #[test]

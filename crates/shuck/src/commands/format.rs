@@ -13,6 +13,7 @@ use similar::TextDiff;
 
 use crate::ExitStatus;
 use crate::args::FormatCommand;
+use crate::cache::resolve_cache_root;
 use crate::config::load_project_config;
 use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
 
@@ -146,10 +147,11 @@ struct ParseCacheFailure {
     column: usize,
 }
 
-pub(crate) fn format(args: FormatCommand) -> Result<ExitStatus> {
+pub(crate) fn format(args: FormatCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
     let mode = FormatMode::from_cli(&args);
-    let report = run_format_with_cwd(&args, &cwd, mode)?;
+    let cache_root = resolve_cache_root(&cwd, cache_dir)?;
+    let report = run_format_with_cwd(&args, &cwd, &cache_root, mode)?;
     print_report(&report)?;
     Ok(report.exit_status(mode))
 }
@@ -194,11 +196,18 @@ fn print_report(report: &FormatReport) -> Result<()> {
     Ok(())
 }
 
-fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Result<FormatReport> {
+fn run_format_with_cwd(
+    args: &FormatCommand,
+    cwd: &Path,
+    cache_root: &Path,
+    mode: FormatMode,
+) -> Result<FormatReport> {
     let options = DiscoveryOptions {
         exclude_patterns: args.exclude.clone(),
         respect_gitignore: args.respect_gitignore(),
         force_exclude: args.force_exclude(),
+        parallel: false,
+        cache_root: Some(cache_root.to_path_buf()),
     };
     let files = discover_files(&args.files, cwd, &options)?;
     let mut groups: BTreeMap<ProjectRoot, Vec<DiscoveredFile>> = BTreeMap::new();
@@ -221,7 +230,7 @@ fn run_format_with_cwd(args: &FormatCommand, cwd: &Path, mode: FormatMode) -> Re
             None
         } else {
             Some(PackageCache::<FormatCacheData>::open(
-                &project_root.storage_root,
+                cache_root,
                 project_root.canonical_root.clone(),
                 env!("CARGO_PKG_VERSION"),
                 &cache_key,
@@ -439,8 +448,13 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
-        let report =
-            run_format_with_cwd(&format_args(false), tempdir.path(), FormatMode::Write).unwrap();
+        let report = run_format_with_cwd(
+            &format_args(false),
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Write,
+        )
+        .unwrap();
 
         assert_eq!(report.exit_status(FormatMode::Write), ExitStatus::Error);
         assert_eq!(report.errors.len(), 1);
@@ -453,10 +467,20 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
-        let first =
-            run_format_with_cwd(&format_args(false), tempdir.path(), FormatMode::Write).unwrap();
-        let second =
-            run_format_with_cwd(&format_args(false), tempdir.path(), FormatMode::Write).unwrap();
+        let first = run_format_with_cwd(
+            &format_args(false),
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Write,
+        )
+        .unwrap();
+        let second = run_format_with_cwd(
+            &format_args(false),
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Write,
+        )
+        .unwrap();
 
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
@@ -470,16 +494,26 @@ mod tests {
         let script = tempdir.path().join("script.sh");
         fs::write(&script, "#!/bin/bash\necho ok\n").unwrap();
 
-        let first =
-            run_format_with_cwd(&format_args(false), tempdir.path(), FormatMode::Write).unwrap();
+        let first = run_format_with_cwd(
+            &format_args(false),
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Write,
+        )
+        .unwrap();
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
 
         fs::write(&script, "#!/bin/bash\nif true\n").unwrap();
         make_file_read_only(&script);
 
-        let second =
-            run_format_with_cwd(&format_args(false), tempdir.path(), FormatMode::Write).unwrap();
+        let second = run_format_with_cwd(
+            &format_args(false),
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Write,
+        )
+        .unwrap();
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
         assert_eq!(second.errors.len(), 1);
@@ -490,8 +524,13 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
 
-        let report =
-            run_format_with_cwd(&format_args(true), tempdir.path(), FormatMode::Write).unwrap();
+        let report = run_format_with_cwd(
+            &format_args(true),
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Write,
+        )
+        .unwrap();
 
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);

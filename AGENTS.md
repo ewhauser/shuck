@@ -100,7 +100,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command shellch
 
 - **`crates/shuck`** — CLI binary. Discovers shell files, parses them via shuck-syntax, reports parse errors. Subcommands: `check` (lint files) and `clean` (remove caches). Project root is resolved by walking up to find `.shuck.toml` or `shuck.toml`.
 - **`crates/shuck-syntax`** — Linter-oriented syntax wrapper over shuck-parser's parser. Adds comment collection (including inside `$(...)` substitutions), suppression directive parsing (`# shuck: disable=SH-001` and `# shellcheck disable=SC2086`), a `SuppressionIndex` for line-level queries, and a dialect/profile parse-view layer. Today it supports native Bash `strict` and `strict-recovered` views plus Bash-backed `permissive` and `permissive-recovered` fallbacks for `sh`/`dash`/`ksh`/`mksh`.
-- **`crates/shuck-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in `.shuck_cache/` under the project root using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
+- **`crates/shuck-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in a shared cache root (from `--cache-dir`, `SHUCK_CACHE_DIR`, or the OS cache directory such as `~/Library/Caches/shuck` / `$XDG_CACHE_HOME/shuck`) using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
 - **`crates/shuck-parser`** — The bash parser library. Provides `Lexer`, `Parser`, AST types, and the full execution runtime. Shuck only uses the parser/lexer portion.
 
 ### Data flow for `shuck check`
@@ -124,7 +124,7 @@ The parser (`crates/shuck-parser/src/parser/`) is a recursive descent parser wit
 - `#[allow(clippy::unwrap_used)]` is used in the parser module since unwraps follow validated bounds checks
 - Suppression codes: shuck uses `SH-NNN` format (e.g., `SH-001`), shellcheck uses `SCNNNN` format (e.g., `SC2086`). Both are supported as suppression directives.
 - Config files: `.shuck.toml` or `shuck.toml` at project root
-- Cache directory: `.shuck_cache/` (add to `.gitignore`)
+- Cache directory: shared OS cache root by default; legacy `.shuck_cache/` directories are still ignored and `shuck clean` removes them during cleanup
 
 ## Linter Rule Authoring
 

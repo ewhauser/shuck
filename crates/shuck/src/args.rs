@@ -52,6 +52,9 @@ impl From<FormatIndentStyleArg> for IndentStyle {
 #[command(about = "Shell checker CLI for shuck")]
 #[command(styles = STYLES)]
 pub struct Args {
+    /// Path to the cache directory.
+    #[arg(long, env = "SHUCK_CACHE_DIR", global = true, value_name = "PATH")]
+    pub cache_dir: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Command,
 }

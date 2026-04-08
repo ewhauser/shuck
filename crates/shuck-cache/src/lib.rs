@@ -13,8 +13,22 @@ pub const CACHE_DIR_NAME: &str = ".shuck_cache";
 
 const MAX_LAST_SEEN_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-pub fn cache_dir(project_root: &Path) -> PathBuf {
+pub fn legacy_cache_dir(project_root: &Path) -> PathBuf {
     project_root.join(CACHE_DIR_NAME)
+}
+
+pub fn read_project_root_from_cache_file(path: &Path) -> io::Result<Option<PathBuf>> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
+    };
+
+    let mut reader = BufReader::new(file);
+    match bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard()) {
+        Ok(project_root) => Ok(Some(project_root)),
+        Err(_) => Ok(None),
+    }
 }
 
 pub trait CacheKey {
@@ -269,15 +283,13 @@ where
     T: Clone + Serialize + DeserializeOwned,
 {
     pub fn open(
-        storage_root: &Path,
+        cache_root: &Path,
         canonical_root: PathBuf,
         tool_version: &str,
         package_key: &impl CacheKey,
     ) -> io::Result<Self> {
         let key = cache_key_hex(package_key);
-        let path = cache_dir(storage_root)
-            .join(tool_version)
-            .join(format!("{key}.bin"));
+        let path = cache_root.join(tool_version).join(format!("{key}.bin"));
 
         let file = match File::open(&path) {
             Ok(file) => file,
@@ -459,6 +471,7 @@ mod tests {
     #[test]
     fn package_cache_persists_and_reloads() {
         let tempdir = tempfile::tempdir().unwrap();
+        let cache_root = tempdir.path().join("cache");
         let storage_root = tempdir.path().join("project");
         fs::create_dir_all(&storage_root).unwrap();
         let canonical_root = fs::canonicalize(&storage_root).unwrap();
@@ -469,7 +482,7 @@ mod tests {
         };
 
         let mut cache =
-            PackageCache::<String>::open(&storage_root, canonical_root.clone(), "0.1.0", &settings)
+            PackageCache::<String>::open(&cache_root, canonical_root.clone(), "0.1.0", &settings)
                 .unwrap();
         cache.insert(
             PathBuf::from("script.sh"),
@@ -485,8 +498,7 @@ mod tests {
         assert!(cache_path.is_file());
 
         let mut reopened =
-            PackageCache::<String>::open(&storage_root, canonical_root, "0.1.0", &settings)
-                .unwrap();
+            PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
         let value = reopened.get(
             Path::new("script.sh"),
             &FileCacheKey {
@@ -501,6 +513,7 @@ mod tests {
     #[test]
     fn persist_prunes_stale_entries() {
         let tempdir = tempfile::tempdir().unwrap();
+        let cache_root = tempdir.path().join("cache");
         let storage_root = tempdir.path().join("project");
         fs::create_dir_all(&storage_root).unwrap();
         let canonical_root = fs::canonicalize(&storage_root).unwrap();
@@ -510,7 +523,7 @@ mod tests {
         };
 
         let mut cache =
-            PackageCache::<String>::open(&storage_root, canonical_root.clone(), "0.1.0", &settings)
+            PackageCache::<String>::open(&cache_root, canonical_root.clone(), "0.1.0", &settings)
                 .unwrap();
         cache.insert(
             PathBuf::from("stale.sh"),
@@ -535,8 +548,7 @@ mod tests {
         fs::write(&cache_path, encoded).unwrap();
 
         let mut reopened =
-            PackageCache::<String>::open(&storage_root, canonical_root, "0.1.0", &settings)
-                .unwrap();
+            PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
         reopened.insert(
             PathBuf::from("fresh.sh"),
             FileCacheKey {
@@ -553,5 +565,35 @@ mod tests {
 
         assert!(!stored.files.contains_key(Path::new("stale.sh")));
         assert!(stored.files.contains_key(Path::new("fresh.sh")));
+    }
+
+    #[test]
+    fn reads_project_root_from_cache_file_without_knowing_payload_type() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_root = tempdir.path().join("cache");
+        let storage_root = tempdir.path().join("project");
+        fs::create_dir_all(&storage_root).unwrap();
+        let canonical_root = fs::canonicalize(&storage_root).unwrap();
+        let settings = TestSettings {
+            strict: true,
+            label: "alpha".to_string(),
+        };
+
+        let mut cache =
+            PackageCache::<String>::open(&cache_root, canonical_root.clone(), "0.1.0", &settings)
+                .unwrap();
+        cache.insert(
+            PathBuf::from("script.sh"),
+            FileCacheKey {
+                file_last_modified_ms: 1,
+                file_permissions_mode: 0o644,
+            },
+            "ok".to_string(),
+        );
+        let cache_path = cache.path().to_path_buf();
+        cache.persist().unwrap();
+
+        let project_root = read_project_root_from_cache_file(&cache_path).unwrap();
+        assert_eq!(project_root, Some(canonical_root));
     }
 }

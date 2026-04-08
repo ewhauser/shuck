@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result, anyhow};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::GitignoreBuilder;
-use ignore::{DirEntry, WalkBuilder};
+use ignore::{DirEntry, ParallelVisitor, WalkBuilder, WalkState};
 
 use crate::config::{resolve_project_root_for_file, resolve_project_root_for_input};
 
@@ -41,6 +42,8 @@ pub(crate) struct DiscoveryOptions {
     pub exclude_patterns: Vec<String>,
     pub respect_gitignore: bool,
     pub force_exclude: bool,
+    pub parallel: bool,
+    pub cache_root: Option<PathBuf>,
 }
 
 pub(crate) fn discover_files(
@@ -69,7 +72,7 @@ pub(crate) fn discover_files(
     for input in resolved_inputs {
         let input = normalize_path(&input);
 
-        if path_has_default_ignored_component(&input) {
+        if should_ignore_path(&input, options.cache_root.as_deref()) {
             continue;
         }
 
@@ -108,14 +111,7 @@ fn collect_input(
         if options.force_exclude && exclude_matcher.matches(input, cwd) {
             return Ok(());
         }
-        collect_directory(
-            input,
-            cwd,
-            project_root,
-            exclude_matcher,
-            options.respect_gitignore,
-            files,
-        )?;
+        collect_directory(input, cwd, project_root, exclude_matcher, options, files)?;
     } else if metadata.is_file() && is_shell_script(input)? {
         if options.force_exclude {
             if exclude_matcher.matches(input, cwd) {
@@ -141,11 +137,26 @@ fn collect_directory(
     cwd: &Path,
     project_root: &ProjectRoot,
     exclude_matcher: &ExcludeMatcher,
-    respect_gitignore: bool,
+    options: &DiscoveryOptions,
     files: &mut BTreeMap<PathBuf, DiscoveredFile>,
 ) -> Result<()> {
     let mut builder = WalkBuilder::new(input);
-    configure_walk_builder(&mut builder, respect_gitignore);
+    configure_walk_builder(
+        &mut builder,
+        options.respect_gitignore,
+        options.cache_root.clone(),
+    );
+
+    if options.parallel {
+        return collect_directory_parallel(
+            input,
+            cwd,
+            project_root,
+            exclude_matcher,
+            &mut builder,
+            files,
+        );
+    }
 
     for entry in builder.build() {
         let entry = entry.with_context(|| format!("walk {}", input.display()))?;
@@ -157,7 +168,10 @@ fn collect_directory(
         }
 
         let path = entry.path();
-        if exclude_matcher.matches(path, cwd) || !is_shell_script(path)? {
+        if should_ignore_path(path, options.cache_root.as_deref())
+            || exclude_matcher.matches(path, cwd)
+            || !is_shell_script(path)?
+        {
             continue;
         }
 
@@ -167,7 +181,43 @@ fn collect_directory(
     Ok(())
 }
 
-fn configure_walk_builder(builder: &mut WalkBuilder, respect_gitignore: bool) {
+fn collect_directory_parallel(
+    input: &Path,
+    cwd: &Path,
+    project_root: &ProjectRoot,
+    exclude_matcher: &ExcludeMatcher,
+    builder: &mut WalkBuilder,
+    files: &mut BTreeMap<PathBuf, DiscoveredFile>,
+) -> Result<()> {
+    builder.threads(
+        std::thread::available_parallelism()
+            .map_or(1, std::num::NonZeroUsize::get)
+            .min(12),
+    );
+
+    let state = ParallelDiscoveryState::default();
+    let walker = builder.build_parallel();
+    let mut visitor = ShellFilesVisitorBuilder::new(input, cwd, exclude_matcher, &state);
+    walker.visit(&mut visitor);
+
+    if let Some(error) = state.error.into_inner().unwrap() {
+        return Err(error);
+    }
+
+    let mut matched_paths = state.matched_paths.into_inner().unwrap();
+    matched_paths.sort();
+    for matched_path in matched_paths {
+        add_file(&matched_path, cwd, input, project_root, files)?;
+    }
+
+    Ok(())
+}
+
+fn configure_walk_builder(
+    builder: &mut WalkBuilder,
+    respect_gitignore: bool,
+    cache_root: Option<PathBuf>,
+) {
     builder.hidden(false);
     builder.parents(respect_gitignore);
     builder.ignore(respect_gitignore);
@@ -175,16 +225,17 @@ fn configure_walk_builder(builder: &mut WalkBuilder, respect_gitignore: bool) {
     builder.git_global(respect_gitignore);
     builder.git_exclude(respect_gitignore);
     builder.require_git(false);
-    builder.filter_entry(|entry| !is_default_ignored_directory(entry));
+    builder.filter_entry(move |entry| !is_ignored_directory(entry, cache_root.as_deref()));
 }
 
-fn is_default_ignored_directory(entry: &DirEntry) -> bool {
+fn is_ignored_directory(entry: &DirEntry, cache_root: Option<&Path>) -> bool {
     entry
         .file_type()
         .is_some_and(|file_type| file_type.is_dir())
-        && DEFAULT_IGNORED_DIR_NAMES
+        && (DEFAULT_IGNORED_DIR_NAMES
             .iter()
             .any(|name| entry.file_name() == OsStr::new(name))
+            || path_matches_cache_root(entry.path(), cache_root))
 }
 
 fn is_allowed_by_gitignore(path: &Path, cwd: &Path, respect_gitignore: bool) -> Result<bool> {
@@ -233,6 +284,10 @@ fn candidate_ignore_directories(path: &Path, cwd: &Path) -> Vec<PathBuf> {
     directories
 }
 
+fn should_ignore_path(path: &Path, cache_root: Option<&Path>) -> bool {
+    path_has_default_ignored_component(path) || path_matches_cache_root(path, cache_root)
+}
+
 fn path_has_default_ignored_component(path: &Path) -> bool {
     path.components().any(|component| {
         let std::path::Component::Normal(part) = component else {
@@ -242,6 +297,116 @@ fn path_has_default_ignored_component(path: &Path) -> bool {
             .iter()
             .any(|name| part == OsStr::new(name))
     })
+}
+
+fn path_matches_cache_root(path: &Path, cache_root: Option<&Path>) -> bool {
+    cache_root.is_some_and(|cache_root| path.starts_with(cache_root))
+}
+
+#[derive(Default)]
+struct ParallelDiscoveryState {
+    matched_paths: Mutex<Vec<PathBuf>>,
+    error: Mutex<Option<anyhow::Error>>,
+}
+
+struct ShellFilesVisitorBuilder<'a> {
+    input: &'a Path,
+    cwd: &'a Path,
+    exclude_matcher: &'a ExcludeMatcher,
+    state: &'a ParallelDiscoveryState,
+}
+
+impl<'a> ShellFilesVisitorBuilder<'a> {
+    fn new(
+        input: &'a Path,
+        cwd: &'a Path,
+        exclude_matcher: &'a ExcludeMatcher,
+        state: &'a ParallelDiscoveryState,
+    ) -> Self {
+        Self {
+            input,
+            cwd,
+            exclude_matcher,
+            state,
+        }
+    }
+}
+
+struct ShellFilesVisitor<'a> {
+    input: &'a Path,
+    cwd: &'a Path,
+    exclude_matcher: &'a ExcludeMatcher,
+    state: &'a ParallelDiscoveryState,
+    local_paths: Vec<PathBuf>,
+    local_error: Option<anyhow::Error>,
+}
+
+impl<'a> ignore::ParallelVisitorBuilder<'a> for ShellFilesVisitorBuilder<'a> {
+    fn build(&mut self) -> Box<dyn ParallelVisitor + 'a> {
+        Box::new(ShellFilesVisitor {
+            input: self.input,
+            cwd: self.cwd,
+            exclude_matcher: self.exclude_matcher,
+            state: self.state,
+            local_paths: Vec::new(),
+            local_error: None,
+        })
+    }
+}
+
+impl ParallelVisitor for ShellFilesVisitor<'_> {
+    fn visit(&mut self, result: std::result::Result<DirEntry, ignore::Error>) -> WalkState {
+        let entry = match result {
+            Ok(entry) => entry,
+            Err(err) => {
+                self.local_error =
+                    Some(anyhow!(err).context(format!("walk {}", self.input.display())));
+                return WalkState::Quit;
+            }
+        };
+
+        let Some(file_type) = entry.file_type() else {
+            return WalkState::Continue;
+        };
+        if !file_type.is_file() {
+            return WalkState::Continue;
+        }
+
+        let path = entry.path();
+        if self.exclude_matcher.matches(path, self.cwd) {
+            return WalkState::Continue;
+        }
+
+        match is_shell_script(path) {
+            Ok(true) => self.local_paths.push(entry.into_path()),
+            Ok(false) => {}
+            Err(err) => {
+                self.local_error = Some(err);
+                return WalkState::Quit;
+            }
+        }
+
+        WalkState::Continue
+    }
+}
+
+impl Drop for ShellFilesVisitor<'_> {
+    fn drop(&mut self) {
+        if !self.local_paths.is_empty() {
+            self.state
+                .matched_paths
+                .lock()
+                .unwrap()
+                .append(&mut self.local_paths);
+        }
+
+        if let Some(error) = self.local_error.take() {
+            let mut state_error = self.state.error.lock().unwrap();
+            if state_error.is_none() {
+                *state_error = Some(error);
+            }
+        }
+    }
 }
 
 pub(crate) fn add_file(
