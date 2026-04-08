@@ -1,0 +1,100 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "dehydrated-io__dehydrated__dehydrated"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This project-closure helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This project-closure copy is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "megastep__makeself__test__extracttest"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This harnessed test fixture is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__common.sh"
+    labels:
+      - shell-collapse
+      - test-harness
+    reason: "This shell-collapse test helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This helper-library wrapper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__pyenv.d__install__latest.bash"
+    reason: "This helper script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__pyenv.d__rehash__conda.bash"
+    labels:
+      - shell-collapse
+    reason: "This shell-collapse helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This shell-collapse helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__cli"
+    labels:
+      - project-closure
+    reason: "This project-closure helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
+    labels:
+      - project-closure
+    reason: "This project-closure helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    reason: "This helper script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__ree"
+    reason: "This helper script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__ruby"
+    reason: "This helper script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__centos"
+    reason: "This helper script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__selector"
+    labels:
+      - project-closure
+    reason: "This project-closure helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    labels:
+      - project-closure
+    reason: "This project-closure helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__root-packages__docker__build.sh"
+    reason: "This package helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__get_source__termux_download_src_archive.sh"
+    reason: "This package helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__get_source__termux_unpack_src_archive.sh"
+    reason: "This package helper is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__warsow__files__warsow.launcher"
+    reason: "This launcher script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__warsow__files__wsw-server.launcher"
+    reason: "This launcher script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__warsow__files__wswtv-server.launcher"
+    reason: "This launcher script is treated as a reviewed S008 divergence in the corpus comparison."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__xbps-src"
+    labels:
+      - project-closure
+    reason: "This package-builder wrapper is treated as a reviewed S008 divergence in the corpus comparison."
