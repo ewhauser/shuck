@@ -57,8 +57,8 @@ impl Default for ShellCheckCodeMap {
                 (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
-                (2159, Rule::TruthyLiteralTest),
                 (2162, Rule::ReadWithoutRaw),
+                (2078, Rule::TruthyLiteralTest),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2154, Rule::UndefinedVariable),
@@ -111,7 +111,7 @@ mod tests {
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
-        assert_eq!(map.resolve("SC2159"), Some(Rule::TruthyLiteralTest));
+        assert_eq!(map.resolve("SC2078"), Some(Rule::TruthyLiteralTest));
         assert_eq!(map.resolve("SC2162"), Some(Rule::ReadWithoutRaw));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("SC2194"), Some(Rule::ConstantCaseSubject));
@@ -157,6 +157,7 @@ mod tests {
                 (2064, Rule::TrapStringExpansion),
                 (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
+                (2078, Rule::TruthyLiteralTest),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
                 (2124, Rule::PipeToKill),
@@ -164,7 +165,6 @@ mod tests {
                 (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
-                (2159, Rule::TruthyLiteralTest),
                 (2162, Rule::ReadWithoutRaw),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
