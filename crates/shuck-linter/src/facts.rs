@@ -3718,10 +3718,13 @@ fn detect_sudo_family_invoker(
         return None;
     };
     let body_start = normalized.body_span.start.offset;
+    let scan_all_words = normalized.body_words.is_empty();
 
     std::iter::once(&command.name)
         .chain(command.args.iter())
-        .take_while(|word| word.span.start.offset < body_start)
+        // Unresolved sudo-family wrappers intentionally keep the wrapper marker
+        // even when there is no statically known inner command.
+        .take_while(|word| scan_all_words || word.span.start.offset < body_start)
         .filter_map(|word| static_word_text(word, source))
         .filter_map(|word| match word.as_str() {
             "sudo" => Some(SudoFamilyInvoker::Sudo),
@@ -4073,6 +4076,36 @@ mod tests {
         assert_eq!(
             invokers,
             vec![SudoFamilyInvoker::Sudo, SudoFamilyInvoker::Run0]
+        );
+    }
+
+    #[test]
+    fn resolves_sudo_family_invokers_when_wrapper_target_is_unresolved() {
+        let source = "\
+#!/bin/bash
+sudo \"$tool\" > out.txt
+sudo -V
+command run0 --version
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let invokers = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().sudo_family().map(|sudo| sudo.invoker))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            invokers,
+            vec![
+                SudoFamilyInvoker::Sudo,
+                SudoFamilyInvoker::Sudo,
+                SudoFamilyInvoker::Run0,
+            ]
         );
     }
 
