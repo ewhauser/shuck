@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so a single broad reviewed divergence captures the stricter Shuck policy without hiding a distinct implementation bug."
