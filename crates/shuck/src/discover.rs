@@ -270,8 +270,8 @@ pub(crate) fn add_file(
     let relative_path = absolute_path
         .strip_prefix(&project_root.canonical_root)
         .map(Path::to_path_buf)
-        .map_err(|_| {
-            anyhow!(
+        .with_context(|| {
+            format!(
                 "file {} is not under project root {}",
                 absolute_path.display(),
                 project_root.canonical_root.display()
