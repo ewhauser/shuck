@@ -1687,7 +1687,7 @@ impl<'a> WordFactCollector<'a> {
         }
     }
 
-    fn collect_command_name_context_word(&mut self, command: &Command) {
+    fn collect_command_name_context_word(&mut self, command: &'a Command) {
         match command {
             Command::Simple(command) => {
                 if static_word_text(&command.name, self.source).is_none() {
