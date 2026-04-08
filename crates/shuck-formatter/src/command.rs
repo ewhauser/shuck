@@ -266,10 +266,7 @@ fn format_simple_command(
         && render_word_syntax(&command.name, source, formatter.context().options()).is_empty()
         && multiline_compound_assignment_lines(&command.assignments[0], source).is_some()
     {
-        return format_standalone_multiline_compound_assignment(
-            &command.assignments[0],
-            formatter,
-        );
+        return format_standalone_multiline_compound_assignment(&command.assignments[0], formatter);
     }
 
     let has_name =
@@ -727,8 +724,13 @@ fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str)
     };
 
     if let Some((condition, _)) = command.elif_branches.get(branch_index) {
-        branch_keyword_offset(source, current_branch_end, condition.span.start.offset, "elif")
-            .unwrap_or(condition.span.start.offset)
+        branch_keyword_offset(
+            source,
+            current_branch_end,
+            condition.span.start.offset,
+            "elif",
+        )
+        .unwrap_or(condition.span.start.offset)
     } else if let Some(body) = &command.else_branch {
         branch_keyword_offset(source, current_branch_end, body.span.start.offset, "else")
             .unwrap_or(body.span.start.offset)
@@ -740,7 +742,9 @@ fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str)
 fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) -> Option<usize> {
     let start = start.min(end).min(source.len());
     let end = end.min(source.len());
-    source[start..end].rfind(keyword).map(|offset| start + offset)
+    source[start..end]
+        .rfind(keyword)
+        .map(|offset| start + offset)
 }
 
 fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
@@ -1506,7 +1510,10 @@ fn format_standalone_multiline_compound_assignment(
 
     write!(
         formatter,
-        [text(render_assignment_head(assignment, source)), text("(".to_string())]
+        [
+            text(render_assignment_head(assignment, source)),
+            text("(".to_string())
+        ]
     )?;
 
     let mut body = Document::new();
@@ -1519,11 +1526,19 @@ fn format_standalone_multiline_compound_assignment(
 
     write!(
         formatter,
-        [hard_line_break(), indent(body), hard_line_break(), text(")".to_string())]
+        [
+            hard_line_break(),
+            indent(body),
+            hard_line_break(),
+            text(")".to_string())
+        ]
     )
 }
 
-fn multiline_compound_assignment_lines(assignment: &Assignment, source: &str) -> Option<Vec<String>> {
+fn multiline_compound_assignment_lines(
+    assignment: &Assignment,
+    source: &str,
+) -> Option<Vec<String>> {
     let AssignmentValue::Compound(_) = &assignment.value else {
         return None;
     };

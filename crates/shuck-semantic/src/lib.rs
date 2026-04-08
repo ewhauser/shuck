@@ -187,13 +187,12 @@ fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
 }
 
 fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> bool {
-    ancestor_scopes(scopes, scope)
-        .any(|scope| {
-            matches!(
-                &scopes[scope.index()].kind,
-                ScopeKind::Function(function) if function.contains_name(name)
-            )
-        })
+    ancestor_scopes(scopes, scope).any(|scope| {
+        matches!(
+            &scopes[scope.index()].kind,
+            ScopeKind::Function(function) if function.contains_name(name)
+        )
+    })
 }
 
 #[derive(Debug)]

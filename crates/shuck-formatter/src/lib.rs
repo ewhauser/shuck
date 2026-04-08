@@ -428,7 +428,9 @@ mod tests {
 
         assert_eq!(
             formatted,
-            FormattedSource::Formatted("archi=$(uname -smo 2>/dev/null || uname -sm)\n".to_string())
+            FormattedSource::Formatted(
+                "archi=$(uname -smo 2>/dev/null || uname -sm)\n".to_string()
+            )
         );
     }
 
@@ -460,7 +462,9 @@ mod tests {
 
         assert_eq!(
             formatted,
-            FormattedSource::Formatted("directories=(\n\tbin\n\tetc\n\tFrameworks\n)\n".to_string())
+            FormattedSource::Formatted(
+                "directories=(\n\tbin\n\tetc\n\tFrameworks\n)\n".to_string()
+            )
         );
     }
 

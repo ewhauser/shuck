@@ -2242,11 +2242,7 @@ fn fmt_word_part_with_source_mode(
                             }
                             _ => {
                                 fmt_word_part_with_source_mode(
-                                    f,
-                                    &part.kind,
-                                    part.span,
-                                    source,
-                                    mode,
+                                    f, &part.kind, part.span, source, mode,
                                 )?;
                             }
                         }
@@ -3140,9 +3136,7 @@ mod tests {
                     Span::new(),
                 ),
                 WordPartNode::new(
-                    WordPart::Literal(
-                        LiteralText::owned("\" is not yet installed.".to_string()),
-                    ),
+                    WordPart::Literal(LiteralText::owned("\" is not yet installed.".to_string())),
                     Span::new(),
                 ),
             ],

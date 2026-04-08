@@ -1,7 +1,15 @@
 use std::path::PathBuf;
 
+use clap::builder::Styles;
+use clap::builder::styling::{AnsiColor, Effects};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use shuck_formatter::{IndentStyle, ShellDialect};
+
+const STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FormatDialectArg {
@@ -42,6 +50,7 @@ impl From<FormatIndentStyleArg> for IndentStyle {
 #[derive(Debug, Parser)]
 #[command(name = "shuck")]
 #[command(about = "Shell checker CLI for shuck")]
+#[command(styles = STYLES)]
 pub struct Args {
     #[command(subcommand)]
     pub command: Command,
