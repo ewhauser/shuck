@@ -3585,8 +3585,8 @@ printf '%s\\n' \"$flag\"
     }
 
     #[test]
-    fn file_entry_contracts_seed_first_command_reads() {
-        let source = "printf '%s\\n' \"$pkgname\"\n";
+    fn file_entry_contracts_seed_multiple_first_command_reads_as_imported_bindings() {
+        let source = "printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$wrksrc\"\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let mut model = SemanticModel::build_with_options(
@@ -3596,17 +3596,156 @@ printf '%s\\n' \"$flag\"
             SemanticBuildOptions {
                 file_entry_contract: Some(FileContract {
                     required_reads: Vec::new(),
-                    provided_bindings: vec![ProvidedBinding::new(
-                        Name::from("pkgname"),
-                        ProvidedBindingKind::Variable,
-                        ContractCertainty::Definite,
-                    )],
+                    provided_bindings: vec![
+                        ProvidedBinding::new(
+                            Name::from("pkgname"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                        ProvidedBinding::new(
+                            Name::from("pkgver"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                        ProvidedBinding::new(
+                            Name::from("wrksrc"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                    ],
                     provided_functions: Vec::new(),
                 }),
                 ..SemanticBuildOptions::default()
             },
         );
 
+        for name in ["pkgname", "pkgver", "wrksrc"] {
+            let reference = model
+                .references()
+                .iter()
+                .find(|reference| reference.name == name)
+                .unwrap();
+            let binding = model.resolved_binding(reference.id).unwrap();
+            assert_eq!(binding.kind, BindingKind::Imported);
+            assert_eq!(binding.name, name);
+        }
+        assert!(model.precompute_uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn file_entry_contracts_seed_deferred_function_body_reads_as_imported_bindings() {
+        let source = "\
+build() {
+  printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$wrksrc\"
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let mut model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: vec![
+                        ProvidedBinding::new(
+                            Name::from("pkgname"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                        ProvidedBinding::new(
+                            Name::from("pkgver"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                        ProvidedBinding::new(
+                            Name::from("wrksrc"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                    ],
+                    provided_functions: Vec::new(),
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+
+        for name in ["pkgname", "pkgver", "wrksrc"] {
+            let reference = model
+                .references()
+                .iter()
+                .find(|reference| {
+                    reference.name == name && reference.kind == ReferenceKind::Expansion
+                })
+                .unwrap();
+            let binding = model.resolved_binding(reference.id).unwrap();
+            assert_eq!(binding.kind, BindingKind::Imported);
+            assert_eq!(binding.name, name);
+        }
+        assert!(model.precompute_uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn file_entry_contracts_seed_nested_function_regions_as_imported_bindings() {
+        let source = "\
+hook() {
+  for f in ${pycompile_dirs}; do
+    if [ \"${pkgname}\" = \"base-files\" ]; then
+      echo \"python${pycompile_version}\"
+    else
+      printf '%s\\n' \"${pkgver}: ${f}\"
+    fi
+  done
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let mut model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: vec![
+                        ProvidedBinding::new(
+                            Name::from("pkgname"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                        ProvidedBinding::new(
+                            Name::from("pkgver"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                        ProvidedBinding::new(
+                            Name::from("pycompile_dirs"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                        ProvidedBinding::new(
+                            Name::from("pycompile_version"),
+                            ProvidedBindingKind::Variable,
+                            ContractCertainty::Definite,
+                        ),
+                    ],
+                    provided_functions: Vec::new(),
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+
+        for name in ["pkgname", "pkgver", "pycompile_dirs", "pycompile_version"] {
+            let reference = model
+                .references()
+                .iter()
+                .find(|reference| reference.name == name)
+                .unwrap();
+            let binding = model.resolved_binding(reference.id).unwrap();
+            assert_eq!(binding.kind, BindingKind::Imported);
+            assert_eq!(binding.name, name);
+        }
         assert!(model.precompute_uninitialized_references().is_empty());
     }
 

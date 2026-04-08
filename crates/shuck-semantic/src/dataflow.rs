@@ -265,6 +265,7 @@ fn compute_reaching_definitions(
     bindings_by_name: &FxHashMap<Name, Vec<BindingId>>,
     entry_bindings: &[BindingId],
 ) -> ReachingDefinitions {
+    let entry_blocks = entry_binding_root_blocks(cfg);
     let block_ids = cfg
         .blocks()
         .iter()
@@ -298,7 +299,7 @@ fn compute_reaching_definitions(
                     reaching_out.get(predecessor).into_iter().flatten().copied()
                 })
                 .collect::<FxHashSet<_>>();
-            if *block_id == cfg.entry() {
+            if entry_blocks.contains(block_id) {
                 incoming.extend(entry_bindings.iter().copied());
             }
             let outgoing = gen_sets
@@ -1029,6 +1030,7 @@ fn compute_reaching_definitions_dense(
     binding_data: &DenseBindingData,
     entry_bindings: &[BindingId],
 ) -> DenseReachingDefinitions {
+    let entry_blocks = entry_binding_root_blocks(cfg);
     let block_count = cfg.blocks().len();
     let binding_count = bindings.len();
     let name_count = binding_data.bindings_for_name.len();
@@ -1098,7 +1100,7 @@ fn compute_reaching_definitions_dense(
             for predecessor in cfg.predecessors(block.id) {
                 incoming.union_with(&reaching_out[predecessor.index()]);
             }
-            if block.id == cfg.entry() {
+            if entry_blocks.contains(&block.id) {
                 for binding in entry_bindings {
                     incoming.insert(binding.index());
                 }
@@ -1132,6 +1134,7 @@ fn compute_initialized_name_states_dense(
     binding_data: &DenseBindingData,
     entry_bindings: &[BindingId],
 ) -> DenseInitializedNameStates {
+    let entry_blocks = entry_binding_root_blocks(cfg);
     let block_count = cfg.blocks().len();
     let name_count = binding_data.bindings_for_name.len();
     let mut maybe_gen = vec![DenseBitSet::new(name_count); block_count];
@@ -1172,10 +1175,15 @@ fn compute_initialized_name_states_dense(
         }
     }
 
+    let mut all_names = DenseBitSet::new(name_count);
+    for index in 0..name_count {
+        all_names.insert(index);
+    }
+
     let mut maybe_in = vec![DenseBitSet::new(name_count); block_count];
     let mut maybe_out = vec![DenseBitSet::new(name_count); block_count];
-    let mut definite_in = vec![DenseBitSet::new(name_count); block_count];
-    let mut definite_out = vec![DenseBitSet::new(name_count); block_count];
+    let mut definite_in = vec![all_names.clone(); block_count];
+    let mut definite_out = vec![all_names; block_count];
     let mut changed = true;
     while changed {
         changed = false;
@@ -1186,16 +1194,19 @@ fn compute_initialized_name_states_dense(
             for predecessor in cfg.predecessors(block.id) {
                 incoming_maybe.union_with(&maybe_out[predecessor.index()]);
             }
-            if block.id == cfg.entry() {
+            if entry_blocks.contains(&block.id) {
                 incoming_maybe.union_with(&entry_maybe);
             }
 
-            let mut incoming_definite = if cfg.predecessors(block.id).is_empty() {
+            let mut incoming_definite = if entry_blocks.contains(&block.id) {
                 entry_definite.clone()
+            } else if cfg.predecessors(block.id).is_empty() {
+                DenseBitSet::new(name_count)
             } else {
                 definite_out[cfg.predecessors(block.id)[0].index()].clone()
             };
-            for predecessor in cfg.predecessors(block.id).iter().skip(1) {
+            let predecessor_offset = usize::from(!entry_blocks.contains(&block.id));
+            for predecessor in cfg.predecessors(block.id).iter().skip(predecessor_offset) {
                 incoming_definite.intersect_with(&definite_out[predecessor.index()]);
             }
 
@@ -1232,6 +1243,19 @@ fn compute_initialized_name_states_dense(
         definite_in,
         definite_out,
     }
+}
+
+fn entry_binding_root_blocks(cfg: &ControlFlowGraph) -> FxHashSet<BlockId> {
+    cfg.scope_entries
+        .values()
+        .copied()
+        .chain(
+            cfg.blocks()
+                .iter()
+                .filter(|block| cfg.predecessors(block.id).is_empty())
+                .map(|block| block.id),
+        )
+        .collect()
 }
 
 fn compute_scope_components_dense(

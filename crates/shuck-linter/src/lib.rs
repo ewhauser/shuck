@@ -360,10 +360,122 @@ End
     }
 
     #[test]
-    fn ambient_file_entry_contract_suppresses_void_packages_c006_noise() {
+    fn ambient_build_style_contract_suppresses_void_packages_c006_noise() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/common/build-style/void-cross.sh"),
-            "printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$wrksrc\"\n",
+            "\
+build() {
+printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$XBPS_SRCPKGDIR\" \"$configure_args\" \"$cross_gcc_configure_args\"
+printf '%s\\n' \"$wrksrc\"
+}
+build
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ambient_build_style_contract_suppresses_flattened_corpus_paths() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/scripts/void-linux__void-packages__common__build-style__void-cross.sh"),
+            "\
+build() {
+printf '%s\\n' \"$XBPS_SRCPKGDIR\" \"$configure_args\" \"$wrksrc\"
+}
+build
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ambient_pre_pkg_hook_contract_suppresses_void_packages_c006_noise() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/void-packages/common/hooks/pre-pkg/99-pkglint.sh"),
+            "\
+hook() {
+for f in lib; do
+if [ \"${pkgname}\" = \"base-files\" ]; then
+  :
+else
+  msg_red \"${pkgver}: /${f} must not exist.\\n\"
+fi
+done
+if [ -d ${PKGDESTDIR}/usr/lib/libexec ]; then
+  msg_red \"${pkgver}: /usr/lib/libexec directory is not allowed!\\n\"
+fi
+printf '%s\\n' \"$XBPS_COMMONDIR\" \"$XBPS_QUERY_XCMD\"
+}
+hook
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ambient_xbps_src_shutils_contract_suppresses_void_packages_c006_noise() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/void-packages/common/xbps-src/shutils/common.sh"),
+            "\
+helper() {
+printf '%s\\n' \"$XBPS_COMMONDIR\" \"$XBPS_SRCPKGDIR\" \"$XBPS_STATEDIR\" \"$pkgname\" \"$build_style\" \"$NOCOLORS\"
+}
+helper
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ambient_xbps_src_libexec_contract_suppresses_void_packages_c006_noise() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/void-packages/common/xbps-src/libexec/build.sh"),
+            "\
+readonly XBPS_TARGET=\"$1\"
+setup_pkg \"$PKGNAME\"
+for subpkg in ${subpackages} ${sourcepkg}; do
+  $XBPS_LIBEXECDIR/xbps-src-prepkg.sh $subpkg $XBPS_CROSS_BUILD || exit 1
+done
+printf '' > ${XBPS_STATEDIR}/.${sourcepkg}_register_pkg
+printf '%s\\n' \"$XBPS_TARGET\" \"$pkgname\"
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ambient_pycompile_trigger_contract_suppresses_void_packages_c006_noise() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/void-packages/srcpkgs/xbps-triggers/files/pycompile"),
+            "\
+ACTION=\"$1\"
+TARGET=\"$2\"
+compile() {
+for f in ${pycompile_dirs}; do
+  python${pycompile_version} -m compileall -f -q ./${f}
+done
+for f in ${pycompile_module}; do
+  echo \"Byte-compiling python${pycompile_version} code for module ${f}...\"
+  if [ -d \"usr/lib/python${pycompile_version}/site-packages/${f}\" ]; then
+    python${pycompile_version} -O -m compileall -f -q \
+      usr/lib/python${pycompile_version}/site-packages/${f}
+  fi
+done
+}
+case \"$ACTION\" in
+run) compile ;;
+esac
+",
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
@@ -384,6 +496,25 @@ printf '%s\\n' \"$pkgname\"
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+    }
+
+    #[test]
+    fn void_packages_paths_without_required_source_anchors_still_report_c006() {
+        let xbps_src_diagnostics = lint_named_source(
+            Path::new("/tmp/void-packages/common/xbps-src/shutils/common.sh"),
+            "printf '%s\\n' \"$build_style\"\n",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+        assert_eq!(xbps_src_diagnostics.len(), 1);
+        assert_eq!(xbps_src_diagnostics[0].rule, Rule::UndefinedVariable);
+
+        let pycompile_diagnostics = lint_named_source(
+            Path::new("/tmp/void-packages/srcpkgs/xbps-triggers/files/pycompile"),
+            "printf '%s\\n' \"$pycompile_version\"\n",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+        assert_eq!(pycompile_diagnostics.len(), 1);
+        assert_eq!(pycompile_diagnostics[0].rule, Rule::UndefinedVariable);
     }
 
     #[test]

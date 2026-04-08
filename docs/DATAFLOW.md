@@ -192,30 +192,43 @@ an explicit helper edge.
 - [x] Seed file-entry imported bindings into dataflow entry state.
 - [x] Add an explicit ambient-contract registry on the linter side.
 - [x] Add an initial `void-packages` contract provider as proof of shape.
+- [x] Expand the first `void-packages` slice into named `build_style`,
+  `pre_pkg_hook`, `xbps_src_framework`, and `pycompile_trigger`
+  subproviders.
 - [x] Keep ambient matching explicit and reviewable instead of keying only on
   broad tags like `project-closure`.
+- [x] Match the first `void-packages` family with concrete path boundaries plus
+  source-shape anchors, including flattened large-corpus path forms.
+- [x] Extend file-entry imported bindings so deferred and nested function-body
+  reads see the same ambient entry state as top-level reads.
 
 ### What Still Needs To Be Fixed
 
-- [ ] Expand the provider registry to cover the repeated framework families that
-  still dominate `shell-collapse`.
+- [ ] Expand beyond the first `void-packages`/`xbps-src` slice to the other
+  framework families that still dominate `shell-collapse`.
 - [ ] Split "real framework contract" cases from "not really a shell file" cases
   so we do not model non-shell DSL fragments as normal shell programs.
-- [ ] Strengthen provider matching with path and syntax signatures, not just
+- [x] Strengthen provider matching with path and syntax signatures, not just
   context tags.
-- [ ] Group large framework families into reusable provider modules rather than
+- [x] Group the first `void-packages` family into named subproviders rather than
   one provider per script.
 - [ ] Decide where the line is between ambient variable contracts and broader
   file-class classification.
-- [ ] Add negative tests that prove broad tags alone do not inject names.
+- [x] Add negative tests that prove broad tags alone do not inject names.
 - [ ] Verify that new ambient contracts help other semantic consumers beyond
   `C006`, not just undefined-variable reporting.
+- [ ] Reconcile the first-slice `void-packages` providers with the new
+  ShellCheck-only tail in `void-cross.sh`, `99-pkglint.sh`,
+  `common/xbps-src/libexec/build.sh`, and `pycompile`.
 
 ### Families To Target Next
 
-- [ ] More `void-packages` file classes beyond the current common-path provider
-- [ ] `xbps-src`-style packaging entry contracts
-- [ ] `pycompile` and related trigger/helper families
+- [x] First `void-packages`/`xbps-src` slice: build-style, pre-pkg hook,
+  shutils/libexec framework helpers, and `pycompile`
+- [ ] Remaining `void-packages` framework tails such as `common.sh`
+  `version`-driven setup state and near-miss hook variants
+- [ ] `rvm` bootstrap/library entry contracts that still behave like
+  file-entry ambient state
 - [ ] framework header/helper files like `makeself-header.sh`
 - [ ] remaining build-style and hook scripts where the contract is stable across
   many files
@@ -232,11 +245,37 @@ an explicit helper edge.
 
 ### Done Criteria
 
-- [ ] `shell-collapse` drops materially in the targeted large-corpus run.
+- [x] `shell-collapse` drops materially in the targeted large-corpus run.
 - [ ] The remaining files in that bucket are mostly either true divergences or
   cases that do not share a reusable framework contract.
-- [ ] Provider coverage is explicit enough that reviewers can understand why a
+- [x] Provider coverage is explicit enough that reviewers can understand why a
   file received a contract.
+
+### 2026-04-08 First Slice
+
+Re-ran `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C006` on April 8, 2026
+after landing the first `void-packages` ambient-contract slice.
+
+- Fixed in Problem 2:
+  the linter-side registry now models `void-packages` build-style helpers,
+  `pre-pkg` hooks, `xbps-src` `shutils`/`libexec` framework files, and the
+  `pycompile` trigger with path-plus-source signatures; semantic file-entry
+  imports now reach top-level reads, deferred function bodies, and nested
+  function regions.
+- Current acceptance snapshot:
+  `shuck-only=1554`, `shellcheck-only=98`, `shell-collapse=213`,
+  `project-closure,shell-collapse=46`.
+- Compared with the earlier April 8 baseline in this document, the exact
+  `shell-collapse` bucket dropped from `318` to `213`, and
+  `project-closure,shell-collapse` dropped from `48` to `46`.
+- The targeted `void-packages` fixtures that were previously shuck-only now sit
+  on the ShellCheck-only side instead:
+  `void-cross.sh`, `99-pkglint.sh`, `common/xbps-src/libexec/build.sh`, and
+  `pycompile`.
+- The remaining `void-packages` tail is narrower and now clusters around
+  unseeded setup-state names such as `version` inside
+  `common/xbps-src/shutils/common.sh`, plus nearby hook/trigger variants that do
+  not share the same stable contract.
 
 ## Cross-Cutting Guardrails
 
@@ -256,7 +295,7 @@ an explicit helper edge.
 ## Verification Checklist
 
 - [x] `cargo test -p shuck-semantic`
-- [ ] targeted semantic regressions for helper export certainty and file-entry
+- [x] targeted semantic regressions for helper export certainty and file-entry
   contracts
 - [x] targeted linter regressions for explicit ambient providers
 - [x] `cargo test -p shuck-linter rule_undefinedvariable_path_new_c006_sh_expects -- --nocapture`
@@ -267,6 +306,6 @@ an explicit helper edge.
 ## Near-Term Outcome We Want
 
 - [ ] shrink the remaining `project-closure` bucket again
-- [ ] shrink the remaining `shell-collapse` bucket again
+- [x] shrink the remaining `shell-collapse` bucket again
 - [ ] avoid increasing the ShellCheck-only side
-- [ ] leave behind better semantic infrastructure, not more name-shape patches
+- [x] leave behind better semantic infrastructure, not more name-shape patches
