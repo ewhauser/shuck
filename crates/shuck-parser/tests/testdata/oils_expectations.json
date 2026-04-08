@@ -359,6 +359,54 @@
     "expectation": "parse_ok",
     "reason": "zsh anonymous function commands now parse in zsh mode"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__autoenv__autoenv.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh parenthesized for headers now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__colored-man-pages__colored-man-pages.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh multi-target for headers now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__debian__debian.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh brace-bodied for loops now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__pj__pj.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh parenthesized for headers now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__shrink-path__shrink-path.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh brace-bodied for loops now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__xcode__xcode.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh parenthesized for headers now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__tools__changelog.sh": {
+    "expectation": "parse_ok",
+    "reason": "zsh multi-target for headers now parse in zsh mode"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__highlighters__main__main-highlighter.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh loop header variants in the highlighter fixture now parse"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_for_paren_do_done": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh parenthesized do/done loops"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_for_paren_brace": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh parenthesized brace loops"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_for_multi_target_in": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh multi-target for headers"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_for_digit_targets": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh numeric loop targets"
+  },
   "oils/zsh-large-corpus-regressions.test.sh": {
     "expectation": "skip",
     "reason": "zsh-only regression snippets are covered by the zsh-mode parser corpus test"

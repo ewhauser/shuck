@@ -2096,6 +2096,30 @@ zsh-z_plugin_unload() {
       return 0
     fi
 
+#### minimization__zsh_for_paren_do_done
+
+for version ($versions); do
+  print -r -- "$version"
+done
+
+#### minimization__zsh_for_paren_brace
+
+for version ($versions); {
+  print -r -- "$version"
+}
+
+#### minimization__zsh_for_multi_target_in
+
+for key value in a b c d; do
+  print -r -- "$key:$value"
+done
+
+#### minimization__zsh_for_digit_targets
+
+for 1 2 3; do
+  print -r -- "$1|$2|$3"
+done
+
 #### ohmyzsh__ohmyzsh__tools__upgrade.sh
 
 # source: ohmyzsh__ohmyzsh__tools__upgrade.sh
@@ -2906,4 +2930,3 @@ run_test
   if [[ -o zle ]]; then
     add-zle-hook-widget zle-line-pre-redraw _zsh_highlight__zle-line-pre-redraw
     add-zle-hook-widget zle-line-finish _zsh_highlight__zle-line-finish
-

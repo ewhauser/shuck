@@ -3,9 +3,9 @@ use shuck_ast::{
     AnonymousFunctionCommand as AstAnonymousFunctionCommand, ArithmeticAssignOp,
     ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp, BackgroundOperator, BinaryCommand,
     BourneParameterExpansion, BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
-    CompoundCommand as AstCompoundCommand, ForeachSyntax, FunctionDef as AstFunctionDef, IfSyntax,
-    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind, RepeatSyntax,
-    SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator, ZshDefaultingOp,
+    CompoundCommand as AstCompoundCommand, ForSyntax, ForeachSyntax, FunctionDef as AstFunctionDef,
+    IfSyntax, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind,
+    RepeatSyntax, SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator, ZshDefaultingOp,
     ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp, ZshReplacementOp, ZshTrimOp,
 };
 

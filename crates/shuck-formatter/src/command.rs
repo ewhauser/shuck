@@ -3,7 +3,7 @@ use shuck_ast::{
     Assignment, AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand,
     CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
     ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand,
-    DeclClause, DeclOperand, ForCommand, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand,
+    DeclClause, DeclOperand, ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand,
     IfSyntax, Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand,
     SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
     WhileCommand,
@@ -713,24 +713,74 @@ fn if_branch_upper_bound(command: &IfCommand, branch_index: usize) -> usize {
 }
 
 fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()> {
-    write!(formatter, [text(format!("for {}", command.variable))])?;
-    if let Some(words) = &command.words {
-        write!(formatter, [text(" in ")])?;
-        for (index, word) in words.iter().enumerate() {
-            if index > 0 {
-                write!(formatter, [space()])?;
+    write!(formatter, [text("for ")])?;
+    for (index, target) in command.targets.iter().enumerate() {
+        if index > 0 {
+            write!(formatter, [space()])?;
+        }
+        write!(formatter, [text(target.name.to_string())])?;
+    }
+
+    match command.syntax {
+        ForSyntax::InDoDone { .. } => {
+            if let Some(words) = &command.words {
+                write!(formatter, [text(" in")])?;
+                for word in words {
+                    write!(formatter, [space()])?;
+                    word.format().fmt(formatter)?;
+                }
             }
-            word.format().fmt(formatter)?;
+            if can_inline_body(&command.body, command.span, formatter) {
+                write!(formatter, [text("; do ")])?;
+                format_inline_stmts(&command.body, formatter)?;
+                write!(formatter, [text("; done")])
+            } else {
+                write!(formatter, [text("; do")])?;
+                format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
+                finish_block("done", formatter)
+            }
+        }
+        ForSyntax::ParenDoDone { .. } => {
+            write!(formatter, [text(" (")])?;
+            for (index, word) in command.words.iter().flat_map(|words| words.iter()).enumerate() {
+                if index > 0 {
+                    write!(formatter, [space()])?;
+                }
+                word.format().fmt(formatter)?;
+            }
+            if can_inline_body(&command.body, command.span, formatter) {
+                write!(formatter, [text("); do ")])?;
+                format_inline_stmts(&command.body, formatter)?;
+                write!(formatter, [text("; done")])
+            } else {
+                write!(formatter, [text("); do")])?;
+                format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
+                finish_block("done", formatter)
+            }
+        }
+        ForSyntax::InBrace { .. } => {
+            if let Some(words) = &command.words {
+                write!(formatter, [text(" in")])?;
+                for word in words {
+                    write!(formatter, [space()])?;
+                    word.format().fmt(formatter)?;
+                }
+            }
+            write!(formatter, [text("; ")])?;
+            format_brace_group(&command.body, formatter, Some(command.span.end.offset))
+        }
+        ForSyntax::ParenBrace { .. } => {
+            write!(formatter, [text(" (")])?;
+            for (index, word) in command.words.iter().flat_map(|words| words.iter()).enumerate() {
+                if index > 0 {
+                    write!(formatter, [space()])?;
+                }
+                word.format().fmt(formatter)?;
+            }
+            write!(formatter, [text("); ")])?;
+            format_brace_group(&command.body, formatter, Some(command.span.end.offset))
         }
     }
-    if can_inline_body(&command.body, command.span, formatter) {
-        write!(formatter, [text("; do ")])?;
-        format_inline_stmts(&command.body, formatter)?;
-        return write!(formatter, [text("; done")]);
-    }
-    write!(formatter, [text("; do")])?;
-    format_body_with_upper_bound(&command.body, formatter, Some(command.span.end.offset))?;
-    finish_block("done", formatter)
 }
 
 fn format_repeat(

@@ -786,12 +786,46 @@ pub enum IfSyntax {
 /// For loop.
 #[derive(Debug, Clone)]
 pub struct ForCommand {
-    pub variable: Name,
-    pub variable_span: Span,
+    pub targets: Vec<ForTarget>,
     pub words: Option<Vec<Word>>,
     pub body: StmtSeq,
+    pub syntax: ForSyntax,
     /// Source span of this command
     pub span: Span,
+}
+
+/// One loop target in a `for` header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForTarget {
+    pub name: Name,
+    pub span: Span,
+}
+
+/// Surface syntax preserved for a `for` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForSyntax {
+    InDoDone {
+        in_span: Option<Span>,
+        do_span: Span,
+        done_span: Span,
+    },
+    InBrace {
+        in_span: Option<Span>,
+        left_brace_span: Span,
+        right_brace_span: Span,
+    },
+    ParenDoDone {
+        left_paren_span: Span,
+        right_paren_span: Span,
+        do_span: Span,
+        done_span: Span,
+    },
+    ParenBrace {
+        left_paren_span: Span,
+        right_paren_span: Span,
+        left_brace_span: Span,
+        right_brace_span: Span,
+    },
 }
 
 /// Zsh repeat loop.
@@ -3823,23 +3857,37 @@ mod tests {
     #[test]
     fn for_command_without_words() {
         let for_cmd = ForCommand {
-            variable: "i".into(),
-            variable_span: Span::new(),
+            targets: vec![ForTarget {
+                name: "i".into(),
+                span: Span::new(),
+            }],
             words: None,
             body: stmt_seq(vec![]),
+            syntax: ForSyntax::InDoDone {
+                in_span: None,
+                do_span: Span::new(),
+                done_span: Span::new(),
+            },
             span: Span::new(),
         };
         assert!(for_cmd.words.is_none());
-        assert_eq!(for_cmd.variable, "i");
+        assert_eq!(for_cmd.targets[0].name, "i");
     }
 
     #[test]
     fn for_command_with_words() {
         let for_cmd = ForCommand {
-            variable: "x".into(),
-            variable_span: Span::new(),
+            targets: vec![ForTarget {
+                name: "x".into(),
+                span: Span::new(),
+            }],
             words: Some(vec![Word::literal("1"), Word::literal("2")]),
             body: stmt_seq(vec![]),
+            syntax: ForSyntax::InDoDone {
+                in_span: Some(Span::new()),
+                do_span: Span::new(),
+                done_span: Span::new(),
+            },
             span: Span::new(),
         };
         assert_eq!(for_cmd.words.as_ref().unwrap().len(), 2);

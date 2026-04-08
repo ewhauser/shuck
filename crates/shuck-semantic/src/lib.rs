@@ -1156,6 +1156,49 @@ mod tests {
     }
 
     #[test]
+    fn zsh_for_loops_bind_all_targets() {
+        let source = "\
+for key value in a b c d; do
+  print -r -- \"$key:$value\"
+done
+for 1 2 3; do
+  print -r -- \"$1|$2|$3\"
+done
+";
+        let model = model_with_dialect(source, ShellDialect::Zsh);
+
+        let loop_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.kind == BindingKind::LoopVariable)
+            .map(|binding| (binding.name.to_string(), binding.span.slice(source).to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            loop_bindings,
+            vec![
+                ("key".to_owned(), "key".to_owned()),
+                ("value".to_owned(), "value".to_owned()),
+                ("1".to_owned(), "1".to_owned()),
+                ("2".to_owned(), "2".to_owned()),
+                ("3".to_owned(), "3".to_owned()),
+            ]
+        );
+
+        for name in ["key", "value", "1", "2", "3"] {
+            let reference = model
+                .references()
+                .iter()
+                .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == name)
+                .unwrap_or_else(|| panic!("expected expansion reference for {name}"));
+            let binding = model
+                .resolved_binding(reference.id)
+                .unwrap_or_else(|| panic!("expected {name} to resolve to a loop binding"));
+            assert_eq!(binding.kind, BindingKind::LoopVariable);
+            assert_eq!(binding.name, name);
+        }
+    }
+
+    #[test]
     fn isolates_subshell_bindings_from_parent_resolution() {
         let source = "VAR=outer\n( VAR=inner )\necho $VAR\n";
         let model = model(source);

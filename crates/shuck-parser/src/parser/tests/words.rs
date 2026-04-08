@@ -1976,7 +1976,7 @@ FOR2 eye2 IN onetwo 3; do echo $i; done
     let AstCompoundCommand::For(command) = compound else {
         panic!("expected final command to be a for loop");
     };
-    assert_eq!(command.variable, "i");
+    assert_eq!(command.targets[0].name, "i");
     assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
 }
 
@@ -2069,7 +2069,7 @@ e_ $i; done
         panic!("expected final command to be a for loop");
     };
 
-    assert_eq!(command.variable, "i");
+    assert_eq!(command.targets[0].name, "i");
     assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
 
     let Some(body_stmt) = command.body.first() else {
@@ -2124,6 +2124,293 @@ fn test_zsh_dialect_accepts_c_style_for_loops() {
     )
     .parse()
     .unwrap();
+}
+
+#[test]
+fn test_for_loop_preserves_single_target_and_in_do_done_syntax() {
+    let source = "for item in a b; do echo \"$item\"; done\n";
+    let output = Parser::new(source).parse().unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .targets
+            .iter()
+            .map(|target| target.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["item"]
+    );
+    assert_eq!(command.targets[0].span.slice(source), "item");
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected explicit word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+    match command.syntax {
+        ForSyntax::InDoDone {
+            in_span: Some(in_span),
+            do_span,
+            done_span,
+        } => {
+            assert_eq!(in_span.slice(source), "in");
+            assert_eq!(do_span.slice(source), "do");
+            assert_eq!(done_span.slice(source), "done");
+        }
+        other => panic!("expected in/do/done syntax, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_multiple_targets() {
+    let source = "for k v in a b c d; do echo \"$k:$v\"; done\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .targets
+            .iter()
+            .map(|target| target.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["k", "v"]
+    );
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected explicit word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["a", "b", "c", "d"]
+    );
+    assert!(matches!(
+        command.syntax,
+        ForSyntax::InDoDone {
+            in_span: Some(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_digit_targets() {
+    let source = "for 1 2 3; do echo hi; done\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .targets
+            .iter()
+            .map(|target| target.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["1", "2", "3"]
+    );
+    assert!(command.words.is_none());
+    assert!(matches!(
+        command.syntax,
+        ForSyntax::InDoDone {
+            in_span: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_paren_do_done_syntax() {
+    let source = "for version ($versions); do echo $version; done\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .targets
+            .iter()
+            .map(|target| target.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["version"]
+    );
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected parenthesized word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["$versions"]
+    );
+    match command.syntax {
+        ForSyntax::ParenDoDone {
+            left_paren_span,
+            right_paren_span,
+            do_span,
+            done_span,
+        } => {
+            assert_eq!(left_paren_span.slice(source), "(");
+            assert_eq!(right_paren_span.slice(source), ")");
+            assert_eq!(do_span.slice(source), "do");
+            assert_eq!(done_span.slice(source), "done");
+        }
+        other => panic!("expected paren/do/done syntax, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_zsh_for_loop_paren_word_list_allows_newlines() {
+    let source = "for file (\n  one\n  two\n); do echo $file; done\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected parenthesized word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["one", "two"]
+    );
+    assert!(matches!(command.syntax, ForSyntax::ParenDoDone { .. }));
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_paren_brace_syntax() {
+    let source = "for version ($versions); { echo $version; }\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    match command.syntax {
+        ForSyntax::ParenBrace {
+            left_paren_span,
+            right_paren_span,
+            left_brace_span,
+            right_brace_span,
+        } => {
+            assert_eq!(left_paren_span.slice(source), "(");
+            assert_eq!(right_paren_span.slice(source), ")");
+            assert_eq!(left_brace_span.slice(source), "{");
+            assert_eq!(right_brace_span.slice(source), "}");
+        }
+        other => panic!("expected paren/brace syntax, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_in_brace_syntax() {
+    let source = "for part in a b; { echo $part; }\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    match command.syntax {
+        ForSyntax::InBrace {
+            in_span: Some(in_span),
+            left_brace_span,
+            right_brace_span,
+        } => {
+            assert_eq!(in_span.slice(source), "in");
+            assert_eq!(left_brace_span.slice(source), "{");
+            assert_eq!(right_brace_span.slice(source), "}");
+        }
+        other => panic!("expected in/brace syntax, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_zsh_for_loop_allows_in_as_first_target_name() {
+    let source = "for in other in a b; do echo \"$in:$other\"; done\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .targets
+            .iter()
+            .map(|target| target.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["in", "other"]
+    );
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected explicit word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+}
+
+#[test]
+fn test_non_zsh_dialects_reject_zsh_for_loop_forms() {
+    for source in [
+        "for k v in a b c; do echo hi; done\n",
+        "for 1 2 3; do echo hi; done\n",
+        "for version ($versions); do echo $version; done\n",
+        "for part in a b; { echo $part; }\n",
+    ] {
+        for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
+            let error = Parser::with_dialect(source, dialect).parse();
+            assert!(
+                error.is_err(),
+                "expected parse error for {dialect:?} on {source:?}",
+            );
+        }
+    }
 }
 
 #[test]

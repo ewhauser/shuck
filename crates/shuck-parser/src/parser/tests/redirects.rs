@@ -188,7 +188,7 @@ coproc worker { true; }
     let AstCompoundCommand::For(command) = compound else {
         panic!("expected for loop");
     };
-    assert_eq!(command.variable_span.slice(input), "item");
+    assert_eq!(command.targets[0].span.slice(input), "item");
 
     let (compound, _) = expect_compound(&script.body[2]);
     let AstCompoundCommand::Select(command) = compound else {

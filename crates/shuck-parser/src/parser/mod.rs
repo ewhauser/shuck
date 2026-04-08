@@ -35,8 +35,9 @@ use shuck_ast::{
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,
-    ExitCommand as AstExitCommand, File, ForCommand, ForeachCommand, ForeachSyntax, FunctionDef,
-    FunctionHeader, FunctionHeaderEntry, Heredoc, HeredocDelimiter, IfCommand, IfSyntax,
+    ExitCommand as AstExitCommand, File, ForCommand, ForSyntax, ForTarget, ForeachCommand,
+    ForeachSyntax, FunctionDef, FunctionHeader, FunctionHeaderEntry, Heredoc, HeredocDelimiter,
+    IfCommand, IfSyntax,
     LiteralText, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect,
     RedirectKind, RedirectTarget, RepeatCommand, RepeatSyntax, ReturnCommand as AstReturnCommand,
@@ -2053,10 +2054,54 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::For(command) => {
                 command.span = command.span.rebased(base);
-                command.variable_span = command.variable_span.rebased(base);
+                for target in &mut command.targets {
+                    target.span = target.span.rebased(base);
+                }
                 if let Some(words) = &mut command.words {
                     Self::rebase_words(words, base);
                 }
+                command.syntax = match command.syntax {
+                    ForSyntax::InDoDone {
+                        in_span,
+                        do_span,
+                        done_span,
+                    } => ForSyntax::InDoDone {
+                        in_span: in_span.map(|span| span.rebased(base)),
+                        do_span: do_span.rebased(base),
+                        done_span: done_span.rebased(base),
+                    },
+                    ForSyntax::InBrace {
+                        in_span,
+                        left_brace_span,
+                        right_brace_span,
+                    } => ForSyntax::InBrace {
+                        in_span: in_span.map(|span| span.rebased(base)),
+                        left_brace_span: left_brace_span.rebased(base),
+                        right_brace_span: right_brace_span.rebased(base),
+                    },
+                    ForSyntax::ParenDoDone {
+                        left_paren_span,
+                        right_paren_span,
+                        do_span,
+                        done_span,
+                    } => ForSyntax::ParenDoDone {
+                        left_paren_span: left_paren_span.rebased(base),
+                        right_paren_span: right_paren_span.rebased(base),
+                        do_span: do_span.rebased(base),
+                        done_span: done_span.rebased(base),
+                    },
+                    ForSyntax::ParenBrace {
+                        left_paren_span,
+                        right_paren_span,
+                        left_brace_span,
+                        right_brace_span,
+                    } => ForSyntax::ParenBrace {
+                        left_paren_span: left_paren_span.rebased(base),
+                        right_paren_span: right_paren_span.rebased(base),
+                        left_brace_span: left_brace_span.rebased(base),
+                        right_brace_span: right_brace_span.rebased(base),
+                    },
+                };
                 Self::rebase_stmt_seq(&mut command.body, base);
             }
             CompoundCommand::Repeat(command) => {

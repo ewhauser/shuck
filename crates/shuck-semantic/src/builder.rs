@@ -556,13 +556,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     .as_deref()
                     .map(|words| self.visit_words(words, WordVisitKind::Expansion, flow))
                     .unwrap_or_default();
-                self.add_binding(
-                    &command.variable,
-                    BindingKind::LoopVariable,
-                    self.current_scope(),
-                    command.variable_span,
-                    BindingAttributes::empty(),
-                );
+                for target in &command.targets {
+                    self.add_binding(
+                        &target.name,
+                        BindingKind::LoopVariable,
+                        self.current_scope(),
+                        target.span,
+                        BindingAttributes::empty(),
+                    );
+                }
 
                 RecordedCommand {
                     span: command.span,
