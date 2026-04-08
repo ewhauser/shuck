@@ -69,4 +69,16 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "\"$fmt\"");
     }
+
+    #[test]
+    fn skips_v_dash_dash_prefix_before_the_format_word() {
+        let source = "printf -v out -- \"$fmt\" value\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PrintfFormatVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\"$fmt\"");
+    }
 }

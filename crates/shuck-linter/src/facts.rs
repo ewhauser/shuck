@@ -3668,6 +3668,10 @@ fn printf_format_word<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
         }
     }
 
+    if static_word_text(args.get(index)?, source).as_deref() == Some("--") {
+        index += 1;
+    }
+
     args.get(index).copied()
 }
 
