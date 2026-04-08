@@ -23,7 +23,7 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
         .filter_map(|regex| {
             let right = regex.right();
             let word = right.word()?;
-            if right.quote() == Some(WordQuote::Unquoted) {
+            if right.quote() != Some(WordQuote::FullyQuoted) {
                 return None;
             }
 
@@ -106,12 +106,11 @@ mod tests {
     }
 
     #[test]
-    fn keeps_reporting_mixed_quoted_regex_operands() {
+    fn ignores_mixed_quoted_regex_operands() {
         let source = "#!/bin/bash\n[[ $value =~ ^\"foo\"bar$ ]]\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "^\"foo\"bar$");
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
