@@ -53,7 +53,7 @@ impl Default for ShellCheckCodeMap {
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
-                (2124, Rule::PipeToKill),
+                (2216, Rule::PipeToKill),
                 (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
@@ -64,7 +64,7 @@ impl Default for ShellCheckCodeMap {
                 (2154, Rule::UndefinedVariable),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
-                (2244, Rule::ArithmeticRedirectionTarget),
+                (2257, Rule::ArithmeticRedirectionTarget),
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
@@ -107,7 +107,7 @@ mod tests {
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
-        assert_eq!(map.resolve("SC2124"), Some(Rule::PipeToKill));
+        assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
@@ -119,7 +119,7 @@ mod tests {
         assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
         assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
         assert_eq!(
-            map.resolve("SC2244"),
+            map.resolve("SC2257"),
             Some(Rule::ArithmeticRedirectionTarget)
         );
         assert_eq!(map.resolve("SC2250"), Some(Rule::PatternWithVariable));
@@ -160,7 +160,6 @@ mod tests {
                 (2078, Rule::TruthyLiteralTest),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
-                (2124, Rule::PipeToKill),
                 (2154, Rule::UndefinedVariable),
                 (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
@@ -168,12 +167,13 @@ mod tests {
                 (2162, Rule::ReadWithoutRaw),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
+                (2216, Rule::PipeToKill),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
-                (2244, Rule::ArithmeticRedirectionTarget),
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
+                (2257, Rule::ArithmeticRedirectionTarget),
                 (2266, Rule::OverwrittenFunction),
                 (2365, Rule::UnreachableAfterExit),
             ]

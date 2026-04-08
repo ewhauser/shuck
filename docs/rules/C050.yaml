@@ -3,7 +3,7 @@ legacy_name: arith-redirection-target
 new_category: Correctness
 new_code: C050
 runtime_kind: ast
-shellcheck_code: SC2244
+shellcheck_code: SC2257
 shells:
   - sh
   - bash

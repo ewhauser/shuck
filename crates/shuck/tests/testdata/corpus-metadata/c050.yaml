@@ -1,3 +1,10 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2244"
-    reason: "The current mapping still points at SC2244 even though the canonical arithmetic redirection example appears closer to SC2257."
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__lint-packages.sh"
+    line: 808
+    column: 32
+    end_column: 120
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This helper formats elapsed time by feeding a computed string through a here-string target inside a command substitution. Shuck flags the arithmetic expansion in that redirection target, while ShellCheck stays silent on this exact project-local helper shape, so we review this one fixture as an intentional stricter policy choice instead of broadening the rule to every formatted output string."
