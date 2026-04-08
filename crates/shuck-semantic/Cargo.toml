@@ -5,7 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Semantic model for parsed shell scripts"
+description = "Semantic analysis model for shell scripts with scopes, bindings, and dataflow"
+keywords = ["shell", "bash", "semantic-analysis", "static-analysis"]
+categories = ["development-tools"]
 
 [dependencies]
 bitflags = "2"

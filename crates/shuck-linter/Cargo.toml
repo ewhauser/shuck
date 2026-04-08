@@ -5,7 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Rule registry and checker for shuck shell linting"
+description = "Lint rule engine and checker for shell scripts"
+keywords = ["shell", "bash", "linter", "static-analysis"]
+categories = ["development-tools"]
 
 [dependencies]
 rustc-hash = "2"

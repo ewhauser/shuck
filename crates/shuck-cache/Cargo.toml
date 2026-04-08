@@ -5,7 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Internal cache primitives for shuck"
+description = "File-level caching with SHA-256 content keys for shuck"
+keywords = ["cache", "shell", "linter"]
+categories = ["caching", "development-tools"]
 
 [dependencies]
 bincode = { version = "2", features = ["serde"] }

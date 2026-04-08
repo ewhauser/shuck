@@ -5,7 +5,7 @@ use shuck_ast::{
     BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
     DeclOperand, File, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax,
     ParameterOp, Pattern, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript, VarRef,
-    Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
+    Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1099,7 +1099,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match part {
             WordPart::ZshQualifiedGlob(glob) => {
-                self.visit_pattern_into(&glob.pattern, kind, flow, nested_regions);
+                for segment in &glob.segments {
+                    if let ZshGlobSegment::Pattern(pattern) = segment {
+                        self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                    }
+                }
             }
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {

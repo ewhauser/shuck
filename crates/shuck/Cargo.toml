@@ -5,7 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "CLI frontend for shuck"
+description = "A fast shell script linter and formatter"
+keywords = ["shell", "bash", "linter", "formatter", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 anyhow = { workspace = true }

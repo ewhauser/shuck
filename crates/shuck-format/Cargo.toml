@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Generic formatting document and printer primitives for shuck"
+description = "Formatting document model and pretty-printer primitives"
+keywords = ["formatter", "pretty-printer", "document"]
+categories = ["text-processing", "development-tools"]
 
 [dependencies]

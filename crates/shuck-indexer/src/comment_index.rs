@@ -3,7 +3,7 @@ use std::ops::Range;
 use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment, CompoundCommand,
     ConditionalExpr, DeclOperand, File, Pattern, PatternPart, Redirect, Stmt, StmtSeq, TextRange,
-    TextSize, Word, WordPart, WordPartNode,
+    TextSize, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
 
 use crate::LineIndex;
@@ -416,7 +416,13 @@ fn collect_word_comments(word: &Word, comments: &mut Vec<Comment>) {
 fn collect_word_part_comments(parts: &[WordPartNode], comments: &mut Vec<Comment>) {
     for part in parts {
         match &part.kind {
-            WordPart::ZshQualifiedGlob(glob) => collect_pattern_comments(&glob.pattern, comments),
+            WordPart::ZshQualifiedGlob(glob) => {
+                for segment in &glob.segments {
+                    if let ZshGlobSegment::Pattern(pattern) = segment {
+                        collect_pattern_comments(pattern, comments);
+                    }
+                }
+            }
             WordPart::DoubleQuoted { parts, .. } => collect_word_part_comments(parts, comments),
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => {

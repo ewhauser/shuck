@@ -39,8 +39,8 @@ use shuck_ast::{
     SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
     UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshDefaultingOp,
     ZshExpansionOperation, ZshExpansionTarget, ZshGlobQualifier, ZshGlobQualifierGroup,
-    ZshModifier, ZshParameterExpansion, ZshPatternOp, ZshQualifiedGlob, ZshReplacementOp,
-    ZshTrimOp,
+    ZshGlobQualifierKind, ZshGlobSegment, ZshInlineGlobControl, ZshModifier, ZshParameterExpansion,
+    ZshPatternOp, ZshQualifiedGlob, ZshReplacementOp, ZshTrimOp,
 };
 
 use crate::error::{Error, Result};
@@ -1088,7 +1088,7 @@ impl<'a> Parser<'a> {
                     out,
                 ),
                 WordPart::ZshQualifiedGlob(glob) => {
-                    self.collect_brace_syntax_from_pattern(&glob.pattern, quote_context, out);
+                    self.collect_brace_syntax_from_zsh_qualified_glob(glob, quote_context, out)
                 }
                 WordPart::SingleQuoted { value, .. } => Self::scan_brace_syntax_text(
                     value.slice(self.input),
@@ -1149,6 +1149,19 @@ impl<'a> Parser<'a> {
                     self.collect_brace_syntax_from_parts(&word.parts, quote_context, out)
                 }
                 PatternPart::AnyString | PatternPart::AnyChar => {}
+            }
+        }
+    }
+
+    fn collect_brace_syntax_from_zsh_qualified_glob(
+        &self,
+        glob: &ZshQualifiedGlob,
+        quote_context: BraceQuoteContext,
+        out: &mut Vec<BraceSyntax>,
+    ) {
+        for segment in &glob.segments {
+            if let ZshGlobSegment::Pattern(pattern) = segment {
+                self.collect_brace_syntax_from_pattern(pattern, quote_context, out);
             }
         }
     }
@@ -1324,19 +1337,14 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let (base_len, qualifiers) =
-            self.parse_zsh_glob_qualifier_group(text, span.start, source_backed)?;
-        if base_len == 0 {
-            return None;
-        }
-
-        let base_text = &text[..base_len];
-        let base_span = Span::from_positions(span.start, qualifiers.span.start);
-        let pattern_word =
-            self.decode_word_text(base_text, base_span, base_span.start, source_backed);
-        let pattern = self.pattern_from_word(&pattern_word);
-
-        if !Self::pattern_has_glob_syntax(&pattern) {
+        let (segments, qualifiers) =
+            self.parse_zsh_qualified_glob_segments(text, span, source_backed)?;
+        if !segments.iter().any(|segment| {
+            matches!(
+                segment,
+                ZshGlobSegment::Pattern(pattern) if Self::pattern_has_glob_syntax(pattern)
+            )
+        }) {
             return None;
         }
 
@@ -1344,7 +1352,7 @@ impl<'a> Parser<'a> {
             vec![WordPartNode::new(
                 WordPart::ZshQualifiedGlob(ZshQualifiedGlob {
                     span,
-                    pattern,
+                    segments,
                     qualifiers,
                 }),
                 span,
@@ -1353,81 +1361,183 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn parse_zsh_glob_qualifier_group(
+    fn parse_zsh_qualified_glob_segments(
+        &mut self,
+        text: &str,
+        span: Span,
+        source_backed: bool,
+    ) -> Option<(Vec<ZshGlobSegment>, Option<ZshGlobQualifierGroup>)> {
+        let mut segments = Vec::new();
+        let mut qualifiers = None;
+        let mut pattern_start = 0usize;
+        let mut index = 0usize;
+
+        while index < text.len() {
+            if text[index..].starts_with("(#") {
+                if let Some((len, control)) =
+                    self.parse_zsh_inline_glob_control(text, span.start, index)
+                {
+                    self.push_zsh_pattern_segment(
+                        &mut segments,
+                        text,
+                        span.start,
+                        pattern_start,
+                        index,
+                        source_backed,
+                    );
+                    segments.push(ZshGlobSegment::InlineControl(control));
+                    index += len;
+                    pattern_start = index;
+                    continue;
+                }
+
+                let suffix_start = Self::text_position(span.start, text, index);
+                if let Some(group) = self.parse_zsh_terminal_glob_qualifier_group(
+                    &text[index..],
+                    suffix_start,
+                    source_backed,
+                ) {
+                    self.push_zsh_pattern_segment(
+                        &mut segments,
+                        text,
+                        span.start,
+                        pattern_start,
+                        index,
+                        source_backed,
+                    );
+                    qualifiers = Some(group);
+                    index = text.len();
+                    pattern_start = index;
+                    break;
+                }
+
+                return None;
+            }
+
+            if text[index..].starts_with('(') {
+                let suffix_start = Self::text_position(span.start, text, index);
+                if let Some(group) = self.parse_zsh_terminal_glob_qualifier_group(
+                    &text[index..],
+                    suffix_start,
+                    source_backed,
+                ) && matches!(group.kind, ZshGlobQualifierKind::Classic)
+                {
+                    self.push_zsh_pattern_segment(
+                        &mut segments,
+                        text,
+                        span.start,
+                        pattern_start,
+                        index,
+                        source_backed,
+                    );
+                    qualifiers = Some(group);
+                    index = text.len();
+                    pattern_start = index;
+                    break;
+                }
+            }
+
+            index += text[index..].chars().next()?.len_utf8();
+        }
+
+        self.push_zsh_pattern_segment(
+            &mut segments,
+            text,
+            span.start,
+            pattern_start,
+            text.len(),
+            source_backed,
+        );
+
+        segments
+            .iter()
+            .any(|segment| matches!(segment, ZshGlobSegment::Pattern(_)))
+            .then_some((segments, qualifiers))
+    }
+
+    fn push_zsh_pattern_segment(
+        &mut self,
+        segments: &mut Vec<ZshGlobSegment>,
+        text: &str,
+        base: Position,
+        start: usize,
+        end: usize,
+        source_backed: bool,
+    ) {
+        if start >= end {
+            return;
+        }
+
+        let start_position = Self::text_position(base, text, start);
+        let end_position = Self::text_position(base, text, end);
+        let span = Span::from_positions(start_position, end_position);
+        let pattern_word =
+            self.decode_word_text(&text[start..end], span, span.start, source_backed);
+        segments.push(ZshGlobSegment::Pattern(
+            self.pattern_from_word(&pattern_word),
+        ));
+    }
+
+    fn parse_zsh_inline_glob_control(
+        &self,
+        text: &str,
+        base: Position,
+        start: usize,
+    ) -> Option<(usize, ZshInlineGlobControl)> {
+        let (len, control) = if text[start..].starts_with("(#i)") {
+            (
+                "(#i)".len(),
+                ZshInlineGlobControl::CaseInsensitive {
+                    span: Span::from_positions(
+                        Self::text_position(base, text, start),
+                        Self::text_position(base, text, start + "(#i)".len()),
+                    ),
+                },
+            )
+        } else if text[start..].starts_with("(#b)") {
+            (
+                "(#b)".len(),
+                ZshInlineGlobControl::Backreferences {
+                    span: Span::from_positions(
+                        Self::text_position(base, text, start),
+                        Self::text_position(base, text, start + "(#b)".len()),
+                    ),
+                },
+            )
+        } else {
+            return None;
+        };
+
+        Some((len, control))
+    }
+
+    fn parse_zsh_terminal_glob_qualifier_group(
         &self,
         text: &str,
         base: Position,
         source_backed: bool,
-    ) -> Option<(usize, ZshGlobQualifierGroup)> {
-        text.strip_suffix(')')?;
+    ) -> Option<ZshGlobQualifierGroup> {
+        let (kind, prefix_len, inner) = if let Some(inner) = text
+            .strip_prefix("(#q")
+            .and_then(|rest| rest.strip_suffix(')'))
+        {
+            (ZshGlobQualifierKind::HashQ, "(#q".len(), inner)
+        } else {
+            let inner = text.strip_prefix('(')?.strip_suffix(')')?;
+            (ZshGlobQualifierKind::Classic, "(".len(), inner)
+        };
 
-        let mut in_bracket = false;
-        let mut paren_depth = 0usize;
-        let mut group_count = 0usize;
-        let mut group_start = None;
-        let mut group_end = None;
-
-        for (index, ch) in text.char_indices() {
-            if in_bracket {
-                if ch == ']' {
-                    in_bracket = false;
-                }
-                continue;
-            }
-
-            match ch {
-                '[' => in_bracket = true,
-                '(' => {
-                    if paren_depth == 0 {
-                        group_count += 1;
-                        group_start = Some(index);
-                    }
-                    paren_depth += 1;
-                    if paren_depth > 1 {
-                        return None;
-                    }
-                }
-                ')' => {
-                    if paren_depth == 0 {
-                        return None;
-                    }
-                    paren_depth -= 1;
-                    if paren_depth == 0 {
-                        let end = index + ch.len_utf8();
-                        if end != text.len() {
-                            return None;
-                        }
-                        group_end = Some(end);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if in_bracket || paren_depth != 0 || group_count != 1 {
-            return None;
-        }
-
-        let group_start = group_start?;
-        let group_end = group_end?;
-        let inner_start = group_start + "(".len();
-        let inner_end = group_end - ")".len();
         let fragments = self.parse_zsh_glob_qualifier_fragments(
-            &text[inner_start..inner_end],
-            Self::text_position(base, text, inner_start),
+            inner,
+            Self::text_position(base, text, prefix_len),
             source_backed,
         )?;
 
-        Some((
-            group_start,
-            ZshGlobQualifierGroup {
-                span: Span::from_positions(
-                    Self::text_position(base, text, group_start),
-                    Self::text_position(base, text, group_end),
-                ),
-                fragments,
-            },
-        ))
+        Some(ZshGlobQualifierGroup {
+            span: Span::from_positions(base, Self::text_position(base, text, text.len())),
+            kind,
+            fragments,
+        })
     }
 
     fn parse_zsh_glob_qualifier_fragments(
@@ -1870,8 +1980,12 @@ impl<'a> Parser<'a> {
             return Some(word.clone());
         }
 
-        let span = self.current_span;
+        if let Some(word) = self.current_zsh_glob_word_from_source() {
+            self.current_word_cache = Some(word.clone());
+            return Some(word);
+        }
 
+        let span = self.current_span;
         if let Some(token) = self.current_token.clone()
             && let Some(word) = self.simple_word_from_token(&token, span)
         {
@@ -1885,6 +1999,83 @@ impl<'a> Parser<'a> {
             self.current_word_cache = Some(word.clone());
         }
         word
+    }
+
+    fn current_zsh_glob_word_from_source(&mut self) -> Option<Word> {
+        if !matches!(self.current_token_kind, Some(TokenKind::LeftParen))
+            && !self.current_token_kind.is_some_and(TokenKind::is_word_like)
+        {
+            return None;
+        }
+
+        let start = self.current_span.start;
+        let (text, end) = self.scan_source_word(start)?;
+        if !text.contains("(#") {
+            return None;
+        }
+        let span = Span::from_positions(start, end);
+        if self.dialect.features().zsh_glob_qualifiers
+            && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(&text, span, true)
+        {
+            return Some(word);
+        }
+
+        Some(self.parse_word_with_context(&text, span, start, true))
+    }
+
+    fn scan_source_word(&self, start: Position) -> Option<(String, Position)> {
+        if start.offset >= self.input.len() {
+            return None;
+        }
+
+        let source = &self.input[start.offset..];
+        let mut chars = source.chars().peekable();
+        let mut cursor = start;
+        let mut text = String::new();
+        let mut paren_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while let Some(&ch) = chars.peek() {
+            if !in_single
+                && !in_double
+                && paren_depth == 0
+                && brace_depth == 0
+                && matches!(ch, ' ' | '\t' | '\n' | ';' | '|' | '&' | '>' | '<' | ')')
+            {
+                break;
+            }
+
+            let ch = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+            text.push(ch);
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '(' if !in_single && !in_double => paren_depth += 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                _ => {}
+            }
+        }
+
+        (!text.is_empty()).then_some((text, cursor))
+    }
+
+    fn advance_past_word(&mut self, word: &Word) {
+        while self.current_token.is_some() && self.current_span.start.offset < word.span.end.offset
+        {
+            self.advance();
+        }
     }
 
     fn token_source_like_word_text(&self, token: &LexedToken<'a>) -> Option<Cow<'a, str>> {
@@ -2498,9 +2689,35 @@ impl<'a> Parser<'a> {
 
     fn rebase_zsh_qualified_glob(glob: &mut ZshQualifiedGlob, base: Position) {
         glob.span = glob.span.rebased(base);
-        Self::rebase_pattern(&mut glob.pattern, base);
-        glob.qualifiers.span = glob.qualifiers.span.rebased(base);
-        for fragment in &mut glob.qualifiers.fragments {
+        for segment in &mut glob.segments {
+            Self::rebase_zsh_glob_segment(segment, base);
+        }
+        if let Some(qualifiers) = &mut glob.qualifiers {
+            Self::rebase_zsh_glob_qualifier_group(qualifiers, base);
+        }
+    }
+
+    fn rebase_zsh_glob_segment(segment: &mut ZshGlobSegment, base: Position) {
+        match segment {
+            ZshGlobSegment::Pattern(pattern) => Self::rebase_pattern(pattern, base),
+            ZshGlobSegment::InlineControl(control) => {
+                Self::rebase_zsh_inline_glob_control(control, base)
+            }
+        }
+    }
+
+    fn rebase_zsh_inline_glob_control(control: &mut ZshInlineGlobControl, base: Position) {
+        match control {
+            ZshInlineGlobControl::CaseInsensitive { span }
+            | ZshInlineGlobControl::Backreferences { span } => {
+                *span = span.rebased(base);
+            }
+        }
+    }
+
+    fn rebase_zsh_glob_qualifier_group(group: &mut ZshGlobQualifierGroup, base: Position) {
+        group.span = group.span.rebased(base);
+        for fragment in &mut group.fragments {
             match fragment {
                 ZshGlobQualifier::Negation { span } | ZshGlobQualifier::Flag { span, .. } => {
                     *span = span.rebased(base);
@@ -5788,7 +6005,12 @@ impl<'a> Parser<'a> {
             && !word.contains('[')
             && self.peek_next_is(TokenKind::LeftParen)
         {
-            return self.parse_function_posix().map(Some);
+            let mut probe = self.clone();
+            probe.advance();
+            probe.advance();
+            if probe.at(TokenKind::RightParen) {
+                return self.parse_function_posix().map(Some);
+            }
         }
 
         // Check for conditional expression [[ ... ]]
@@ -6007,9 +6229,9 @@ impl<'a> Parser<'a> {
                     _ if self.current_keyword() == Some(Keyword::Do) => break,
                     Some(kind) if kind.is_word_like() => {
                         if let Some(word) = self.current_word() {
+                            self.advance_past_word(&word);
                             words.push(word);
                         }
-                        self.advance();
                     }
                     Some(TokenKind::Newline | TokenKind::Semicolon) => {
                         self.advance();
@@ -6188,8 +6410,8 @@ impl<'a> Parser<'a> {
                         let word = self
                             .current_word()
                             .ok_or_else(|| self.error("expected foreach word"))?;
+                        self.advance_past_word(&word);
                         words.push(word);
-                        self.advance();
                     }
                     Some(_) | None => {
                         self.pop_depth();
@@ -6234,8 +6456,8 @@ impl<'a> Parser<'a> {
                         let word = self
                             .current_word()
                             .ok_or_else(|| self.error("expected foreach word"))?;
+                        self.advance_past_word(&word);
                         words.push(word);
-                        self.advance();
                     }
                     Some(TokenKind::Semicolon) => {
                         self.advance();
@@ -6335,9 +6557,9 @@ impl<'a> Parser<'a> {
                 _ if self.current_keyword() == Some(Keyword::Do) => break,
                 Some(kind) if kind.is_word_like() => {
                     if let Some(word) = self.current_word() {
+                        self.advance_past_word(&word);
                         words.push(word);
                     }
-                    self.advance();
                 }
                 Some(TokenKind::Newline | TokenKind::Semicolon) => {
                     self.advance();
@@ -6651,9 +6873,9 @@ impl<'a> Parser<'a> {
             let mut patterns = Vec::new();
             while self.at_word_like() {
                 if let Some(word) = self.current_word() {
+                    self.advance_past_word(&word);
                     patterns.push(self.pattern_from_word(&word));
                 }
-                self.advance();
 
                 // Check for | between patterns
                 if self.at(TokenKind::Pipe) {
@@ -7128,7 +7350,7 @@ impl<'a> Parser<'a> {
         else {
             return Err(self.error("expected conditional operand"));
         };
-        self.advance();
+        self.advance_past_word(&word);
         Ok(word)
     }
 
@@ -8243,8 +8465,12 @@ impl<'a> Parser<'a> {
             && match part {
                 WordPart::Literal(text) => text.is_source_backed(),
                 WordPart::ZshQualifiedGlob(glob) => {
-                    glob.pattern.is_source_backed()
-                        && self.zsh_glob_qualifier_group_is_source_backed(&glob.qualifiers)
+                    glob.segments
+                        .iter()
+                        .all(Self::zsh_glob_segment_is_source_backed)
+                        && glob.qualifiers.as_ref().is_none_or(|group| {
+                            self.zsh_glob_qualifier_group_is_source_backed(group)
+                        })
                 }
                 WordPart::SingleQuoted { value, .. } => value.is_source_backed(),
                 WordPart::DoubleQuoted { parts, .. } => parts
@@ -8320,6 +8546,19 @@ impl<'a> Parser<'a> {
             .all(Self::zsh_glob_qualifier_is_source_backed)
     }
 
+    fn zsh_glob_segment_is_source_backed(segment: &ZshGlobSegment) -> bool {
+        match segment {
+            ZshGlobSegment::Pattern(pattern) => pattern.is_source_backed(),
+            ZshGlobSegment::InlineControl(control) => {
+                Self::zsh_inline_glob_control_is_source_backed(control)
+            }
+        }
+    }
+
+    fn zsh_inline_glob_control_is_source_backed(_control: &ZshInlineGlobControl) -> bool {
+        true
+    }
+
     fn zsh_glob_qualifier_is_source_backed(fragment: &ZshGlobQualifier) -> bool {
         match fragment {
             ZshGlobQualifier::Negation { .. } | ZshGlobQualifier::Flag { .. } => true,
@@ -8381,8 +8620,12 @@ impl<'a> Parser<'a> {
         match part {
             WordPart::Literal(text) => out.push_str(text.as_str(self.input, span)),
             WordPart::ZshQualifiedGlob(glob) => {
-                self.push_pattern_syntax(out, &glob.pattern);
-                self.push_zsh_glob_qualifier_group_syntax(out, &glob.qualifiers);
+                for segment in &glob.segments {
+                    self.push_zsh_glob_segment_syntax(out, segment);
+                }
+                if let Some(qualifiers) = &glob.qualifiers {
+                    self.push_zsh_glob_qualifier_group_syntax(out, qualifiers);
+                }
             }
             WordPart::SingleQuoted { value, dollar } => {
                 if *dollar {
@@ -8533,7 +8776,10 @@ impl<'a> Parser<'a> {
         out: &mut String,
         group: &ZshGlobQualifierGroup,
     ) {
-        out.push('(');
+        match group.kind {
+            ZshGlobQualifierKind::Classic => out.push('('),
+            ZshGlobQualifierKind::HashQ => out.push_str("(#q"),
+        }
         for fragment in &group.fragments {
             match fragment {
                 ZshGlobQualifier::Negation { .. } => out.push('^'),
@@ -8553,6 +8799,16 @@ impl<'a> Parser<'a> {
             }
         }
         out.push(')');
+    }
+
+    fn push_zsh_glob_segment_syntax(&self, out: &mut String, segment: &ZshGlobSegment) {
+        match segment {
+            ZshGlobSegment::Pattern(pattern) => self.push_pattern_syntax(out, pattern),
+            ZshGlobSegment::InlineControl(control) => match control {
+                ZshInlineGlobControl::CaseInsensitive { .. } => out.push_str("(#i)"),
+                ZshInlineGlobControl::Backreferences { .. } => out.push_str("(#b)"),
+            },
+        }
     }
 
     fn push_var_ref_syntax(&self, out: &mut String, reference: &VarRef) {
@@ -9211,9 +9467,16 @@ impl<'a> Parser<'a> {
                     }
 
                     if let Some(word) = self.current_word() {
+                        self.advance_past_word(&word);
                         words.push(word);
                     }
-                    self.advance();
+                }
+                Some(TokenKind::LeftParen) if !words.is_empty() => {
+                    let Some(word) = self.current_word() else {
+                        break;
+                    };
+                    self.advance_past_word(&word);
+                    words.push(word);
                 }
                 Some(kind) if Self::is_redirect_kind(kind) => {
                     if matches!(kind, TokenKind::HereDoc | TokenKind::HereDocStrip) {
@@ -9319,13 +9582,6 @@ impl<'a> Parser<'a> {
     /// Expect a word token and return it as a Word
     fn expect_word(&mut self) -> Result<Word> {
         match self.current_token_kind {
-            Some(kind) if kind.is_word_like() => {
-                let word = self
-                    .current_word()
-                    .ok_or_else(|| self.error("expected word"))?;
-                self.advance();
-                Ok(word)
-            }
             Some(TokenKind::ProcessSubIn) | Some(TokenKind::ProcessSubOut) => {
                 // Process substitution <(cmd) or >(cmd)
                 let is_input = self.at(TokenKind::ProcessSubIn);
@@ -9370,7 +9626,13 @@ impl<'a> Parser<'a> {
                     process_span.merge(close_span),
                 ))
             }
-            _ => Err(self.error("expected word")),
+            _ => {
+                let word = self
+                    .current_word()
+                    .ok_or_else(|| self.error("expected word"))?;
+                self.advance_past_word(&word);
+                Ok(word)
+            }
         }
     }
 
@@ -11069,6 +11331,19 @@ mod tests {
             panic!("expected qualified glob part, got {:?}", part.kind);
         };
         glob
+    }
+
+    fn expect_zsh_glob_qualifiers(glob: &ZshQualifiedGlob) -> &ZshGlobQualifierGroup {
+        glob.qualifiers
+            .as_ref()
+            .expect("expected zsh glob qualifiers")
+    }
+
+    fn expect_zsh_glob_pattern_segment(segment: &ZshGlobSegment) -> &Pattern {
+        let ZshGlobSegment::Pattern(pattern) = segment else {
+            panic!("expected pattern segment");
+        };
+        pattern
     }
 
     fn expect_array_length_part(part: &WordPart) -> &VarRef {
@@ -15021,13 +15296,21 @@ EOF
             panic!("expected simple command");
         };
         let glob = expect_zsh_qualified_glob(&command.args[0]);
+        let qualifiers = expect_zsh_glob_qualifiers(glob);
+        let [segment] = glob.segments.as_slice() else {
+            panic!("expected a single pattern segment");
+        };
 
         assert_eq!(glob.span.slice(source), "*(.)");
         assert_eq!(command.args[0].span.slice(source), "*(.)");
-        assert_eq!(glob.pattern.render_syntax(source), "*");
-        assert_eq!(glob.qualifiers.span.slice(source), "(.)");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "*"
+        );
+        assert_eq!(qualifiers.kind, ZshGlobQualifierKind::Classic);
+        assert_eq!(qualifiers.span.slice(source), "(.)");
         assert!(matches!(
-            glob.qualifiers.fragments.as_slice(),
+            qualifiers.fragments.as_slice(),
             [ZshGlobQualifier::Flag { name: '.', span }] if span.slice(source) == "."
         ));
     }
@@ -15042,12 +15325,20 @@ EOF
             panic!("expected simple command");
         };
         let glob = expect_zsh_qualified_glob(&command.args[0]);
+        let qualifiers = expect_zsh_glob_qualifiers(glob);
+        let [segment] = glob.segments.as_slice() else {
+            panic!("expected a single pattern segment");
+        };
 
         assert_eq!(glob.span.slice(source), "*(/)");
-        assert_eq!(glob.pattern.render_syntax(source), "*");
-        assert_eq!(glob.qualifiers.span.slice(source), "(/)");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "*"
+        );
+        assert_eq!(qualifiers.kind, ZshGlobQualifierKind::Classic);
+        assert_eq!(qualifiers.span.slice(source), "(/)");
         assert!(matches!(
-            glob.qualifiers.fragments.as_slice(),
+            qualifiers.fragments.as_slice(),
             [ZshGlobQualifier::Flag { name: '/', span }] if span.slice(source) == "/"
         ));
     }
@@ -15062,12 +15353,20 @@ EOF
             panic!("expected simple command");
         };
         let glob = expect_zsh_qualified_glob(&command.args[0]);
+        let qualifiers = expect_zsh_glob_qualifiers(glob);
+        let [segment] = glob.segments.as_slice() else {
+            panic!("expected a single pattern segment");
+        };
 
         assert_eq!(glob.span.slice(source), "*(N)");
-        assert_eq!(glob.pattern.render_syntax(source), "*");
-        assert_eq!(glob.qualifiers.span.slice(source), "(N)");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "*"
+        );
+        assert_eq!(qualifiers.kind, ZshGlobQualifierKind::Classic);
+        assert_eq!(qualifiers.span.slice(source), "(N)");
         assert!(matches!(
-            glob.qualifiers.fragments.as_slice(),
+            qualifiers.fragments.as_slice(),
             [ZshGlobQualifier::Flag { name: 'N', span }] if span.slice(source) == "N"
         ));
     }
@@ -15082,10 +15381,18 @@ EOF
             panic!("expected simple command");
         };
         let glob = expect_zsh_qualified_glob(&command.args[0]);
+        let qualifiers = expect_zsh_glob_qualifiers(glob);
+        let [segment] = glob.segments.as_slice() else {
+            panic!("expected a single pattern segment");
+        };
 
         assert_eq!(glob.span.slice(source), "**/*(.om[1,3])");
-        assert_eq!(glob.pattern.render_syntax(source), "**/*");
-        assert_eq!(glob.qualifiers.span.slice(source), "(.om[1,3])");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "**/*"
+        );
+        assert_eq!(qualifiers.kind, ZshGlobQualifierKind::Classic);
+        assert_eq!(qualifiers.span.slice(source), "(.om[1,3])");
 
         let [
             ZshGlobQualifier::Flag {
@@ -15101,7 +15408,7 @@ EOF
                 start,
                 end: Some(end),
             },
-        ] = glob.qualifiers.fragments.as_slice()
+        ] = qualifiers.fragments.as_slice()
         else {
             panic!("expected dot, letter sequence, and numeric range qualifiers");
         };
@@ -15124,10 +15431,18 @@ EOF
             panic!("expected simple command");
         };
         let glob = expect_zsh_qualified_glob(&command.args[0]);
+        let qualifiers = expect_zsh_glob_qualifiers(glob);
+        let [segment] = glob.segments.as_slice() else {
+            panic!("expected a single pattern segment");
+        };
 
         assert_eq!(glob.span.slice(source), "foo*(^-)");
-        assert_eq!(glob.pattern.render_syntax(source), "foo*");
-        assert_eq!(glob.qualifiers.span.slice(source), "(^-)");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "foo*"
+        );
+        assert_eq!(qualifiers.kind, ZshGlobQualifierKind::Classic);
+        assert_eq!(qualifiers.span.slice(source), "(^-)");
         let [
             ZshGlobQualifier::Negation {
                 span: negation_span,
@@ -15136,7 +15451,7 @@ EOF
                 name: '-',
                 span: flag_span,
             },
-        ] = glob.qualifiers.fragments.as_slice()
+        ] = qualifiers.fragments.as_slice()
         else {
             panic!("expected negation and dash flag qualifiers");
         };
@@ -15145,8 +15460,142 @@ EOF
     }
 
     #[test]
-    fn test_zsh_trailing_glob_qualifier_falls_back_for_out_of_scope_group() {
-        let source = "print *(#q.)\n";
+    fn test_zsh_inline_glob_case_insensitive_control_preserves_segments() {
+        let source = "print (#i)*.jpg\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+        let glob = expect_zsh_qualified_glob(&command.args[0]);
+
+        let [control, segment] = glob.segments.as_slice() else {
+            panic!("expected inline control followed by pattern segment");
+        };
+        let ZshGlobSegment::InlineControl(ZshInlineGlobControl::CaseInsensitive { span }) = control
+        else {
+            panic!("expected case-insensitive inline control");
+        };
+
+        assert_eq!(glob.span.slice(source), "(#i)*.jpg");
+        assert_eq!(span.slice(source), "(#i)");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "*.jpg"
+        );
+        assert!(glob.qualifiers.is_none());
+    }
+
+    #[test]
+    fn test_zsh_inline_glob_backreference_control_preserves_segments() {
+        let source = "print (#b)(*)\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+        let glob = expect_zsh_qualified_glob(&command.args[0]);
+
+        let [control, segment] = glob.segments.as_slice() else {
+            panic!("expected inline control followed by pattern segment");
+        };
+        let ZshGlobSegment::InlineControl(ZshInlineGlobControl::Backreferences { span }) = control
+        else {
+            panic!("expected backreference inline control");
+        };
+
+        assert_eq!(glob.span.slice(source), "(#b)(*)");
+        assert_eq!(span.slice(source), "(#b)");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "(*)"
+        );
+        assert!(glob.qualifiers.is_none());
+    }
+
+    #[test]
+    fn test_zsh_hash_q_glob_qualifier_parses_terminal_flag_group() {
+        let source = "print *.log(#qN)\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+        let glob = expect_zsh_qualified_glob(&command.args[0]);
+        let qualifiers = expect_zsh_glob_qualifiers(glob);
+        let [segment] = glob.segments.as_slice() else {
+            panic!("expected a single pattern segment");
+        };
+
+        assert_eq!(glob.span.slice(source), "*.log(#qN)");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "*.log"
+        );
+        assert_eq!(qualifiers.kind, ZshGlobQualifierKind::HashQ);
+        assert_eq!(qualifiers.span.slice(source), "(#qN)");
+        assert!(matches!(
+            qualifiers.fragments.as_slice(),
+            [ZshGlobQualifier::Flag { name: 'N', span }] if span.slice(source) == "N"
+        ));
+    }
+
+    #[test]
+    fn test_zsh_hash_q_glob_qualifier_parses_recursive_pattern_with_letter_sequence_and_range() {
+        let source = "print **/*(#q.om[1,3])\n";
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+        let glob = expect_zsh_qualified_glob(&command.args[0]);
+        let qualifiers = expect_zsh_glob_qualifiers(glob);
+        let [segment] = glob.segments.as_slice() else {
+            panic!("expected a single pattern segment");
+        };
+
+        assert_eq!(glob.span.slice(source), "**/*(#q.om[1,3])");
+        assert_eq!(
+            expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+            "**/*"
+        );
+        assert_eq!(qualifiers.kind, ZshGlobQualifierKind::HashQ);
+        assert_eq!(qualifiers.span.slice(source), "(#q.om[1,3])");
+
+        let [
+            ZshGlobQualifier::Flag {
+                name: '.',
+                span: dot_span,
+            },
+            ZshGlobQualifier::LetterSequence {
+                text,
+                span: letters_span,
+            },
+            ZshGlobQualifier::NumericArgument {
+                span: range_span,
+                start,
+                end: Some(end),
+            },
+        ] = qualifiers.fragments.as_slice()
+        else {
+            panic!("expected dot, letter sequence, and numeric range qualifiers");
+        };
+
+        assert_eq!(dot_span.slice(source), ".");
+        assert_eq!(letters_span.slice(source), "om");
+        assert_eq!(text.slice(source), "om");
+        assert_eq!(range_span.slice(source), "[1,3]");
+        assert_eq!(start.slice(source), "1");
+        assert_eq!(end.slice(source), "3");
+    }
+
+    #[test]
+    fn test_zsh_glob_falls_back_for_unsupported_hash_control_group() {
+        let source = "print *(#a)\n";
         let output = Parser::with_dialect(source, ShellDialect::Zsh)
             .parse()
             .unwrap();
@@ -15154,7 +15603,7 @@ EOF
             panic!("expected simple command");
         };
 
-        assert_eq!(command.args[0].span.slice(source), "*(#q.)");
+        assert_eq!(command.args[0].span.slice(source), "*(#a)");
         assert!(!matches!(
             command.args[0].parts.as_slice(),
             [WordPartNode {
@@ -15166,7 +15615,17 @@ EOF
 
     #[test]
     fn test_non_zsh_dialects_do_not_special_case_trailing_glob_qualifiers() {
-        for syntax in ["*(.)", "*(/)", "*(N)", "**/*(.om[1,3])", "foo*(^-)"] {
+        for syntax in [
+            "*(.)",
+            "*(/)",
+            "*(N)",
+            "**/*(.om[1,3])",
+            "foo*(^-)",
+            "(#i)*.jpg",
+            "(#b)(*)",
+            "*.log(#qN)",
+            "**/*(#q.om[1,3])",
+        ] {
             let source = format!("print {syntax}\n");
 
             for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {

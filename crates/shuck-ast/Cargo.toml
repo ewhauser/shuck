@@ -7,9 +7,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description.workspace = true
-keywords.workspace = true
-categories.workspace = true
+description = "AST types for parsed shell scripts"
+keywords = ["shell", "bash", "ast", "parser"]
+categories = ["parsing", "development-tools"]
 readme = "../../README.md"
 
 [dependencies]

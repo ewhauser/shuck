@@ -7,7 +7,7 @@ use shuck_ast::{
     BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
     DeclOperand, File, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, Pattern,
     PatternPart, PatternPartNode, Redirect, SourceText, Span, Stmt, StmtSeq, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
+    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -399,7 +399,11 @@ fn walk_word_parts(
     for part in parts {
         match &part.kind {
             WordPart::ZshQualifiedGlob(glob) => {
-                walk_pattern(&glob.pattern, model, source, facts);
+                for segment in &glob.segments {
+                    if let ZshGlobSegment::Pattern(pattern) = segment {
+                        walk_pattern(pattern, model, source, facts);
+                    }
+                }
             }
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, model, source, facts),

@@ -2,7 +2,7 @@ use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
     ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, Pattern, PatternPart,
     PatternPartNode, Redirect, RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize, VarRef,
-    Word, WordPart, WordPartNode,
+    Word, WordPart, WordPartNode, ZshGlobSegment,
 };
 use shuck_parser::parser::Parser;
 
@@ -474,7 +474,13 @@ impl<'a> RegionCollector<'a> {
         for part in parts {
             let range = part.span.to_range();
             match &part.kind {
-                WordPart::ZshQualifiedGlob(glob) => self.visit_pattern(&glob.pattern),
+                WordPart::ZshQualifiedGlob(glob) => {
+                    for segment in &glob.segments {
+                        if let ZshGlobSegment::Pattern(pattern) = segment {
+                            self.visit_pattern(pattern);
+                        }
+                    }
+                }
                 WordPart::SingleQuoted { .. } => {
                     push_range(&mut self.single_quoted, range);
                 }

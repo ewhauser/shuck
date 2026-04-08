@@ -7,9 +7,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description.workspace = true
-keywords.workspace = true
-categories.workspace = true
+description = "A fast, safe bash parser library"
+keywords = ["shell", "bash", "parser", "lexer"]
+categories = ["parsing", "development-tools"]
 readme = "../../README.md"
 
 [dependencies]

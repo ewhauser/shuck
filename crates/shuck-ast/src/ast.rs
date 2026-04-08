@@ -1284,18 +1284,41 @@ pub enum ZshReplacementOp {
     ReplaceSuffix,
 }
 
-/// A zsh glob word with one trailing classic qualifier group.
+/// A zsh glob word with ordered pattern/control segments and an optional
+/// terminal qualifier suffix.
 #[derive(Debug, Clone)]
 pub struct ZshQualifiedGlob {
     pub span: Span,
-    pub pattern: Pattern,
-    pub qualifiers: ZshGlobQualifierGroup,
+    pub segments: Vec<ZshGlobSegment>,
+    pub qualifiers: Option<ZshGlobQualifierGroup>,
 }
 
-/// One trailing `(...)` qualifier suffix for a zsh glob word.
+/// Ordered surface-preserving segments inside a zsh glob word.
+#[derive(Debug, Clone)]
+pub enum ZshGlobSegment {
+    Pattern(Pattern),
+    InlineControl(ZshInlineGlobControl),
+}
+
+/// Supported inline zsh glob control groups for this parser pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZshInlineGlobControl {
+    CaseInsensitive { span: Span },
+    Backreferences { span: Span },
+}
+
+/// Surface form for a terminal zsh glob qualifier suffix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZshGlobQualifierKind {
+    Classic,
+    HashQ,
+}
+
+/// One terminal zsh qualifier suffix for a glob word.
 #[derive(Debug, Clone)]
 pub struct ZshGlobQualifierGroup {
     pub span: Span,
+    pub kind: ZshGlobQualifierKind,
     pub fragments: Vec<ZshGlobQualifier>,
 }
 
@@ -1987,9 +2010,12 @@ fn fmt_word_part_with_source_mode(
             {
                 f.write_str(trim_unescaped_trailing_whitespace(glob.span.slice(source)))?;
             } else {
-                glob.pattern
-                    .fmt_with_source_mode(f, source, RenderMode::Syntax)?;
-                fmt_zsh_glob_qualifier_group_with_source(f, &glob.qualifiers, source)?;
+                for segment in &glob.segments {
+                    fmt_zsh_glob_segment_with_source(f, segment, source)?;
+                }
+                if let Some(qualifiers) = &glob.qualifiers {
+                    fmt_zsh_glob_qualifier_group_with_source(f, qualifiers, source)?;
+                }
             }
         }
         WordPart::SingleQuoted { value, dollar } => match mode {
@@ -2399,7 +2425,48 @@ fn pattern_part_is_source_backed(part: &PatternPart) -> bool {
 }
 
 fn zsh_qualified_glob_is_source_backed(glob: &ZshQualifiedGlob) -> bool {
-    glob.pattern.is_source_backed() && zsh_glob_qualifier_group_is_source_backed(&glob.qualifiers)
+    glob.segments.iter().all(zsh_glob_segment_is_source_backed)
+        && glob
+            .qualifiers
+            .as_ref()
+            .is_none_or(zsh_glob_qualifier_group_is_source_backed)
+}
+
+fn zsh_glob_segment_is_source_backed(segment: &ZshGlobSegment) -> bool {
+    match segment {
+        ZshGlobSegment::Pattern(pattern) => pattern.is_source_backed(),
+        ZshGlobSegment::InlineControl(control) => zsh_inline_glob_control_is_source_backed(control),
+    }
+}
+
+fn zsh_inline_glob_control_is_source_backed(_control: &ZshInlineGlobControl) -> bool {
+    true
+}
+
+fn fmt_zsh_glob_segment_with_source(
+    f: &mut impl fmt::Write,
+    segment: &ZshGlobSegment,
+    source: Option<&str>,
+) -> fmt::Result {
+    match segment {
+        ZshGlobSegment::Pattern(pattern) => {
+            pattern.fmt_with_source_mode(f, source, RenderMode::Syntax)
+        }
+        ZshGlobSegment::InlineControl(control) => {
+            fmt_zsh_inline_glob_control_with_source(f, control, source)
+        }
+    }
+}
+
+fn fmt_zsh_inline_glob_control_with_source(
+    f: &mut impl fmt::Write,
+    control: &ZshInlineGlobControl,
+    _source: Option<&str>,
+) -> fmt::Result {
+    match control {
+        ZshInlineGlobControl::CaseInsensitive { .. } => f.write_str("(#i)"),
+        ZshInlineGlobControl::Backreferences { .. } => f.write_str("(#b)"),
+    }
 }
 
 fn zsh_glob_qualifier_group_is_source_backed(group: &ZshGlobQualifierGroup) -> bool {
@@ -2424,7 +2491,10 @@ fn fmt_zsh_glob_qualifier_group_with_source(
     group: &ZshGlobQualifierGroup,
     source: Option<&str>,
 ) -> fmt::Result {
-    f.write_str("(")?;
+    match group.kind {
+        ZshGlobQualifierKind::Classic => f.write_str("(")?,
+        ZshGlobQualifierKind::HashQ => f.write_str("(#q")?,
+    }
     for fragment in &group.fragments {
         match fragment {
             ZshGlobQualifier::Negation { .. } => f.write_str("^")?,

@@ -6,6 +6,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Benchmark fixtures and harnesses for shuck"
+keywords = ["benchmark"]
+categories = ["development-tools::profiling"]
 publish = false
 
 [dependencies]

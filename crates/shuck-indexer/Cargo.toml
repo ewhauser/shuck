@@ -6,6 +6,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Positional and structural indexes over parsed shell scripts"
+keywords = ["shell", "bash", "indexer", "static-analysis"]
+categories = ["parsing", "development-tools"]
 
 [dependencies]
 shuck-ast = { path = "../shuck-ast" }

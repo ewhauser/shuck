@@ -693,6 +693,7 @@ mod tests {
         let source = "\
 print ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}
 print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}} ${(m)foo:^other}
+print (#i)*.jpg (#b)(*) *.log(#qN) **/*(#q.om[1,3])
 if [[ -n $foo ]] { print foo; } else { print bar; }
 { print body; } always { print cleanup; }
 print quiet &|

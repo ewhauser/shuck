@@ -1108,12 +1108,13 @@ fn rewrite_word_part_source_texts(
     match &mut part.kind {
         WordPart::Literal(_) | WordPart::Variable(_) => 0,
         WordPart::ZshQualifiedGlob(glob) => {
-            rewrite_pattern_source_texts(&mut glob.pattern, source, visitor)
-                + rewrite_zsh_glob_qualifier_group_source_texts(
-                    &mut glob.qualifiers,
-                    source,
-                    visitor,
-                )
+            glob.segments
+                .iter_mut()
+                .map(|segment| rewrite_zsh_glob_segment_source_texts(segment, source, visitor))
+                .sum::<usize>()
+                + glob.qualifiers.as_mut().map_or(0, |group| {
+                    rewrite_zsh_glob_qualifier_group_source_texts(group, source, visitor)
+                })
         }
         WordPart::SingleQuoted { value, .. } => visitor(value, source),
         WordPart::DoubleQuoted { parts, .. } => parts
@@ -1171,6 +1172,19 @@ fn rewrite_word_part_source_texts(
                 })
         }
         WordPart::PrefixMatch { .. } => 0,
+    }
+}
+
+fn rewrite_zsh_glob_segment_source_texts(
+    segment: &mut shuck_ast::ZshGlobSegment,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    match segment {
+        shuck_ast::ZshGlobSegment::Pattern(pattern) => {
+            rewrite_pattern_source_texts(pattern, source, visitor)
+        }
+        shuck_ast::ZshGlobSegment::InlineControl(_) => 0,
     }
 }
 

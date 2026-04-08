@@ -1101,6 +1101,18 @@ mod tests {
     }
 
     #[test]
+    fn analyze_word_treats_zsh_inline_glob_controls_as_non_literal_pathname_hazards() {
+        let analyses = analyze_argument_words_with_dialect("print (#i)*.jpg\n", ShellDialect::Zsh);
+
+        assert_eq!(analyses[0].literalness, WordLiteralness::Expanded);
+        assert!(!analyses[0].is_fixed_literal());
+        assert_eq!(analyses[0].value_shape, ExpansionValueShape::Unknown);
+        assert!(analyses[0].hazards.pathname_matching);
+        assert!(analyses[0].can_expand_to_multiple_fields);
+        assert!(!analyses[0].array_valued);
+    }
+
+    #[test]
     fn analyze_redirect_target_distinguishes_descriptor_dups_and_dev_null() {
         let static_dup_source = "echo hi 2>&3\n";
         let static_dup_file = Parser::new(static_dup_source).parse().unwrap().file;
