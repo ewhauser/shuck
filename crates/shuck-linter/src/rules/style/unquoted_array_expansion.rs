@@ -13,14 +13,18 @@ impl Violation for UnquotedArrayExpansion {
 }
 
 pub fn unquoted_array_expansion(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .expansion_word_facts(ExpansionContext::CommandArgument)
-        .filter(|fact| {
-            fact.analysis().array_valued && fact.analysis().can_expand_to_multiple_fields
-        })
-        .flat_map(|fact| fact.unquoted_array_expansion_spans().iter().copied())
-        .collect::<Vec<_>>();
+    let spans = [
+        ExpansionContext::CommandArgument,
+        ExpansionContext::ForList,
+        ExpansionContext::SelectList,
+    ]
+    .into_iter()
+    .flat_map(|context| checker.facts().expansion_word_facts(context))
+    .filter(|fact| {
+        fact.analysis().array_valued && fact.analysis().can_expand_to_multiple_fields
+    })
+    .flat_map(|fact| fact.unquoted_array_expansion_spans().iter().copied())
+    .collect::<Vec<_>>();
 
     for span in spans {
         checker.report_dedup(UnquotedArrayExpansion, span);
@@ -80,5 +84,31 @@ printf '%s\\n' \"${names[*]}\" \"${arr[0]}\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_for_and_select_list_array_expansions() {
+        let source = "\
+#!/bin/bash
+arr=(a b)
+for item in ${arr[@]}; do
+  :
+done
+select item in ${arr[@]}; do
+  break
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]}", "${arr[@]}"]
+        );
     }
 }
