@@ -118,8 +118,8 @@ pub struct SemanticModel {
     source_refs: Vec<SourceRef>,
     runtime: RuntimePrelude,
     declarations: Vec<Declaration>,
-    indirect_targets_by_binding: Vec<Vec<BindingId>>,
-    indirect_targets_by_reference: Vec<Vec<BindingId>>,
+    indirect_targets_by_binding: FxHashMap<BindingId, Vec<BindingId>>,
+    indirect_targets_by_reference: FxHashMap<ReferenceId, Vec<BindingId>>,
     synthetic_reads: Vec<SyntheticRead>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_program: RecordedProgram,
@@ -206,14 +206,14 @@ impl SemanticModel {
 
     pub fn indirect_targets_for_binding(&self, id: BindingId) -> &[BindingId] {
         self.indirect_targets_by_binding
-            .get(id.index())
+            .get(&id)
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
 
     pub fn indirect_targets_for_reference(&self, id: ReferenceId) -> &[BindingId] {
         self.indirect_targets_by_reference
-            .get(id.index())
+            .get(&id)
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
@@ -292,10 +292,7 @@ impl SemanticModel {
         }
 
         if !self.synthetic_reads.is_empty()
-            || self
-                .indirect_targets_by_reference
-                .iter()
-                .any(|targets| !targets.is_empty())
+            || !self.indirect_targets_by_reference.is_empty()
         {
             return true;
         }
@@ -600,15 +597,17 @@ fn contains_span(outer: Span, inner: Span) -> bool {
 fn build_indirect_targets_by_binding(
     bindings: &[Binding],
     indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
-) -> Vec<Vec<BindingId>> {
-    let mut targets_by_binding = vec![Vec::new(); bindings.len()];
+) -> FxHashMap<BindingId, Vec<BindingId>> {
+    let mut targets_by_binding = FxHashMap::default();
     for (binding_id, hint) in indirect_target_hints {
-        let targets = bindings
+        let targets: Vec<_> = bindings
             .iter()
             .filter(|binding| indirect_target_matches(hint, binding))
             .map(|binding| binding.id)
-            .collect::<Vec<_>>();
-        targets_by_binding[binding_id.index()] = targets;
+            .collect();
+        if !targets.is_empty() {
+            targets_by_binding.insert(*binding_id, targets);
+        }
     }
     targets_by_binding
 }
@@ -617,9 +616,9 @@ fn build_indirect_targets_by_reference(
     references: &[Reference],
     resolved: &FxHashMap<ReferenceId, BindingId>,
     indirect_expansion_refs: &FxHashSet<ReferenceId>,
-    indirect_targets_by_binding: &[Vec<BindingId>],
-) -> Vec<Vec<BindingId>> {
-    let mut targets_by_reference = vec![Vec::new(); references.len()];
+    indirect_targets_by_binding: &FxHashMap<BindingId, Vec<BindingId>>,
+) -> FxHashMap<ReferenceId, Vec<BindingId>> {
+    let mut targets_by_reference = FxHashMap::default();
     for reference in references {
         if !indirect_expansion_refs.contains(&reference.id) {
             continue;
@@ -627,8 +626,9 @@ fn build_indirect_targets_by_reference(
         let Some(binding_id) = resolved.get(&reference.id).copied() else {
             continue;
         };
-        targets_by_reference[reference.id.index()] =
-            indirect_targets_by_binding[binding_id.index()].clone();
+        if let Some(targets) = indirect_targets_by_binding.get(&binding_id) {
+            targets_by_reference.insert(reference.id, targets.clone());
+        }
     }
     targets_by_reference
 }

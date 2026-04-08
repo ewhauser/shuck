@@ -68,7 +68,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) predefined_runtime_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, Vec<CallSite>>,
-    pub(crate) indirect_targets_by_reference: &'a [Vec<BindingId>],
+    pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
     pub(crate) synthetic_reads: &'a [SyntheticRead],
 }
 
@@ -166,7 +166,7 @@ fn analyze_uninitialized_references_dense(
     references: &[Reference],
     predefined_runtime_refs: &FxHashSet<ReferenceId>,
     resolved: &FxHashMap<ReferenceId, BindingId>,
-    indirect_targets_by_reference: &[Vec<BindingId>],
+    indirect_targets_by_reference: &FxHashMap<ReferenceId, Vec<BindingId>>,
     names: &NameTable,
     binding_data: &DenseBindingData,
     reaching_definitions: &DenseReachingDefinitions,
@@ -212,7 +212,7 @@ fn analyze_uninitialized_references_dense(
         }
         if matches!(reference.kind, ReferenceKind::IndirectExpansion)
             && (resolved.contains_key(&reference.id)
-                || !indirect_targets_by_reference[reference.id.index()].is_empty())
+                || indirect_targets_by_reference.contains_key(&reference.id))
         {
             continue;
         }
@@ -427,7 +427,7 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
 
         if let Some(candidates) = context
             .indirect_targets_by_reference
-            .get(reference.id.index())
+            .get(&reference.id)
             && !candidates.is_empty()
         {
             mark_reaching_candidate_bindings_used(&mut used_bindings, incoming, candidates);
