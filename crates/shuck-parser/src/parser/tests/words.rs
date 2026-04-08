@@ -133,12 +133,12 @@ fn test_function_keyword_without_parens_preserves_surface_form() {
     assert!(!function.has_name_parens());
     assert_eq!(
         function
-            .surface
+            .header
             .function_keyword_span
             .map(|span| span.slice(input)),
         Some("function")
     );
-    assert_eq!(function.surface.name_parens_span, None);
+    assert_eq!(function.header.trailing_parens_span, None);
     assert!(redirects.is_empty());
     assert_eq!(body.len(), 1);
 }
@@ -155,15 +155,15 @@ fn test_function_keyword_with_parens_preserves_surface_form() {
     assert!(function.has_name_parens());
     assert_eq!(
         function
-            .surface
+            .header
             .function_keyword_span
             .map(|span| span.slice(input)),
         Some("function")
     );
     assert_eq!(
         function
-            .surface
-            .name_parens_span
+            .header
+            .trailing_parens_span
             .map(|span| span.slice(input)),
         Some("()")
     );

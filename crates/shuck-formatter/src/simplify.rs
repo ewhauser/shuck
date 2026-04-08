@@ -209,6 +209,7 @@ fn walk_stmt(
         }
         Command::Compound(compound) => walk_compound(compound, source, visitor),
         Command::Function(function) => walk_function(function, source, visitor),
+        Command::AnonymousFunction(function) => walk_anonymous_function(function, source, visitor),
     };
     for redirect in &mut stmt.redirects {
         changes += walk_redirect(redirect, source, &mut |_| 0);
@@ -297,7 +298,23 @@ fn walk_function(
     source: &str,
     visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
 ) -> usize {
-    walk_stmt(function.body.as_mut(), source, visitor)
+    let mut count = 0;
+    for entry in &mut function.header.entries {
+        count += walk_word(&mut entry.word, source, &mut |_| 0);
+    }
+    count + walk_stmt(function.body.as_mut(), source, visitor)
+}
+
+fn walk_anonymous_function(
+    function: &mut shuck_ast::AnonymousFunctionCommand,
+    source: &str,
+    visitor: &mut impl FnMut(&mut Stmt, &str) -> usize,
+) -> usize {
+    let mut count = walk_stmt(function.body.as_mut(), source, visitor);
+    for argument in &mut function.args {
+        count += walk_word(argument, source, &mut |_| 0);
+    }
+    count
 }
 
 fn walk_compound(
@@ -473,7 +490,20 @@ fn rewrite_stmt_words(
                 + rewrite_stmt_words(&mut command.right, source, visitor)
         }
         Command::Compound(compound) => rewrite_compound_words(compound, source, visitor),
-        Command::Function(function) => rewrite_stmt_words(function.body.as_mut(), source, visitor),
+        Command::Function(function) => {
+            let mut count = 0;
+            for entry in &mut function.header.entries {
+                count += walk_word(&mut entry.word, source, &mut |word| visitor(word, source));
+            }
+            count + rewrite_stmt_words(function.body.as_mut(), source, visitor)
+        }
+        Command::AnonymousFunction(function) => {
+            let mut count = rewrite_stmt_words(function.body.as_mut(), source, visitor);
+            for argument in &mut function.args {
+                count += walk_word(argument, source, &mut |word| visitor(word, source));
+            }
+            count
+        }
     };
     for redirect in &mut stmt.redirects {
         count += rewrite_redirect_words(redirect, source, visitor);
@@ -834,7 +864,18 @@ fn rewrite_stmt_source_texts(
         }
         Command::Compound(compound) => rewrite_compound_source_texts(compound, source, visitor),
         Command::Function(function) => {
-            rewrite_stmt_source_texts(function.body.as_mut(), source, visitor)
+            let mut count = 0;
+            for entry in &mut function.header.entries {
+                count += rewrite_word_source_texts(&mut entry.word, source, visitor);
+            }
+            count + rewrite_stmt_source_texts(function.body.as_mut(), source, visitor)
+        }
+        Command::AnonymousFunction(function) => {
+            let mut count = rewrite_stmt_source_texts(function.body.as_mut(), source, visitor);
+            for argument in &mut function.args {
+                count += rewrite_word_source_texts(argument, source, visitor);
+            }
+            count
         }
     };
     for redirect in &mut stmt.redirects {

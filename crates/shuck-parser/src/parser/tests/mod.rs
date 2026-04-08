@@ -1,8 +1,8 @@
 use super::*;
 use shuck_ast::{
-    ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp,
-    BackgroundOperator, BinaryCommand, BourneParameterExpansion,
-    BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
+    AnonymousFunctionCommand as AstAnonymousFunctionCommand, ArithmeticAssignOp,
+    ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp, BackgroundOperator, BinaryCommand,
+    BourneParameterExpansion, BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
     CompoundCommand as AstCompoundCommand, ForeachSyntax, FunctionDef as AstFunctionDef, IfSyntax,
     Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind, RepeatSyntax,
     SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator, ZshDefaultingOp,
@@ -75,6 +75,7 @@ fn collect_command_comments(command: &AstCommand, comments: &mut Vec<Comment>) {
         }
         AstCommand::Compound(command) => collect_compound_comments(command, comments),
         AstCommand::Function(function) => collect_stmt_comments(&function.body, comments),
+        AstCommand::AnonymousFunction(function) => collect_stmt_comments(&function.body, comments),
         AstCommand::Simple(_) | AstCommand::Builtin(_) | AstCommand::Decl(_) => {}
     }
 }
@@ -168,6 +169,13 @@ fn assert_comment_ranges_valid(source: &str, output: &ParseOutput) {
 fn expect_function(stmt: &Stmt) -> &AstFunctionDef {
     let AstCommand::Function(function) = &stmt.command else {
         panic!("expected function definition");
+    };
+    function
+}
+
+fn expect_anonymous_function(stmt: &Stmt) -> &AstAnonymousFunctionCommand {
+    let AstCommand::AnonymousFunction(function) = &stmt.command else {
+        panic!("expected anonymous function");
     };
     function
 }

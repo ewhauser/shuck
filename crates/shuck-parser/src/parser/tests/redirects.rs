@@ -182,7 +182,7 @@ coproc worker { true; }
     let AstCommand::Function(function) = &script.body[0].command else {
         panic!("expected function definition");
     };
-    assert_eq!(function.name_span.slice(input), "my_fn");
+    assert_eq!(function.header.entries[0].word.span.slice(input), "my_fn");
 
     let (compound, _) = expect_compound(&script.body[1]);
     let AstCompoundCommand::For(command) = compound else {

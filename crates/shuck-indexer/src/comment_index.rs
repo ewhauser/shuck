@@ -189,7 +189,18 @@ fn collect_command_comments(command: &Command, comments: &mut Vec<Comment>) {
             collect_stmt_comments(&command.right, comments);
         }
         Command::Compound(command) => collect_compound_comments(command, comments),
-        Command::Function(function) => collect_stmt_comments(&function.body, comments),
+        Command::Function(function) => {
+            for entry in &function.header.entries {
+                collect_word_comments(&entry.word, comments);
+            }
+            collect_stmt_comments(&function.body, comments);
+        }
+        Command::AnonymousFunction(function) => {
+            collect_stmt_comments(&function.body, comments);
+            for argument in &function.args {
+                collect_word_comments(argument, comments);
+            }
+        }
     }
 }
 

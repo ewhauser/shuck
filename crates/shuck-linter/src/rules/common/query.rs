@@ -67,7 +67,10 @@ pub(crate) fn command_assignments(command: &Command) -> &[Assignment] {
         Command::Simple(command) => &command.assignments,
         Command::Builtin(command) => builtin_assignments(command),
         Command::Decl(command) => &command.assignments,
-        Command::Binary(_) | Command::Compound(_) | Command::Function(_) => &[],
+        Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => &[],
     }
 }
 
@@ -78,7 +81,8 @@ pub(crate) fn declaration_operands(command: &Command) -> &[DeclOperand] {
         | Command::Builtin(_)
         | Command::Binary(_)
         | Command::Compound(_)
-        | Command::Function(_) => &[],
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => &[],
     }
 }
 
@@ -249,8 +253,15 @@ fn collect_command_visit<'a>(
         Command::Compound(command) => {
             collect_compound_visits(command, options, context, visits);
         }
-        Command::Function(FunctionDef { body, .. }) => {
+        Command::Function(FunctionDef { header, body, .. }) => {
+            for entry in &header.entries {
+                collect_word_visits(&entry.word, options, context, visits);
+            }
             collect_command_visit(body, options, context, visits);
+        }
+        Command::AnonymousFunction(function) => {
+            collect_word_slice_visits(&function.args, options, context, visits);
+            collect_command_visit(&function.body, options, context, visits);
         }
     }
 

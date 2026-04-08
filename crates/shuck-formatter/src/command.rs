@@ -1,11 +1,11 @@
 use shuck_ast::{
-    AlwaysCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem, Assignment, AssignmentValue,
-    BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem,
-    CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr, ConditionalCommand,
-    ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand, DeclClause,
-    DeclOperand, ForCommand, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax,
-    Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, SourceText,
-    Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
+    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticForCommand, ArrayElem,
+    Assignment, AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BuiltinCommand,
+    CaseCommand, CaseItem, CaseTerminator, Command, CompoundCommand, ConditionalBinaryExpr,
+    ConditionalCommand, ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, CoprocCommand,
+    DeclClause, DeclOperand, ForCommand, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand,
+    IfSyntax, Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand,
+    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
     WhileCommand,
 };
 use shuck_format::{
@@ -83,6 +83,7 @@ impl FormatNodeRule<Command> for FormatCommand {
             Command::Binary(command) => format_binary_command(command, formatter),
             Command::Compound(compound) => compound.format().fmt(formatter),
             Command::Function(function) => format_function(function, formatter),
+            Command::AnonymousFunction(function) => format_anonymous_function(function, formatter),
         }
     }
 }
@@ -1079,13 +1080,107 @@ fn format_function(
     function: &FunctionDef,
     formatter: &mut ShellFormatter<'_, '_>,
 ) -> FormatResult<()> {
-    write!(formatter, [text(format!("{}()", function.name))])?;
+    format_named_function_header(function, formatter)?;
     if formatter.context().options().function_next_line() {
         write!(formatter, [hard_line_break()])?;
     } else {
         write!(formatter, [space()])?;
     }
-    match function.body.as_ref() {
+    format_function_body(function.body.as_ref(), function.span.end.offset, formatter)
+}
+
+fn format_anonymous_function(
+    function: &AnonymousFunctionCommand,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    let header = match function.surface {
+        shuck_ast::AnonymousFunctionSurface::FunctionKeyword { .. } => "function".to_string(),
+        shuck_ast::AnonymousFunctionSurface::Parens { .. } => "()".to_string(),
+    };
+    write!(formatter, [text(header)])?;
+    if formatter.context().options().function_next_line() {
+        write!(formatter, [hard_line_break()])?;
+    } else {
+        write!(formatter, [space()])?;
+    }
+    format_function_body(function.body.as_ref(), function.span.end.offset, formatter)?;
+    if !function.args.is_empty() {
+        let rendered_args = {
+            let source = formatter.context().source();
+            let options = formatter.context().options();
+            function
+                .args
+                .iter()
+                .map(|argument| render_word_syntax(argument, source, options))
+                .collect::<Vec<_>>()
+        };
+        for argument in rendered_args {
+            write!(formatter, [space(), text(argument)])?;
+        }
+    }
+    Ok(())
+}
+
+fn format_named_function_header(
+    function: &FunctionDef,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    let source = formatter.context().source();
+    let rendered_entries = {
+        let options = formatter.context().options();
+        function
+            .header
+            .entries
+            .iter()
+            .map(|entry| render_word_syntax(&entry.word, source, options))
+            .collect::<Vec<_>>()
+    };
+    let classic_single_name = function.header.entries.len() == 1
+        && function.header.entries[0].static_name.is_some()
+        && function.header.entries[0]
+            .static_name
+            .as_ref()
+            .is_some_and(|name| name.as_str() == rendered_entries[0]);
+
+    if classic_single_name {
+        if function.uses_function_keyword() {
+            write!(formatter, [text("function ".to_string())])?;
+        }
+        let name = function.header.entries[0]
+            .static_name
+            .as_ref()
+            .expect("classic function header should have a static name");
+        write!(formatter, [text(name.to_string())])?;
+        if function.has_trailing_parens() {
+            write!(formatter, [text("()".to_string())])?;
+        }
+        return Ok(());
+    }
+
+    if function.uses_function_keyword() {
+        write!(formatter, [text("function".to_string())])?;
+        if !function.header.entries.is_empty() {
+            write!(formatter, [space()])?;
+        }
+    }
+    for (index, rendered) in rendered_entries.iter().enumerate() {
+        if index > 0 {
+            write!(formatter, [space()])?;
+        }
+        write!(formatter, [text(rendered.clone())])?;
+    }
+    if function.has_trailing_parens() {
+        write!(formatter, [text("()".to_string())])?;
+    }
+    Ok(())
+}
+
+fn format_function_body(
+    body: &Stmt,
+    upper_bound: usize,
+    formatter: &mut ShellFormatter<'_, '_>,
+) -> FormatResult<()> {
+    match body {
         Stmt {
             command: Command::Compound(CompoundCommand::BraceGroup(commands)),
             negated: false,
@@ -1102,11 +1197,12 @@ fn format_function(
                 )
                 && can_inline_group(commands, formatter)
             {
-                write!(formatter, [text("{ ")])?;
+                write!(formatter, [text("{ ".to_string())])?;
                 format_inline_stmts(commands, formatter)?;
-                return write!(formatter, [text("; }")]);
+                write!(formatter, [text("; }".to_string())])
+            } else {
+                format_brace_group(commands, formatter, Some(upper_bound))
             }
-            format_brace_group(commands, formatter, Some(function.span.end.offset))?;
         }
         Stmt {
             command: Command::Compound(CompoundCommand::Subshell(commands)),
@@ -1124,16 +1220,15 @@ fn format_function(
                 )
                 && can_inline_group(commands, formatter)
             {
-                write!(formatter, [text("(")])?;
+                write!(formatter, [text("(".to_string())])?;
                 format_inline_stmts(commands, formatter)?;
-                return write!(formatter, [text(")")]);
+                write!(formatter, [text(")".to_string())])
+            } else {
+                format_subshell(commands, formatter, Some(upper_bound))
             }
-            format_subshell(commands, formatter, Some(function.span.end.offset))?;
         }
-        _ => function.body.format().fmt(formatter)?,
+        _ => body.format().fmt(formatter),
     }
-
-    Ok(())
 }
 
 fn format_inline_stmts(
@@ -1347,6 +1442,7 @@ fn has_heredoc(stmt: &Stmt) -> bool {
             Command::Binary(command) => has_heredoc(&command.left) || has_heredoc(&command.right),
             Command::Compound(command) => compound_has_heredoc(command),
             Command::Function(function) => has_heredoc(&function.body),
+            Command::AnonymousFunction(function) => has_heredoc(&function.body),
         }
 }
 
@@ -1448,9 +1544,12 @@ fn command_verbatim_span(command: &Command, source: &str) -> Span {
         Command::Binary(command) => stmt_verbatim_span(&command.left, source)
             .merge(stmt_verbatim_span(&command.right, source)),
         Command::Compound(command) => compound_verbatim_span(command, source),
-        Command::Function(command) => command
-            .name_span
-            .merge(stmt_verbatim_span(&command.body, source)),
+        Command::Function(command) => {
+            function_header_span(command).merge(stmt_verbatim_span(&command.body, source))
+        }
+        Command::AnonymousFunction(command) => anonymous_function_header_span(command)
+            .merge(stmt_verbatim_span(&command.body, source))
+            .merge(words_span(&command.args)),
     }
 }
 
@@ -1719,6 +1818,7 @@ fn command_format_span(command: &Command) -> Span {
         }
         Command::Compound(command) => compound_format_span(command),
         Command::Function(command) => function_attachment_span(command),
+        Command::AnonymousFunction(command) => anonymous_function_attachment_span(command),
     }
 }
 
@@ -1777,7 +1877,32 @@ fn decl_clause_format_span(command: &DeclClause) -> Span {
 }
 
 fn function_attachment_span(command: &FunctionDef) -> Span {
-    command.name_span.merge(stmt_span(&command.body))
+    function_header_span(command).merge(stmt_span(&command.body))
+}
+
+fn anonymous_function_attachment_span(command: &AnonymousFunctionCommand) -> Span {
+    anonymous_function_header_span(command)
+        .merge(stmt_span(&command.body))
+        .merge(words_span(&command.args))
+}
+
+fn function_header_span(command: &FunctionDef) -> Span {
+    command.header.span()
+}
+
+fn anonymous_function_header_span(command: &AnonymousFunctionCommand) -> Span {
+    match command.surface {
+        shuck_ast::AnonymousFunctionSurface::FunctionKeyword {
+            function_keyword_span,
+        } => function_keyword_span,
+        shuck_ast::AnonymousFunctionSurface::Parens { parens_span } => parens_span,
+    }
+}
+
+fn words_span(words: &[shuck_ast::Word]) -> Span {
+    words.iter().fold(Span::new(), |span, word| {
+        merge_non_empty_span(span, word.span)
+    })
 }
 
 fn compound_format_span(command: &CompoundCommand) -> Span {
@@ -1878,7 +2003,7 @@ fn rendered_stmt_end_line(
     source_map: &crate::comments::SourceMap<'_>,
 ) -> usize {
     let span = match &stmt.command {
-        Command::Function(_) => stmt_span(stmt),
+        Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt),
         _ if has_heredoc(stmt) => stmt_verbatim_span(stmt, source),
         _ => stmt_format_span(stmt),
     };
@@ -2005,6 +2130,8 @@ fn stmt_attachment_span(
         stmt_verbatim_span(stmt, source)
     } else if let Command::Function(command) = &stmt.command {
         function_attachment_span(command)
+    } else if let Command::AnonymousFunction(command) = &stmt.command {
+        anonymous_function_attachment_span(command)
     } else if let Command::Compound(CompoundCommand::BraceGroup(commands)) = &stmt.command {
         stmt.redirects.iter().fold(
             group_attachment_span(commands.as_slice(), source, '{', '}')
@@ -2110,8 +2237,17 @@ fn command_token_spans(command: &Command) -> Vec<Span> {
         }
         Command::Binary(command) => vec![command.span],
         Command::Compound(command) => vec![compound_format_span(command)],
-        Command::Function(command) => {
-            vec![command.name_span, stmt_format_span(&command.body)]
+        Command::Function(command) => vec![
+            function_header_span(command),
+            stmt_format_span(&command.body),
+        ],
+        Command::AnonymousFunction(command) => {
+            let mut spans = vec![
+                anonymous_function_header_span(command),
+                stmt_format_span(&command.body),
+            ];
+            spans.extend(command.args.iter().map(|argument| argument.span));
+            spans
         }
     }
 }

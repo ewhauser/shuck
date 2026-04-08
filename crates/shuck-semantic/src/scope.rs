@@ -22,9 +22,45 @@ pub struct Scope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionScopeKind {
+    Named(Vec<Name>),
+    Dynamic,
+    Anonymous,
+}
+
+impl FunctionScopeKind {
+    pub fn static_names(&self) -> &[Name] {
+        match self {
+            Self::Named(names) => names.as_slice(),
+            Self::Dynamic | Self::Anonymous => &[],
+        }
+    }
+
+    pub fn contains_name(&self, name: &Name) -> bool {
+        self.static_names()
+            .iter()
+            .any(|candidate| candidate == name)
+    }
+
+    pub fn contains_name_str(&self, name: &str) -> bool {
+        self.static_names()
+            .iter()
+            .any(|candidate| candidate.as_str() == name)
+    }
+
+    pub fn is_dynamic(&self) -> bool {
+        matches!(self, Self::Dynamic)
+    }
+
+    pub fn is_anonymous(&self) -> bool {
+        matches!(self, Self::Anonymous)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopeKind {
     File,
-    Function(Name),
+    Function(FunctionScopeKind),
     Subshell,
     CommandSubstitution,
     Pipeline,

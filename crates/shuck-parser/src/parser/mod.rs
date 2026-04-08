@@ -25,26 +25,27 @@ pub use lexer::{
 };
 
 use shuck_ast::{
-    AlwaysCommand, ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr,
-    ArithmeticExprNode, ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind,
-    Assignment, AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp,
-    BourneParameterExpansion, BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
-    BreakCommand as AstBreakCommand, BuiltinCommand as AstBuiltinCommand, CaseCommand, CaseItem,
-    CaseTerminator, Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
+    AlwaysCommand, AnonymousFunctionCommand, AnonymousFunctionSurface, ArithmeticCommand,
+    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticForCommand,
+    ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment, AssignmentValue,
+    BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceExpansionKind,
+    BraceQuoteContext, BraceSyntax, BraceSyntaxKind, BreakCommand as AstBreakCommand,
+    BuiltinCommand as AstBuiltinCommand, CaseCommand, CaseItem, CaseTerminator,
+    Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,
     ExitCommand as AstExitCommand, File, ForCommand, ForeachCommand, ForeachSyntax, FunctionDef,
-    FunctionSurface, Heredoc, HeredocDelimiter, IfCommand, IfSyntax, LiteralText, Name,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect, RedirectKind,
-    RedirectTarget, RepeatCommand, RepeatSyntax, ReturnCommand as AstReturnCommand, SelectCommand,
-    SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
-    SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind,
-    UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshDefaultingOp,
-    ZshExpansionOperation, ZshExpansionTarget, ZshGlobQualifier, ZshGlobQualifierGroup,
-    ZshGlobQualifierKind, ZshGlobSegment, ZshInlineGlobControl, ZshModifier, ZshParameterExpansion,
-    ZshPatternOp, ZshQualifiedGlob, ZshReplacementOp, ZshTrimOp,
+    FunctionHeader, FunctionHeaderEntry, Heredoc, HeredocDelimiter, IfCommand, IfSyntax,
+    LiteralText, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternGroupKind, PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect,
+    RedirectKind, RedirectTarget, RepeatCommand, RepeatSyntax, ReturnCommand as AstReturnCommand,
+    SelectCommand, SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    StmtTerminator, Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize,
+    TimeCommand, TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget, ZshGlobQualifier,
+    ZshGlobQualifierGroup, ZshGlobQualifierKind, ZshGlobSegment, ZshInlineGlobControl, ZshModifier,
+    ZshParameterExpansion, ZshPatternOp, ZshQualifiedGlob, ZshReplacementOp, ZshTrimOp,
 };
 
 use crate::error::{Error, Result};
@@ -173,6 +174,7 @@ enum Command {
     List(CommandList),
     Compound(Box<CompoundCommand>, Vec<Redirect>),
     Function(FunctionDef),
+    AnonymousFunction(AnonymousFunctionCommand, Vec<Redirect>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -1960,8 +1962,33 @@ impl<'a> Parser<'a> {
             AstCommand::Compound(compound) => Self::rebase_compound(compound, base),
             AstCommand::Function(function) => {
                 function.span = function.span.rebased(base);
-                function.name_span = function.name_span.rebased(base);
+                if let Some(span) = &mut function.header.function_keyword_span {
+                    *span = span.rebased(base);
+                }
+                if let Some(span) = &mut function.header.trailing_parens_span {
+                    *span = span.rebased(base);
+                }
+                for entry in &mut function.header.entries {
+                    Self::rebase_word(&mut entry.word, base);
+                }
                 Self::rebase_stmt(function.body.as_mut(), base);
+            }
+            AstCommand::AnonymousFunction(function) => {
+                function.span = function.span.rebased(base);
+                function.surface = match function.surface {
+                    AnonymousFunctionSurface::FunctionKeyword {
+                        function_keyword_span,
+                    } => AnonymousFunctionSurface::FunctionKeyword {
+                        function_keyword_span: function_keyword_span.rebased(base),
+                    },
+                    AnonymousFunctionSurface::Parens { parens_span } => {
+                        AnonymousFunctionSurface::Parens {
+                            parens_span: parens_span.rebased(base),
+                        }
+                    }
+                };
+                Self::rebase_stmt(function.body.as_mut(), base);
+                Self::rebase_words(&mut function.args, base);
             }
         }
     }
@@ -3887,6 +3914,16 @@ impl<'a> Parser<'a> {
                 terminator_span: None,
                 inline_comment: None,
             },
+            Command::AnonymousFunction(function, redirects) => Stmt {
+                leading_comments: Vec::new(),
+                span: function.span,
+                command: AstCommand::AnonymousFunction(function),
+                negated: false,
+                redirects,
+                terminator: None,
+                terminator_span: None,
+                inline_comment: None,
+            },
             Command::List(list) => {
                 let mut stmts = Vec::new();
                 Self::lower_list_into_stmts(list, &mut stmts);
@@ -4014,6 +4051,17 @@ impl<'a> Parser<'a> {
                 Self::attach_comments_to_compound_with_source(source, compound, comments);
             }
             AstCommand::Function(function) => {
+                let mut body_comments = std::mem::take(comments);
+                Self::attach_comments_to_stmt_with_source(
+                    source,
+                    function.body.as_mut(),
+                    &mut body_comments,
+                );
+                if !body_comments.is_empty() {
+                    function.body.leading_comments.extend(body_comments);
+                }
+            }
+            AstCommand::AnonymousFunction(function) => {
                 let mut body_comments = std::mem::take(comments);
                 Self::attach_comments_to_stmt_with_source(
                     source,

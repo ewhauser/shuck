@@ -19,7 +19,7 @@ pub use dataflow::{
 };
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 pub use reference::{Reference, ReferenceId, ReferenceKind};
-pub use scope::{Scope, ScopeId, ScopeKind};
+pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
 pub use source_ref::{SourceRef, SourceRefKind};
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -1002,12 +1002,12 @@ mod tests {
         let model = model(source);
 
         assert!(matches!(model.scope_kind(ScopeId(0)), ScopeKind::File));
-        assert!(
-            model
-                .scopes()
-                .iter()
-                .any(|scope| matches!(&scope.kind, ScopeKind::Function(name) if name == "f"))
-        );
+        assert!(model.scopes().iter().any(|scope| {
+            matches!(
+                &scope.kind,
+                ScopeKind::Function(function) if function.contains_name_str("f")
+            )
+        }));
 
         let local_binding = model
             .bindings()
@@ -1022,7 +1022,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             model.scope_kind(local_binding.scope),
-            ScopeKind::Function(name) if name == "f"
+            ScopeKind::Function(function) if function.contains_name_str("f")
         ));
 
         let reference = model
@@ -1032,6 +1032,98 @@ mod tests {
             .unwrap();
         let resolved = model.resolved_binding(reference.id).unwrap();
         assert_eq!(resolved.id, local_binding.id);
+    }
+
+    #[test]
+    fn zsh_anonymous_functions_create_function_scoped_locals() {
+        let source =
+            "function { local scoped=1; echo \"$scoped\" \"$1\"; } arg\necho \"$scoped\"\n";
+        let model = model_with_dialect(source, ShellDialect::Zsh);
+
+        let local_binding = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "scoped"
+                    && matches!(
+                        binding.kind,
+                        BindingKind::Declaration(DeclarationBuiltin::Local)
+                    )
+            })
+            .unwrap();
+        let ScopeKind::Function(function_scope) = model.scope_kind(local_binding.scope) else {
+            panic!("expected local binding to live in a function scope");
+        };
+        assert!(function_scope.is_anonymous());
+
+        let scoped_refs = model
+            .references()
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::Expansion && reference.name == "scoped"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(scoped_refs.len(), 2);
+
+        let inner_ref = scoped_refs
+            .iter()
+            .find(|reference| reference.span.start.line == 1)
+            .unwrap();
+        let outer_ref = scoped_refs
+            .iter()
+            .find(|reference| reference.span.start.line == 2)
+            .unwrap();
+
+        assert_eq!(
+            model.resolved_binding(inner_ref.id).unwrap().id,
+            local_binding.id
+        );
+        assert!(model.resolved_binding(outer_ref.id).is_none());
+    }
+
+    #[test]
+    fn zsh_multi_name_functions_bind_each_static_alias() {
+        let source = "function music itunes() { local track=1; }\n";
+        let model = model_with_dialect(source, ShellDialect::Zsh);
+
+        let music_defs = model.function_definitions(&Name::from("music"));
+        let itunes_defs = model.function_definitions(&Name::from("itunes"));
+        assert_eq!(music_defs.len(), 1);
+        assert_eq!(itunes_defs.len(), 1);
+        assert_eq!(model.binding(music_defs[0]).span.slice(source), "music");
+        assert_eq!(model.binding(itunes_defs[0]).span.slice(source), "itunes");
+
+        let local_binding = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "track"
+                    && matches!(
+                        binding.kind,
+                        BindingKind::Declaration(DeclarationBuiltin::Local)
+                    )
+            })
+            .unwrap();
+        let ScopeKind::Function(function_scope) = model.scope_kind(local_binding.scope) else {
+            panic!("expected local binding to live in a function scope");
+        };
+        assert!(function_scope.contains_name_str("music"));
+        assert!(function_scope.contains_name_str("itunes"));
+        assert_eq!(function_scope.static_names().len(), 2);
+    }
+
+    #[test]
+    fn zsh_multi_name_function_lookup_works_through_any_alias() {
+        let source = "flag=1\nfunction music itunes() { echo \"$flag\"; }\nitunes\n";
+        let mut model = model_with_dialect(source, ShellDialect::Zsh);
+
+        assert_eq!(model.call_sites_for(&Name::from("itunes")).len(), 1);
+        assert!(model.call_graph().reachable.contains(&Name::from("itunes")));
+        assert!(
+            !reportable_unused_names(&mut model)
+                .into_iter()
+                .any(|name| name == "flag")
+        );
     }
 
     #[test]
@@ -2337,7 +2429,7 @@ outer
         assert_eq!(binding.span.slice(source).trim(), "X");
         assert!(matches!(
             model.scope_kind(binding.scope),
-            ScopeKind::Function(name) if name == "outer"
+            ScopeKind::Function(function) if function.contains_name_str("outer")
         ));
     }
 

@@ -256,7 +256,16 @@ where
         Command::Compound(command) => {
             walk_compound(command, visit);
         }
-        Command::Function(FunctionDef { body, .. }) => walk_command(body, visit),
+        Command::Function(FunctionDef { header, body, .. }) => {
+            for entry in &header.entries {
+                walk_word(&entry.word, visit);
+            }
+            walk_command(body, visit);
+        }
+        Command::AnonymousFunction(function) => {
+            walk_words(&function.args, visit);
+            walk_command(&function.body, visit);
+        }
     }
 
     walk_redirects(&stmt.redirects, visit);

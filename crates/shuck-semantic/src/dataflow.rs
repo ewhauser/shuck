@@ -5,7 +5,8 @@ use shuck_ast::Span;
 use crate::runtime::RuntimePrelude;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ControlFlowGraph,
-    Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
+    FunctionScopeKind, Reference, ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey,
+    SyntheticRead,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1520,13 +1521,15 @@ fn function_scopes_by_binding(
     let mut scopes_by_parent_and_name: FxHashMap<(ScopeId, Name), Vec<ScopeId>> =
         FxHashMap::default();
     for scope in scopes {
-        if let ScopeKind::Function(name) = &scope.kind
+        if let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind
             && let Some(parent) = scope.parent
         {
-            scopes_by_parent_and_name
-                .entry((parent, name.clone()))
-                .or_default()
-                .push(scope.id);
+            for name in names {
+                scopes_by_parent_and_name
+                    .entry((parent, name.clone()))
+                    .or_default()
+                    .push(scope.id);
+            }
         }
     }
     for scope_ids in scopes_by_parent_and_name.values_mut() {

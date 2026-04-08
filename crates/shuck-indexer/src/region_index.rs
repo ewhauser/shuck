@@ -236,7 +236,18 @@ impl<'a> RegionCollector<'a> {
                 self.visit_stmt(&command.right);
             }
             Command::Compound(command) => self.visit_compound(command),
-            Command::Function(FunctionDef { body, .. }) => self.visit_stmt(body),
+            Command::Function(FunctionDef { header, body, .. }) => {
+                for entry in &header.entries {
+                    self.visit_word(&entry.word);
+                }
+                self.visit_stmt(body);
+            }
+            Command::AnonymousFunction(function) => {
+                self.visit_stmt(&function.body);
+                for argument in &function.args {
+                    self.visit_word(argument);
+                }
+            }
         }
     }
 

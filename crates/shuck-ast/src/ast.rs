@@ -266,6 +266,9 @@ pub enum Command {
 
     /// A function definition
     Function(FunctionDef),
+
+    /// An anonymous zsh function command such as `function { ... }` or `() ...`.
+    AnonymousFunction(AnonymousFunctionCommand),
 }
 
 /// A simple command with arguments.
@@ -1056,38 +1059,71 @@ pub struct CaseItem {
     pub terminator: CaseTerminator,
 }
 
-/// Surface syntax preserved for a function declaration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct FunctionSurface {
-    pub function_keyword_span: Option<Span>,
-    pub name_parens_span: Option<Span>,
+/// One parsed function header entry.
+#[derive(Debug, Clone)]
+pub struct FunctionHeaderEntry {
+    pub word: Word,
+    pub static_name: Option<Name>,
 }
 
-impl FunctionSurface {
+impl FunctionHeaderEntry {
+    pub fn static_name_span(&self) -> Option<Span> {
+        self.static_name.as_ref().map(|_| self.word.span)
+    }
+}
+
+/// Surface syntax preserved for a named function declaration.
+#[derive(Debug, Clone, Default)]
+pub struct FunctionHeader {
+    pub function_keyword_span: Option<Span>,
+    pub entries: Vec<FunctionHeaderEntry>,
+    pub trailing_parens_span: Option<Span>,
+}
+
+impl FunctionHeader {
     pub fn uses_function_keyword(&self) -> bool {
         self.function_keyword_span.is_some()
     }
 
-    pub fn has_name_parens(&self) -> bool {
-        self.name_parens_span.is_some()
+    pub fn has_trailing_parens(&self) -> bool {
+        self.trailing_parens_span.is_some()
     }
 
-    pub fn rebased(&mut self, base: Position) {
-        if let Some(span) = &mut self.function_keyword_span {
-            *span = span.rebased(base);
+    pub fn has_name_parens(&self) -> bool {
+        self.has_trailing_parens()
+    }
+
+    pub fn static_names(&self) -> impl Iterator<Item = &Name> + '_ {
+        self.entries
+            .iter()
+            .filter_map(|entry| entry.static_name.as_ref())
+    }
+
+    pub fn static_name_entries(&self) -> impl Iterator<Item = (&Name, Span)> + '_ {
+        self.entries.iter().filter_map(|entry| {
+            entry
+                .static_name
+                .as_ref()
+                .map(|name| (name, entry.word.span))
+        })
+    }
+
+    pub fn span(&self) -> Span {
+        let mut span = self.function_keyword_span.unwrap_or_default();
+        for entry in &self.entries {
+            span = merge_non_empty_span(span, entry.word.span);
         }
-        if let Some(span) = &mut self.name_parens_span {
-            *span = span.rebased(base);
+        if let Some(parens_span) = self.trailing_parens_span {
+            span = merge_non_empty_span(span, parens_span);
         }
+        span
     }
 }
 
 /// Function definition.
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
-    pub name: Name,
-    pub name_span: Span,
-    pub surface: FunctionSurface,
+    pub header: FunctionHeader,
     pub body: Box<Stmt>,
     /// Source span of this function definition
     pub span: Span,
@@ -1095,11 +1131,66 @@ pub struct FunctionDef {
 
 impl FunctionDef {
     pub fn uses_function_keyword(&self) -> bool {
-        self.surface.uses_function_keyword()
+        self.header.uses_function_keyword()
+    }
+
+    pub fn has_trailing_parens(&self) -> bool {
+        self.header.has_trailing_parens()
     }
 
     pub fn has_name_parens(&self) -> bool {
-        self.surface.has_name_parens()
+        self.has_trailing_parens()
+    }
+
+    pub fn static_names(&self) -> impl Iterator<Item = &Name> + '_ {
+        self.header.static_names()
+    }
+
+    pub fn static_name_entries(&self) -> impl Iterator<Item = (&Name, Span)> + '_ {
+        self.header.static_name_entries()
+    }
+}
+
+/// Preserved surface for an anonymous zsh function command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnonymousFunctionSurface {
+    FunctionKeyword { function_keyword_span: Span },
+    Parens { parens_span: Span },
+}
+
+impl AnonymousFunctionSurface {
+    pub fn uses_function_keyword(&self) -> bool {
+        matches!(self, Self::FunctionKeyword { .. })
+    }
+
+    pub fn parens_span(self) -> Option<Span> {
+        match self {
+            Self::FunctionKeyword { .. } => None,
+            Self::Parens { parens_span } => Some(parens_span),
+        }
+    }
+}
+
+/// Anonymous zsh function command.
+#[derive(Debug, Clone)]
+pub struct AnonymousFunctionCommand {
+    pub surface: AnonymousFunctionSurface,
+    pub body: Box<Stmt>,
+    pub args: Vec<Word>,
+    pub span: Span,
+}
+
+impl AnonymousFunctionCommand {
+    pub fn uses_function_keyword(&self) -> bool {
+        self.surface.uses_function_keyword()
+    }
+}
+
+fn merge_non_empty_span(current: Span, next: Span) -> Span {
+    match (current == Span::new(), next == Span::new()) {
+        (true, _) => next,
+        (_, true) => current,
+        (false, false) => current.merge(next),
     }
 }
 
@@ -3778,13 +3869,18 @@ mod tests {
     #[test]
     fn function_def_construction() {
         let func = FunctionDef {
-            name: "my_func".into(),
-            name_span: Span::new(),
-            surface: FunctionSurface::default(),
+            header: FunctionHeader {
+                function_keyword_span: None,
+                entries: vec![FunctionHeaderEntry {
+                    word: Word::literal("my_func"),
+                    static_name: Some("my_func".into()),
+                }],
+                trailing_parens_span: Some(Span::new()),
+            },
             body: Box::new(simple_stmt("echo", vec![Word::literal("hello")])),
             span: Span::new(),
         };
-        assert_eq!(func.name, "my_func");
+        assert_eq!(func.static_names().next().unwrap(), "my_func");
     }
 
     // --- File ---
@@ -3826,13 +3922,28 @@ mod tests {
         assert!(matches!(compound, Command::Compound(_)));
 
         let func = Command::Function(FunctionDef {
-            name: "f".into(),
-            name_span: Span::new(),
-            surface: FunctionSurface::default(),
+            header: FunctionHeader {
+                function_keyword_span: None,
+                entries: vec![FunctionHeaderEntry {
+                    word: Word::literal("f"),
+                    static_name: Some("f".into()),
+                }],
+                trailing_parens_span: Some(Span::new()),
+            },
             body: Box::new(simple_stmt("true", vec![])),
             span: Span::new(),
         });
         assert!(matches!(func, Command::Function(_)));
+
+        let anonymous = Command::AnonymousFunction(AnonymousFunctionCommand {
+            surface: AnonymousFunctionSurface::Parens {
+                parens_span: Span::new(),
+            },
+            body: Box::new(simple_stmt("true", vec![])),
+            args: vec![Word::literal("x")],
+            span: Span::new(),
+        });
+        assert!(matches!(anonymous, Command::AnonymousFunction(_)));
     }
 
     // --- CompoundCommand variants ---

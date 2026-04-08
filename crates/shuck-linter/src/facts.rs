@@ -1687,15 +1687,33 @@ impl<'a> WordFactCollector<'a> {
         }
     }
 
-    fn collect_command_name_context_word(&mut self, command: &'a Command) {
-        if let Command::Simple(command) = command
-            && static_word_text(&command.name, self.source).is_none()
-        {
-            self.push_word(
-                &command.name,
-                WordFactContext::Expansion(ExpansionContext::CommandName),
-                WordFactHostKind::Direct,
-            );
+    fn collect_command_name_context_word(&mut self, command: &Command) {
+        match command {
+            Command::Simple(command) => {
+                if static_word_text(&command.name, self.source).is_none() {
+                    self.push_word(
+                        &command.name,
+                        WordFactContext::Expansion(ExpansionContext::CommandName),
+                        WordFactHostKind::Direct,
+                    );
+                }
+            }
+            Command::Function(function) => {
+                for entry in &function.header.entries {
+                    if static_word_text(&entry.word, self.source).is_none() {
+                        self.push_word(
+                            &entry.word,
+                            WordFactContext::Expansion(ExpansionContext::CommandName),
+                            WordFactHostKind::Direct,
+                        );
+                    }
+                }
+            }
+            Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::AnonymousFunction(_) => {}
         }
     }
 
@@ -1779,6 +1797,12 @@ impl<'a> WordFactCollector<'a> {
                 }
             }
             Command::Binary(_) | Command::Compound(_) | Command::Function(_) => {}
+            Command::AnonymousFunction(function) => {
+                self.collect_words_with_context(
+                    &function.args,
+                    WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                );
+            }
         }
     }
 
@@ -2556,7 +2580,15 @@ fn visit_command_words_for_substitutions(
                 visit_decl_operand_words_for_substitutions(operand, source, visitor);
             }
         }
-        Command::Binary(_) | Command::Function(_) => {}
+        Command::Binary(_) => {}
+        Command::Function(function) => {
+            for entry in &function.header.entries {
+                visitor(&entry.word);
+            }
+        }
+        Command::AnonymousFunction(function) => {
+            visit_words_for_substitutions(&function.args, visitor);
+        }
         Command::Compound(command) => match command {
             CompoundCommand::For(command) => {
                 if let Some(words) = &command.words {
@@ -2642,7 +2674,15 @@ fn visit_command_argument_words_for_substitutions(
                 }
             }
         }
-        Command::Binary(_) | Command::Compound(_) | Command::Function(_) => {}
+        Command::Binary(_) | Command::Compound(_) => {}
+        Command::Function(function) => {
+            for entry in &function.header.entries {
+                visitor(&entry.word);
+            }
+        }
+        Command::AnonymousFunction(function) => {
+            visit_words_for_substitutions(&function.args, visitor);
+        }
     }
 }
 
@@ -3281,7 +3321,18 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 self.collect_command(&command.right);
             }
             Command::Compound(command) => self.collect_compound(command),
-            Command::Function(function) => self.collect_command(&function.body),
+            Command::Function(function) => {
+                for entry in &function.header.entries {
+                    self.collect_word(&entry.word, context.clone());
+                }
+                self.collect_command(&function.body);
+            }
+            Command::AnonymousFunction(function) => {
+                for word in &function.args {
+                    self.collect_word(word, context.clone());
+                }
+                self.collect_command(&function.body);
+            }
         }
 
         self.collect_redirects(&stmt.redirects, SurfaceScanContext::default());
@@ -4164,6 +4215,7 @@ fn command_span(command: &Command) -> Span {
         Command::Binary(command) => command.span,
         Command::Compound(command) => compound_span(command),
         Command::Function(command) => command.span,
+        Command::AnonymousFunction(command) => command.span,
     }
 }
 

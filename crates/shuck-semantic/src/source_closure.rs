@@ -13,8 +13,8 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 
 use crate::{
-    Binding, BindingId, ScopeId, ScopeKind, SemanticModel, SourcePathResolver, SourceRefKind,
-    SpanKey, SyntheticRead,
+    Binding, BindingId, FunctionScopeKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
+    SourceRefKind, SpanKey, SyntheticRead,
 };
 
 pub(crate) fn collect_source_closure_reads(
@@ -245,7 +245,16 @@ fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &
         Command::Compound(command) => {
             walk_compound(command, model, source, facts);
         }
-        Command::Function(FunctionDef { body, .. }) => walk_stmt(body, model, source, facts),
+        Command::Function(FunctionDef { header, body, .. }) => {
+            for entry in &header.entries {
+                walk_word(&entry.word, model, source, facts);
+            }
+            walk_stmt(body, model, source, facts);
+        }
+        Command::AnonymousFunction(function) => {
+            walk_words(&function.args, model, source, facts);
+            walk_stmt(&function.body, model, source, facts);
+        }
     }
 }
 
@@ -1162,13 +1171,15 @@ fn function_scopes_by_binding(
     let mut scopes_by_parent_and_name: FxHashMap<(ScopeId, Name), Vec<ScopeId>> =
         FxHashMap::default();
     for scope in scopes {
-        if let ScopeKind::Function(name) = &scope.kind
+        if let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind
             && let Some(parent) = scope.parent
         {
-            scopes_by_parent_and_name
-                .entry((parent, name.clone()))
-                .or_default()
-                .push(scope.id);
+            for name in names {
+                scopes_by_parent_and_name
+                    .entry((parent, name.clone()))
+                    .or_default()
+                    .push(scope.id);
+            }
         }
     }
     for scope_ids in scopes_by_parent_and_name.values_mut() {

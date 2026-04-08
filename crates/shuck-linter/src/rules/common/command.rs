@@ -97,6 +97,7 @@ pub(crate) fn normalize_command<'a>(command: &'a Command, source: &str) -> Norma
         Command::Binary(command) => empty_normalized_command(command.span),
         Command::Compound(command) => empty_normalized_command(compound_span(command)),
         Command::Function(command) => empty_normalized_command(command.span),
+        Command::AnonymousFunction(command) => empty_normalized_command(command.span),
     }
 }
 
@@ -199,17 +200,14 @@ fn declaration_kind(raw_kind: String) -> DeclarationKind {
 }
 
 fn declaration_has_readonly_flag(command: &DeclClause, source: &str) -> bool {
-    matches!(
-        command.variant.as_ref(),
-        "local" | "declare" | "typeset"
-    ) && command.operands.iter().any(|operand| {
+    matches!(command.variant.as_ref(), "local" | "declare" | "typeset")
+        && command.operands.iter().any(|operand| {
             let DeclOperand::Flag(word) = operand else {
                 return false;
             };
 
-            static_word_text(word, source).is_some_and(|text| {
-                text.starts_with('-') && text.contains('r')
-            })
+            static_word_text(word, source)
+                .is_some_and(|text| text.starts_with('-') && text.contains('r'))
         })
 }
 

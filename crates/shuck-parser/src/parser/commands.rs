@@ -649,6 +649,14 @@ impl<'a> Parser<'a> {
             return self.parse_compound_with_redirects(|s| s.parse_subshell());
         }
 
+        if self.dialect == ShellDialect::Zsh && self.at(TokenKind::LeftParen) {
+            let mut probe = self.clone();
+            probe.advance();
+            if probe.at(TokenKind::RightParen) {
+                return self.parse_anonymous_paren_function().map(Some);
+            }
+        }
+
         // Check for subshell
         if self.at(TokenKind::LeftParen) {
             return self.parse_compound_with_redirects(|s| s.parse_subshell());
@@ -2534,6 +2542,131 @@ impl<'a> Parser<'a> {
         Ok(Command::Compound(Box::new(compound), redirects))
     }
 
+    fn parse_function_header_entry(&mut self) -> Result<FunctionHeaderEntry> {
+        let word = self
+            .current_word()
+            .ok_or_else(|| self.error("expected function name"))?;
+        let static_name = self.literal_word_text(&word).map(Name::from);
+        self.advance_past_word(&word);
+        Ok(FunctionHeaderEntry { word, static_name })
+    }
+
+    fn parse_function_parens_span(&mut self) -> Result<Span> {
+        if !self.at(TokenKind::LeftParen) {
+            return Err(self.error("expected '(' in function definition"));
+        }
+        let left_paren_span = self.current_span;
+        self.advance();
+
+        if !self.at(TokenKind::RightParen) {
+            return Err(Error::parse(
+                "expected ')' in function definition".to_string(),
+            ));
+        }
+        let right_paren_span = self.current_span;
+        self.advance();
+        Ok(left_paren_span.merge(right_paren_span))
+    }
+
+    fn parse_zsh_function_body_stmt(&mut self) -> Result<Stmt> {
+        self.skip_newlines()?;
+
+        if let Some(compound) = self.try_parse_compact_function_brace_body()? {
+            let redirects = self.parse_trailing_redirects();
+            return Ok(Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                Box::new(compound),
+                redirects,
+            )));
+        }
+
+        let command = self.parse_single_stmt_command()?;
+        Ok(Self::lower_non_sequence_command_to_stmt(command))
+    }
+
+    fn parse_single_stmt_command(&mut self) -> Result<Command> {
+        let first = self
+            .parse_pipeline()?
+            .ok_or_else(|| self.error("expected command"))?;
+
+        let mut rest = Vec::with_capacity(1);
+
+        loop {
+            let Some(kind) = self.current_token_kind else {
+                break;
+            };
+            let operator = match kind {
+                TokenKind::And => Some((ListOperator::And, false)),
+                TokenKind::Or => Some((ListOperator::Or, false)),
+                TokenKind::Semicolon => Some((ListOperator::Semicolon, true)),
+                TokenKind::Background => {
+                    Some((ListOperator::Background(BackgroundOperator::Plain), true))
+                }
+                TokenKind::BackgroundPipe => {
+                    Some((ListOperator::Background(BackgroundOperator::Pipe), true))
+                }
+                TokenKind::BackgroundBang => {
+                    Some((ListOperator::Background(BackgroundOperator::Bang), true))
+                }
+                _ => None,
+            };
+            let Some((operator, allow_empty_tail)) = operator else {
+                break;
+            };
+            let operator_span = self.current_span;
+            self.advance();
+
+            if matches!(operator, ListOperator::And | ListOperator::Or) {
+                self.skip_newlines()?;
+                if let Some(command) = self.parse_pipeline()? {
+                    rest.push(CommandListItem {
+                        operator,
+                        operator_span,
+                        command,
+                    });
+                }
+                break;
+            }
+
+            rest.push(CommandListItem {
+                operator,
+                operator_span,
+                command: if allow_empty_tail {
+                    Command::Simple(SimpleCommand {
+                        name: Word::literal(""),
+                        args: vec![],
+                        redirects: vec![],
+                        assignments: vec![],
+                        span: self.current_span,
+                    })
+                } else {
+                    unreachable!()
+                },
+            });
+            break;
+        }
+
+        if rest.is_empty() {
+            Ok(first)
+        } else {
+            Ok(Command::List(CommandList {
+                first: Box::new(first),
+                rest,
+            }))
+        }
+    }
+
+    fn parse_anonymous_function_args(&mut self) -> Result<Vec<Word>> {
+        let mut args = Vec::new();
+        while self.current_token_kind.is_some_and(TokenKind::is_word_like) {
+            let word = self
+                .current_word()
+                .ok_or_else(|| self.error("expected anonymous function argument"))?;
+            self.advance_past_word(&word);
+            args.push(word);
+        }
+        Ok(args)
+    }
+
     /// Parse function definition with 'function' keyword: function name { body }
     fn parse_function_keyword(&mut self) -> Result<Command> {
         self.ensure_function_keyword()?;
@@ -2541,92 +2674,117 @@ impl<'a> Parser<'a> {
         self.advance(); // consume 'function'
         self.skip_newlines()?;
 
-        // Get function name
-        let Some(name_text) = self
-            .at(TokenKind::Word)
-            .then(|| self.current_source_like_word_text())
-            .flatten()
-        else {
-            return Err(self.error("expected function name"));
-        };
-        let (name, name_span) = (Name::from(name_text.as_ref()), self.current_span);
-        self.advance();
-        let saw_newline_after_name = self.skip_newlines_with_flag()?;
+        if self.dialect == ShellDialect::Zsh {
+            let mut entries = Vec::new();
+            while self.current_token_kind.is_some_and(TokenKind::is_word_like) {
+                entries.push(self.parse_function_header_entry()?);
+                if self.at(TokenKind::LeftParen) {
+                    break;
+                }
+            }
 
-        // Optional () after name
-        let mut name_parens_span = None;
-        let allow_bare_compound = if self.at(TokenKind::LeftParen) {
-            let left_paren_span = self.current_span;
-            self.advance(); // consume '('
-            if !self.at(TokenKind::RightParen) {
-                return Err(Error::parse(
-                    "expected ')' in function definition".to_string(),
+            let trailing_parens_span = if !entries.is_empty() && self.at(TokenKind::LeftParen) {
+                Some(self.parse_function_parens_span()?)
+            } else {
+                None
+            };
+
+            if entries.is_empty() {
+                let body = self.parse_zsh_function_body_stmt()?;
+                let args = self.parse_anonymous_function_args()?;
+                let redirects = self.parse_trailing_redirects();
+                let span = start_span.merge(self.current_span);
+                return Ok(Command::AnonymousFunction(
+                    AnonymousFunctionCommand {
+                        surface: AnonymousFunctionSurface::FunctionKeyword {
+                            function_keyword_span: start_span,
+                        },
+                        body: Box::new(body),
+                        args,
+                        span,
+                    },
+                    redirects,
                 ));
             }
-            let right_paren_span = self.current_span;
-            self.advance(); // consume ')'
-            name_parens_span = Some(left_paren_span.merge(right_paren_span));
-            self.skip_newlines_with_flag()?
+
+            let body = self.parse_zsh_function_body_stmt()?;
+            let span = start_span.merge(self.current_span);
+            return Ok(Command::Function(FunctionDef {
+                header: FunctionHeader {
+                    function_keyword_span: Some(start_span),
+                    entries,
+                    trailing_parens_span,
+                },
+                body: Box::new(body),
+                span,
+            }));
+        }
+
+        let entry = self.parse_function_header_entry()?;
+        let saw_newline_after_name = self.skip_newlines_with_flag()?;
+        let (trailing_parens_span, allow_bare_compound) = if self.at(TokenKind::LeftParen) {
+            let parens_span = self.parse_function_parens_span()?;
+            (Some(parens_span), self.skip_newlines_with_flag()?)
         } else {
-            saw_newline_after_name
+            (None, saw_newline_after_name)
         };
 
         let body = self.parse_function_body_command(allow_bare_compound)?;
         let body = Self::lower_non_sequence_command_to_stmt(body);
+        let span = start_span.merge(self.current_span);
 
         Ok(Command::Function(FunctionDef {
-            name,
-            name_span,
-            surface: FunctionSurface {
+            header: FunctionHeader {
                 function_keyword_span: Some(start_span),
-                name_parens_span,
+                entries: vec![entry],
+                trailing_parens_span,
             },
             body: Box::new(body),
-            span: start_span.merge(self.current_span),
+            span,
         }))
     }
 
     /// Parse POSIX-style function definition: name() { body }
     fn parse_function_posix(&mut self) -> Result<Command> {
         let start_span = self.current_span;
-        // Get function name
-        let Some(name_text) = self
-            .at(TokenKind::Word)
-            .then(|| self.current_source_like_word_text())
-            .flatten()
-        else {
-            return Err(self.error("expected function name"));
+        let entry = self.parse_function_header_entry()?;
+        let trailing_parens_span = self.parse_function_parens_span()?;
+
+        let body = if self.dialect == ShellDialect::Zsh {
+            self.parse_zsh_function_body_stmt()?
+        } else {
+            self.skip_newlines()?;
+            let body = self.parse_function_body_command(true)?;
+            Self::lower_non_sequence_command_to_stmt(body)
         };
-        let (name, name_span) = (Name::from(name_text.as_ref()), self.current_span);
-        self.advance();
-
-        // Consume ()
-        if !self.at(TokenKind::LeftParen) {
-            return Err(self.error("expected '(' in function definition"));
-        }
-        let left_paren_span = self.current_span;
-        self.advance(); // consume '('
-
-        if !self.at(TokenKind::RightParen) {
-            return Err(self.error("expected ')' in function definition"));
-        }
-        let right_paren_span = self.current_span;
-        self.advance(); // consume ')'
-        self.skip_newlines()?;
-
-        let body = self.parse_function_body_command(true)?;
-        let body = Self::lower_non_sequence_command_to_stmt(body);
 
         Ok(Command::Function(FunctionDef {
-            name,
-            name_span,
-            surface: FunctionSurface {
+            header: FunctionHeader {
                 function_keyword_span: None,
-                name_parens_span: Some(left_paren_span.merge(right_paren_span)),
+                entries: vec![entry],
+                trailing_parens_span: Some(trailing_parens_span),
             },
             body: Box::new(body),
             span: start_span.merge(self.current_span),
         }))
+    }
+
+    fn parse_anonymous_paren_function(&mut self) -> Result<Command> {
+        let start_span = self.current_span;
+        let parens_span = self.parse_function_parens_span()?;
+        let body = self.parse_zsh_function_body_stmt()?;
+        let args = self.parse_anonymous_function_args()?;
+        let redirects = self.parse_trailing_redirects();
+        let span = start_span.merge(self.current_span);
+        Ok(Command::AnonymousFunction(
+            AnonymousFunctionCommand {
+                surface: AnonymousFunctionSurface::Parens { parens_span },
+                body: Box::new(body),
+                args,
+                span,
+            },
+            redirects,
+        ))
     }
 
     /// Parse commands until a terminating keyword

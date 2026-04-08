@@ -26,6 +26,7 @@ fn collect_stmt_comments(stmt: &Stmt, comments: &mut Vec<Comment>) {
         }
         Command::Compound(command) => collect_compound_comments(command, comments),
         Command::Function(function) => collect_stmt_comments(&function.body, comments),
+        Command::AnonymousFunction(function) => collect_stmt_comments(&function.body, comments),
         Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
     }
 }

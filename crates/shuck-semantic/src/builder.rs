@@ -1,11 +1,12 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArithmeticUnaryOp,
-    ArrayElem, ArrayExpr, ArrayKind, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
-    BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
-    DeclOperand, File, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript, VarRef,
-    Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    AnonymousFunctionCommand, ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
+    AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
+    CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef, Name, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, PatternPartNode, Span, Stmt,
+    StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionOperation,
+    ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -21,8 +22,8 @@ use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
 use crate::source_ref::{SourceRef, SourceRefKind};
 use crate::{
-    BindingId, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind, SourceDirectiveOverride,
-    SpanKey, TraversalObserver,
+    BindingId, FunctionScopeKind, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind,
+    SourceDirectiveOverride, SpanKey, TraversalObserver,
 };
 
 pub(crate) struct BuildOutput {
@@ -235,6 +236,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             Command::Binary(command) => self.visit_binary(command, flow),
             Command::Compound(command) => self.visit_compound(command, flow),
             Command::Function(command) => self.visit_function(command, flow),
+            Command::AnonymousFunction(command) => self.visit_anonymous_function(command, flow),
         }
     }
 
@@ -841,16 +843,28 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn visit_function(&mut self, function: &FunctionDef, flow: FlowState) -> RecordedCommand {
-        self.add_binding(
-            &function.name,
-            BindingKind::FunctionDefinition,
-            self.current_scope(),
-            function.name_span,
-            BindingAttributes::empty(),
-        );
+        let mut nested_regions = Vec::new();
+        for entry in &function.header.entries {
+            self.visit_word_into(
+                &entry.word,
+                WordVisitKind::Expansion,
+                flow,
+                &mut nested_regions,
+            );
+        }
+
+        for (name, span) in function.static_name_entries() {
+            self.add_binding(
+                name,
+                BindingKind::FunctionDefinition,
+                self.current_scope(),
+                span,
+                BindingAttributes::empty(),
+            );
+        }
 
         let scope = self.push_scope(
-            ScopeKind::Function(function.name.clone()),
+            ScopeKind::Function(function_scope_kind(function)),
             self.current_scope(),
             body_span(&function.body),
         );
@@ -863,8 +877,30 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
         RecordedCommand {
             span: function.span,
-            nested_regions: Vec::new(),
+            nested_regions,
             kind: RecordedCommandKind::Linear,
+        }
+    }
+
+    fn visit_anonymous_function(
+        &mut self,
+        function: &AnonymousFunctionCommand,
+        flow: FlowState,
+    ) -> RecordedCommand {
+        let nested_regions = self.visit_words(&function.args, WordVisitKind::Expansion, flow);
+        let scope = self.push_scope(
+            ScopeKind::Function(FunctionScopeKind::Anonymous),
+            self.current_scope(),
+            body_span(&function.body),
+        );
+        let body = self.visit_function_like_body(&function.body, flow);
+        self.pop_scope(scope);
+        self.mark_scope_completed(scope);
+
+        RecordedCommand {
+            span: function.span,
+            nested_regions,
+            kind: RecordedCommandKind::BraceGroup { body },
         }
     }
 
@@ -2237,7 +2273,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 // SAFETY: deferred function pointers always refer to nodes inside the borrowed AST
                 // passed into `build`, and we only dereference them while that AST is still alive.
                 let function = unsafe { &*deferred.function };
-                let commands = self.visit_function_body(function, deferred.flow);
+                let commands = self.visit_function_like_body(&function.body, deferred.flow);
                 self.recorded_function_bodies
                     .insert(deferred.scope, commands);
                 self.mark_scope_completed(deferred.scope);
@@ -2247,21 +2283,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.command_stack.clear();
     }
 
-    fn visit_function_body(
-        &mut self,
-        function: &FunctionDef,
-        flow: FlowState,
-    ) -> Vec<RecordedCommand> {
+    fn visit_function_like_body(&mut self, body: &Stmt, flow: FlowState) -> Vec<RecordedCommand> {
         let flow = FlowState {
             in_function: true,
             ..flow
         };
 
-        match &function.body.command {
+        match &body.command {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => {
                 self.visit_stmt_seq(commands, flow)
             }
-            _ => vec![self.visit_stmt(&function.body, flow)],
+            _ => vec![self.visit_stmt(body, flow)],
         }
     }
 
@@ -2729,8 +2761,21 @@ fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
 }
 
 fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> bool {
-    ancestor_scopes(scopes, scope)
-        .any(|scope| matches!(&scopes[scope.index()].kind, ScopeKind::Function(function) if function == name))
+    ancestor_scopes(scopes, scope).any(|scope| {
+        matches!(
+            &scopes[scope.index()].kind,
+            ScopeKind::Function(function) if function.contains_name(name)
+        )
+    })
+}
+
+fn function_scope_kind(function: &FunctionDef) -> FunctionScopeKind {
+    let names = function.static_names().cloned().collect::<Vec<_>>();
+    if names.is_empty() {
+        FunctionScopeKind::Dynamic
+    } else {
+        FunctionScopeKind::Named(names)
+    }
 }
 
 fn body_span(command: &Stmt) -> Span {

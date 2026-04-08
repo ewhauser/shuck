@@ -181,11 +181,11 @@ fn test_posix_function_with_brace_group_preserves_surface_form() {
 
     assert!(!function.uses_function_keyword());
     assert!(function.has_name_parens());
-    assert_eq!(function.surface.function_keyword_span, None);
+    assert_eq!(function.header.function_keyword_span, None);
     assert_eq!(
         function
-            .surface
-            .name_parens_span
+            .header
+            .trailing_parens_span
             .map(|span| span.slice(input)),
         Some("()")
     );
@@ -367,6 +367,239 @@ fn test_non_zsh_dialects_reject_compact_posix_function_brace_bodies() {
             "expected {dialect:?} to reject compact empty brace body",
         );
     }
+}
+
+#[test]
+fn test_zsh_function_keyword_allows_simple_body_on_following_line() {
+    let input = "function a\nprint -- BODY\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert!(function.uses_function_keyword());
+    assert!(!function.has_trailing_parens());
+    assert_eq!(function.header.entries.len(), 1);
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["a"]
+    );
+
+    let AstCommand::Simple(command) = &function.body.command else {
+        panic!("expected simple command body");
+    };
+    assert_eq!(command.name.render(input), "print");
+    assert_eq!(
+        command
+            .args
+            .iter()
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>(),
+        vec!["--", "BODY"]
+    );
+}
+
+#[test]
+fn test_zsh_posix_function_allows_simple_body_on_same_line() {
+    let input = "a() print -- BODY\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert!(!function.uses_function_keyword());
+    assert!(function.has_trailing_parens());
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["a"]
+    );
+
+    let AstCommand::Simple(command) = &function.body.command else {
+        panic!("expected simple command body");
+    };
+    assert_eq!(command.name.render(input), "print");
+    assert_eq!(
+        command
+            .args
+            .iter()
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>(),
+        vec!["--", "BODY"]
+    );
+}
+
+#[test]
+fn test_zsh_function_keyword_preserves_multi_name_header_with_trailing_parens() {
+    let input = "function music itunes() { print -- hi; }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert!(function.uses_function_keyword());
+    assert!(function.has_trailing_parens());
+    assert_eq!(function.header.entries.len(), 2);
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["music", "itunes"]
+    );
+    assert_eq!(
+        function
+            .header
+            .entries
+            .iter()
+            .map(|entry| entry.word.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["music", "itunes"]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    assert!(redirects.is_empty());
+    assert!(matches!(compound, AstCompoundCommand::BraceGroup(_)));
+}
+
+#[test]
+fn test_zsh_function_keyword_preserves_multi_name_stub_body() {
+    let input = "function foo bar\nreturn 1\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["foo", "bar"]
+    );
+
+    let AstCommand::Builtin(AstBuiltinCommand::Return(command)) = &function.body.command else {
+        panic!("expected return body");
+    };
+    assert_eq!(
+        command
+            .code
+            .as_ref()
+            .expect("expected return code")
+            .render(input),
+        "1"
+    );
+}
+
+#[test]
+fn test_zsh_function_keyword_allows_nameless_anonymous_function_command() {
+    let input = "function { local x=1; print -- anon:$#; } a b\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_anonymous_function(&script.body[0]);
+    assert!(function.uses_function_keyword());
+    assert_eq!(
+        function
+            .args
+            .iter()
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group anonymous function body");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 2);
+}
+
+#[test]
+fn test_zsh_paren_anonymous_function_command_keeps_invocation_args() {
+    let input = "() { print -- anon:$#; } a b\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_anonymous_function(&script.body[0]);
+    assert!(!function.uses_function_keyword());
+    assert_eq!(
+        function
+            .args
+            .iter()
+            .map(|arg| arg.render(input))
+            .collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    assert!(redirects.is_empty());
+    assert!(matches!(compound, AstCompoundCommand::BraceGroup(_)));
+}
+
+#[test]
+fn test_zsh_function_keyword_accepts_punctuated_literal_names() {
+    let input = "function cfh.() { :; }\nfunction cfh~() { :; }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let first = expect_function(&script.body[0]);
+    let second = expect_function(&script.body[1]);
+    assert_eq!(
+        first
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["cfh."]
+    );
+    assert_eq!(
+        second
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["cfh~"]
+    );
+}
+
+#[test]
+fn test_zsh_function_keyword_preserves_dynamic_header_word_without_static_name() {
+    let input = "function $0_error() { :; }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert!(function.uses_function_keyword());
+    assert!(function.has_trailing_parens());
+    assert!(function.static_names().next().is_none());
+    assert_eq!(function.header.entries.len(), 1);
+    assert_eq!(
+        function.header.entries[0].word.render_syntax(input),
+        "$0_error"
+    );
 }
 
 #[test]

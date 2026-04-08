@@ -355,6 +355,10 @@
     "expectation": "parse_ok",
     "reason": "zsh always clauses parse in this fixture"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__virtualenvwrapper__virtualenvwrapper.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh anonymous function commands now parse in zsh mode"
+  },
   "oils/zsh-large-corpus-regressions.test.sh": {
     "expectation": "skip",
     "reason": "zsh-only regression snippets are covered by the zsh-mode parser corpus test"
