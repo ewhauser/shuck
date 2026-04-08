@@ -3684,6 +3684,7 @@ impl<'a> Parser<'a> {
     ) -> SourceText {
         let start = *cursor;
         let mut depth = 1;
+        let mut literal_brace_depth = 0usize;
         let mut in_single = false;
         let mut in_double = false;
         let mut escaped = false;
@@ -3734,7 +3735,27 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
+                '{' if !in_single && !in_double => {
+                    literal_brace_depth += 1;
+                    let ch = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(operand) = operand.as_mut() {
+                        operand.push(ch);
+                    }
+                }
                 '}' if !in_single && !in_double => {
+                    if depth == 1 && literal_brace_depth > 0 {
+                        let mut remaining = chars.clone();
+                        remaining.next();
+                        if Self::brace_operand_has_later_top_level_closer(remaining, depth) {
+                            literal_brace_depth -= 1;
+                            let ch = Self::next_word_char_unwrap(chars, cursor);
+                            if let Some(operand) = operand.as_mut() {
+                                operand.push(ch);
+                            }
+                            continue;
+                        }
+                    }
+
                     if depth == 1 {
                         let end = *cursor;
                         Self::next_word_char_unwrap(chars, cursor);
@@ -3763,5 +3784,41 @@ impl<'a> Parser<'a> {
         } else {
             self.source_text(operand.unwrap_or_default(), start, *cursor)
         }
+    }
+
+    fn brace_operand_has_later_top_level_closer(
+        mut chars: std::iter::Peekable<std::str::Chars<'_>>,
+        target_depth: usize,
+    ) -> bool {
+        let mut depth = target_depth;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while let Some(ch) = chars.next() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '$' if !in_single && chars.peek() == Some(&'{') => {
+                    chars.next();
+                    depth += 1;
+                }
+                '}' if !in_single && !in_double => {
+                    if depth == target_depth {
+                        return true;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+
+        false
     }
 }

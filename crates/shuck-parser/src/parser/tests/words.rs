@@ -865,6 +865,20 @@ fn test_brace_syntax_marks_literal_and_quoted_brace_forms() {
 }
 
 #[test]
+fn test_brace_syntax_preserves_brace_expansion_suffix_forms() {
+    for input in ["{a,b}}", "{~,~root}/pwd", "\"\"{~,~root}/pwd", "\\{~,~root}/pwd"] {
+        let word = Parser::parse_word_string(input);
+        assert_eq!(word.render_syntax(input), input);
+        if input == "\\{~,~root}/pwd" {
+            assert_eq!(brace_slices(&word, input), Vec::<&str>::new());
+        } else {
+            let expected = if input == "{a,b}}" { "{a,b}" } else { "{~,~root}" };
+            assert_eq!(brace_slices(&word, input), vec![expected]);
+        }
+    }
+}
+
+#[test]
 fn test_brace_syntax_marks_template_placeholders_inside_quotes() {
     let input = "\"$root/pkg/{{name}}/bin/{{cmd}}\"";
     let word = Parser::parse_word_string(input);
@@ -1155,6 +1169,23 @@ fn test_parameter_expansion_trim_operand_accepts_literal_left_brace_after_multil
                 )
         )
     }));
+}
+
+#[test]
+fn test_parameter_expansion_trim_operand_accepts_balanced_literal_braces() {
+    let input = "echo ${var#foo{bar}}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
+    let ParameterOp::RemovePrefixShort { pattern } = operator else {
+        panic!("expected short-prefix trim operator");
+    };
+    assert_eq!(pattern.render(input), "foo{bar}");
 }
 
 #[test]
@@ -2065,7 +2096,7 @@ FOR2 eye2 IN onetwo 3; do echo $i; done
     let AstCompoundCommand::For(command) = compound else {
         panic!("expected final command to be a for loop");
     };
-    assert_eq!(command.targets[0].name, "i");
+    assert_eq!(command.targets[0].name.as_deref(), Some("i"));
     assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
 }
 
@@ -2158,7 +2189,7 @@ e_ $i; done
         panic!("expected final command to be a for loop");
     };
 
-    assert_eq!(command.targets[0].name, "i");
+    assert_eq!(command.targets[0].name.as_deref(), Some("i"));
     assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
 
     let Some(body_stmt) = command.body.first() else {
@@ -2229,10 +2260,11 @@ fn test_for_loop_preserves_single_target_and_in_do_done_syntax() {
         command
             .targets
             .iter()
-            .map(|target| target.name.as_str())
+            .map(|target| target.name.as_deref().expect("expected normalized target"))
             .collect::<Vec<_>>(),
         vec!["item"]
     );
+    assert_eq!(command.targets[0].word.render(source), "item");
     assert_eq!(command.targets[0].span.slice(source), "item");
     assert_eq!(
         command
@@ -2259,6 +2291,25 @@ fn test_for_loop_preserves_single_target_and_in_do_done_syntax() {
 }
 
 #[test]
+fn test_for_loop_preserves_non_identifier_target_surface() {
+    for source in [
+        "for - in a b c; do echo hi; done\n",
+        "for i.j in a b c; do echo hi; done\n",
+    ] {
+        let output = Parser::new(source).parse().unwrap();
+        let (compound, redirects) = expect_compound(&output.file.body[0]);
+        let AstCompoundCommand::For(command) = compound else {
+            panic!("expected for loop");
+        };
+
+        assert!(redirects.is_empty());
+        assert_eq!(command.targets.len(), 1);
+        assert_eq!(command.targets[0].span.slice(source), command.targets[0].word.render(source));
+        assert!(command.targets[0].name.is_none());
+    }
+}
+
+#[test]
 fn test_zsh_for_loop_preserves_multiple_targets() {
     let source = "for k v in a b c d; do echo \"$k:$v\"; done\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -2274,7 +2325,7 @@ fn test_zsh_for_loop_preserves_multiple_targets() {
         command
             .targets
             .iter()
-            .map(|target| target.name.as_str())
+            .map(|target| target.name.as_deref().expect("expected normalized target"))
             .collect::<Vec<_>>(),
         vec!["k", "v"]
     );
@@ -2313,7 +2364,7 @@ fn test_zsh_for_loop_preserves_digit_targets() {
         command
             .targets
             .iter()
-            .map(|target| target.name.as_str())
+            .map(|target| target.name.as_deref().expect("expected normalized target"))
             .collect::<Vec<_>>(),
         vec!["1", "2", "3"]
     );
@@ -2340,7 +2391,7 @@ fn test_zsh_for_loop_preserves_paren_do_done_syntax() {
         command
             .targets
             .iter()
-            .map(|target| target.name.as_str())
+            .map(|target| target.name.as_deref().expect("expected normalized target"))
             .collect::<Vec<_>>(),
         vec!["version"]
     );
@@ -2465,7 +2516,7 @@ fn test_zsh_for_loop_allows_in_as_first_target_name() {
         command
             .targets
             .iter()
-            .map(|target| target.name.as_str())
+            .map(|target| target.name.as_deref().expect("expected normalized target"))
             .collect::<Vec<_>>(),
         vec!["in", "other"]
     );

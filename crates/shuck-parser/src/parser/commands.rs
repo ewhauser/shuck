@@ -418,13 +418,13 @@ impl<'a> Parser<'a> {
     fn current_starts_prefix_redirect_compound(&self) -> bool {
         match self.current_keyword() {
             Some(Keyword::If)
-            | Some(Keyword::For)
             | Some(Keyword::While)
             | Some(Keyword::Until)
             | Some(Keyword::Case)
             | Some(Keyword::Select)
             | Some(Keyword::Time)
             | Some(Keyword::Coproc) => true,
+            Some(Keyword::For) => self.dialect == ShellDialect::Zsh,
             Some(Keyword::Repeat) => self.dialect.features().zsh_repeat_loop,
             Some(Keyword::Foreach) => self.dialect.features().zsh_foreach_loop,
             Some(Keyword::Function) => false,
@@ -1125,6 +1125,10 @@ impl<'a> Parser<'a> {
                 let body_start = self.current_span.start;
                 let body = self.parse_compound_list(Keyword::Done)?;
                 let body_span = Span::from_positions(body_start, self.current_span.start);
+                if body.is_empty() && self.dialect != ShellDialect::Zsh {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty for loop body"));
+                }
                 if !self.is_keyword(Keyword::Done) {
                     self.pop_depth();
                     return Err(self.error("expected 'done'"));
@@ -1162,6 +1166,10 @@ impl<'a> Parser<'a> {
                 let body_start = self.current_span.start;
                 let body = self.parse_compound_list(Keyword::Done)?;
                 let body_span = Span::from_positions(body_start, self.current_span.start);
+                if body.is_empty() && self.dialect != ShellDialect::Zsh {
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty for loop body"));
+                }
                 if !self.is_keyword(Keyword::Done) {
                     self.pop_depth();
                     return Err(self.error("expected 'done'"));
@@ -1201,7 +1209,8 @@ impl<'a> Parser<'a> {
         let first_target = self
             .current_for_target(allow_digits)
             .ok_or_else(|| Error::parse("expected variable name in for loop".to_string()))?;
-        self.advance();
+        let first_word = first_target.word.clone();
+        self.advance_past_word(&first_word);
 
         let mut targets = vec![first_target];
         if !allow_zsh_targets {
@@ -1223,25 +1232,26 @@ impl<'a> Parser<'a> {
             let target = self
                 .current_for_target(true)
                 .ok_or_else(|| Error::parse("expected variable name in for loop".to_string()))?;
-            self.advance();
+            let word = target.word.clone();
+            self.advance_past_word(&word);
             targets.push(target);
         }
 
         Ok(targets)
     }
 
-    fn current_for_target(&self, allow_digits: bool) -> Option<ForTarget> {
-        let name = self.current_word_str()?;
-        if Self::is_valid_identifier(name)
-            || (allow_digits && name.bytes().all(|byte| byte.is_ascii_digit()))
-        {
-            Some(ForTarget {
-                name: Name::from(name),
-                span: self.current_span,
-            })
-        } else {
-            None
-        }
+    fn current_for_target(&mut self, allow_digits: bool) -> Option<ForTarget> {
+        let name = self.current_word_str().and_then(|name| {
+            (Self::is_valid_identifier(name)
+                || (allow_digits && name.bytes().all(|byte| byte.is_ascii_digit())))
+            .then(|| Name::from(name))
+        });
+        let word = self.current_word()?;
+        Some(ForTarget {
+            span: word.span,
+            word,
+            name,
+        })
     }
 
     fn parse_for_word_list_until_body_separator(&mut self) -> Result<(Vec<Word>, bool)> {

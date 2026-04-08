@@ -813,7 +813,7 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
         if index > 0 {
             write!(formatter, [space()])?;
         }
-        write!(formatter, [text(target.name.to_string())])?;
+        target.word.format().fmt(formatter)?;
     }
 
     match command.syntax {

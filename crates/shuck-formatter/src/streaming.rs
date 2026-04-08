@@ -858,7 +858,7 @@ impl<'source> ShellStreamFormatter<'source> {
             if index > 0 {
                 self.write_space();
             }
-            self.write_text(target.name.as_ref());
+            self.write_word(&target.word);
         }
 
         match command.syntax {

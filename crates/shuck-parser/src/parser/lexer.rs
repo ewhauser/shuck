@@ -1497,6 +1497,26 @@ impl<'a> Lexer<'a> {
                         // (quote removal — only the literal char survives)
                         Self::push_capture_char(&mut word, next);
                         self.advance();
+                        if next == '{'
+                            && self.current_word_text(start, &word) == "{"
+                            && self.escaped_brace_sequence_looks_like_brace_expansion()
+                        {
+                            let mut depth = 1;
+                            while let Some(c) = self.peek_char() {
+                                Self::push_capture_char(&mut word, c);
+                                self.advance();
+                                match c {
+                                    '{' => depth += 1,
+                                    '}' => {
+                                        depth -= 1;
+                                        if depth == 0 {
+                                            break;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                     }
                 } else {
                     Self::push_capture_char(&mut word, '\\');
@@ -2454,6 +2474,19 @@ impl<'a> Lexer<'a> {
         while let Some(c) = self.peek_char() {
             if in_single {
                 match c {
+                    '\\' => {
+                        let escape_start = self.current_position();
+                        if self.second_char() == Some('"') {
+                            self.advance();
+                            borrowable = false;
+                            self.ensure_capture_from_source(content, segment_start, escape_start);
+                            Self::push_capture_char(content, '"');
+                            self.advance();
+                        } else {
+                            Self::push_capture_char(content, '\\');
+                            self.advance();
+                        }
+                    }
                     '\'' => {
                         Self::push_capture_char(content, c);
                         self.advance();
@@ -2471,7 +2504,9 @@ impl<'a> Lexer<'a> {
                 '}' if !in_single && !in_double => {
                     self.advance();
                     Self::push_capture_char(content, '}');
-                    if literal_brace_depth > 0 {
+                    if literal_brace_depth > 0
+                        && self.has_later_top_level_param_expansion_closer(depth)
+                    {
                         literal_brace_depth -= 1;
                         continue;
                     }
@@ -2565,6 +2600,65 @@ impl<'a> Lexer<'a> {
         borrowable
     }
 
+    fn has_later_top_level_param_expansion_closer(&self, target_depth: usize) -> bool {
+        let mut chars = self.lookahead_chars().peekable();
+        let mut depth = target_depth;
+        let mut in_single = false;
+        let mut in_double = false;
+
+        while let Some(ch) = chars.next() {
+            if in_single {
+                match ch {
+                    '\'' => in_single = false,
+                    '\\' => {
+                        if chars.peek() == Some(&'"') {
+                            chars.next();
+                        }
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
+            if in_double {
+                match ch {
+                    '"' => in_double = false,
+                    '\\' => {
+                        chars.next();
+                    }
+                    '$' if chars.peek() == Some(&'{') => {
+                        chars.next();
+                        depth += 1;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
+            match ch {
+                '\n' if depth == target_depth => return false,
+                '\'' => in_single = true,
+                '"' => in_double = true,
+                '\\' => {
+                    chars.next();
+                }
+                '$' if chars.peek() == Some(&'{') => {
+                    chars.next();
+                    depth += 1;
+                }
+                '}' => {
+                    if depth == target_depth {
+                        return true;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+
+        false
+    }
+
     /// Check if the content starting with { looks like a brace expansion
     /// Brace expansion: {a,b,c} or {1..5} (contains , or ..)
     /// Brace group: { cmd; } (contains spaces, semicolons, newlines)
@@ -2621,6 +2715,42 @@ impl<'a> Lexer<'a> {
         }
         // If next char is whitespace or newline, it's a brace group
         matches!(chars.next(), Some(' ') | Some('\t') | Some('\n') | None)
+    }
+
+    /// Check whether the text after an escaped `{` looks like a brace-expansion
+    /// surface that should stay attached to the current word, e.g. `\{a,b}`.
+    fn escaped_brace_sequence_looks_like_brace_expansion(&self) -> bool {
+        const MAX_LOOKAHEAD: usize = 10_000;
+
+        let mut chars = self.lookahead_chars();
+        let mut depth = 1;
+        let mut has_comma = false;
+        let mut has_dot_dot = false;
+        let mut prev_char = None;
+        let mut scanned = 0usize;
+
+        for ch in chars.by_ref() {
+            scanned += 1;
+            if scanned > MAX_LOOKAHEAD {
+                return false;
+            }
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return has_comma || has_dot_dot;
+                    }
+                }
+                ',' if depth == 1 => has_comma = true,
+                '.' if prev_char == Some('.') && depth == 1 => has_dot_dot = true,
+                ' ' | '\t' | '\n' | ';' if depth == 1 => return false,
+                _ => {}
+            }
+            prev_char = Some(ch);
+        }
+
+        false
     }
 
     /// Read a {literal} pattern without comma/dot-dot as a word
@@ -2702,7 +2832,7 @@ impl<'a> Lexer<'a> {
 
         // Continue reading any suffix after the brace pattern
         while let Some(ch) = self.peek_char() {
-            if Self::is_word_char(ch) || ch == '{' {
+            if Self::is_word_char(ch) || matches!(ch, '{' | '}') {
                 if ch == '{' {
                     // Another brace pattern - include it
                     word.push(ch);

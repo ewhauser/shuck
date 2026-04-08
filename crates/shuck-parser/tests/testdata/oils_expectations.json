@@ -15,6 +15,10 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
+  "oils/brace-expansion.test.sh::} in expansion": {
+    "expectation": "parse_ok",
+    "reason": "bash-compatible brace expansions with a trailing literal right brace now stay attached to one word"
+  },
   "oils/bool-parse.test.sh::Not allowed: [[ ) ]] and [[ ( ]]": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
@@ -131,13 +135,17 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
+  "oils/parse-errors.test.sh::Invalid for loop variable name": {
+    "expectation": "parse_ok",
+    "reason": "bash parses non-identifier for targets and defers the failure until execution"
+  },
   "oils/parse-errors.test.sh::array literal in case": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
   "oils/parse-errors.test.sh::array literal inside array is a parse error": {
-    "expectation": "parse_err",
-    "reason": "corpus case intentionally exercises a shell parse error"
+    "expectation": "parse_ok",
+    "reason": "bash accepts this array literal form at parse time even though the fixture highlights it as a shell quirk"
   },
   "oils/parse-errors.test.sh::array literal inside loop is a parse error": {
     "expectation": "parse_err",
@@ -179,6 +187,10 @@
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
   },
+  "oils/regex.test.sh::Parse error with 2 words": {
+    "expectation": "parse_err",
+    "reason": "corpus case intentionally exercises a shell parse error"
+  },
   "oils/regex.test.sh::Malformed regex": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
@@ -191,6 +203,10 @@
     "expectation": "skip",
     "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
   },
+  "oils/toysh.test.sh::Brace Expansion": {
+    "expectation": "parse_ok",
+    "reason": "brace-expansion words with quoted or escaped prefixes now parse as single words"
+  },
   "oils/var-sub-quote.test.sh::Syntax error for single quote in double quote": {
     "expectation": "parse_err",
     "reason": "corpus case intentionally exercises a shell parse error"
@@ -198,6 +214,10 @@
   "oils/var-sub.test.sh::Here doc with bad \"$@\" delimiter": {
     "expectation": "parse_err",
     "reason": "non-static heredoc delimiters are rejected during parsing"
+  },
+  "oils/loop.test.sh::for loop with invalid identifier": {
+    "expectation": "parse_ok",
+    "reason": "bash parses non-identifier for targets and defers the failure until execution"
   },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__lib__functions.zsh": {
     "expectation": "parse_ok",

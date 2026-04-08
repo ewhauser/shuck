@@ -146,6 +146,33 @@ fn test_function_conditional_body_absorbs_trailing_redirect() {
 }
 
 #[test]
+fn test_prefix_redirect_before_for_loop_is_rejected_in_bash_mode() {
+    let input = ">out for item in a b; do echo \"$item\"; done\n";
+    let error = Parser::new(input).parse().expect_err("expected parse error");
+    assert!(
+        error.to_string().contains("expected command"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn test_prefix_redirect_before_for_loop_is_allowed_in_zsh_mode() {
+    let input = ">out for item in a b; do echo \"$item\"; done\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert_eq!(command.targets[0].word.render(input), "item");
+    assert_eq!(redirects.len(), 1);
+    assert_eq!(redirect_word_target(&redirects[0]).render(input), "out");
+}
+
+#[test]
 fn test_leaf_spans_track_words_assignments_and_redirects() {
     let script = Parser::new("foo=bar echo hi > out\n").parse().unwrap().file;
 

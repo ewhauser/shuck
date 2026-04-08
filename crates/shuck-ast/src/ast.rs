@@ -795,9 +795,12 @@ pub struct ForCommand {
 }
 
 /// One loop target in a `for` header.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ForTarget {
-    pub name: Name,
+    /// Source-preserving target surface as it appeared in the loop header.
+    pub word: Word,
+    /// Normalized identifier when the target is a plain shell name.
+    pub name: Option<Name>,
     pub span: Span,
 }
 
@@ -3957,7 +3960,8 @@ mod tests {
     fn for_command_without_words() {
         let for_cmd = ForCommand {
             targets: vec![ForTarget {
-                name: "i".into(),
+                word: Word::literal("i"),
+                name: Some("i".into()),
                 span: Span::new(),
             }],
             words: None,
@@ -3970,14 +3974,16 @@ mod tests {
             span: Span::new(),
         };
         assert!(for_cmd.words.is_none());
-        assert_eq!(for_cmd.targets[0].name, "i");
+        assert_eq!(for_cmd.targets[0].word.render(""), "i");
+        assert_eq!(for_cmd.targets[0].name.as_deref(), Some("i"));
     }
 
     #[test]
     fn for_command_with_words() {
         let for_cmd = ForCommand {
             targets: vec![ForTarget {
-                name: "x".into(),
+                word: Word::literal("x"),
+                name: Some("x".into()),
                 span: Span::new(),
             }],
             words: Some(vec![Word::literal("1"), Word::literal("2")]),
