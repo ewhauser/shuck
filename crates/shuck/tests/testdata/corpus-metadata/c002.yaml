@@ -8,4 +8,5 @@ reviewed_divergences:
     line: 58
     reason: "ShellCheck warns on source /dev/stdin here-strings even though the source target is fixed"
   - side: shuck-only
+    labels: ["project-closure"]
     reason: "Shuck intentionally treats runtime-built source targets as a correctness hazard even when they come from project-local state, helper scripts, directives, or test harnesses. ShellCheck stays silent on these SC1090 cases, so C002 keeps that broader policy as a reviewed divergence instead of trying to model every possible project-closure source path."

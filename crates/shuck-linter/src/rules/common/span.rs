@@ -300,7 +300,7 @@ mod tests {
             panic!("expected simple command");
         };
 
-        assert_eq!(command.args.len(), 4);
+        assert_eq!(command.args.len(), 5);
         assert_eq!(
             array_expansion_part_spans(&command.args[1], source)
                 .iter()
