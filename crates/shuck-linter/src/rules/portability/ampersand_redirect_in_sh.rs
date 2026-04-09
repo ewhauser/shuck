@@ -50,16 +50,21 @@ fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -
         return None;
     }
 
-    let redirect_text = redirect_data.span.slice(source);
-    let operator_offset = redirect_text.find(">&")?;
-    if !redirect_text[operator_offset..].starts_with(">&") {
+    let redirect_start = redirect_data.span.start.offset;
+    let target_start = target.span.start.offset;
+    if redirect_start > target_start || target_start > source.len() {
+        return None;
+    }
+    let operator_text = &source[redirect_start..target_start];
+    let operator_offset = operator_text.find(">&")?;
+    if !operator_text[operator_offset..].starts_with(">&") {
         return None;
     }
 
     let operator_start = redirect_data
         .span
         .start
-        .advanced_by(&redirect_text[..operator_offset]);
+        .advanced_by(&operator_text[..operator_offset]);
     Some(Span::from_positions(
         operator_start,
         operator_start.advanced_by(">&"),
@@ -100,6 +105,7 @@ echo test >&\"2\"
 echo test 1>&\"2\"
 echo test >&-
 echo test >&\"$fd\"
+echo test 1>\"/tmp/>&log\"
 ";
         let diagnostics = test_snippet(
             source,
