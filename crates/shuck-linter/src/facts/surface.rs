@@ -8,6 +8,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
     pub(super) positional_parameter_operator_spans: Vec<Span>,
+    pub(super) unicode_smart_quote_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
@@ -310,6 +311,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) {
+        collect_unicode_smart_quote_spans_in_word_parts(
+            &word.parts,
+            self.source,
+            false,
+            &mut self.facts.unicode_smart_quote_spans,
+        );
         if context.collect_open_double_quotes && context.assignment_target.is_none() {
             self.collect_open_double_quote_fragments(word);
         }
@@ -880,6 +887,37 @@ fn simple_command_variable_set_operand<'a>(
     let operands = simple_test_operands(command, source)?;
     (operands.len() == 2 && static_word_text(&operands[0], source).as_deref() == Some("-v"))
         .then(|| &operands[1])
+}
+
+fn collect_unicode_smart_quote_spans_in_word_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    quoted: bool,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) if !quoted => {
+                let literal = text.as_str(source, part.span);
+                for (offset, char) in literal.char_indices() {
+                    if !is_unicode_smart_quote(char) {
+                        continue;
+                    }
+                    let start = part.span.start.advanced_by(&literal[..offset]);
+                    let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
+                    spans.push(Span::from_positions(start, end));
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unicode_smart_quote_spans_in_word_parts(parts, source, true, spans)
+            }
+            _ => {}
+        }
+    }
+}
+
+fn is_unicode_smart_quote(char: char) -> bool {
+    matches!(char, '\u{2018}' | '\u{2019}' | '\u{201C}' | '\u{201D}')
 }
 
 #[cfg(test)]

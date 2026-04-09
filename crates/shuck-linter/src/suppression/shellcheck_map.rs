@@ -45,6 +45,9 @@ impl ShellCheckCodeMap {
         if number == 2283 {
             return Some(Rule::DoubleParenGrouping);
         }
+        if number == 2284 {
+            return Some(Rule::UnicodeQuoteInString);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -68,6 +71,7 @@ impl Default for ShellCheckCodeMap {
                 (1091, Rule::UntrackedSourceFile),
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
+                (1110, Rule::UnicodeQuoteInString),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -149,6 +153,7 @@ mod tests {
             Some(Rule::BackslashBeforeClosingBacktick)
         );
         assert_eq!(map.resolve("SC1102"), Some(Rule::PositionalParamAsOperator));
+        assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -219,6 +224,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2282"), Some(Rule::PositionalParamAsOperator));
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -245,6 +251,7 @@ mod tests {
                 (1091, Rule::UntrackedSourceFile),
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
+                (1110, Rule::UnicodeQuoteInString),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2005, Rule::EchoedCommandSubstitution),

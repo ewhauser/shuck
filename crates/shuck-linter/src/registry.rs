@@ -141,6 +141,7 @@ declare_rules! {
     ("C069", Category::Correctness, Severity::Warning, BackslashBeforeClosingBacktick),
     ("C070", Category::Correctness, Severity::Warning, PositionalParamAsOperator),
     ("C071", Category::Correctness, Severity::Warning, DoubleParenGrouping),
+    ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
@@ -219,6 +220,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-186" => Some(Rule::BackslashBeforeClosingBacktick),
         "SH-187" => Some(Rule::PositionalParamAsOperator),
         "SH-188" => Some(Rule::DoubleParenGrouping),
+        "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         _ => None,
     })
@@ -334,6 +336,7 @@ mod tests {
             Some(Rule::PositionalParamAsOperator)
         );
         assert_eq!(code_to_rule("SH-188"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));

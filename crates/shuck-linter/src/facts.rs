@@ -1221,6 +1221,7 @@ pub struct LinterFacts<'a> {
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
     positional_parameter_operator_spans: Vec<Span>,
     double_paren_grouping_spans: Vec<Span>,
+    unicode_smart_quote_spans: Vec<Span>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
 }
 
@@ -1360,6 +1361,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn double_paren_grouping_spans(&self) -> &[Span] {
         &self.double_paren_grouping_spans
+    }
+
+    pub fn unicode_smart_quote_spans(&self) -> &[Span] {
+        &self.unicode_smart_quote_spans
     }
 
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
@@ -1505,6 +1510,7 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameter_operator_spans: surface_fragments
                 .positional_parameter_operator_spans,
             double_paren_grouping_spans,
+            unicode_smart_quote_spans: surface_fragments.unicode_smart_quote_spans,
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
         }
     }
@@ -4385,6 +4391,27 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["p"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_unicode_smart_quote_spans_for_unquoted_words() {
+        let source = "\
+#!/bin/sh
+echo “hello”
+echo \"hello “world”\"
+echo 'hello ‘world’'
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .unicode_smart_quote_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["“", "”"]
             );
         });
     }

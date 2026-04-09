@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 104
+---
+C072 a unicode smart quote appears inside a shell string
+ --> <source>:3:6
+  |
+3 | echo “hello”
+  |
+
+C072 a unicode smart quote appears inside a shell string
+ --> <source>:3:12
+  |
+3 | echo “hello”
+  |
