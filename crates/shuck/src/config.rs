@@ -2,11 +2,13 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use serde::Deserialize;
-use shuck_formatter::{IndentStyle, ShellDialect, ShellFormatOptions};
 
 use crate::discover::normalize_path;
+use crate::format_settings::{
+    FormatSettingsPatch, parse_config_dialect, parse_config_indent_style,
+};
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
 
@@ -57,39 +59,28 @@ pub(crate) fn load_project_config(project_root: &Path) -> Result<ShuckConfig> {
 }
 
 impl FormatConfig {
-    pub(crate) fn apply_to(&self, mut options: ShellFormatOptions) -> Result<ShellFormatOptions> {
-        if let Some(dialect) = self.dialect.as_deref() {
-            options = options.with_dialect(parse_dialect(dialect)?);
-        }
-        if let Some(indent_style) = self.indent_style.as_deref() {
-            options = options.with_indent_style(parse_indent_style(indent_style)?);
-        }
-        if let Some(indent_width) = self.indent_width {
-            if indent_width == 0 {
-                return Err(anyhow!("`[format].indent-width` must be at least 1"));
-            }
-            options = options.with_indent_width(indent_width);
-        }
-        if let Some(binary_next_line) = self.binary_next_line {
-            options = options.with_binary_next_line(binary_next_line);
-        }
-        if let Some(switch_case_indent) = self.switch_case_indent {
-            options = options.with_switch_case_indent(switch_case_indent);
-        }
-        if let Some(space_redirects) = self.space_redirects {
-            options = options.with_space_redirects(space_redirects);
-        }
-        if let Some(keep_padding) = self.keep_padding {
-            options = options.with_keep_padding(keep_padding);
-        }
-        if let Some(function_next_line) = self.function_next_line {
-            options = options.with_function_next_line(function_next_line);
-        }
-        if let Some(never_split) = self.never_split {
-            options = options.with_never_split(never_split);
-        }
-
-        Ok(options)
+    pub(crate) fn to_patch(&self) -> Result<FormatSettingsPatch> {
+        Ok(FormatSettingsPatch {
+            dialect: self
+                .dialect
+                .as_deref()
+                .map(parse_config_dialect)
+                .transpose()?,
+            indent_style: self
+                .indent_style
+                .as_deref()
+                .map(parse_config_indent_style)
+                .transpose()?,
+            indent_width: self.indent_width,
+            binary_next_line: self.binary_next_line,
+            switch_case_indent: self.switch_case_indent,
+            space_redirects: self.space_redirects,
+            keep_padding: self.keep_padding,
+            function_next_line: self.function_next_line,
+            never_split: self.never_split,
+            simplify: None,
+            minify: None,
+        })
     }
 }
 
@@ -145,27 +136,4 @@ fn config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     }
 
     Ok(None)
-}
-
-fn parse_dialect(value: &str) -> Result<ShellDialect> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "auto" => Ok(ShellDialect::Auto),
-        "bash" => Ok(ShellDialect::Bash),
-        "posix" => Ok(ShellDialect::Posix),
-        "mksh" => Ok(ShellDialect::Mksh),
-        "zsh" => Ok(ShellDialect::Zsh),
-        _ => Err(anyhow!(
-            "unsupported `[format].dialect` value `{value}`; expected one of: auto, bash, posix, mksh, zsh"
-        )),
-    }
-}
-
-fn parse_indent_style(value: &str) -> Result<IndentStyle> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "tab" => Ok(IndentStyle::Tab),
-        "space" => Ok(IndentStyle::Space),
-        _ => Err(anyhow!(
-            "unsupported `[format].indent-style` value `{value}`; expected one of: tab, space"
-        )),
-    }
 }

@@ -4,6 +4,7 @@ mod cache;
 mod commands;
 mod config;
 mod discover;
+mod format_settings;
 mod stdin;
 
 use std::path::{Path, PathBuf};

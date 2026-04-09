@@ -1,13 +1,12 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, BufWriter};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
+use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex, first_statement_line,
@@ -21,7 +20,8 @@ use crate::cache::resolve_cache_root;
 use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
 };
-use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
+use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
+use crate::discover::DiscoveryOptions;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct CheckReport {
@@ -65,20 +65,6 @@ impl CacheKey for EffectiveCheckSettings {
     }
 }
 
-#[derive(Debug, Clone)]
-struct ProjectCacheKey {
-    canonical_project_root: PathBuf,
-    settings: EffectiveCheckSettings,
-}
-
-impl CacheKey for ProjectCacheKey {
-    fn cache_key(&self, state: &mut CacheKeyHasher) {
-        state.write_tag(b"project-cache-key");
-        self.canonical_project_root.cache_key(state);
-        self.settings.cache_key(state);
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum CheckCacheData {
     Success(Vec<CachedLintDiagnostic>),
@@ -118,15 +104,9 @@ impl CachedLintDiagnostic {
 }
 
 #[derive(Debug, Clone)]
-struct PendingFileCheck {
-    file: DiscoveredFile,
-    file_key: FileCacheKey,
-}
-
-#[derive(Debug, Clone)]
 struct FileCheckResult {
-    file: DiscoveredFile,
-    file_key: FileCacheKey,
+    file: crate::discover::DiscoveredFile,
+    file_key: shuck_cache::FileCacheKey,
     cache_data: CheckCacheData,
     diagnostics: Vec<DisplayedDiagnostic>,
 }
@@ -161,8 +141,8 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
     }
 
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
-
-    let files = discover_files(
+    let settings = EffectiveCheckSettings::default();
+    let runs = prepare_project_runs::<CheckCacheData, EffectiveCheckSettings, _>(
         &args.paths,
         cwd,
         &DiscoveryOptions {
@@ -170,74 +150,46 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             cache_root: Some(cache_root.to_path_buf()),
             ..DiscoveryOptions::default()
         },
+        cache_root,
+        args.no_cache,
+        b"project-cache-key",
+        |_| Ok(settings.clone()),
     )?;
-    let mut groups: BTreeMap<ProjectRoot, Vec<DiscoveredFile>> = BTreeMap::new();
-    for file in files {
-        groups
-            .entry(file.project_root.clone())
-            .or_default()
-            .push(file);
-    }
-
-    let settings = EffectiveCheckSettings::default();
     let base_linter_settings = LinterSettings::default();
     let shellcheck_map = ShellCheckCodeMap::default();
 
     let mut report = CheckReport::default();
 
-    for (project_root, files) in groups {
-        let cache_key = ProjectCacheKey {
-            canonical_project_root: project_root.canonical_root.clone(),
-            settings: settings.clone(),
-        };
-        let mut cache = if args.no_cache {
-            None
-        } else {
-            Some(PackageCache::<CheckCacheData>::open(
-                cache_root,
-                project_root.canonical_root.clone(),
-                env!("CARGO_PKG_VERSION"),
-                &cache_key,
-            )?)
-        };
-
-        let mut pending = Vec::new();
-        for file in files {
-            let file_key = FileCacheKey::from_path(&file.absolute_path)?;
-            if let Some(cache) = cache.as_mut()
-                && let Some(cached) = cache.get(&file.relative_path, &file_key)
-            {
-                report.cache_hits += 1;
-                match cached {
-                    CheckCacheData::Success(diagnostics) => {
-                        let source = (include_source && !diagnostics.is_empty())
-                            .then(|| read_shared_source(&file.absolute_path))
-                            .transpose()?;
-                        push_cached_lint_diagnostics(
-                            &mut report,
-                            &file.display_path,
-                            &diagnostics,
-                            source,
-                        );
-                    }
-                    CheckCacheData::ParseError(error) => {
-                        let source = include_source
-                            .then(|| read_shared_source(&file.absolute_path))
-                            .transpose()?;
-                        report.diagnostics.push(DisplayedDiagnostic {
-                            path: file.display_path,
-                            span: DisplaySpan::point(error.line, error.column),
-                            message: error.message,
-                            kind: DisplayedDiagnosticKind::ParseError,
-                            source,
-                        });
-                    }
+    for mut run in runs {
+        let pending = run.take_pending_files(|file, cached| {
+            report.cache_hits += 1;
+            match cached {
+                CheckCacheData::Success(diagnostics) => {
+                    let source = (include_source && !diagnostics.is_empty())
+                        .then(|| read_shared_source(&file.absolute_path))
+                        .transpose()?;
+                    push_cached_lint_diagnostics(
+                        &mut report,
+                        &file.display_path,
+                        &diagnostics,
+                        source,
+                    );
                 }
-                continue;
+                CheckCacheData::ParseError(error) => {
+                    let source = include_source
+                        .then(|| read_shared_source(&file.absolute_path))
+                        .transpose()?;
+                    report.diagnostics.push(DisplayedDiagnostic {
+                        path: file.display_path,
+                        span: DisplaySpan::point(error.line, error.column),
+                        message: error.message,
+                        kind: DisplayedDiagnosticKind::ParseError,
+                        source,
+                    });
+                }
             }
-
-            pending.push(PendingFileCheck { file, file_key });
-        }
+            Ok(())
+        })?;
 
         let results = pending
             .into_par_iter()
@@ -254,7 +206,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
         for result in results {
             let result = result?;
             report.diagnostics.extend(result.diagnostics);
-            if let Some(cache) = cache.as_mut() {
+            if let Some(cache) = run.cache.as_mut() {
                 cache.insert(
                     result.file.relative_path.clone(),
                     result.file_key,
@@ -264,9 +216,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             report.cache_misses += 1;
         }
 
-        if let Some(cache) = cache {
-            cache.persist()?;
-        }
+        run.persist_cache()?;
     }
 
     report.diagnostics.sort_by(|left, right| {
@@ -281,7 +231,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
 }
 
 fn analyze_file(
-    pending: PendingFileCheck,
+    pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
@@ -408,6 +358,7 @@ fn read_shared_source(path: &Path) -> Result<Arc<str>> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use tempfile::tempdir;

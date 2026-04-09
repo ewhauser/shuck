@@ -5,6 +5,8 @@ use clap::builder::styling::{AnsiColor, Effects};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use shuck_formatter::{IndentStyle, ShellDialect};
 
+use crate::format_settings::FormatSettingsPatch;
+
 const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
     .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
@@ -186,6 +188,22 @@ pub struct FormatCommand {
 }
 
 impl FormatCommand {
+    pub(crate) fn format_settings_patch(&self) -> FormatSettingsPatch {
+        FormatSettingsPatch {
+            dialect: self.dialect.map(Into::into),
+            indent_style: self.indent_style.map(Into::into),
+            indent_width: self.indent_width,
+            binary_next_line: self.binary_next_line(),
+            switch_case_indent: self.switch_case_indent(),
+            space_redirects: self.space_redirects(),
+            keep_padding: self.keep_padding(),
+            function_next_line: self.function_next_line(),
+            never_split: self.never_split(),
+            simplify: self.simplify.then_some(true),
+            minify: self.minify.then_some(true),
+        }
+    }
+
     pub fn binary_next_line(&self) -> Option<bool> {
         tri_state_bool(self.binary_next_line, self.no_binary_next_line)
     }

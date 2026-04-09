@@ -6,10 +6,9 @@ use shuck_formatter::{FormatError, FormattedSource, format_source};
 
 use crate::ExitStatus;
 use crate::args::FormatCommand;
-use crate::commands::format::{
-    FormatMode, resolve_project_format_options, unified_diff, write_parse_error_line,
-};
+use crate::commands::format::{FormatMode, unified_diff, write_parse_error_line};
 use crate::config::{resolve_project_root_for_file, resolve_project_root_for_input};
+use crate::format_settings::resolve_project_format_settings;
 use crate::stdin::read_from_stdin;
 
 pub(crate) fn format_stdin(args: FormatCommand) -> Result<ExitStatus> {
@@ -19,7 +18,8 @@ pub(crate) fn format_stdin(args: FormatCommand) -> Result<ExitStatus> {
     let display_path = display_path(path);
     let cwd = std::env::current_dir()?;
     let project_root = stdin_project_root(path, &cwd)?;
-    let options = resolve_project_format_options(&args, &project_root)?;
+    let options = resolve_project_format_settings(&project_root, args.format_settings_patch())?
+        .to_shell_format_options();
 
     match format_source(&source, path, &options) {
         Ok(FormattedSource::Unchanged) => {
