@@ -241,6 +241,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::StandaloneArithmetic) {
             rules::portability::standalone_arithmetic::standalone_arithmetic(self);
         }
+        if self.is_rule_enabled(Rule::SelectLoop) {
+            rules::portability::select_loop::select_loop(self);
+        }
         if self.is_rule_enabled(Rule::LetCommand) {
             rules::portability::let_command::let_command(self);
         }

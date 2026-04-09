@@ -91,7 +91,7 @@ Detect bash-specific control flow constructs in POSIX sh.
 
 - [x] **L** X005 (SC3058) `bash-case-fallthrough` — `;&` / `;;&` in case
 - [x] **L** X008 (SC3018) `standalone-arithmetic` — `(( ))` command in sh
-- [ ] **L** X009 (SC3033) `select-loop` — `select` loop in sh
+- [x] **L** X009 (SC3033) `select-loop` — `select` loop in sh
 - [ ] **L** X014 (SC3007) `coproc` — `coproc` in sh
 - [ ] **L** X056 (SC3063) `c-style-for-in-sh` — `for ((...))` in sh
 - [ ] **L** X057 (SC3064) `legacy-arithmetic-in-sh` — `$[...]` in sh
