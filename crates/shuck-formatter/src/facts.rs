@@ -894,30 +894,16 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
 
     fn visit_word(&mut self, word: &Word) {
         for part in &word.parts {
-            match &part.kind {
-                WordPart::DoubleQuoted { parts, .. } => {
-                    for nested in parts {
-                        match &nested.kind {
-                            WordPart::CommandSubstitution { body, syntax }
-                                if *syntax == CommandSubstitutionSyntax::DollarParen =>
-                            {
-                                self.visit_sequence(body, None, None);
-                            }
-                            other => self.visit_word_part(other),
-                        }
-                    }
-                }
-                other => self.visit_word_part(other),
-            }
+            self.visit_word_part(&part.kind, part.span);
         }
     }
 
-    fn visit_word_part(&mut self, part: &WordPart) {
+    fn visit_word_part(&mut self, part: &WordPart, span: Span) {
         match part {
             WordPart::CommandSubstitution { body, syntax }
                 if *syntax == CommandSubstitutionSyntax::DollarParen =>
             {
-                self.visit_sequence(body, None, None);
+                self.visit_sequence(body, Some(span.end.offset), None);
             }
             WordPart::CommandSubstitution { .. }
             | WordPart::Literal(_)
@@ -939,7 +925,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             | WordPart::ZshQualifiedGlob(_) => {}
             WordPart::DoubleQuoted { parts, .. } => {
                 for part in parts {
-                    self.visit_word_part(&part.kind);
+                    self.visit_word_part(&part.kind, part.span);
                 }
             }
         }

@@ -561,6 +561,42 @@ mod tests {
     }
 
     #[test]
+    fn command_substitution_bounds_do_not_capture_following_comments() {
+        let source = "value=$(pwd)\n# after\nnext\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn dirname_command_substitution_bounds_do_not_capture_following_comments() {
+        let source = "cd \"$(dirname \"${BASH_SOURCE[0]}\")\"\n# after\nnext\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
+    fn nested_command_substitution_bounds_do_not_capture_following_comments() {
+        let source = "INFO=\"$(which \"${COMMAND}\") ($(type \"${COMMAND}\" | command awk '{print $4}'))\"\n# after\nnext\n";
+        let options = ShellFormatOptions::default();
+
+        assert_eq!(
+            format_source(source, None, &options).unwrap(),
+            FormattedSource::Unchanged
+        );
+        assert_source_and_ast_paths_match(source, None, &options);
+    }
+
+    #[test]
     fn formats_arithmetic_expansions_from_ruby_build() {
         let source = "echo $(( ver[0]*100 + ver[1] ))\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();

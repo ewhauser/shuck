@@ -167,6 +167,7 @@ pub(crate) fn format_stmt_sequence_streaming_to_buf(
     statements: &StmtSeq,
     options: &ResolvedShellFormatOptions,
     facts: &FormatterFacts<'_>,
+    upper_bound: Option<usize>,
     output: &mut String,
 ) -> Result<()> {
     let mut nested_output = mem::take(output);
@@ -174,7 +175,7 @@ pub(crate) fn format_stmt_sequence_streaming_to_buf(
 
     let mut formatter =
         ShellStreamFormatter::with_output_buffer(source, options, facts, nested_output);
-    formatter.format_stmt_sequence(statements, None)?;
+    formatter.format_stmt_sequence(statements, upper_bound)?;
     *output = formatter.finish_into_string();
     Ok(())
 }

@@ -207,6 +207,7 @@ fn render_word_part(
                 } else if render_command_substitution(
                     rendered,
                     body,
+                    span.end.offset,
                     source,
                     options,
                     raw.contains('\n'),
@@ -219,7 +220,14 @@ fn render_word_part(
                     rendered.push_str(raw);
                 }
             } else if render_command_substitution(
-                rendered, body, source, options, true, source_map, facts,
+                rendered,
+                body,
+                span.end.offset,
+                source,
+                options,
+                true,
+                source_map,
+                facts,
             )
             .is_some()
             {
@@ -364,6 +372,7 @@ fn render_word_part(
 fn render_command_substitution(
     rendered: &mut String,
     body: &shuck_ast::StmtSeq,
+    upper_bound: usize,
     source: &str,
     options: &ResolvedShellFormatOptions,
     multiline: bool,
@@ -387,7 +396,15 @@ fn render_command_substitution(
             &owned_facts
         }
     };
-    format_stmt_sequence_streaming_to_buf(source, body, options, facts, &mut nested).ok()?;
+    format_stmt_sequence_streaming_to_buf(
+        source,
+        body,
+        options,
+        facts,
+        Some(upper_bound),
+        &mut nested,
+    )
+    .ok()?;
 
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {
