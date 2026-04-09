@@ -1,3 +1,4 @@
+pub mod grep_count_pipeline;
 pub mod expr_arithmetic;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ mod tests {
     use crate::{LinterSettings, Rule, assert_diagnostics};
 
     #[test_case(Rule::ExprArithmetic, Path::new("P001.sh"))]
+    #[test_case(Rule::GrepCountPipeline, Path::new("P002.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

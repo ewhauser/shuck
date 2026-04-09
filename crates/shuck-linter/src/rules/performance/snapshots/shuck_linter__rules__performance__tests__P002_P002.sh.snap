@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/performance/mod.rs
+---
+P002 use `grep -c` instead of piping `grep` into `wc -l`
+ --> <source>:2:1
+  |
+2 | grep foo file | wc -l
+  |

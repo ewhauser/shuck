@@ -191,6 +191,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExprArithmetic) {
             rules::performance::expr_arithmetic::expr_arithmetic(self);
         }
+        if self.is_rule_enabled(Rule::GrepCountPipeline) {
+            rules::performance::grep_count_pipeline::grep_count_pipeline(self);
+        }
         if self.is_rule_enabled(Rule::PrintfFormatVariable) {
             rules::style::printf_format_variable::printf_format_variable(self);
         }

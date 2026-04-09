@@ -962,6 +962,11 @@ pub struct XargsCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct GrepCommandFacts {
+    pub uses_only_matching: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
 }
@@ -996,6 +1001,7 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     xargs: Option<XargsCommandFacts>,
+    grep: Option<GrepCommandFacts>,
     set: Option<SetCommandFacts>,
     expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
@@ -1021,6 +1027,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
         self.xargs.as_ref()
+    }
+
+    pub fn grep(&self) -> Option<&GrepCommandFacts> {
+        self.grep.as_ref()
     }
 
     pub fn set(&self) -> Option<&SetCommandFacts> {
@@ -1077,6 +1087,10 @@ impl<'a> CommandOptionFacts<'a> {
                                     && arg[1..].contains('0'))
                         }),
                 }),
+            grep: normalized
+                .effective_name_is("grep")
+                .then(|| parse_grep_command(normalized.body_args(), source))
+                .flatten(),
             set: normalized
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
@@ -3133,6 +3147,76 @@ fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     )
 }
 
+fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> {
+    let mut index = 0usize;
+    let mut pending_dynamic_option_arg = false;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if word_starts_with_literal_dash(word, source) {
+                pending_dynamic_option_arg = true;
+                index += 1;
+                continue;
+            }
+
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        }
+
+        pending_dynamic_option_arg = false;
+        if text == "--only-matching" {
+            return Some(GrepCommandFacts {
+                uses_only_matching: true,
+            });
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        while let Some(flag) = chars.next() {
+            if flag == 'o' {
+                return Some(GrepCommandFacts {
+                    uses_only_matching: true,
+                });
+            }
+
+            if grep_option_takes_argument(flag) {
+                if chars.peek().is_none() {
+                    index += 1;
+                }
+                break;
+            }
+        }
+
+        index += 1;
+    }
+
+    Some(GrepCommandFacts {
+        uses_only_matching: false,
+    })
+}
+
+fn grep_option_takes_argument(flag: char) -> bool {
+    matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
+}
+
 fn option_takes_argument(flag: char) -> bool {
     matches!(flag, 'a' | 'd' | 'i' | 'n' | 'N' | 'p' | 't' | 'u')
 }
@@ -3652,7 +3736,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\nexit foo\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\ngrep -o content file | wc -l\nexit foo\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -3708,6 +3792,14 @@ mod tests {
             .and_then(|fact| fact.options().xargs())
             .expect("expected xargs facts");
         assert!(xargs.uses_null_input);
+
+        let grep = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("grep"))
+            .and_then(|fact| fact.options().grep())
+            .expect("expected grep facts");
+        assert!(grep.uses_only_matching);
 
         let exit = facts
             .commands()
