@@ -266,6 +266,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArithmeticRedirectionTarget) {
             rules::correctness::arithmetic_redirection_target::arithmetic_redirection_target(self);
         }
+        if self.is_rule_enabled(Rule::BadRedirectionFdOrder) {
+            rules::correctness::bad_redirection_fd_order::bad_redirection_fd_order(self);
+        }
         if self.is_rule_enabled(Rule::SubstWithRedirect) {
             rules::correctness::subst_with_redirect::subst_with_redirect(self);
         }

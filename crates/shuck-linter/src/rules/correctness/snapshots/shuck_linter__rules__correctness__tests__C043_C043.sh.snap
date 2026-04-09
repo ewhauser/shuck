@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 92
+---
+C043 use a standard descriptor redirection form like `2>&1`
+ --> <source>:2:11
+  |
+2 | echo ok 2&>1
+  |
+
+C043 use a standard descriptor redirection form like `2>&1`
+ --> <source>:3:11
+  |
+3 | echo ok 2&>>1
+  |
+
+C043 use a standard descriptor redirection form like `2>&1`
+ --> <source>:4:10
+  |
+4 | echo ok &>1
+  |
+
+C043 use a standard descriptor redirection form like `2>&1`
+ --> <source>:5:10
+  |
+5 | echo ok &>>1
+  |
+
+C043 use a standard descriptor redirection form like `2>&1`
+ --> <source>:6:12
+  |
+6 | echo ok 2 &>1
+  |
+
+C043 use a standard descriptor redirection form like `2>&1`
+ --> <source>:7:10
+  |
+7 | echo ok &>01
+  |

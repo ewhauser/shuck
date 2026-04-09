@@ -3,7 +3,7 @@ legacy_name: bad-redirection-fd-order
 new_category: Correctness
 new_code: C043
 runtime_kind: ast
-shellcheck_code: SC2169
+shellcheck_code: SC2210
 shells:
   - sh
   - bash

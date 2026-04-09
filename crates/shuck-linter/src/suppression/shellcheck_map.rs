@@ -72,6 +72,7 @@ impl Default for ShellCheckCodeMap {
                 (2078, Rule::TruthyLiteralTest),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
+                (2210, Rule::BadRedirectionFdOrder),
                 (2154, Rule::UndefinedVariable),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
@@ -137,6 +138,7 @@ mod tests {
         assert_eq!(map.resolve("SC2162"), Some(Rule::ReadWithoutRaw));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("SC2194"), Some(Rule::ConstantCaseSubject));
+        assert_eq!(map.resolve("SC2210"), Some(Rule::BadRedirectionFdOrder));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
         assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
@@ -200,6 +202,7 @@ mod tests {
                 (2164, Rule::UncheckedDirectoryChange),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
+                (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
