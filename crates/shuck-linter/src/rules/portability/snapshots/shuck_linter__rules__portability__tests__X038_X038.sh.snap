@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X038 brace-style `if` bodies are zsh-only syntax
+ --> <source>:4:18
+  |
+4 | if [[ -n "$x" ]] { :; }
+  |
+
+X038 brace-style `if` bodies are zsh-only syntax
+ --> <source>:7:18
+  |
+7 | if [[ -n "$x" ]] {
+  |
