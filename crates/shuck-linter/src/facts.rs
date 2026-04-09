@@ -15,11 +15,12 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
     Assignment, AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand,
-    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax, CompoundCommand,
+    ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
+    ForCommand, FunctionDef, Name, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart,
+    Position, Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt,
+    StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -28,9 +29,9 @@ use std::borrow::Cow;
 
 use self::{
     command_flow::{
-        build_for_header_facts, build_list_facts, build_pipeline_facts, build_select_header_facts,
-        build_single_test_subshell_spans, build_subshell_test_group_spans,
-        build_substitution_facts,
+        build_case_item_facts, build_for_header_facts, build_list_facts, build_pipeline_facts,
+        build_select_header_facts, build_single_test_subshell_spans,
+        build_subshell_test_group_spans, build_substitution_facts,
     },
     presence::build_presence_tested_names,
     surface::{build_subscript_index_reference_spans, build_surface_fragment_facts},
@@ -807,6 +808,30 @@ impl<'a> SelectHeaderFact<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct CaseItemFact<'a> {
+    item: &'a CaseItem,
+    command_id: CommandId,
+}
+
+impl<'a> CaseItemFact<'a> {
+    pub fn item(&self) -> &'a CaseItem {
+        self.item
+    }
+
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
+    }
+
+    pub fn terminator(&self) -> CaseTerminator {
+        self.item.terminator
+    }
+
+    pub fn terminator_span(&self) -> Option<Span> {
+        self.item.terminator_span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct FunctionHeaderFact<'a> {
     function: &'a FunctionDef,
 }
@@ -1221,6 +1246,10 @@ impl<'a> CommandFact<'a> {
         command_span(self.visit.command)
     }
 
+    pub fn span_in_source(&self, source: &str) -> Span {
+        trim_trailing_whitespace_span(self.span(), source)
+    }
+
     pub fn redirects(&self) -> &'a [Redirect] {
         self.visit.redirects
     }
@@ -1317,6 +1346,7 @@ pub struct LinterFacts<'a> {
     function_headers: Vec<FunctionHeaderFact<'a>>,
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
+    case_items: Vec<CaseItemFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     single_test_subshell_spans: Vec<Span>,
@@ -1436,6 +1466,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn select_headers(&self) -> &[SelectHeaderFact<'a>] {
         &self.select_headers
+    }
+
+    pub fn case_items(&self) -> &[CaseItemFact<'a>] {
+        &self.case_items
     }
 
     pub fn pipelines(&self) -> &[PipelineFact<'a>] {
@@ -1609,6 +1643,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
+        let case_items = build_case_item_facts(&commands);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span);
         let single_test_subshell_spans =
@@ -1643,6 +1678,7 @@ impl<'a> LinterFactsBuilder<'a> {
             function_headers,
             for_headers,
             select_headers,
+            case_items,
             pipelines,
             lists,
             single_test_subshell_spans,

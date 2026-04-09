@@ -746,6 +746,23 @@ pub(super) fn build_select_header_facts<'a>(
         .collect()
 }
 
+pub(super) fn build_case_item_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<CaseItemFact<'a>> {
+    commands
+        .iter()
+        .filter_map(|fact| {
+            let Command::Compound(CompoundCommand::Case(command)) = fact.command() else {
+                return None;
+            };
+
+            Some(command.cases.iter().map(|item| CaseItemFact {
+                item,
+                command_id: fact.id(),
+            }))
+        })
+        .flatten()
+        .collect()
+}
+
 fn build_loop_header_word_facts<'a>(
     words: impl IntoIterator<Item = &'a Word>,
     commands: &[CommandFact<'a>],

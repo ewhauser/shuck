@@ -114,6 +114,10 @@ impl Default for ShellCheckCodeMap {
             (3046, Rule::SourceBuiltinInSh),
             (3050, Rule::BraceFdRedirection),
             (3052, Rule::AmpersandRedirection),
+            // ShellCheck 0.11.0 surfaces `;&` / `;;&` portability findings as SC2127.
+            // Keep SC3058 as a suppression alias, but prefer the current code for comparisons.
+            (3058, Rule::BashCaseFallthrough),
+            (2127, Rule::BashCaseFallthrough),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
             (3051, Rule::SourceInsideFunctionInSh),
             (3070, Rule::AmpersandRedirectInSh),
@@ -233,6 +237,8 @@ impl Default for ShellCheckCodeMap {
                 (3042, Rule::LetCommand),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
+                (3058, Rule::BashCaseFallthrough),
+                (2127, Rule::BashCaseFallthrough),
                 (2321, Rule::FunctionKeywordInSh),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
@@ -346,6 +352,8 @@ mod tests {
         assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
         assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
+        assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
+        assert_eq!(map.resolve("SC2127"), Some(Rule::BashCaseFallthrough));
         assert_eq!(map.resolve("SC3050"), Some(Rule::BraceFdRedirection));
         assert_eq!(map.resolve("SC3070"), Some(Rule::AmpersandRedirectInSh));
         assert_eq!(map.resolve("SC3073"), Some(Rule::PipeStderrInSh));
@@ -544,6 +552,7 @@ mod tests {
                 (3043, Rule::LocalVariableInSh),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
+                (2127, Rule::BashCaseFallthrough),
                 (3050, Rule::BraceFdRedirection),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3052, Rule::AmpersandRedirection),
@@ -590,6 +599,8 @@ mod tests {
 
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
+        assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
+        assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
         assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));

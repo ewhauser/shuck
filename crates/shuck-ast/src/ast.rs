@@ -1097,6 +1097,8 @@ pub struct CaseItem {
     pub patterns: Vec<Pattern>,
     pub body: StmtSeq,
     pub terminator: CaseTerminator,
+    /// Source span of the case terminator token when present.
+    pub terminator_span: Option<Span>,
 }
 
 /// One parsed function header entry.

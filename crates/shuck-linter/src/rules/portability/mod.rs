@@ -1,5 +1,6 @@
 pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
+pub mod bash_case_fallthrough;
 pub mod brace_fd_redirection;
 pub mod conditional_portability;
 pub mod csh_syntax_in_sh;
@@ -49,6 +50,7 @@ mod tests {
     #[test_case(Rule::TestEqualityOperator, Path::new("X002.sh"))]
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
+    #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
     #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
