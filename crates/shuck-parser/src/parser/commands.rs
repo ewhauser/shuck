@@ -4175,7 +4175,7 @@ impl<'a> Parser<'a> {
         let Some(last) = words.last() else {
             return (None, None);
         };
-        let Some(text) = self.literal_word_text(last) else {
+        let Some(text) = self.single_literal_word_text(last) else {
             return (None, None);
         };
         let Some(fd_text) = text.strip_suffix('\\') else {

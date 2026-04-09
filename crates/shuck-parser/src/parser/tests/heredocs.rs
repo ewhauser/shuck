@@ -82,6 +82,22 @@ fn test_named_fd_heredoc_redirect_keeps_fd_var_metadata_across_line_continuation
 }
 
 #[test]
+fn test_quoted_word_before_line_continuation_heredoc_stays_a_plain_argument() {
+    let input = "exec \"{docfd}\"\\\n<<EOF\nhello\nEOF\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let stmt = &script.body[0];
+    let command = expect_simple(stmt);
+    assert_eq!(command.name.render(input), "exec");
+    assert_eq!(command.args.len(), 1);
+    assert_eq!(command.args[0].render(input), "{docfd}");
+    assert_eq!(stmt.redirects.len(), 1);
+    assert_eq!(stmt.redirects[0].kind, RedirectKind::HereDoc);
+    assert_eq!(stmt.redirects[0].fd_var.as_deref(), None);
+    assert_eq!(stmt.redirects[0].fd_var_span, None);
+}
+
+#[test]
 fn test_spaced_word_before_heredoc_stays_a_plain_argument() {
     let input = "echo {docfd} <<EOF\nhello\nEOF\n";
     let script = Parser::new(input).parse().unwrap().file;

@@ -112,8 +112,12 @@ impl Default for ShellCheckCodeMap {
             (3042, Rule::LetCommand),
             (3039, Rule::LetCommand),
             (3046, Rule::SourceBuiltinInSh),
+            (3050, Rule::BraceFdRedirection),
+            (3052, Rule::AmpersandRedirection),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
             (3051, Rule::SourceInsideFunctionInSh),
+            (3070, Rule::AmpersandRedirectInSh),
+            (3073, Rule::PipeStderrInSh),
             (2155, Rule::ExportCommandSubstitution),
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),
@@ -587,7 +591,11 @@ mod tests {
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
+        assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
+        assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
+        assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
+        assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
