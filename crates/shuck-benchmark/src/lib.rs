@@ -160,6 +160,9 @@ macro_rules! configure_benchmark_allocator {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "parser-benchmarking")]
+    use super::parse_fixture_with_benchmark_counters;
+    use super::{TEST_FILES, benchmark_cases, parse_fixture, resources_dir};
     use serde::Deserialize;
     use shuck_formatter::{FormattedSource, ShellFormatOptions, format_file_ast, format_source};
     use shuck_indexer::Indexer;
@@ -167,11 +170,6 @@ mod tests {
         LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
         parse_directives,
     };
-    use shuck_parser::parser::Parser;
-
-    #[cfg(feature = "parser-benchmarking")]
-    use super::parse_fixture_with_benchmark_counters;
-    use super::{TEST_FILES, benchmark_cases, parse_fixture, resources_dir};
 
     #[derive(Debug, Deserialize)]
     struct Manifest {

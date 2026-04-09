@@ -369,6 +369,7 @@ fn render_word_part(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_command_substitution(
     rendered: &mut String,
     body: &shuck_ast::StmtSeq,

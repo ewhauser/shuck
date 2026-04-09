@@ -3177,8 +3177,8 @@ flag=1
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
 
-        let mut without_resolver = model_at_path(&main);
-        let unused_without_resolver = reportable_unused_names(&mut without_resolver);
+        let without_resolver = model_at_path(&main);
+        let unused_without_resolver = reportable_unused_names(&without_resolver);
         assert!(
             unused_without_resolver.contains(&Name::from("flag")),
             "unused without resolver: {:?}",
@@ -3195,7 +3195,7 @@ flag=1
             }
         };
 
-        let mut with_resolver = model_at_path_with_resolver(&main, Some(&resolver));
+        let with_resolver = model_at_path_with_resolver(&main, Some(&resolver));
         assert!(
             with_resolver
                 .synthetic_reads
@@ -3204,7 +3204,7 @@ flag=1
             "synthetic reads: {:?}",
             with_resolver.synthetic_reads
         );
-        let unused_with_resolver = reportable_unused_names(&mut with_resolver);
+        let unused_with_resolver = reportable_unused_names(&with_resolver);
         assert!(
             !unused_with_resolver.contains(&Name::from("flag")),
             "unused with resolver: {:?}",
@@ -3230,8 +3230,8 @@ source \"$rvm_path/scripts/rvm\"
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
 
-        let mut without_resolver = model_at_path(&main);
-        let unused_without_resolver = reportable_unused_names(&mut without_resolver);
+        let without_resolver = model_at_path(&main);
+        let unused_without_resolver = reportable_unused_names(&without_resolver);
         assert!(
             unused_without_resolver.contains(&Name::from("flag")),
             "unused without resolver: {:?}",
@@ -3248,7 +3248,7 @@ source \"$rvm_path/scripts/rvm\"
             }
         };
 
-        let mut with_resolver = model_at_path_with_resolver(&main, Some(&resolver));
+        let with_resolver = model_at_path_with_resolver(&main, Some(&resolver));
         assert!(
             with_resolver
                 .synthetic_reads
@@ -3257,7 +3257,7 @@ source \"$rvm_path/scripts/rvm\"
             "synthetic reads: {:?}",
             with_resolver.synthetic_reads
         );
-        let unused_with_resolver = reportable_unused_names(&mut with_resolver);
+        let unused_with_resolver = reportable_unused_names(&with_resolver);
         assert!(
             !unused_with_resolver.contains(&Name::from("flag")),
             "unused with resolver: {:?}",
@@ -3407,8 +3407,8 @@ CRCsum=\"$CRCsum\"
 archdirname=\"$archdirname\"
 EOF
 ";
-        let mut model = model(source);
-        let details = uninitialized_details(&mut model);
+        let model = model(source);
+        let details = uninitialized_details(&model);
 
         assert!(
             details.iter().any(|(name, certainty)| name == "CRCsum"
@@ -4274,11 +4274,11 @@ executed-helper.sh
         .unwrap();
         fs::write(&executed_helper, "printf '%s\\n' ok\n").unwrap();
 
-        let mut sourced_model = model_at_path(&sourced_main);
-        assert_unused_assignment_parity(&mut sourced_model);
+        let sourced_model = model_at_path(&sourced_main);
+        assert_unused_assignment_parity(&sourced_model);
 
-        let mut executed_model = model_at_path(&executed_main);
-        assert_unused_assignment_parity(&mut executed_model);
+        let executed_model = model_at_path(&executed_main);
+        assert_unused_assignment_parity(&executed_model);
     }
 
     #[test]

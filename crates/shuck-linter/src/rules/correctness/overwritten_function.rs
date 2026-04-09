@@ -25,8 +25,6 @@ pub fn overwritten_function(checker: &mut Checker) {
         .semantic_analysis()
         .overwritten_functions()
         .iter()
-        .cloned()
-        .into_iter()
         .filter(|overwritten| !overwritten.first_called)
         .filter(|overwritten| !should_suppress_overwrite(checker, overwritten))
         .map(|overwritten| {

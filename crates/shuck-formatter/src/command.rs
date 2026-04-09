@@ -1604,6 +1604,7 @@ fn render_array_elem_to_buf(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_keyed_array_elem_to_buf(
     key: &Subscript,
     value: &Word,

@@ -370,6 +370,7 @@ impl<'a> CommentAttachmentIndex<'a> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_sequence_attachment<'a>(
     items: &[SourceComment<'a>],
     claimed: Option<&[bool]>,
@@ -487,12 +488,12 @@ fn compute_sequence_attachment<'a>(
                 skip_span,
                 |candidate| candidate.span.end.offset <= first_child_start,
             );
-            for run_index in index..run_end {
-                attachment.leading[0].push(items[run_index]);
+            for (i, item) in items[index..run_end].iter().enumerate() {
+                attachment.leading[0].push(*item);
                 record_claimed_index(
                     &mut claimed_indices,
                     track_claimed_indices,
-                    base_index + run_index,
+                    base_index + index + i,
                 );
             }
             index = run_end;
@@ -512,12 +513,12 @@ fn compute_sequence_attachment<'a>(
                     candidate.span.start.offset >= gap_start && candidate.span.end.offset <= gap_end
                 },
             );
-            for run_index in index..run_end {
-                attachment.leading[next_idx].push(items[run_index]);
+            for (i, item) in items[index..run_end].iter().enumerate() {
+                attachment.leading[next_idx].push(*item);
                 record_claimed_index(
                     &mut claimed_indices,
                     track_claimed_indices,
-                    base_index + run_index,
+                    base_index + index + i,
                 );
             }
             index = run_end;
@@ -531,12 +532,12 @@ fn compute_sequence_attachment<'a>(
                 skip_span,
                 |candidate| candidate.span.start.offset >= last_child_end,
             );
-            for run_index in index..run_end {
-                attachment.dangling.push(items[run_index]);
+            for (i, item) in items[index..run_end].iter().enumerate() {
+                attachment.dangling.push(*item);
                 record_claimed_index(
                     &mut claimed_indices,
                     track_claimed_indices,
-                    base_index + run_index,
+                    base_index + index + i,
                 );
             }
             index = run_end;

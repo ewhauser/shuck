@@ -3378,7 +3378,7 @@ mod tests {
     #[test]
     fn word_display_indirect_expansion() {
         let w = word(vec![WordPart::IndirectExpansion {
-            reference: scalar_ref("ref"),
+            reference: plain_ref("ref"),
             operator: None,
             operand: None,
             colon_variant: false,
