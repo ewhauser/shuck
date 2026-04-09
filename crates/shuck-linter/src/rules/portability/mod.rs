@@ -8,6 +8,7 @@ pub mod brace_expansion;
 pub mod brace_fd_redirection;
 pub mod c_style_for_arithmetic_in_sh;
 pub mod c_style_for_in_sh;
+pub mod uppercase_expansion;
 pub mod conditional_portability;
 pub mod coproc;
 pub mod csh_syntax_in_sh;
@@ -80,6 +81,7 @@ mod tests {
     #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
     #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
+    #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]

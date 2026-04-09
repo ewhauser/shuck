@@ -13,6 +13,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
     pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
+    pub(super) case_modifications: Vec<CaseModificationFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -103,6 +104,23 @@ impl<'a> SurfaceFragmentCollector<'a> {
         self.facts
             .substring_expansions
             .push(SubstringExpansionFragmentFact { span });
+    }
+
+    fn record_case_modification(&mut self, span: Span) {
+        let Some(span) = plain_case_modification_span(span, self.source) else {
+            return;
+        };
+        if self
+            .facts
+            .case_modifications
+            .iter()
+            .any(|fragment| fragment.span() == span)
+        {
+            return;
+        }
+        self.facts
+            .case_modifications
+            .push(CaseModificationFragmentFact { span });
     }
 
     fn collect_commands(&mut self, commands: &StmtSeq) {
@@ -349,6 +367,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
         if context.collect_open_double_quotes && context.assignment_target.is_none() {
             self.collect_open_double_quote_fragments(word);
         }
+        self.collect_raw_case_modifications_in_span(word.span);
         self.collect_word_parts(&word.parts, context);
     }
 
@@ -487,6 +506,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     if parameter_has_substring_expansion(parameter) {
                         self.record_substring_expansion(parameter.span);
                     }
+                    if parameter_has_case_modification(parameter) {
+                        self.record_case_modification(parameter.span);
+                    }
                     self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
                         if matches!(
@@ -541,6 +563,15 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::ParameterExpansion {
                     operator, operand, ..
                 } => {
+                    if matches!(
+                        operator,
+                        ParameterOp::UpperFirst
+                            | ParameterOp::UpperAll
+                            | ParameterOp::LowerFirst
+                            | ParameterOp::LowerAll
+                    ) {
+                        self.record_case_modification(part.span);
+                    }
                     if let WordPart::ParameterExpansion { reference, .. } = &part.kind {
                         self.record_var_ref_subscript(reference);
                     }
@@ -554,6 +585,16 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::ArrayAccess(reference) => {
                     if reference_has_array_subscript(reference) {
                         self.record_array_reference(part.span);
+                        let case_modification_span = parts
+                            .get(index + 1)
+                            .filter(|next_part| {
+                                matches!(&next_part.kind, WordPart::Literal(text) if {
+                                    let text = text.as_str(self.source, next_part.span);
+                                    text.starts_with('^') || text.starts_with(',')
+                                })
+                            })
+                            .map_or(part.span, |next_part| part.span.merge(next_part.span));
+                        self.record_case_modification(case_modification_span);
                     }
                     self.record_var_ref_subscript(reference);
                 }
@@ -634,6 +675,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
 
         self.collect_raw_substring_expansions_in_span(text.span());
+        self.collect_raw_case_modifications_in_span(text.span());
         let word = Parser::parse_word_fragment(self.source, snippet, text.span());
         self.collect_word(&word, context.without_open_double_quote_scan());
     }
@@ -660,6 +702,28 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
     }
 
+    fn collect_raw_case_modifications_in_span(&mut self, span: Span) {
+        let snippet = span.slice(self.source);
+        let mut search_start = 0;
+
+        while let Some(relative_start) = snippet[search_start..].find("${") {
+            let start = search_start + relative_start;
+            let Some(relative_end) = snippet[start..].find('}') else {
+                break;
+            };
+            let end = start + relative_end + '}'.len_utf8();
+            let candidate = &snippet[start..end];
+            if is_plain_case_modification_text(candidate) {
+                let span = Span::from_positions(
+                    span.start.advanced_by(&snippet[..start]),
+                    span.start.advanced_by(&snippet[..end]),
+                );
+                self.record_case_modification(span);
+            }
+            search_start = end;
+        }
+    }
+
     fn collect_zsh_qualified_glob(
         &mut self,
         glob: &ZshQualifiedGlob,
@@ -680,6 +744,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
                         self.collect_raw_substring_expansions_in_span(heredoc.body.span);
+                        self.collect_raw_case_modifications_in_span(heredoc.body.span);
                         self.collect_word(&heredoc.body, context.without_open_double_quote_scan());
                     }
                 }
@@ -850,6 +915,35 @@ fn parameter_has_substring_expansion(parameter: &shuck_ast::ParameterExpansion) 
     }
 }
 
+fn parameter_has_case_modification(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation { operator, .. }) => {
+            matches!(
+                operator,
+                ParameterOp::UpperFirst
+                    | ParameterOp::UpperAll
+                    | ParameterOp::LowerFirst
+                    | ParameterOp::LowerAll
+            )
+        }
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Access { .. }
+            | BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Transformation { .. }
+            | BourneParameterExpansion::PrefixMatch { .. },
+        ) => false,
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Nested(parameter) => parameter_has_case_modification(parameter),
+            ZshExpansionTarget::Reference(_)
+            | ZshExpansionTarget::Word(_)
+            | ZshExpansionTarget::Empty => false,
+        },
+    }
+}
+
 fn reference_has_array_subscript(reference: &VarRef) -> bool {
     reference.subscript.is_some()
 }
@@ -906,6 +1000,59 @@ fn is_plain_substring_expansion_text(text: &str) -> bool {
         return false;
     }
     if matches!(suffix.chars().next(), Some('-' | '=' | '+' | '?')) {
+        return false;
+    }
+
+    true
+}
+
+fn plain_case_modification_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let relative_start = text.find("${")?;
+    let start = span.start.advanced_by(&text[..relative_start]);
+    let after_start = &source[start.offset..];
+    let relative_end = after_start.find('}')?;
+    let end = start.advanced_by(&after_start[..relative_end + '}'.len_utf8()]);
+    let candidate = &after_start[..relative_end + '}'.len_utf8()];
+
+    is_plain_case_modification_text(candidate).then_some(Span::from_positions(start, end))
+}
+
+fn is_plain_case_modification_text(text: &str) -> bool {
+    let Some(inner) = text.strip_prefix("${").and_then(|text| text.strip_suffix('}')) else {
+        return false;
+    };
+    if inner.starts_with('#') || inner.starts_with('!') {
+        return false;
+    }
+
+    let mut index = 0;
+    let chars = inner.chars().collect::<Vec<_>>();
+    while index < chars.len()
+        && (chars[index].is_ascii_alphanumeric() || chars[index] == '_' || matches!(chars[index], '@' | '*'))
+    {
+        index += 1;
+    }
+
+    if index == 0 {
+        return false;
+    }
+
+    if chars.get(index) == Some(&'[') {
+        let mut close = index + 1;
+        while close < chars.len() && chars[close] != ']' {
+            close += 1;
+        }
+        if close == chars.len() {
+            return false;
+        }
+        index = close + 1;
+    }
+
+    let Some(&operator) = chars.get(index) else {
+        return false;
+    };
+    if !matches!(operator, '^' | ',') {
         return false;
     }
 

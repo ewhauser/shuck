@@ -544,6 +544,17 @@ impl SubstringExpansionFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CaseModificationFragmentFact {
+    span: Span,
+}
+
+impl CaseModificationFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordFactContext {
     Expansion(ExpansionContext),
@@ -1411,6 +1422,7 @@ pub struct LinterFacts<'a> {
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
+    case_modification_fragments: Vec<CaseModificationFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1602,6 +1614,10 @@ impl<'a> LinterFacts<'a> {
     pub fn substring_expansion_fragments(&self) -> &[SubstringExpansionFragmentFact] {
         &self.substring_expansion_fragments
     }
+
+    pub fn case_modification_fragments(&self) -> &[CaseModificationFragmentFact] {
+        &self.case_modification_fragments
+    }
 }
 
 struct LinterFactsBuilder<'a> {
@@ -1766,6 +1782,7 @@ impl<'a> LinterFactsBuilder<'a> {
             indirect_expansion_fragments: surface_fragments.indirect_expansions,
             indexed_array_reference_fragments: surface_fragments.indexed_array_references,
             substring_expansion_fragments: surface_fragments.substring_expansions,
+            case_modification_fragments: surface_fragments.case_modifications,
         }
     }
 }
@@ -4874,6 +4891,7 @@ printf '%s\n' $'tab\t'
 printf '%s\n' \"${!name}\" \"${!arr[*]}\"
 printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
 printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
+printf '%s\n' \"${name^}\" \"${name^^pattern}\" \"${name,}\" \"${arr[0]^^}\" \"${arr[@],,}\" \"${!name^^}\" \"${name//x/y}\"
 cat <<EOF
 Expected: '${expected_commit::7}'
 #define LAST_COMMIT_POSITION \"2311 ${GN_COMMIT:0:12}\"
@@ -4996,6 +5014,20 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     "${*:1:2}",
                     "${expected_commit::7}",
                     "${GN_COMMIT:0:12}",
+                ]
+            );
+            assert_eq!(
+                facts
+                    .case_modification_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "${name^}",
+                    "${name^^pattern}",
+                    "${name,}",
+                    "${arr[0]^^}",
+                    "${arr[@],,}",
                 ]
             );
 

@@ -271,6 +271,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SubstringExpansion) {
             rules::portability::substring_expansion::substring_expansion(self);
         }
+        if self.is_rule_enabled(Rule::CaseModificationExpansion) {
+            rules::portability::uppercase_expansion::uppercase_expansion(self);
+        }
         if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
             rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
         }

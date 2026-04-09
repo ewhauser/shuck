@@ -173,6 +173,7 @@ declare_rules! {
     ("X019", Category::Portability, Severity::Warning, ArrayReference),
     ("X020", Category::Portability, Severity::Warning, BraceFdRedirection),
     ("X023", Category::Portability, Severity::Warning, SubstringExpansion),
+    ("X024", Category::Portability, Severity::Warning, CaseModificationExpansion),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
@@ -254,6 +255,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-023" => Some(Rule::IndirectExpansion),
         "SH-024" => Some(Rule::ArrayReference),
         "SH-031" => Some(Rule::SubstringExpansion),
+        "SH-032" => Some(Rule::CaseModificationExpansion),
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
@@ -566,5 +568,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-024"), Some(Rule::ArrayReference));
         assert_eq!(code_to_rule("X023"), Some(Rule::SubstringExpansion));
         assert_eq!(code_to_rule("SH-031"), Some(Rule::SubstringExpansion));
+        assert_eq!(code_to_rule("X024"), Some(Rule::CaseModificationExpansion));
+        assert_eq!(code_to_rule("SH-032"), Some(Rule::CaseModificationExpansion));
     }
 }

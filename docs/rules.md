@@ -76,7 +76,7 @@ related syntax in POSIX sh. Mostly surface-level AST node type checks.
 - [x] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
 - [x] **L** X019 (SC3054) `array-reference` — array reference in sh
 - [x] **L** X023 (SC3057) `substring-expansion` — `${var:offset:len}` in sh
-- [ ] **L** X024 (SC3059) `uppercase-expansion` — `${var^^}` in sh
+- [x] **L** X024 (SC3059) `uppercase-expansion` — case-modification expansion in sh
 - [ ] **L** X025 (SC3060) `replacement-expansion` — `${var//pat/repl}` in sh
 - [ ] **L** X026 (SC3024) `bash-file-slurp` — `$(< file)` in sh
 - [ ] **L** X045 (SC3055) `plus-equals-append` — `+=` assignment in sh
