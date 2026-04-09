@@ -47,8 +47,8 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::LinterSettings;
+    use crate::test::{test_snippet, test_snippet_at_path};
 
     #[test]
     fn ignores_extra_arguments_in_bash() {

@@ -1,6 +1,7 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshParameterIndexFlag;
 
@@ -23,7 +24,9 @@ pub fn zsh_parameter_index_flag(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| index_flag_spans(fact.word().span.slice(checker.source()), fact.word().span))
+        .flat_map(|fact| {
+            index_flag_spans(fact.word().span.slice(checker.source()), fact.word().span)
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshParameterIndexFlag);
@@ -35,11 +38,10 @@ fn index_flag_spans(text: &str, span: Span) -> Vec<Span> {
 
     while let Some(relative) = text[search_from..].find("[(") {
         let start = search_from + relative;
-        let before = &text[..start];
-        if !before.contains("${") {
+        let Some(expansion_start) = innermost_parameter_expansion_start(text, start) else {
             search_from = start + 2;
             continue;
-        }
+        };
 
         let Some(close_paren) = text[start + 2..].find(')') else {
             search_from = start + 2;
@@ -62,7 +64,7 @@ fn index_flag_spans(text: &str, span: Span) -> Vec<Span> {
             continue;
         };
         let close_bracket = close_paren + 1 + close_bracket;
-        if text.get(close_bracket + 1..close_bracket + 2) != Some("}") {
+        if parameter_expansion_end(text, expansion_start) != Some(close_bracket + 1) {
             search_from = close_bracket + 1;
             continue;
         }
@@ -78,11 +80,47 @@ fn index_flag_spans(text: &str, span: Span) -> Vec<Span> {
     spans
 }
 
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
+fn innermost_parameter_expansion_start(text: &str, end: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut stack = Vec::new();
+    let mut index = 0usize;
+
+    while index < end {
+        if bytes[index..].starts_with(b"${") {
+            stack.push(index);
+            index += 2;
+            continue;
+        }
+        if bytes[index] == b'}' {
+            stack.pop();
+        }
+        index += 1;
+    }
+
+    stack.last().copied()
+}
+
+fn parameter_expansion_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut index = start;
+
+    while index < bytes.len() {
+        if bytes[index..].starts_with(b"${") {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        if bytes[index] == b'}' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+        index += 1;
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -106,8 +144,18 @@ mod tests {
         let source = "#!/bin/zsh\nx=${\"$(rsync --version 2>&1)\"[(w)3]}\n";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::ZshParameterIndexFlag)
-                .with_shell(ShellDialect::Zsh),
+            &LinterSettings::for_rule(Rule::ZshParameterIndexFlag).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_literal_index_flag_text_after_a_closed_expansion() {
+        let source = "#!/bin/sh\nx=\"${a}[(w)3]}\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ZshParameterIndexFlag),
         );
 
         assert!(diagnostics.is_empty());

@@ -1,6 +1,7 @@
 use shuck_ast::{ParameterExpansionSyntax, WordPart, ZshExpansionTarget};
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshFlagExpansion;
 
@@ -52,13 +53,6 @@ pub fn zsh_flag_expansion(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshFlagExpansion);
-}
-
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
 }
 
 #[cfg(test)]

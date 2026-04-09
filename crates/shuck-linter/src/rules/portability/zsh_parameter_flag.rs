@@ -1,6 +1,7 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshParameterFlag;
 
@@ -23,7 +24,9 @@ pub fn zsh_parameter_flag(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| parameter_flag_spans(fact.word().span.slice(checker.source()), fact.word().span))
+        .flat_map(|fact| {
+            parameter_flag_spans(fact.word().span.slice(checker.source()), fact.word().span)
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshParameterFlag);
@@ -33,8 +36,7 @@ fn parameter_flag_spans(text: &str, span: Span) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut index = 0usize;
 
-    while let Some(relative) = text[index..].find("${") {
-        let start = index + relative;
+    while let Some(start) = next_unquoted_parameter_start(text, index) {
         let Some(end) = parameter_expansion_end(text, start) else {
             break;
         };
@@ -51,6 +53,48 @@ fn parameter_flag_spans(text: &str, span: Span) -> Vec<Span> {
     }
 
     spans
+}
+
+fn next_unquoted_parameter_start(text: &str, search_from: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = search_from;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while index + 1 < bytes.len() {
+        if in_single {
+            if bytes[index] == b'\'' {
+                in_single = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+
+        if bytes[index] == b'\'' && !in_double {
+            in_single = true;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'"' {
+            in_double = !in_double;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index..].starts_with(b"${") {
+            return Some(index);
+        }
+
+        index += 1;
+    }
+
+    None
 }
 
 fn parameter_expansion_end(text: &str, start: usize) -> Option<usize> {
@@ -120,7 +164,10 @@ fn nested_target_modifier_offset(content: &str) -> Option<usize> {
         }
 
         let mut cursor = index + 2;
-        while bytes.get(cursor).is_some_and(|byte| byte.is_ascii_alphabetic()) {
+        while bytes
+            .get(cursor)
+            .is_some_and(|byte| byte.is_ascii_alphabetic())
+        {
             cursor += 1;
         }
         let terminator = bytes.get(cursor).copied();
@@ -131,13 +178,6 @@ fn nested_target_modifier_offset(content: &str) -> Option<usize> {
     }
 
     None
-}
-
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
 }
 
 #[cfg(test)]
@@ -168,6 +208,14 @@ mod tests {
             source,
             &LinterSettings::for_rule(Rule::ZshParameterFlag).with_shell(ShellDialect::Zsh),
         );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_single_quoted_parameter_flag_text() {
+        let source = "#!/bin/sh\nx='${$(svn info):gs/%/%%}'\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshParameterFlag));
 
         assert!(diagnostics.is_empty());
     }

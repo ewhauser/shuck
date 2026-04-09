@@ -4,6 +4,7 @@ use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDi
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::missing_fi::MissingFi;
+use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
 use crate::{Diagnostic, RuleSet, ShellDialect};
@@ -34,12 +35,12 @@ pub(crate) fn collect_parse_rule_diagnostics(
         }
     }
 
-    if enabled_rules.contains(crate::Rule::ZshBraceIf) && targets_x038_shell(shell) {
+    if enabled_rules.contains(crate::Rule::ZshBraceIf) && targets_non_zsh_shell(shell) {
         for span in zsh_brace_if_spans(source) {
             diagnostics.push(Diagnostic::new(ZshBraceIf, span));
         }
     }
-    if enabled_rules.contains(crate::Rule::ZshAlwaysBlock) && targets_x038_shell(shell) {
+    if enabled_rules.contains(crate::Rule::ZshAlwaysBlock) && targets_non_zsh_shell(shell) {
         for span in zsh_always_block_spans(source) {
             diagnostics.push(Diagnostic::new(ZshAlwaysBlock, span));
         }
@@ -76,17 +77,8 @@ fn c_prototype_fragment_span(diagnostic: &ParseDiagnostic, source: &str) -> Opti
     Some(Span::from_positions(point, point))
 }
 
-fn targets_x038_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
-}
-
 fn zsh_brace_if_spans(source: &str) -> Vec<Span> {
-    let Ok(parsed) = Parser::with_dialect(source, ParseShellDialect::Zsh).parse() else {
-        return Vec::new();
-    };
+    let parsed = Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered();
 
     query::iter_commands(&parsed.file.body, CommandWalkOptions::default())
         .filter_map(|visit| {
@@ -105,17 +97,19 @@ fn zsh_brace_if_spans(source: &str) -> Vec<Span> {
 }
 
 fn zsh_always_block_spans(source: &str) -> Vec<Span> {
-    let Ok(parsed) = Parser::with_dialect(source, ParseShellDialect::Zsh).parse() else {
-        return Vec::new();
-    };
+    let parsed = Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered();
 
     query::iter_commands(&parsed.file.body, CommandWalkOptions::default())
         .filter_map(|visit| {
             let Command::Compound(CompoundCommand::Always(command)) = visit.command else {
                 return None;
             };
-            always_keyword_span(source, command.body.span.end.offset, command.always_body.span.start.offset)
-                .or(Some(visit.stmt.span))
+            always_keyword_span(
+                source,
+                command.body.span.end.offset,
+                command.always_body.span.start.offset,
+            )
+            .or(Some(visit.stmt.span))
         })
         .collect()
 }
@@ -311,6 +305,42 @@ mod tests {
     }
 
     #[test]
+    fn maps_zsh_brace_if_recovery_even_with_later_parse_errors() {
+        let source = "#!/bin/sh\nif [[ -n \"$x\" ]] {\n  :\n}\nif true; then\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ZshBraceIf);
+        assert_eq!(diagnostics[0].span.slice(source), "{");
+    }
+
+    #[test]
+    fn maps_zsh_brace_if_for_mksh_targets() {
+        let source = "#!/bin/mksh\nif [[ -n \"$x\" ]] {\n  :\n}\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Mksh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ZshBraceIf);
+        assert_eq!(diagnostics[0].span.slice(source), "{");
+    }
+
+    #[test]
     fn maps_zsh_always_block_to_x039() {
         let source = "#!/bin/sh\n{ :; } always { :; }\n";
         let recovered = Parser::new(source).parse_recovered();
@@ -358,5 +388,23 @@ mod tests {
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_zsh_always_block_even_with_later_parse_errors() {
+        let source = "#!/bin/sh\n{ :; } always { :; }\nif true; then\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ZshAlwaysBlock);
+        assert_eq!(diagnostics[0].span.slice(source), "always");
     }
 }

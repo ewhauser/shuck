@@ -1,6 +1,7 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation, static_word_text};
 
 pub struct CshSyntaxInSh;
 
@@ -55,13 +56,6 @@ fn is_shell_name(name: &str) -> bool {
     }
 
     chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
-
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
 }
 
 #[cfg(test)]

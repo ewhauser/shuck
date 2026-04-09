@@ -1,6 +1,7 @@
 use shuck_ast::{ParameterExpansionSyntax, WordPart, ZshExpansionTarget};
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct NestedZshSubstitution;
 
@@ -44,13 +45,6 @@ pub fn nested_zsh_substitution(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || NestedZshSubstitution);
-}
-
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
 }
 
 #[cfg(test)]

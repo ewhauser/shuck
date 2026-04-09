@@ -1,6 +1,7 @@
 use shuck_ast::{BackgroundOperator, StmtTerminator};
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshRedirPipe;
 
@@ -34,13 +35,6 @@ pub fn zsh_redir_pipe(checker: &mut Checker) {
     checker.report_all_dedup(spans, || ZshRedirPipe);
 }
 
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -70,5 +64,17 @@ mod tests {
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_operator_in_mksh_dialect() {
+        let source = "#!/bin/mksh\necho hi &|\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ZshRedirPipe).with_shell(ShellDialect::Mksh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ZshRedirPipe);
     }
 }

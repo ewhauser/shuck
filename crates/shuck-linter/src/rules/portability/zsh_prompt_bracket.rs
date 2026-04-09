@@ -1,6 +1,7 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshPromptBracket;
 
@@ -23,7 +24,9 @@ pub fn zsh_prompt_bracket(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| prompt_bracket_spans(fact.word().span.slice(checker.source()), fact.word().span))
+        .flat_map(|fact| {
+            prompt_bracket_spans(fact.word().span.slice(checker.source()), fact.word().span)
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshPromptBracket);
@@ -50,13 +53,6 @@ fn prompt_bracket_spans(text: &str, span: Span) -> Vec<Span> {
     }
 
     spans
-}
-
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
 }
 
 #[cfg(test)]

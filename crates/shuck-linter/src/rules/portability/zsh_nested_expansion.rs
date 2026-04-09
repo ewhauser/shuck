@@ -1,6 +1,7 @@
 use shuck_ast::{ParameterExpansionSyntax, WordPart, ZshExpansionTarget};
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshNestedExpansion;
 
@@ -46,13 +47,6 @@ pub fn zsh_nested_expansion(checker: &mut Checker) {
     checker.report_all_dedup(spans, || ZshNestedExpansion);
 }
 
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
@@ -61,8 +55,7 @@ mod tests {
     #[test]
     fn ignores_nested_targets_with_outer_operations() {
         let source = "#!/bin/sh\nx=${${(M)path:#/*}:-$PWD/$path}\n";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::ZshNestedExpansion));
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshNestedExpansion));
 
         assert!(diagnostics.is_empty());
     }

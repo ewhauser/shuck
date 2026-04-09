@@ -1,6 +1,7 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::targets_non_zsh_shell;
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshArraySubscriptInCase;
 
@@ -22,7 +23,9 @@ pub fn zsh_array_subscript_in_case(checker: &mut Checker) {
     let spans = checker
         .facts()
         .case_subject_facts()
-        .flat_map(|fact| case_subscript_spans(fact.word().span.slice(checker.source()), fact.word().span))
+        .flat_map(|fact| {
+            case_subscript_spans(fact.word().span.slice(checker.source()), fact.word().span)
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshArraySubscriptInCase);
@@ -32,8 +35,35 @@ fn case_subscript_spans(text: &str, span: Span) -> Vec<Span> {
     let bytes = text.as_bytes();
     let mut spans = Vec::new();
     let mut index = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
 
     while index < bytes.len() {
+        if in_single {
+            if bytes[index] == b'\'' {
+                in_single = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+
+        if bytes[index] == b'\'' && !in_double {
+            in_single = true;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'"' {
+            in_double = !in_double;
+            index += 1;
+            continue;
+        }
+
         if bytes[index] != b'$' || bytes.get(index + 1) == Some(&b'{') {
             index += 1;
             continue;
@@ -77,13 +107,6 @@ fn case_subscript_spans(text: &str, span: Span) -> Vec<Span> {
     spans
 }
 
-fn targets_non_zsh_shell(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
@@ -105,8 +128,29 @@ mod tests {
         let source = "#!/bin/zsh\ncase \"$words[1]\" in\n  install) : ;;\nesac\n";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase)
-                .with_shell(ShellDialect::Zsh),
+            &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_single_quoted_case_subject_literals() {
+        let source = "#!/bin/sh\ncase '$words[1]' in\n  install) : ;;\nesac\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_escaped_dollar_case_subject_literals() {
+        let source = "#!/bin/sh\ncase \"\\$words[1]\" in\n  install) : ;;\nesac\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase),
         );
 
         assert!(diagnostics.is_empty());
