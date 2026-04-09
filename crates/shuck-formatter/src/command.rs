@@ -2064,15 +2064,11 @@ fn group_verbatim_span(commands: &[Stmt], source: &str, open: char, close: char)
     if !source[wrapper_prefix_start..inner.start.offset].contains('#') {
         return inner;
     }
-    let Some(close_offset) = source[inner.end.offset..].find(close) else {
+    let Some(close_offset) = find_group_close_offset(source, inner.end.offset, close) else {
         return inner;
     };
 
-    span_for_offsets(
-        source,
-        open_offset,
-        inner.end.offset + close_offset + close.len_utf8(),
-    )
+    span_for_offsets(source, open_offset, close_offset + close.len_utf8())
 }
 
 fn format_group_with_upper_bound(
@@ -2117,7 +2113,8 @@ pub(crate) fn group_open_suffix<'a>(
     let suffix_start = open_offset + open.len_utf8();
     let suffix = source.get(suffix_start..line_end)?;
     suffix
-        .contains('#')
+        .trim_start_matches(char::is_whitespace)
+        .starts_with('#')
         .then(|| (source_map.span_for_offsets(suffix_start, line_end), suffix))
 }
 
@@ -2129,14 +2126,72 @@ pub(crate) fn group_attachment_span(
 ) -> Option<Span> {
     let source = source_map.source();
     let first = commands.first()?;
-    let last = commands.last()?;
     let open_offset = source[..stmt_span(first).start.offset].rfind(open)?;
-    let last_end = stmt_span(last).end.offset;
-    let end = source[last_end..]
-        .find(close)
-        .map(|offset| last_end + offset + close.len_utf8())
-        .unwrap_or(last_end);
+    let sequence_end = commands
+        .last()
+        .and_then(|_| {
+            commands
+                .iter()
+                .map(|command| stmt_verbatim_span(command, source))
+                .reduce(|left, right| left.merge(right))
+        })
+        .map(|span| span.end.offset)
+        .unwrap_or(0);
+    let end = find_group_close_offset(source, sequence_end, close)
+        .map(|offset| offset + close.len_utf8())
+        .unwrap_or(sequence_end);
     Some(source_map.span_for_offsets(open_offset, end))
+}
+
+fn find_group_close_offset(source: &str, sequence_end: usize, close: char) -> Option<usize> {
+    let close_len = close.len_utf8();
+    let capped_end = sequence_end.min(source.len());
+    if let Some(offset) = find_group_close_offset_after_sequence(source, capped_end, close) {
+        return Some(offset);
+    }
+
+    let trimmed_end = source[..capped_end]
+        .trim_end_matches(char::is_whitespace)
+        .len();
+    if trimmed_end >= close_len
+        && source
+            .get(trimmed_end - close_len..trimmed_end)
+            .is_some_and(|slice| slice.starts_with(close))
+    {
+        return Some(trimmed_end - close_len);
+    }
+
+    None
+}
+
+fn find_group_close_offset_after_sequence(
+    source: &str,
+    sequence_end: usize,
+    close: char,
+) -> Option<usize> {
+    let mut offset = sequence_end.min(source.len());
+    while offset < source.len() {
+        let tail = &source[offset..];
+        let ch = tail.chars().next()?;
+        if ch.is_whitespace() {
+            offset += ch.len_utf8();
+            continue;
+        }
+        if ch == ';' {
+            offset += ch.len_utf8();
+            continue;
+        }
+        if ch == '#' {
+            offset = tail
+                .find('\n')
+                .map(|newline| offset + newline + 1)
+                .unwrap_or(source.len());
+            continue;
+        }
+        return (ch == close).then_some(offset);
+    }
+
+    None
 }
 
 pub(crate) fn group_was_inline_in_source(
@@ -2824,6 +2879,10 @@ mod tests {
     use crate::ShellFormatOptions;
     use shuck_parser::parser::{Parser, ShellDialect};
 
+    fn parse(source: &str) -> shuck_ast::File {
+        Parser::new(source).parse().unwrap().file
+    }
+
     #[test]
     fn parsed_standalone_assignment_renders_without_trailing_space() {
         let source = "x=1\n";
@@ -2845,5 +2904,33 @@ mod tests {
         assert!(stmt.redirects.is_empty());
         assert!(!command.name.parts.is_empty());
         assert!(command.name.render_syntax(source).is_empty());
+    }
+
+    #[test]
+    fn group_verbatim_span_keeps_wrapper_comments_with_semicolon_terminated_body() {
+        let source = "{ # note\n  echo ok; # inside\n}\n";
+        let file = parse(source);
+        let brace_group = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+
+        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+
+        assert_eq!(span.slice(source), "{ # note\n  echo ok; # inside\n}");
+    }
+
+    #[test]
+    fn group_verbatim_span_keeps_wrapper_comments_around_heredoc_bodies() {
+        let source = "{ # note\n  cat <<EOF\npayload\nEOF\n}\n";
+        let file = parse(source);
+        let brace_group = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+
+        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+
+        assert_eq!(span.slice(source), "{ # note\n  cat <<EOF\npayload\nEOF\n}");
     }
 }
