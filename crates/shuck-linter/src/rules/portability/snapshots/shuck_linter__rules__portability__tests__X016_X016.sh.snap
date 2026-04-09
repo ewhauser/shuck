@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 25
+---
+X016 `declare` is not portable in `sh` scripts
+ --> <source>:4:1
+  |
+4 | declare portable=value
+  |
+
+X016 `declare` is not portable in `sh` scripts
+ --> <source>:8:9
+  |
+8 | command declare wrapped=value
+  |

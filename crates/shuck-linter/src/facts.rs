@@ -16,10 +16,10 @@ use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
     Assignment, AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand,
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, Name, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
-    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
-    WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
+    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -786,6 +786,37 @@ impl<'a> SelectHeaderFact<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct FunctionHeaderFact<'a> {
+    function: &'a FunctionDef,
+}
+
+impl<'a> FunctionHeaderFact<'a> {
+    pub fn function(&self) -> &'a FunctionDef {
+        self.function
+    }
+
+    pub fn span_in_source(&self, source: &str) -> Span {
+        trim_trailing_whitespace_span(self.function.span, source)
+    }
+
+    pub fn uses_function_keyword(&self) -> bool {
+        self.function.uses_function_keyword()
+    }
+
+    pub fn has_trailing_parens(&self) -> bool {
+        self.function.has_trailing_parens()
+    }
+
+    pub fn function_keyword_span(&self) -> Option<Span> {
+        self.function.header.function_keyword_span
+    }
+
+    pub fn trailing_parens_span(&self) -> Option<Span> {
+        self.function.header.trailing_parens_span
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PipelineSegmentFact<'a> {
     stmt: &'a Stmt,
@@ -1238,6 +1269,7 @@ pub struct LinterFacts<'a> {
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
     word_index: FxHashMap<FactSpan, Vec<usize>>,
+    function_headers: Vec<FunctionHeaderFact<'a>>,
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
@@ -1345,6 +1377,10 @@ impl<'a> LinterFacts<'a> {
             .get(&FactSpan::new(span))
             .and_then(|indices| indices.first().copied())
             .map(|index| &self.words[index])
+    }
+
+    pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {
+        &self.function_headers
     }
 
     pub fn for_headers(&self) -> &[ForHeaderFact<'a>] {
@@ -1513,6 +1549,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let elif_condition_command_ids =
             build_elif_condition_command_ids(&self.file.body, &command_ids_by_span);
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
+        let function_headers = build_function_header_facts(&self.file.body);
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
@@ -1547,6 +1584,7 @@ impl<'a> LinterFactsBuilder<'a> {
             subscript_index_reference_spans,
             words,
             word_index,
+            function_headers,
             for_headers,
             select_headers,
             pipelines,
@@ -1567,6 +1605,25 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
         }
     }
+}
+
+fn build_function_header_facts(body: &StmtSeq) -> Vec<FunctionHeaderFact<'_>> {
+    query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .filter_map(|visit| match visit.command {
+        Command::Function(function) => Some(FunctionHeaderFact { function }),
+        Command::Simple(_)
+        | Command::Decl(_)
+        | Command::Builtin(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::AnonymousFunction(_) => None,
+    })
+    .collect()
 }
 
 fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
@@ -3582,6 +3639,12 @@ fn command_id_for_command(
 
 fn command_fact<'a>(commands: &'a [CommandFact<'a>], id: CommandId) -> &'a CommandFact<'a> {
     &commands[id.index()]
+}
+
+fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
+    let text = span.slice(source);
+    let trimmed = text.trim_end_matches(char::is_whitespace);
+    Span::from_positions(span.start, span.start.advanced_by(trimmed))
 }
 
 fn command_fact_for_command<'a>(

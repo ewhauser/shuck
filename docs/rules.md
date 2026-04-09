@@ -55,13 +55,13 @@ conditional facts.
 Detect bash-specific keywords and builtins used in POSIX sh. Simple command-name
 or keyword checks gated on dialect.
 
-- [ ] **L** X003 (SC3043) `local-variable-in-sh` — `local` in sh
-- [ ] **L** X004 (SC2112) `function-keyword` — `function` keyword in sh
-- [ ] **L** X015 (SC3042) `let-command` — `let` in sh
-- [ ] **L** X016 (SC3044) `declare-command` — `declare` in sh
-- [ ] **L** X031 (SC3046) `source-builtin-in-sh` — `source` instead of `.` in sh
-- [ ] **L** X052 (SC2321) `function-keyword-in-sh` — `function` with parens in sh
-- [ ] **L** X080 (SC3084) `source-inside-function-in-sh` — `source` inside function in sh
+- [x] **L** X003 (SC3043) `local-variable-in-sh` — `local` in sh
+- [x] **L** X004 (SC2112) `function-keyword` — `function` keyword in sh
+- [x] **L** X015 (SC3042) `let-command` — `let` in sh
+- [x] **L** X016 (SC3044) `declare-command` — `declare` in sh
+- [x] **L** X031 (SC3046) `source-builtin-in-sh` — `source` instead of `.` in sh
+- [x] **L** X052 (SC2321) `function-keyword-in-sh` — `function` with parens in sh
+- [x] **L** X080 (SC3084) `source-inside-function-in-sh` — `source` inside function in sh
 
 ### Portability — Bash Expansion Syntax in sh
 

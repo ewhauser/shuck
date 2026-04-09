@@ -2193,14 +2193,14 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
 
 fn build_rule_to_shellcheck_index() -> HashMap<String, String> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
         .collect()
 }
 
 fn build_shellcheck_to_rule_index() -> HashMap<u32, String> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .map(|(sc_code, rule)| (sc_code, rule.code().to_owned()))
         .collect()
 }
@@ -2235,14 +2235,14 @@ fn build_shellcheck_filter_codes(
 
 fn build_mapped_shellcheck_codes() -> HashSet<u32> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .map(|(sc_code, _)| sc_code)
         .collect()
 }
 
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
         .collect()
 }
@@ -3040,6 +3040,10 @@ mod tests {
         assert_eq!(index.get("S001").map(String::as_str), Some("SC2086"));
         assert_eq!(index.get("C006").map(String::as_str), Some("SC2154"));
         assert_eq!(index.get("C124").map(String::as_str), Some("SC2365"));
+        assert_eq!(index.get("X015").map(String::as_str), Some("SC3039"));
+        assert_eq!(index.get("X016"), None);
+        assert_eq!(index.get("X052"), None);
+        assert_eq!(index.get("X080").map(String::as_str), Some("SC3051"));
     }
 
     #[test]
@@ -3075,6 +3079,30 @@ mod tests {
         let codes = build_shellcheck_filter_codes(Some(rules), true).unwrap();
 
         assert_eq!(codes, HashSet::from([2034]));
+    }
+
+    #[test]
+    fn selected_rule_filter_skips_ambiguous_x016_shellcheck_code() {
+        let rules = parse_large_corpus_rule_set("X016").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert!(codes.is_empty());
+    }
+
+    #[test]
+    fn selected_rule_filter_skips_ambiguous_x052_shellcheck_code() {
+        let rules = parse_large_corpus_rule_set("X052").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert!(codes.is_empty());
+    }
+
+    #[test]
+    fn selected_rule_filter_uses_current_x080_shellcheck_code() {
+        let rules = parse_large_corpus_rule_set("X080").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([3051]));
     }
 
     #[test]

@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 20
+---
+X004 `function` is not portable in `sh` scripts
+ --> <source>:4:1
+  |
+4 | function plain { :; }
+  |
+
+X004 `function` is not portable in `sh` scripts
+ --> <source>:7:1
+  |
+7 | function paren() { :; }
+  |

@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    reason: "The remaining ShellCheck-only SC3044 sites in the corpus are other bash-only builtins such as `shopt`, `compgen`, `complete`, `typeset`, `pushd`, and `popd`. X016 intentionally covers only `declare`; the other commands need their own portability rules."

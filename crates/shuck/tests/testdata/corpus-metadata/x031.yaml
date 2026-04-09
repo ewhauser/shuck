@@ -1,0 +1,7 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This fixture is an Oh My Zsh startup script. In the shell-collapse comparison path it gets treated like portable `sh`, but these `source` commands belong to Zsh-specific startup loading rather than the POSIX portability target for X031."
