@@ -16,7 +16,12 @@ pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
+<<<<<<< HEAD
 pub mod select_loop;
+||||||| parent of 2d7e324 (Implement X006 process substitution portability rule)
+=======
+pub mod process_substitution;
+>>>>>>> 2d7e324 (Implement X006 process substitution portability rule)
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
@@ -57,6 +62,7 @@ mod tests {
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
     #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
+    #[test_case(Rule::ProcessSubstitution, Path::new("X006.sh"))]
     #[test_case(Rule::StandaloneArithmetic, Path::new("X008.sh"))]
     #[test_case(Rule::SelectLoop, Path::new("X009.sh"))]
     #[test_case(Rule::Coproc, Path::new("X014.sh"))]

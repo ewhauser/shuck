@@ -385,6 +385,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AmpersandRedirection) {
             rules::portability::ampersand_redirection::ampersand_redirection(self);
         }
+        if self.is_rule_enabled(Rule::ProcessSubstitution) {
+            rules::portability::process_substitution::process_substitution(self);
+        }
         if self.is_rule_enabled(Rule::BraceFdRedirection) {
             rules::portability::brace_fd_redirection::brace_fd_redirection(self);
         }

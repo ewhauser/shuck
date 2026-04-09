@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 94
+---
+X006 process substitution is not portable in `sh`
+ --> <source>:4:5
+  |
+4 | cat <(printf '%s\n' hi)
+  |
+
+X006 process substitution is not portable in `sh`
+ --> <source>:7:20
+  |
+7 | printf '%s\n' hi > >(wc -l)
+  |
