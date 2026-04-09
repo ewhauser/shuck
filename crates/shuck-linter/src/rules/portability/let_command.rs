@@ -19,7 +19,8 @@ pub fn let_command(checker: &mut Checker) {
 
     let spans = checker
         .facts()
-        .structural_commands()
+        .commands()
+        .iter()
         .filter(|fact| fact.effective_name_is("let"))
         .map(|fact| fact.body_span())
         .collect::<Vec<_>>();

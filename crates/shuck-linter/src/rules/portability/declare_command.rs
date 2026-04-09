@@ -21,7 +21,8 @@ pub fn declare_command(checker: &mut Checker) {
 
     let spans = checker
         .facts()
-        .structural_commands()
+        .commands()
+        .iter()
         .filter(|fact| fact.effective_name_is("declare"))
         .map(|fact| {
             fact.declaration().map_or(fact.body_span(), |declaration| {

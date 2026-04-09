@@ -1,6 +1,5 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 23
 ---
 X015 `let` is not portable in `sh` scripts
  --> <source>:4:1
@@ -13,3 +12,9 @@ X015 `let` is not portable in `sh` scripts
   |
 8 | command let y=2
   |
+
+X015 `let` is not portable in `sh` scripts
+  --> <source>:12:10
+   |
+12 | nested=$(let n=3)
+   |

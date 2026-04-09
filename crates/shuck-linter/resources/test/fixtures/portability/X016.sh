@@ -8,6 +8,10 @@ printf '%s\n' "$portable"
 command declare wrapped=value
 printf '%s\n' "$wrapped"
 
+# Should trigger: nested declare command in substitutions still runs in sh
+nested=$(declare inner=value)
+printf '%s\n' "$nested"
+
 # Should not trigger: plain portable assignment
 plain=value
 printf '%s\n' "$plain"
