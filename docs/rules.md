@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 38 |
-| Scheduled (Tranches 1-3) | 45 |
-| Remaining | 235 |
+| Implemented | 83 |
+| Scheduled (Tranches 1-3) | 18 |
+| Remaining | 217 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -19,11 +19,11 @@
 
 These rules are queued for implementation and tracked separately.
 
-**Tranche 1:** C003, C004, C012, C016, C023, C024, C026, C027, C028, C029, C030, C031, C032, C033, C034
+**Tranche 1:** ~~C003~~, ~~C004~~, ~~C012~~, C016, C023, C024, C026, C027, C028, C029, C030, C031, C032, C033, C034
 
-**Tranche 2:** C035, C036, C037, C038, C039, C040, C041, C042, C043, C044, C045, C049, C051, C052, C053
+**Tranche 2:** ~~C035~~, ~~C036~~, ~~C037~~, ~~C038~~, ~~C039~~, ~~C040~~, ~~C041~~, ~~C042~~, ~~C043~~, C044, C045, C049, C051, C052, C053
 
-**Tranche 3:** C054, C056, C059, C060, C061, C062, C064, C065, C066, C067, C068, C069, C070, C071, C072
+**Tranche 3:** ~~C054~~, ~~C056~~, ~~C059~~, ~~C060~~, ~~C061~~, ~~C062~~, ~~C064~~, ~~C065~~, ~~C066~~, ~~C067~~, ~~C068~~, ~~C069~~, ~~C070~~, ~~C071~~, ~~C072~~ *(complete)*
 
 ---
 
@@ -35,20 +35,20 @@ Detect bash-specific test/conditional syntax in POSIX sh scripts. All share a
 common pattern: verify dialect is sh, detect the specific syntax form in
 conditional facts.
 
-- [ ] **L** X001 (SC3010) `double-bracket-in-sh` — `[[ ]]` conditional not portable to sh
-- [ ] **L** X002 (SC3014) `test-equality-operator` — `==` inside `[` not portable
-- [ ] **L** X033 (SC3011) `if-elif-bash-test` — `[[ ]]` in elif clause
-- [ ] **L** X034 (SC2221) `extended-glob-in-test` — extended glob in `[[` match
-- [ ] **L** X040 (SC2102) `array-subscript-test` — array subscript in `[` test
-- [ ] **L** X041 (SC2103) `array-subscript-condition` — array subscript in `[[ ]]`
-- [ ] **L** X046 (SC2269) `extglob-in-test` — extended glob in test bracket
-- [ ] **L** X058 (SC3065) `greater-than-in-double-bracket` — `>` inside `[[ ]]` in sh
-- [ ] **L** X059 (SC3066) `regex-match-in-sh` — `=~` regex match in sh
-- [ ] **L** X060 (SC3067) `v-test-in-sh` — `-v` variable-is-set test in sh
-- [ ] **L** X061 (SC3068) `a-test-in-sh` — `-a` file test inside `[[ ]]` in sh
-- [ ] **L** X073 (SC3080) `option-test-in-sh` — `-o` option test in `[[ ]]` in sh
-- [ ] **L** X074 (SC3081) `sticky-bit-test-in-sh` — `-k` sticky-bit test in sh
-- [ ] **L** X075 (SC3082) `ownership-test-in-sh` — `-O` ownership test in sh
+- [x] **L** X001 (SC3010) `double-bracket-in-sh` — `[[ ]]` conditional not portable to sh
+- [x] **L** X002 (SC3014) `test-equality-operator` — `==` inside `[` not portable
+- [x] **L** X033 (SC3011) `if-elif-bash-test` — `[[ ]]` in elif clause
+- [x] **L** X034 (SC2221) `extended-glob-in-test` — extended glob in `[[` match
+- [x] **L** X040 (SC2102) `array-subscript-test` — array subscript in `[` test
+- [x] **L** X041 (SC2103) `array-subscript-condition` — array subscript in `[[ ]]`
+- [x] **L** X046 (SC2269) `extglob-in-test` — extended glob in test bracket
+- [x] **L** X058 (SC3065) `greater-than-in-double-bracket` — `>` inside `[[ ]]` in sh
+- [x] **L** X059 (SC3066) `regex-match-in-sh` — `=~` regex match in sh
+- [x] **L** X060 (SC3067) `v-test-in-sh` — `-v` variable-is-set test in sh
+- [x] **L** X061 (SC3068) `a-test-in-sh` — `-a` file test inside `[[ ]]` in sh
+- [x] **L** X073 (SC3080) `option-test-in-sh` — `-o` option test in `[[ ]]` in sh
+- [x] **L** X074 (SC3081) `sticky-bit-test-in-sh` — `-k` sticky-bit test in sh
+- [x] **L** X075 (SC3082) `ownership-test-in-sh` — `-O` ownership test in sh
 
 ### Portability — Bash Keywords and Builtins in sh
 
