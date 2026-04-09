@@ -1,6 +1,6 @@
 pub mod arithmetic_redirection_target;
-pub mod bad_redirection_fd_order;
 pub mod backslash_before_closing_backtick;
+pub mod bad_redirection_fd_order;
 pub mod bare_closing_brace;
 pub mod bare_slash_marker;
 pub mod broken_test_end;
