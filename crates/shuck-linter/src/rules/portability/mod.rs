@@ -10,6 +10,7 @@ pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
+pub mod pipe_stderr_in_sh;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
@@ -77,6 +78,7 @@ mod tests {
     #[test_case(Rule::VTestInSh, Path::new("X060.sh"))]
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]
     #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
+    #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]

@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 25
+---
+X066 the `|&` pipeline operator is not portable in `sh`
+ --> <source>:2:11
+  |
+2 | echo test |& grep -q foo
+  |

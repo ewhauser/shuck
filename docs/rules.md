@@ -104,7 +104,7 @@ Detect bash-specific redirection and pipe operators in POSIX sh.
 - [x] **L** X012 (SC3052) `ampersand-redirection` — `&>` combined redirect in sh
 - [x] **L** X020 (SC3050) `brace-fd-redirection` — `{fd}>` brace-based FD in sh
 - [x] **L** X063 (SC3070) `ampersand-redirect-in-sh` — `>&` combined redirect in sh
-- [ ] **L** X066 (SC3073) `pipe-stderr-in-sh` — `|&` pipe-stderr in sh
+- [x] **L** X066 (SC3073) `pipe-stderr-in-sh` — `|&` pipe-stderr in sh
 
 ### Portability — Bash Options and Traps in sh
 

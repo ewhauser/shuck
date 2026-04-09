@@ -373,6 +373,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AmpersandRedirectInSh) {
             rules::portability::ampersand_redirect_in_sh::ampersand_redirect_in_sh(self);
         }
+        if self.is_rule_enabled(Rule::PipeStderrInSh) {
+            rules::portability::pipe_stderr_in_sh::pipe_stderr_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::SubstWithRedirect) {
             rules::correctness::subst_with_redirect::subst_with_redirect(self);
         }
