@@ -1,5 +1,14 @@
 reviewed_divergences:
   - side: shuck-only
+    path_suffix: "megastep__makeself__makeself-header.sh"
+    reason: "This generator writes a portable installer script into a heredoc, so the remaining command-substitution sites belong to emitted shell payload rather than live argument splitting in the generator itself."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_flang.sh"
+    reason: "This setup helper emits flang launcher wrappers through a heredoc, so the remaining command-substitution hits come from generated wrapper text instead of the setup logic being linted."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__brother-dcp197c-cupswrapper__files__cupswrapper.void"
+    reason: "This printer wrapper uses command substitutions to fill assignment-time variables and option strings, and the remaining corpus hits are those wrapper-assignment forms rather than argument-splitting hazards."
+  - side: shuck-only
     path_suffix: "bats-core__bats-core__lib__bats-core__warnings.bash"
     line: 41
     end_line: 41
