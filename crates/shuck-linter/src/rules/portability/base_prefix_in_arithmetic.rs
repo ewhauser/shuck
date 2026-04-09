@@ -33,19 +33,20 @@ mod tests {
 echo $((10#123))
 echo $((10#${foo}))
 echo ${foo:10#1:2}
+: > \"$((10#1))\"
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
         );
 
-        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics.len(), 4);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["10#123", "10#", "10#1"]
+            vec!["10#123", "10#", "10#1", "10#1"]
         );
     }
 
