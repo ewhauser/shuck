@@ -215,6 +215,7 @@ declare_rules! {
     ("X066", Category::Portability, Severity::Warning, PipeStderrInSh),
     ("X068", Category::Portability, Severity::Warning, ErrexitTrapInSh),
     ("X069", Category::Portability, Severity::Warning, SignalNameInTrap),
+    ("X070", Category::Portability, Severity::Warning, BasePrefixInArithmetic),
     ("X073", Category::Portability, Severity::Warning, OptionTestInSh),
     ("X074", Category::Portability, Severity::Warning, StickyBitTestInSh),
     ("X075", Category::Portability, Severity::Warning, OwnershipTestInSh),
@@ -282,6 +283,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
         "SH-275" => Some(Rule::ErrexitTrapInSh),
         "SH-276" => Some(Rule::SignalNameInTrap),
+        "SH-277" => Some(Rule::BasePrefixInArithmetic),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
         "SH-082" => Some(Rule::EscapedUnderscore),
@@ -472,6 +474,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-081"), Some(Rule::PrintfQFormatInSh));
         assert_eq!(code_to_rule("SH-275"), Some(Rule::ErrexitTrapInSh));
         assert_eq!(code_to_rule("SH-276"), Some(Rule::SignalNameInTrap));
+        assert_eq!(code_to_rule("SH-277"), Some(Rule::BasePrefixInArithmetic));
         assert_eq!(code_to_rule("SH-069"), Some(Rule::ConstantComparisonTest));
         assert_eq!(code_to_rule("SH-070"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(code_to_rule("SH-072"), Some(Rule::LiteralUnaryStringTest));

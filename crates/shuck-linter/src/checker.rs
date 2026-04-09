@@ -298,6 +298,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SignalNameInTrap) {
             rules::portability::signal_name_in_trap::signal_name_in_trap(self);
         }
+        if self.is_rule_enabled(Rule::BasePrefixInArithmetic) {
+            rules::portability::base_prefix_in_arithmetic::base_prefix_in_arithmetic(self);
+        }
         if self.is_rule_enabled(Rule::FunctionKeywordInSh) {
             rules::portability::function_keyword_in_sh::function_keyword_in_sh(self);
         }

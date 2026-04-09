@@ -4,6 +4,7 @@ pub mod ansi_c_quoting;
 pub mod array_assignment;
 pub mod array_reference;
 pub mod bash_case_fallthrough;
+pub mod base_prefix_in_arithmetic;
 pub mod brace_expansion;
 pub mod brace_fd_redirection;
 pub mod c_style_for_arithmetic_in_sh;
@@ -129,6 +130,7 @@ mod tests {
     #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
     #[test_case(Rule::ErrexitTrapInSh, Path::new("X068.sh"))]
     #[test_case(Rule::SignalNameInTrap, Path::new("X069.sh"))]
+    #[test_case(Rule::BasePrefixInArithmetic, Path::new("X070.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]
