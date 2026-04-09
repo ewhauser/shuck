@@ -44,7 +44,11 @@ pub fn needless_backslash_underscore(checker: &mut Checker) {
                 .enumerate()
                 .filter_map(|(index, part)| match &part.kind {
                     WordPart::Literal(_)
-                        if !literal_part_is_parameter_operator_tail(&fact.word().parts, index, source) =>
+                        if !literal_part_is_parameter_operator_tail(
+                            &fact.word().parts,
+                            index,
+                            source,
+                        ) =>
                     {
                         Some(needless_backslash_spans(part.span, source))
                     }
@@ -115,9 +119,7 @@ pub fn needless_backslash_underscore(checker: &mut Checker) {
                 .commands()
                 .iter()
                 .filter_map(|command| match command.command() {
-                    Command::Simple(simple)
-                        if simple.name.span.slice(source).contains('/') =>
-                    {
+                    Command::Simple(simple) if simple.name.span.slice(source).contains('/') => {
                         Some(needless_backslash_spans(simple.name.span, source))
                     }
                     _ => None,
@@ -147,13 +149,15 @@ pub fn needless_backslash_underscore(checker: &mut Checker) {
 fn is_relevant_word_context(context: Option<ExpansionContext>) -> bool {
     matches!(
         context,
-        Some(ExpansionContext::CommandArgument
-            | ExpansionContext::AssignmentValue
-            | ExpansionContext::DeclarationAssignmentValue
-            | ExpansionContext::RedirectTarget(_)
-            | ExpansionContext::ForList
-            | ExpansionContext::SelectList
-            | ExpansionContext::CasePattern)
+        Some(
+            ExpansionContext::CommandArgument
+                | ExpansionContext::AssignmentValue
+                | ExpansionContext::DeclarationAssignmentValue
+                | ExpansionContext::RedirectTarget(_)
+                | ExpansionContext::ForList
+                | ExpansionContext::SelectList
+                | ExpansionContext::CasePattern
+        )
     )
 }
 
@@ -174,7 +178,8 @@ fn span_within_single_quoted_fragment(
 ) -> bool {
     fragments.iter().any(|fragment| {
         let fragment_span = fragment.span();
-        span.start.offset >= fragment_span.start.offset && span.end.offset <= fragment_span.end.offset
+        span.start.offset >= fragment_span.start.offset
+            && span.end.offset <= fragment_span.end.offset
     })
 }
 
@@ -187,10 +192,7 @@ fn redirect_target_needless_backslash_spans(
     scan_span_excluding(fact.span(), &excluded, source)
 }
 
-fn collect_redirect_target_excluded_spans(
-    parts: &[WordPartNode],
-    excluded: &mut Vec<Span>,
-) {
+fn collect_redirect_target_excluded_spans(parts: &[WordPartNode], excluded: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) => {}
@@ -287,8 +289,7 @@ fn literal_part_is_parameter_operator_tail(
     }
 
     let text = parts[index].span.slice(source);
-    text.ends_with('}')
-        && (text.starts_with('/') || text.starts_with('%') || text.starts_with('#'))
+    text.ends_with('}') && (text.starts_with('/') || text.starts_with('%') || text.starts_with('#'))
 }
 
 fn needless_backslash_spans(word_span: Span, source: &str) -> Vec<Span> {
@@ -339,7 +340,10 @@ fn needless_backslash_spans_in_char_class(span: Span, source: &str) -> Vec<Span>
             index += 1;
         }
 
-        if text.as_bytes().get(index).is_some_and(|byte| is_needless_backslash_target(*byte))
+        if text
+            .as_bytes()
+            .get(index)
+            .is_some_and(|byte| is_needless_backslash_target(*byte))
             && (index - run_start) % 2 == 1
         {
             let start = span.start.advanced_by(&text[..index - 1]);
@@ -371,8 +375,10 @@ cat < foo\\nbar
 echo \"\\n\"
 echo '\\n'
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::NeedlessBackslashUnderscore));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NeedlessBackslashUnderscore),
+        );
 
         assert_eq!(
             diagnostics
@@ -391,8 +397,10 @@ if [[ \"$TERMUX_APP_PACKAGE_MANAGER\" == \"apt\" ]] && \"$(dpkg-query -W -f '${d
   :
 fi
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::NeedlessBackslashUnderscore));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NeedlessBackslashUnderscore),
+        );
 
         assert!(diagnostics.is_empty());
     }

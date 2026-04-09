@@ -50,8 +50,10 @@ printf '%s\\n' 'foo\\'
 printf '%s\\n' 'foo\\bar'
 printf '%s\\n' \"foo\\\\bar\"
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::SingleQuoteBackslash));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleQuoteBackslash),
+        );
 
         assert_eq!(
             diagnostics

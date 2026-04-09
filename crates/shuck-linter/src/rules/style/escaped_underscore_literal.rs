@@ -43,7 +43,11 @@ pub fn escaped_underscore_literal(checker: &mut Checker) {
                 .enumerate()
                 .filter_map(|(index, part)| match &part.kind {
                     WordPart::Literal(_)
-                        if !literal_part_is_parameter_operator_tail(&fact.word().parts, index, source) =>
+                        if !literal_part_is_parameter_operator_tail(
+                            &fact.word().parts,
+                            index,
+                            source,
+                        ) =>
                     {
                         Some(needless_backslash_spans(part.span, source))
                     }
@@ -81,9 +85,7 @@ pub fn escaped_underscore_literal(checker: &mut Checker) {
                 .commands()
                 .iter()
                 .filter_map(|command| match command.command() {
-                    Command::Simple(simple)
-                        if simple.name.span.slice(source).contains('/') =>
-                    {
+                    Command::Simple(simple) if simple.name.span.slice(source).contains('/') => {
                         Some(needless_backslash_spans(simple.name.span, source))
                     }
                     _ => None,
@@ -112,13 +114,15 @@ pub fn escaped_underscore_literal(checker: &mut Checker) {
 fn is_relevant_word_context(context: Option<ExpansionContext>) -> bool {
     matches!(
         context,
-        Some(ExpansionContext::CommandArgument
-            | ExpansionContext::AssignmentValue
-            | ExpansionContext::DeclarationAssignmentValue
-            | ExpansionContext::RedirectTarget(_)
-            | ExpansionContext::ForList
-            | ExpansionContext::SelectList
-            | ExpansionContext::CasePattern)
+        Some(
+            ExpansionContext::CommandArgument
+                | ExpansionContext::AssignmentValue
+                | ExpansionContext::DeclarationAssignmentValue
+                | ExpansionContext::RedirectTarget(_)
+                | ExpansionContext::ForList
+                | ExpansionContext::SelectList
+                | ExpansionContext::CasePattern
+        )
     )
 }
 
@@ -142,10 +146,7 @@ fn redirect_target_needless_backslash_spans(
     scan_span_excluding(fact.span(), &excluded, source)
 }
 
-fn collect_redirect_target_excluded_spans(
-    parts: &[WordPartNode],
-    excluded: &mut Vec<Span>,
-) {
+fn collect_redirect_target_excluded_spans(parts: &[WordPartNode], excluded: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) => {}
@@ -198,9 +199,7 @@ fn scan_span_excluding(span: Span, excluded: &[Span], source: &str) -> Vec<Span>
 }
 
 fn scan_span_segment(span: Span, start: usize, end: usize, source: &str) -> Vec<Span> {
-    let segment_start = span
-        .start
-        .advanced_by(&source[span.start.offset..start]);
+    let segment_start = span.start.advanced_by(&source[span.start.offset..start]);
     let segment_end = span.start.advanced_by(&source[span.start.offset..end]);
     needless_backslash_spans(Span::from_positions(segment_start, segment_end), source)
 }
@@ -244,8 +243,7 @@ fn literal_part_is_parameter_operator_tail(
     }
 
     let text = parts[index].span.slice(source);
-    text.ends_with('}')
-        && (text.starts_with('/') || text.starts_with('%') || text.starts_with('#'))
+    text.ends_with('}') && (text.starts_with('/') || text.starts_with('%') || text.starts_with('#'))
 }
 
 fn needless_backslash_spans(word_span: Span, source: &str) -> Vec<Span> {
@@ -329,8 +327,8 @@ mod tests {
             file: recovered.file,
         };
         let indexer = Indexer::new(source, &output);
-        let settings = LinterSettings::for_rule(Rule::EscapedUnderscoreLiteral)
-            .with_shell(ShellDialect::Sh);
+        let settings =
+            LinterSettings::for_rule(Rule::EscapedUnderscoreLiteral).with_shell(ShellDialect::Sh);
         lint_file_at_path_with_parse_diagnostics(
             &output.file,
             source,
@@ -371,8 +369,7 @@ foo=${x#foo\\_bar}
         let source = "\
 base64 -d ${vkb64} > ${rootfs}/var/db/xbps/keys/60\\:ae\\:0c\\:d6\\:f0\\:95\\:17\\:80\\:bc\\:93\\:46\\:7a\\:89\\:af\\:a3\\:2d.plist
 ";
-        let diagnostics =
-            test_posix_snippet_at_path(Path::new("/tmp/lxc-void"), source);
+        let diagnostics = test_posix_snippet_at_path(Path::new("/tmp/lxc-void"), source);
 
         assert!(diagnostics.is_empty());
     }

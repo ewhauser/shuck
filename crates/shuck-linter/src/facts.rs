@@ -1491,16 +1491,8 @@ impl<'a> LinterFactsBuilder<'a> {
             if !nested_word_command {
                 structural_command_ids.push(id);
             }
-            let (
-                command_words,
-                command_pattern_literal_spans,
-                command_pattern_charclass_spans,
-            ) = build_word_facts_for_command(
-                visit,
-                self.source,
-                id,
-                nested_word_command,
-            );
+            let (command_words, command_pattern_literal_spans, command_pattern_charclass_spans) =
+                build_word_facts_for_command(visit, self.source, id, nested_word_command);
             words.extend(command_words);
             pattern_literal_spans.extend(command_pattern_literal_spans);
             pattern_charclass_spans.extend(command_pattern_charclass_spans);
@@ -2667,6 +2659,19 @@ impl<'a> WordFactCollector<'a> {
         }
     }
 
+    fn collect_zsh_qualified_glob_context_words(
+        &mut self,
+        glob: &ZshQualifiedGlob,
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+    ) {
+        for segment in &glob.segments {
+            if let ZshGlobSegment::Pattern(pattern) = segment {
+                self.collect_pattern_context_words(pattern, context, host_kind);
+            }
+        }
+    }
+
     fn collect_conditional_expansion_words(&mut self, expression: &'a ConditionalExpr) {
         match expression {
             ConditionalExpr::Binary(expr) => {
@@ -2706,6 +2711,83 @@ impl<'a> WordFactCollector<'a> {
         }
     }
 
+    fn collect_word_parameter_patterns(
+        &mut self,
+        parts: &[WordPartNode],
+        host_kind: WordFactHostKind,
+    ) {
+        for part in parts {
+            match &part.kind {
+                WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob_context_words(
+                    glob,
+                    WordFactContext::Expansion(ExpansionContext::ParameterPattern),
+                    host_kind,
+                ),
+                WordPart::DoubleQuoted { parts, .. } => {
+                    self.collect_word_parameter_patterns(parts, host_kind)
+                }
+                WordPart::Parameter(parameter) => {
+                    if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                        operator,
+                        ..
+                    }) = &parameter.syntax
+                    {
+                        self.collect_parameter_operator_patterns(operator, host_kind);
+                    }
+                }
+                WordPart::ParameterExpansion { operator, .. } => {
+                    self.collect_parameter_operator_patterns(operator, host_kind)
+                }
+                WordPart::IndirectExpansion {
+                    operator: Some(operator),
+                    ..
+                } => self.collect_parameter_operator_patterns(operator, host_kind),
+                WordPart::Literal(_)
+                | WordPart::SingleQuoted { .. }
+                | WordPart::Variable(_)
+                | WordPart::CommandSubstitution { .. }
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { operator: None, .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::ProcessSubstitution { .. }
+                | WordPart::Transformation { .. } => {}
+            }
+        }
+    }
+
+    fn collect_parameter_operator_patterns(
+        &mut self,
+        operator: &ParameterOp,
+        host_kind: WordFactHostKind,
+    ) {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern }
+            | ParameterOp::ReplaceFirst { pattern, .. }
+            | ParameterOp::ReplaceAll { pattern, .. } => self.collect_pattern_context_words(
+                pattern,
+                WordFactContext::Expansion(ExpansionContext::ParameterPattern),
+                host_kind,
+            ),
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => {}
+        }
+    }
+
     fn push_word(&mut self, word: &'a Word, context: WordFactContext, host_kind: WordFactHostKind) {
         self.push_cow_word(Cow::Borrowed(word), context, host_kind);
     }
@@ -2730,6 +2812,8 @@ impl<'a> WordFactCollector<'a> {
         if !self.seen.insert((key, context, host_kind)) {
             return;
         }
+
+        self.collect_word_parameter_patterns(&word_ref.parts, host_kind);
 
         let analysis = analyze_word(word_ref, self.source);
         let operand_class = match context {
@@ -2784,7 +2868,10 @@ fn pattern_contains_word_or_group(pattern: &Pattern) -> bool {
     pattern.parts.iter().any(|part| match &part.kind {
         PatternPart::Word(_) => true,
         PatternPart::Group { patterns, .. } => patterns.iter().any(pattern_contains_word_or_group),
-        PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar | PatternPart::CharClass(_) => false,
+        PatternPart::Literal(_)
+        | PatternPart::AnyString
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_) => false,
     })
 }
 

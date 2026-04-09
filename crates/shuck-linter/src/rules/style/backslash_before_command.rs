@@ -31,8 +31,10 @@ fn backslash_before_command_span(command: &Command, source: &str) -> Option<Span
         return None;
     };
 
-    (simple.name.span.slice(source) == "\\command")
-        .then_some(Span::from_positions(simple.name.span.start, simple.name.span.start))
+    (simple.name.span.slice(source) == "\\command").then_some(Span::from_positions(
+        simple.name.span.start,
+        simple.name.span.start,
+    ))
 }
 
 #[cfg(test)]
@@ -47,8 +49,10 @@ mod tests {
 \\command echo hi
 \\command \\rm tmp.txt || echo fail
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::BackslashBeforeCommand));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BackslashBeforeCommand),
+        );
 
         assert_eq!(
             diagnostics

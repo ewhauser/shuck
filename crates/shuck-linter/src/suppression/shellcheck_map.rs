@@ -170,10 +170,7 @@ mod tests {
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1001"), Some(Rule::EscapedUnderscore));
-        assert_eq!(
-            map.resolve("SC1002"),
-            Some(Rule::EscapedUnderscoreLiteral)
-        );
+        assert_eq!(map.resolve("SC1002"), Some(Rule::EscapedUnderscoreLiteral));
         assert_eq!(map.resolve("SC1003"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(map.resolve("SC1004"), Some(Rule::LiteralBackslash));
         assert_eq!(
@@ -290,6 +287,9 @@ mod tests {
             vec![
                 (1001, Rule::EscapedUnderscore),
                 (1002, Rule::EscapedUnderscoreLiteral),
+                (1003, Rule::SingleQuoteBackslash),
+                (1004, Rule::LiteralBackslash),
+                (1012, Rule::NeedlessBackslashUnderscore),
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
@@ -303,7 +303,6 @@ mod tests {
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
-                (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2003, Rule::ExprArithmetic),
@@ -314,7 +313,6 @@ mod tests {
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
                 (2016, Rule::SingleQuotedLiteral),
-                (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
                 (2035, Rule::LeadingGlobArgument),
@@ -354,6 +352,7 @@ mod tests {
                 (2259, Rule::SubshellTestGroup),
                 (2264, Rule::NestedParameterExpansion),
                 (2266, Rule::OverwrittenFunction),
+                (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2270, Rule::IfMissingThen),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
@@ -362,6 +361,7 @@ mod tests {
                 (2288, Rule::TemplateBraceInCommand),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
+                (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),
                 (3014, Rule::TestEqualityOperator),
