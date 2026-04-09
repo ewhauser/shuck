@@ -3,6 +3,7 @@ mod checker;
 pub mod context;
 mod diagnostic;
 mod facts;
+mod parse_diagnostics;
 mod registry;
 mod rule_selector;
 mod rule_set;
@@ -208,7 +209,7 @@ pub fn lint_file_at_path_with_resolver(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
-    analyze_file_at_path_with_resolver(
+    lint_file_at_path_with_resolver_and_parse_diagnostics(
         file,
         source,
         indexer,
@@ -216,8 +217,72 @@ pub fn lint_file_at_path_with_resolver(
         suppression_index,
         source_path,
         source_path_resolver,
+        &[],
     )
-    .diagnostics
+}
+
+pub fn lint_file_at_path_with_parse_diagnostics(
+    file: &File,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    parse_diagnostics: &[shuck_parser::parser::ParseDiagnostic],
+) -> Vec<Diagnostic> {
+    lint_file_at_path_with_resolver_and_parse_diagnostics(
+        file,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        None,
+        parse_diagnostics,
+    )
+}
+
+pub fn lint_file_at_path_with_resolver_and_parse_diagnostics(
+    file: &File,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    parse_diagnostics: &[shuck_parser::parser::ParseDiagnostic],
+) -> Vec<Diagnostic> {
+    let mut diagnostics = analyze_file_at_path_with_resolver(
+        file,
+        source,
+        indexer,
+        settings,
+        None,
+        source_path,
+        source_path_resolver,
+    )
+    .diagnostics;
+
+    diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
+        file,
+        parse_diagnostics,
+        &settings.rules,
+    ));
+
+    for diagnostic in &mut diagnostics {
+        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
+            diagnostic.severity = severity;
+        }
+    }
+
+    if let Some(suppression_index) = suppression_index {
+        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
+    }
+
+    diagnostics
+        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
+
+    diagnostics
 }
 
 fn filter_suppressed_diagnostics(
