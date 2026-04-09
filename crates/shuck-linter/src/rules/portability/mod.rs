@@ -1,12 +1,8 @@
 pub mod ansi_c_quoting;
 pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
-<<<<<<< HEAD
 pub mod bash_case_fallthrough;
-||||||| parent of 6edf430 (Implement X010 brace expansion portability rule)
-=======
 pub mod brace_expansion;
->>>>>>> 6edf430 (Implement X010 brace expansion portability rule)
 pub mod brace_fd_redirection;
 pub mod c_style_for_arithmetic_in_sh;
 pub mod c_style_for_in_sh;
@@ -16,6 +12,7 @@ pub mod csh_syntax_in_sh;
 pub mod declare_command;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
+pub mod here_string;
 pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
@@ -67,6 +64,7 @@ mod tests {
     #[test_case(Rule::ProcessSubstitution, Path::new("X006.sh"))]
     #[test_case(Rule::AnsiCQuoting, Path::new("X007.sh"))]
     #[test_case(Rule::BraceExpansion, Path::new("X010.sh"))]
+    #[test_case(Rule::HereString, Path::new("X011.sh"))]
     #[test_case(Rule::StandaloneArithmetic, Path::new("X008.sh"))]
     #[test_case(Rule::SelectLoop, Path::new("X009.sh"))]
     #[test_case(Rule::Coproc, Path::new("X014.sh"))]

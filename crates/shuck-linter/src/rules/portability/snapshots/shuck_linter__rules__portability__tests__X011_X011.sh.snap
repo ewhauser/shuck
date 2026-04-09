@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 100
+---
+X011 here-strings are not portable in `sh`
+ --> <source>:4:5
+  |
+4 | cat <<< hi
+  |
+
+X011 here-strings are not portable in `sh`
+ --> <source>:7:16
+  |
+7 | count="$(wc -c <<< "$value")"
+  |

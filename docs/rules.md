@@ -71,7 +71,7 @@ related syntax in POSIX sh. Mostly surface-level AST node type checks.
 - [x] **L** X006 (SC3001) `process-substitution` — `<()` / `>()` in sh
 - [x] **L** X007 (SC3003) `ansi-c-quoting` — `$'...'` in sh
 - [x] **L** X010 (SC3009) `brace-expansion` — `{a,b}` expansion in sh
-- [ ] **L** X011 (SC3054) `here-string` — `<<<` in sh
+- [x] **L** X011 (SC3011) `here-string` — `<<<` in sh
 - [ ] **L** X013 (SC3030) `array-assignment` — array variable assignment in sh
 - [ ] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
 - [ ] **L** X019 (SC3028) `array-reference` — indexed array reference in sh
