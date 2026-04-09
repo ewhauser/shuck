@@ -60,6 +60,7 @@ impl Default for ShellCheckCodeMap {
         Self {
             map: FxHashMap::from_iter([
                 (1001, Rule::EscapedUnderscore),
+                (1002, Rule::EscapedUnderscoreLiteral),
                 (1003, Rule::SingleQuoteBackslash),
                 (1004, Rule::LiteralBackslash),
                 (1012, Rule::NeedlessBackslashUnderscore),
@@ -168,6 +169,10 @@ mod tests {
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1001"), Some(Rule::EscapedUnderscore));
+        assert_eq!(
+            map.resolve("SC1002"),
+            Some(Rule::EscapedUnderscoreLiteral)
+        );
         assert_eq!(map.resolve("SC1003"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(map.resolve("SC1004"), Some(Rule::LiteralBackslash));
         assert_eq!(
@@ -278,6 +283,7 @@ mod tests {
             mappings,
             vec![
                 (1001, Rule::EscapedUnderscore),
+                (1002, Rule::EscapedUnderscoreLiteral),
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),

@@ -1,5 +1,6 @@
 pub mod echoed_command_substitution;
 pub mod escaped_underscore;
+pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
@@ -34,6 +35,7 @@ mod tests {
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
     #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
+    #[test_case(Rule::EscapedUnderscoreLiteral, Path::new("S027.sh"))]
     #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]
     #[test_case(Rule::LiteralBackslash, Path::new("S025.sh"))]
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]

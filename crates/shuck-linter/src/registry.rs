@@ -186,6 +186,7 @@ declare_rules! {
         Severity::Warning,
         NeedlessBackslashUnderscore
     ),
+    ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -198,6 +199,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
         "SH-082" => Some(Rule::EscapedUnderscore),
+        "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-088" => Some(Rule::LiteralBackslash),
         "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
@@ -314,6 +316,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));
         assert_eq!(code_to_rule("S023"), Some(Rule::EscapedUnderscore));
         assert_eq!(code_to_rule("SH-082"), Some(Rule::EscapedUnderscore));
+        assert_eq!(code_to_rule("S027"), Some(Rule::EscapedUnderscoreLiteral));
+        assert_eq!(code_to_rule("SH-095"), Some(Rule::EscapedUnderscoreLiteral));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
