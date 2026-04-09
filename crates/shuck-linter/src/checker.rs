@@ -304,6 +304,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::NestedZshSubstitution) {
             rules::portability::nested_zsh_substitution::nested_zsh_substitution(self);
         }
+        if self.is_rule_enabled(Rule::ZshPromptBracket) {
+            rules::portability::zsh_prompt_bracket::zsh_prompt_bracket(self);
+        }
         if self.is_rule_enabled(Rule::ZshNestedExpansion) {
             rules::portability::zsh_nested_expansion::zsh_nested_expansion(self);
         }

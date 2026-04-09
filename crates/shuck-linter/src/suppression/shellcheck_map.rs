@@ -194,6 +194,7 @@ impl Default for ShellCheckCodeMap {
                 (2252, Rule::NestedZshSubstitution),
                 (2313, Rule::ZshNestedExpansion),
                 (2275, Rule::MultiVarForLoop),
+                (2278, Rule::ZshPromptBracket),
                 (2279, Rule::CshSyntaxInSh),
                 (2355, Rule::ZshAssignmentToZero),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -326,6 +327,7 @@ mod tests {
         assert_eq!(map.resolve("SC2252"), Some(Rule::NestedZshSubstitution));
         assert_eq!(map.resolve("SC2313"), Some(Rule::ZshNestedExpansion));
         assert_eq!(map.resolve("SC2275"), Some(Rule::MultiVarForLoop));
+        assert_eq!(map.resolve("SC2278"), Some(Rule::ZshPromptBracket));
         assert_eq!(map.resolve("SC2279"), Some(Rule::CshSyntaxInSh));
         assert_eq!(map.resolve("SC2355"), Some(Rule::ZshAssignmentToZero));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -448,6 +450,7 @@ mod tests {
                 (2252, Rule::NestedZshSubstitution),
                 (2313, Rule::ZshNestedExpansion),
                 (2275, Rule::MultiVarForLoop),
+                (2278, Rule::ZshPromptBracket),
                 (2279, Rule::CshSyntaxInSh),
                 (2355, Rule::ZshAssignmentToZero),
                 (2003, Rule::ExprArithmetic),
