@@ -43,8 +43,7 @@ pub fn escaped_underscore_literal(checker: &mut Checker) {
         .flat_map(|fact| {
             word_literal_part_spans_excluding_parameter_operator_tails(fact.word(), source)
                 .into_iter()
-                .map(|span| needless_backslash_spans(span, source))
-                .flatten()
+                .flat_map(|span| needless_backslash_spans(span, source))
                 .collect::<Vec<_>>()
         })
         .chain(
