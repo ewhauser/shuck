@@ -1,5 +1,14 @@
 reviewed_divergences:
   - side: shuck-only
+    path_suffix: "megastep__makeself__makeself-header.sh"
+    reason: "This generator writes a portable installer script into a heredoc, so the remaining legacy-backtick sites belong to emitted shell payload rather than the generator's own runtime logic."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_flang.sh"
+    reason: "This setup helper emits launcher scripts through a heredoc, so the remaining legacy-backtick sites are part of generated wrapper text rather than the setup code itself."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__jira-go__build.sh"
+    reason: "This package recipe writes a post-install maintainer script into a heredoc, so the remaining legacy-backtick site belongs to emitted script text instead of live package-build logic."
+  - side: shuck-only
     path_suffix: "bats-core__bats-core__lib__bats-core__warnings.bash"
     labels:
       - directive-handling

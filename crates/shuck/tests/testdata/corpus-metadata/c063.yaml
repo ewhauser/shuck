@@ -1,5 +1,9 @@
 reviewed_divergences:
   - side: shuck-only
+    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-exec-test"
+    line: 82
+    reason: "This Bats exec-test harness sources shared helper libraries and then intentionally replaces selected tracing and trap helpers before the runner uses them."
+  - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"
     line: 1520
     reason: "This helper is intentionally replaced later in the same function for a Bedrock-specific path, so the earlier definition is a deliberate override pattern."
@@ -12,9 +16,21 @@ reviewed_divergences:
     line: 5406
     reason: "This is a temporary command-line mode override for info rendering, not an accidental dead definition."
   - side: shuck-only
+    path_suffix: "nvm-sh__nvm__update_test_mocks.sh"
+    line: 12
+    reason: "This fixture sources nvm.sh and then replaces the version-check helper with a mock implementation to generate test data."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__openindiana"
     line: 68
     reason: "This platform-specific helper is part of RVM's override chain, so the overwrite is intentional rather than a real dead-definition bug."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__build-package.sh"
+    line: 242
+    reason: "This build framework file loads default hook implementations that package build scripts are expected to override later."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__build-package.sh"
+    line: 254
+    reason: "This build framework file loads the default source-fetch hook that package-specific builders intentionally replace."
   - side: shuck-only
     path_suffix: "termux__termux-packages__packages__angle-android__build.sh"
     line: 126
@@ -23,3 +39,7 @@ reviewed_divergences:
     path_suffix: "termux__termux-packages__packages__dnglab__build.sh"
     line: 16
     reason: "Termux package scripts routinely override build-step hooks, and this install hook is meant to replace the inherited implementation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__setup-offline-bundle.sh"
+    line: 86
+    reason: "This offline bundle helper sources the normal archive extractor and then overrides it with a no-op to avoid unpacking sources during cache population."
