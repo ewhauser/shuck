@@ -1,16 +1,9 @@
 reviewed_divergences:
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__show.sh"
-    line: 32
-    labels:
-      - location-only
-      - project-closure
-      - shell-collapse
-    reason: "this helper is sourced into a bash-oriented xbps-src environment, so collapsing it to standalone POSIX sh overstates the portability risk for this replacement expression"
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__show.sh"
     line: 54
+    end_line: 54
     labels:
       - project-closure
       - shell-collapse
-    reason: "this helper already depends on bash-style control syntax in its calling environment, so a standalone sh portability warning here is comparison noise rather than a useful corpus target"
+    reason: "this helper already uses bash-only `[[ ... =~ ... ]]` syntax at the same site, so treating the nested `$'\\n'` as a standalone sh portability warning is a shell-collapse artifact"

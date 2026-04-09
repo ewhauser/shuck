@@ -80,13 +80,31 @@ mod tests {
     }
 
     #[test]
-    fn reports_replacement_operands_and_ignores_trailing_dollar_before_quote() {
+    fn ignores_trailing_dollar_before_quote_inside_double_quoted_strings() {
         let source = "\
 #!/bin/sh
-printf '%s\\n' \"${var//$'\\n'/' '}\"
-pattern=\"grep -q '^${name}$'\"
+_socat_cert_cmd=\"echo '${_cmdpfx}show ssl cert' | socat '${_statssock}' - | grep -q '^${_pem}$'\"
+_socat_crtlist_show_cmd=\"echo '${_cmdpfx}show ssl crt-list' | socat '${_statssock}' - | grep -q '^${Le_Deploy_haproxy_pem_path}$'\"
+_socat_cert_commit_cmd=\"echo '${_cmdpfx}commit ssl cert ${_pem}' | socat '${_statssock}' - | grep -q '^Success!$'\"
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AnsiCQuoting));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AnsiCQuoting).with_shell(ShellDialect::Sh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_ansi_c_quoting_in_replacement_patterns_for_indirect_expansions() {
+        let source = "\
+#!/bin/sh
+show_pkg_var \"$var\" \"${!var//$'\\n'/' '}\"\n\
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AnsiCQuoting).with_shell(ShellDialect::Sh),
+        );
 
         assert_eq!(
             diagnostics
