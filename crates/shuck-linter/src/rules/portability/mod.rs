@@ -1,4 +1,5 @@
 pub mod ampersand_redirection;
+pub mod brace_fd_redirection;
 pub mod conditional_portability;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
@@ -49,6 +50,7 @@ mod tests {
     #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
+    #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]

@@ -367,6 +367,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AmpersandRedirection) {
             rules::portability::ampersand_redirection::ampersand_redirection(self);
         }
+        if self.is_rule_enabled(Rule::BraceFdRedirection) {
+            rules::portability::brace_fd_redirection::brace_fd_redirection(self);
+        }
         if self.is_rule_enabled(Rule::SubstWithRedirect) {
             rules::correctness::subst_with_redirect::subst_with_redirect(self);
         }
