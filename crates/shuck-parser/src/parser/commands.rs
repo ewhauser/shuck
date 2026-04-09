@@ -2965,6 +2965,13 @@ impl<'a> Parser<'a> {
             return None;
         }
 
+        if matches!(
+            self.current_token_kind,
+            Some(TokenKind::QuotedWord | TokenKind::LiteralWord)
+        ) {
+            return None;
+        }
+
         let starts_with_paren = matches!(self.current_token_kind, Some(TokenKind::LeftParen));
         let starts_with_zsh_pattern_punct = matches!(
             self.current_token_kind,

@@ -869,6 +869,43 @@ fn test_backtick_command_substitution_inside_double_quotes_preserves_syntax_form
 }
 
 #[test]
+fn test_dollar_paren_command_substitution_inside_double_quotes_preserves_nested_quoted_argument() {
+    let input = "echo \"$(cmd \"$arg\")\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert!(is_fully_quoted(word));
+    assert_eq!(
+        top_level_part_slices(word, input),
+        vec!["\"$(cmd \"$arg\")\""]
+    );
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    assert_eq!(
+        parts
+            .iter()
+            .map(|part| part.span.slice(input))
+            .collect::<Vec<_>>(),
+        vec!["$(cmd \"$arg\")"]
+    );
+
+    let WordPart::CommandSubstitution { body, syntax } = &parts[0].kind else {
+        panic!("expected command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "cmd");
+    assert_eq!(inner.args[0].render_syntax(input), "\"$arg\"");
+}
+
+#[test]
 fn test_escaped_backticks_inside_double_quotes_stay_literal() {
     let input = "echo \"pre \\`pwd\\` post\"\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -1914,6 +1951,109 @@ echo "${var-"}"}"
 
     let script = Parser::new(input).parse().unwrap().file;
     assert_eq!(script.body.len(), 6);
+}
+
+#[test]
+fn test_parse_long_suffix_trim_operator_inside_double_quotes() {
+    let input = "echo \"${1%%.*}\" \"${package_url%%#*}\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    for word in &command.args {
+        let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+            panic!("expected double-quoted word");
+        };
+        let parameter = match &parts[0].kind {
+            WordPart::Parameter(parameter) => parameter,
+            _ => panic!("expected parameter expansion"),
+        };
+        let BourneParameterExpansion::Operation { operator, .. } =
+            parameter.bourne().expect("expected Bourne syntax")
+        else {
+            panic!("expected parameter operation");
+        };
+        assert!(matches!(operator, ParameterOp::RemoveSuffixLong { .. }));
+    }
+}
+
+#[test]
+fn test_parse_parameter_slices_preserve_shell_style_offsets() {
+    let input = "echo \"${arg:$index:1}\" \"${@:1:$package_type_nargs}\" \"${@:$(( $package_type_nargs + 1 ))}\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    let WordPart::DoubleQuoted {
+        parts: first_parts, ..
+    } = &command.args[0].parts[0].kind
+    else {
+        panic!("expected first double-quoted word");
+    };
+    let (_, first_offset_ast, first_length_ast) = expect_substring_part(&first_parts[0].kind);
+    let ArithmeticExpr::ShellWord(first_offset_word) =
+        &first_offset_ast.as_ref().expect("expected offset AST").kind
+    else {
+        panic!("expected shell-word offset");
+    };
+    assert_eq!(first_offset_word.span.slice(input), "$index");
+    assert_eq!(
+        first_length_ast
+            .as_ref()
+            .expect("expected first length AST")
+            .span
+            .slice(input),
+        "1"
+    );
+
+    let WordPart::DoubleQuoted {
+        parts: second_parts,
+        ..
+    } = &command.args[1].parts[0].kind
+    else {
+        panic!("expected second double-quoted word");
+    };
+    let (_, second_offset_ast, second_length_ast) = expect_substring_part(&second_parts[0].kind);
+    assert_eq!(
+        second_offset_ast
+            .as_ref()
+            .expect("expected second offset AST")
+            .span
+            .slice(input),
+        "1"
+    );
+    let ArithmeticExpr::ShellWord(second_length_word) = &second_length_ast
+        .as_ref()
+        .expect("expected second length AST")
+        .kind
+    else {
+        panic!("expected shell-word length");
+    };
+    assert_eq!(second_length_word.span.slice(input), "$package_type_nargs");
+
+    let WordPart::DoubleQuoted {
+        parts: third_parts, ..
+    } = &command.args[2].parts[0].kind
+    else {
+        panic!("expected third double-quoted word");
+    };
+    let (_, third_offset_ast, third_length_ast) = expect_substring_part(&third_parts[0].kind);
+    assert!(third_length_ast.is_none());
+    let ArithmeticExpr::ShellWord(third_offset_word) = &third_offset_ast
+        .as_ref()
+        .expect("expected third offset AST")
+        .kind
+    else {
+        panic!("expected shell-word arithmetic expansion");
+    };
+    assert_eq!(
+        third_offset_word.span.slice(input),
+        "$(( $package_type_nargs + 1 ))"
+    );
 }
 
 #[test]

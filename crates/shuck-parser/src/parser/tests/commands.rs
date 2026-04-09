@@ -2873,6 +2873,43 @@ fn test_parse_conditional_var_ref_operand() {
 }
 
 #[test]
+fn test_parse_conditional_quoted_command_substitution_preserves_nested_quotes() {
+    let input = "[[ \"$(get_permission \"$1\")\" != \"$(id -u)\" ]]\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::PatternNe);
+
+    let ConditionalExpr::Word(left) = binary.left.as_ref() else {
+        panic!("expected left operand word");
+    };
+    let ConditionalExpr::Pattern(right) = binary.right.as_ref() else {
+        panic!("expected right operand pattern");
+    };
+    assert_eq!(left.span.slice(input), "\"$(get_permission \"$1\")\"");
+    assert_eq!(right.span.slice(input), "\"$(id -u)\"");
+
+    let WordPart::DoubleQuoted { parts, .. } = &left.parts[0].kind else {
+        panic!("expected double-quoted left operand");
+    };
+    let WordPart::CommandSubstitution { body, syntax } = &parts[0].kind else {
+        panic!("expected left command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "get_permission");
+    assert_eq!(inner.args[0].render_syntax(input), "\"$1\"");
+}
+
+#[test]
 fn test_parse_conditional_regex_rhs_preserves_structure() {
     let input = "[[ foo =~ [ab](c|d) ]]\n";
     let script = Parser::new(input).parse().unwrap().file;

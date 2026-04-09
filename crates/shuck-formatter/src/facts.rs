@@ -901,7 +901,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn visit_word_part(&mut self, part: &WordPart, span: Span) {
         match part {
             WordPart::CommandSubstitution { body, syntax }
-                if *syntax == CommandSubstitutionSyntax::DollarParen =>
+                if matches!(
+                    *syntax,
+                    CommandSubstitutionSyntax::DollarParen | CommandSubstitutionSyntax::Backtick
+                ) =>
             {
                 self.visit_sequence(body, Some(span.end.offset), None);
             }

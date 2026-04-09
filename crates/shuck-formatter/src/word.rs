@@ -3,8 +3,8 @@ use std::fmt::Write as _;
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp,
-    BourneParameterExpansion, CommandSubstitutionSyntax, ParameterOp, Pattern, SubscriptSelector,
-    VarRef, Word, WordPart,
+    BourneParameterExpansion, Command, CommandSubstitutionSyntax, CompoundCommand, ParameterOp,
+    Pattern, Stmt, StmtSeq, SubscriptSelector, VarRef, Word, WordPart,
 };
 use shuck_format::IndentStyle;
 use shuck_format::{FormatResult, text, write};
@@ -118,27 +118,9 @@ fn part_needs_special_rendering(part: &WordPart) -> bool {
             .iter()
             .any(|part| part_needs_special_rendering(&part.kind)),
         WordPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_some(),
-        WordPart::Parameter(parameter) => parameter.bourne().is_some_and(|syntax| match syntax {
-            BourneParameterExpansion::Slice {
-                offset_ast,
-                length_ast,
-                ..
-            } => offset_ast.is_some() || length_ast.is_some(),
-            _ => false,
-        }),
-        WordPart::Substring {
-            offset_ast,
-            length_ast,
-            ..
-        }
-        | WordPart::ArraySlice {
-            offset_ast,
-            length_ast,
-            ..
-        } => offset_ast.is_some() || length_ast.is_some(),
-        WordPart::CommandSubstitution { syntax, .. } => {
-            *syntax == CommandSubstitutionSyntax::DollarParen
-        }
+        WordPart::Parameter(parameter) => parameter_needs_special_rendering(parameter),
+        WordPart::Substring { .. } | WordPart::ArraySlice { .. } => true,
+        WordPart::CommandSubstitution { .. } => true,
         _ => false,
     }
 }
@@ -168,6 +150,11 @@ fn render_word_part(
     source_map: Option<&SourceMap<'_>>,
     facts: Option<&FormatterFacts<'_>>,
 ) -> Result<(), std::fmt::Error> {
+    if let Some(raw) = preferred_raw_word_part_source(part, span, source, options) {
+        rendered.push_str(raw);
+        return Ok(());
+    }
+
     match part {
         WordPart::Literal(text) => rendered.push_str(text.as_str(source, span)),
         WordPart::SingleQuoted { value, dollar } => {
@@ -199,10 +186,8 @@ fn render_word_part(
             std::write!(rendered, "${name}")?;
         }
         WordPart::CommandSubstitution { body, syntax } => {
-            if *syntax == CommandSubstitutionSyntax::Backtick {
-                rendered.push_str(span.slice(source));
-            } else if let Some(raw) = raw_source_slice(span, source) {
-                if raw.contains('#') {
+            if let Some(raw) = raw_source_slice(span, source) {
+                if stmt_seq_contains_comments(body) {
                     rendered.push_str(raw);
                 } else if render_command_substitution(
                     rendered,
@@ -225,7 +210,7 @@ fn render_word_part(
                 span.end.offset,
                 source,
                 options,
-                true,
+                *syntax == CommandSubstitutionSyntax::DollarParen,
                 source_map,
                 facts,
             )
@@ -241,28 +226,36 @@ fn render_word_part(
             syntax,
         } => {
             if let Some(expression_ast) = expression_ast {
-                match syntax {
-                    ArithmeticExpansionSyntax::DollarParenParen => {
-                        rendered.push_str("$((");
-                        push_arithmetic_expr(
-                            rendered,
-                            expression_ast,
-                            ArithmeticContext::TopLevel,
-                            source,
-                            options,
-                        );
-                        rendered.push_str("))");
-                    }
-                    ArithmeticExpansionSyntax::LegacyBracket => {
-                        rendered.push_str("$[");
-                        push_arithmetic_expr(
-                            rendered,
-                            expression_ast,
-                            ArithmeticContext::TopLevel,
-                            source,
-                            options,
-                        );
-                        rendered.push(']');
+                if !expression.is_source_backed() {
+                    push_trimmed_arithmetic_expansion_source(
+                        rendered,
+                        expression.slice(source),
+                        *syntax,
+                    );
+                } else {
+                    match syntax {
+                        ArithmeticExpansionSyntax::DollarParenParen => {
+                            rendered.push_str("$((");
+                            push_arithmetic_expr(
+                                rendered,
+                                expression_ast,
+                                ArithmeticContext::TopLevel,
+                                source,
+                                options,
+                            );
+                            rendered.push_str("))");
+                        }
+                        ArithmeticExpansionSyntax::LegacyBracket => {
+                            rendered.push_str("$[");
+                            push_arithmetic_expr(
+                                rendered,
+                                expression_ast,
+                                ArithmeticContext::TopLevel,
+                                source,
+                                options,
+                            );
+                            rendered.push(']');
+                        }
                     }
                 }
             } else {
@@ -369,6 +362,143 @@ fn render_word_part(
     Ok(())
 }
 
+fn preferred_raw_word_part_source<'a>(
+    part: &WordPart,
+    span: shuck_ast::Span,
+    source: &'a str,
+    options: &ResolvedShellFormatOptions,
+) -> Option<&'a str> {
+    if options.simplify() || options.minify() {
+        return None;
+    }
+
+    match part {
+        WordPart::Parameter(parameter) => parameter_prefers_raw_source(parameter, span, source)
+            .then(|| raw_source_slice(span, source))
+            .flatten(),
+        WordPart::ParameterExpansion { .. } => raw_source_slice(span, source),
+        WordPart::Substring {
+            offset_ast,
+            length_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            offset_ast,
+            length_ast,
+            ..
+        } => (!(offset_ast.is_some() || length_ast.is_some()))
+            .then(|| raw_source_slice(span, source))
+            .flatten(),
+        _ => None,
+    }
+}
+
+fn parameter_needs_special_rendering(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    parameter.bourne().is_some_and(|syntax| match syntax {
+        BourneParameterExpansion::Operation { operator, .. } => {
+            matches!(
+                operator,
+                ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
+            )
+        }
+        BourneParameterExpansion::Slice { .. } => true,
+        _ => false,
+    })
+}
+
+fn parameter_prefers_raw_source(
+    parameter: &shuck_ast::ParameterExpansion,
+    span: shuck_ast::Span,
+    source: &str,
+) -> bool {
+    parameter.bourne().is_none_or(|syntax| match syntax {
+        BourneParameterExpansion::Operation { operator, .. } => match operator {
+            ParameterOp::ReplaceFirst { replacement, .. }
+            | ParameterOp::ReplaceAll { replacement, .. } => {
+                !replacement.slice(source).is_empty()
+                    || raw_source_slice(span, source).is_some_and(|raw| raw.ends_with("/}"))
+            }
+            _ => true,
+        },
+        BourneParameterExpansion::Slice {
+            offset_ast,
+            length_ast,
+            ..
+        } => offset_ast.is_none() && length_ast.is_none(),
+        _ => true,
+    })
+}
+
+fn stmt_seq_contains_comments(sequence: &StmtSeq) -> bool {
+    !sequence.leading_comments.is_empty()
+        || !sequence.trailing_comments.is_empty()
+        || sequence.iter().any(stmt_contains_comments)
+}
+
+fn stmt_contains_comments(stmt: &Stmt) -> bool {
+    !stmt.leading_comments.is_empty()
+        || stmt.inline_comment.is_some()
+        || command_contains_comments(&stmt.command)
+}
+
+fn command_contains_comments(command: &Command) -> bool {
+    match command {
+        Command::Binary(command) => {
+            stmt_contains_comments(&command.left) || stmt_contains_comments(&command.right)
+        }
+        Command::Compound(command) => compound_contains_comments(command),
+        Command::Function(function) => stmt_contains_comments(&function.body),
+        Command::AnonymousFunction(function) => stmt_contains_comments(&function.body),
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
+    }
+}
+
+fn compound_contains_comments(command: &CompoundCommand) -> bool {
+    match command {
+        CompoundCommand::If(command) => {
+            stmt_seq_contains_comments(&command.condition)
+                || stmt_seq_contains_comments(&command.then_branch)
+                || command.elif_branches.iter().any(|(condition, body)| {
+                    stmt_seq_contains_comments(condition) || stmt_seq_contains_comments(body)
+                })
+                || command
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(stmt_seq_contains_comments)
+        }
+        CompoundCommand::For(command) => stmt_seq_contains_comments(&command.body),
+        CompoundCommand::Repeat(command) => stmt_seq_contains_comments(&command.body),
+        CompoundCommand::Foreach(command) => stmt_seq_contains_comments(&command.body),
+        CompoundCommand::ArithmeticFor(command) => stmt_seq_contains_comments(&command.body),
+        CompoundCommand::While(command) => {
+            stmt_seq_contains_comments(&command.condition)
+                || stmt_seq_contains_comments(&command.body)
+        }
+        CompoundCommand::Until(command) => {
+            stmt_seq_contains_comments(&command.condition)
+                || stmt_seq_contains_comments(&command.body)
+        }
+        CompoundCommand::Case(command) => command
+            .cases
+            .iter()
+            .any(|case| stmt_seq_contains_comments(&case.body)),
+        CompoundCommand::Select(command) => stmt_seq_contains_comments(&command.body),
+        CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+            stmt_seq_contains_comments(body)
+        }
+        CompoundCommand::Always(command) => {
+            stmt_seq_contains_comments(&command.body)
+                || stmt_seq_contains_comments(&command.always_body)
+        }
+        CompoundCommand::Time(command) => command
+            .command
+            .as_ref()
+            .is_some_and(|stmt| stmt_contains_comments(stmt)),
+        CompoundCommand::Coproc(command) => stmt_contains_comments(&command.body),
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_command_substitution(
     rendered: &mut String,
@@ -445,10 +575,26 @@ fn push_indented_rendered_block(
         if index > 0 {
             target.push('\n');
         }
-        if !line.is_empty() {
+        if line_needs_command_substitution_indent(line, options) {
             target.push_str(&prefix);
-            target.push_str(line);
         }
+        target.push_str(line);
+    }
+}
+
+fn line_needs_command_substitution_indent(
+    line: &str,
+    options: &ResolvedShellFormatOptions,
+) -> bool {
+    if line.is_empty() {
+        return false;
+    }
+
+    match options.indent_style() {
+        // Leave literal multiline string continuation lines alone. Formatter-
+        // produced shell indentation already uses tabs in this mode.
+        IndentStyle::Tab => !line.starts_with(' '),
+        IndentStyle::Space => true,
     }
 }
 
@@ -607,22 +753,26 @@ fn render_arithmetic_shell_word(
     source: &str,
     options: &ResolvedShellFormatOptions,
 ) -> String {
-    let [part] = word.parts.as_slice() else {
-        return render_word_syntax(word, source, options);
-    };
+    if options.simplify() || options.minify() {
+        let [part] = word.parts.as_slice() else {
+            return render_word_syntax(word, source, options);
+        };
 
-    match &part.kind {
-        WordPart::Variable(name) => name.to_string(),
-        WordPart::ArrayAccess(reference) if reference.subscript.is_none() => {
-            reference.name.to_string()
-        }
-        WordPart::Parameter(parameter)
-            if is_plain_arithmetic_identifier(parameter.raw_body.slice(source)) =>
-        {
-            parameter.raw_body.slice(source).to_string()
-        }
-        _ => render_word_syntax(word, source, options),
+        return match &part.kind {
+            WordPart::Variable(name) => name.to_string(),
+            WordPart::ArrayAccess(reference) if reference.subscript.is_none() => {
+                reference.name.to_string()
+            }
+            WordPart::Parameter(parameter)
+                if is_plain_arithmetic_identifier(parameter.raw_body.slice(source)) =>
+            {
+                parameter.raw_body.slice(source).to_string()
+            }
+            _ => render_word_syntax(word, source, options),
+        };
     }
+
+    render_word_syntax(word, source, options)
 }
 
 fn is_plain_arithmetic_identifier(text: &str) -> bool {
@@ -786,9 +936,57 @@ fn push_arithmetic_source_text(
     options: &ResolvedShellFormatOptions,
 ) {
     if let Some(ast) = ast {
-        render_arithmetic_expr_to_buf(rendered, ast, source, options);
+        match &ast.kind {
+            ArithmeticExpr::ShellWord(word) if !options.simplify() && !options.minify() => {
+                rendered.push_str(&render_arithmetic_slice_shell_word(word, source, options));
+            }
+            _ => render_arithmetic_expr_to_buf(rendered, ast, source, options),
+        }
     } else {
         rendered.push_str(text.slice(source));
+    }
+}
+
+fn render_arithmetic_slice_shell_word(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    let [part] = word.parts.as_slice() else {
+        return render_word_syntax(word, source, options);
+    };
+
+    match &part.kind {
+        WordPart::ArithmeticExpansion {
+            expression, syntax, ..
+        } => match syntax {
+            ArithmeticExpansionSyntax::DollarParenParen => {
+                format!("$(({}))", expression.slice(source).trim())
+            }
+            ArithmeticExpansionSyntax::LegacyBracket => {
+                format!("$[{}]", expression.slice(source).trim())
+            }
+        },
+        _ => render_word_syntax(word, source, options),
+    }
+}
+
+fn push_trimmed_arithmetic_expansion_source(
+    rendered: &mut String,
+    expression_source: &str,
+    syntax: ArithmeticExpansionSyntax,
+) {
+    match syntax {
+        ArithmeticExpansionSyntax::DollarParenParen => {
+            rendered.push_str("$((");
+            rendered.push_str(expression_source.trim());
+            rendered.push_str("))");
+        }
+        ArithmeticExpansionSyntax::LegacyBracket => {
+            rendered.push_str("$[");
+            rendered.push_str(expression_source.trim());
+            rendered.push(']');
+        }
     }
 }
 
