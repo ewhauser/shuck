@@ -70,7 +70,7 @@ pub(crate) fn collect_parse_rule_diagnostics(
             diagnostics.push(Diagnostic::new(ZshAlwaysBlock, span));
         }
     }
-    if enabled_rules.contains(crate::Rule::ExtglobCase) && is_posix_sh_shell(shell) {
+    if enabled_rules.contains(crate::Rule::ExtglobCase) && is_x037_shell(shell) {
         for span in zsh_case_leading_group_spans(source) {
             diagnostics.push(Diagnostic::new(ExtglobCase, span));
         }
@@ -88,8 +88,11 @@ fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
 }
 
-fn is_posix_sh_shell(shell: ShellDialect) -> bool {
-    matches!(shell, ShellDialect::Sh | ShellDialect::Dash)
+fn is_x037_shell(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+    )
 }
 
 fn is_x048_shell(shell: ShellDialect) -> bool {
@@ -478,6 +481,36 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::ExtglobCase);
         assert_eq!(diagnostics[0].span.slice(source), "(darwin|freebsd)");
+    }
+
+    #[test]
+    fn maps_zsh_case_group_recovery_to_x037_for_bash_and_ksh_targets() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "case \"$OSTYPE\" in\n",
+            "  (darwin|freebsd)*) print ok ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::ExtglobCase);
+
+        for shell in [ShellDialect::Bash, ShellDialect::Ksh] {
+            let diagnostics = collect_parse_rule_diagnostics(
+                &recovered.file,
+                source,
+                &recovered.diagnostics,
+                &settings.rules,
+                shell,
+            );
+
+            assert_eq!(
+                diagnostics.len(),
+                1,
+                "expected one diagnostic for {shell:?}"
+            );
+            assert_eq!(diagnostics[0].rule, Rule::ExtglobCase);
+            assert_eq!(diagnostics[0].span.slice(source), "(darwin|freebsd)");
+        }
     }
 
     #[test]
