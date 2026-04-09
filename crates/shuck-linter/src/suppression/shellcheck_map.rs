@@ -37,12 +37,15 @@ impl Default for ShellCheckCodeMap {
                 (2007, Rule::LegacyArithmeticExpansion),
                 (1037, Rule::PositionalTenBraces),
                 (1090, Rule::DynamicSourcePath),
+                (1091, Rule::UntrackedSourceFile),
+                (2164, Rule::UncheckedDirectoryChange),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
                 (1019, Rule::EmptyTest),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
+                (2035, Rule::LeadingGlobArgument),
                 (2044, Rule::FindOutputLoop),
                 (2045, Rule::LoopFromCommandOutput),
                 (2046, Rule::UnquotedCommandSubstitution),
@@ -89,11 +92,14 @@ mod tests {
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
+        assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
+        assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
+        assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
         assert_eq!(map.resolve("SC2045"), Some(Rule::LoopFromCommandOutput));
         assert_eq!(
@@ -141,6 +147,7 @@ mod tests {
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
                 (1090, Rule::DynamicSourcePath),
+                (1091, Rule::UntrackedSourceFile),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
@@ -149,6 +156,7 @@ mod tests {
                 (2016, Rule::SingleQuotedLiteral),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
+                (2035, Rule::LeadingGlobArgument),
                 (2038, Rule::FindOutputToXargs),
                 (2044, Rule::FindOutputLoop),
                 (2045, Rule::LoopFromCommandOutput),
@@ -165,6 +173,7 @@ mod tests {
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
                 (2162, Rule::ReadWithoutRaw),
+                (2164, Rule::UncheckedDirectoryChange),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2216, Rule::PipeToKill),

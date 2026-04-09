@@ -176,9 +176,15 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DynamicSourcePath) {
             rules::correctness::dynamic_source_path::dynamic_source_path(self);
         }
+        if self.is_rule_enabled(Rule::UntrackedSourceFile) {
+            rules::correctness::untracked_source_file::untracked_source_file(self);
+        }
     }
 
     fn check_command_facts(&mut self) {
+        if self.is_rule_enabled(Rule::UncheckedDirectoryChange) {
+            rules::correctness::unchecked_directory_change::unchecked_directory_change(self);
+        }
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }
@@ -226,6 +232,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::LineOrientedInput) {
             rules::correctness::line_oriented_input::line_oriented_input(self);
+        }
+        if self.is_rule_enabled(Rule::LeadingGlobArgument) {
+            rules::correctness::leading_glob_argument::leading_glob_argument(self);
         }
         if self.is_rule_enabled(Rule::FindOutputToXargs) {
             rules::correctness::find_output_to_xargs::find_output_to_xargs(self);

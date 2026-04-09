@@ -541,9 +541,10 @@ mod tests {
         let cache_path = cache.path().to_path_buf();
         cache.persist().unwrap();
 
-        let mut reader = BufReader::new(File::open(&cache_path).unwrap());
-        let mut stored: StoredPackage<String> =
-            bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard()).unwrap();
+        let mut stored: StoredPackage<String> = {
+            let mut reader = BufReader::new(File::open(&cache_path).unwrap());
+            bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard()).unwrap()
+        };
         stored
             .files
             .get_mut(Path::new("stale.sh"))

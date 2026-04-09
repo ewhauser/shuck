@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 76
+---
+C003 sourced file is not available to this analysis
+ --> <source>:4:3
+  |
+4 | . ./missing.sh
+  |
+
+C003 sourced file is not available to this analysis
+ --> <source>:8:3
+  |
+8 | . "$generated_helper"
+  |

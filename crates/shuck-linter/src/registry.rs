@@ -90,6 +90,8 @@ macro_rules! declare_rules {
 declare_rules! {
     ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
     ("C002", Category::Correctness, Severity::Warning, DynamicSourcePath),
+    ("C003", Category::Correctness, Severity::Warning, UntrackedSourceFile),
+    ("C004", Category::Correctness, Severity::Warning, UncheckedDirectoryChange),
     ("C005", Category::Correctness, Severity::Warning, SingleQuotedLiteral),
     ("C006", Category::Correctness, Severity::Error, UndefinedVariable),
     ("C007", Category::Correctness, Severity::Warning, FindOutputToXargs),
@@ -97,6 +99,7 @@ declare_rules! {
     ("C009", Category::Correctness, Severity::Warning, QuotedBashRegex),
     ("C010", Category::Correctness, Severity::Warning, ChainedTestBranches),
     ("C011", Category::Correctness, Severity::Warning, LineOrientedInput),
+    ("C012", Category::Correctness, Severity::Warning, LeadingGlobArgument),
     ("C013", Category::Correctness, Severity::Warning, FindOutputLoop),
     ("C014", Category::Correctness, Severity::Error, LocalTopLevel),
     ("C015", Category::Correctness, Severity::Warning, SudoRedirectionOrder),
@@ -138,6 +141,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
         "SH-025" => Some(Rule::DynamicSourcePath),
+        "SH-026" => Some(Rule::UntrackedSourceFile),
+        "SH-027" => Some(Rule::UncheckedDirectoryChange),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -148,6 +153,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-043" => Some(Rule::QuotedBashRegex),
         "SH-045" => Some(Rule::ChainedTestBranches),
         "SH-046" => Some(Rule::LineOrientedInput),
+        "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
         "SH-050" => Some(Rule::ExportCommandSubstitution),
         "SH-052" => Some(Rule::LocalTopLevel),
@@ -199,6 +205,7 @@ mod tests {
             Some(Rule::LegacyArithmeticExpansion)
         );
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
+        assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));
         assert_eq!(code_to_rule("SH-038"), Some(Rule::UnquotedArrayExpansion));

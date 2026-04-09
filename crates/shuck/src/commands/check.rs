@@ -161,6 +161,11 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
     let mut report = CheckReport::default();
 
     for mut run in runs {
+        let analyzed_paths = run
+            .files
+            .iter()
+            .map(|file| file.absolute_path.clone())
+            .collect::<Vec<_>>();
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;
             match cached {
@@ -196,7 +201,9 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             .map(|pending| {
                 analyze_file(
                     pending,
-                    &base_linter_settings,
+                    &base_linter_settings
+                        .clone()
+                        .with_analyzed_paths(analyzed_paths.clone()),
                     &shellcheck_map,
                     include_source,
                 )

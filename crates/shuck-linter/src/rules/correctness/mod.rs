@@ -8,6 +8,7 @@ pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod invalid_exit_status;
+pub mod leading_glob_argument;
 pub mod line_oriented_input;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
@@ -24,8 +25,10 @@ pub mod sudo_redirection_order;
 pub mod syntax;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
+pub mod unchecked_directory_change;
 pub mod undefined_variable;
 pub mod unreachable_after_exit;
+pub mod untracked_source_file;
 pub mod unused_assignment;
 
 #[cfg(test)]
@@ -39,6 +42,8 @@ mod tests {
 
     #[test_case(Rule::UnusedAssignment, Path::new("C001.sh"))]
     #[test_case(Rule::DynamicSourcePath, Path::new("C002.sh"))]
+    #[test_case(Rule::UntrackedSourceFile, Path::new("C003.sh"))]
+    #[test_case(Rule::UncheckedDirectoryChange, Path::new("C004.sh"))]
     #[test_case(Rule::SingleQuotedLiteral, Path::new("C005.sh"))]
     #[test_case(Rule::UndefinedVariable, Path::new("C006.sh"))]
     #[test_case(Rule::FindOutputToXargs, Path::new("C007.sh"))]
@@ -46,6 +51,7 @@ mod tests {
     #[test_case(Rule::QuotedBashRegex, Path::new("C009.sh"))]
     #[test_case(Rule::ChainedTestBranches, Path::new("C010.sh"))]
     #[test_case(Rule::LineOrientedInput, Path::new("C011.sh"))]
+    #[test_case(Rule::LeadingGlobArgument, Path::new("C012.sh"))]
     #[test_case(Rule::FindOutputLoop, Path::new("C013.sh"))]
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
     #[test_case(Rule::SudoRedirectionOrder, Path::new("C015.sh"))]

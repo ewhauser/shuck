@@ -1,0 +1,59 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 7314
+    reason: "This installer unpacks a release tarball in a throwaway subshell, changes into the extracted tree, then immediately tears it back down. We review Shuck's stricter directory-hop warning for this project-specific upgrade helper."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__nvm.sh"
+    line: 33
+    reason: "This sourced library defines `nvm_cd` as a thin escaped `cd` wrapper inside a shell-collapsed file without a concrete shell header. ShellCheck only surfaces the missing-shell baseline here, so we review Shuck's stricter C004 hit instead of weakening escaped wrapper coverage."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    reason: "This helper-heavy build library uses transient `cd`, `pushd`, and `popd` hops inside path-canonicalization and package-build helpers. ShellCheck stays quiet on this file's helper-library patterns, while Shuck keeps those directory changes visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    line: 132
+    reason: "This helper canonicalizes the rvmrc directory inside a command substitution before running trust checks. We review Shuck's stricter unchecked directory-change warning for this project-specific helper path."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 186
+    reason: "This migration helper returns from a temporary working directory inside a subshell after moving gemsets. We review Shuck's stricter cleanup-hop warning for this project helper."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__tests__fast__path_mismatch_comment_test.sh"
+    line: 54
+    reason: "This fast test intentionally changes into and back out of a temporary RVM project directory while asserting comment-driven environment behavior. ShellCheck stays quiet on this test harness and Shuck keeps the unchecked change visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__tests__fast__ruby-version_comment_test.sh"
+    line: 60
+    reason: "This fast test leaves a temporary ruby-version fixture directory before its cleanup step. ShellCheck stays quiet on this test harness and Shuck keeps the unchecked directory change visible."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__disabled-packages__unnethack__build.sh"
+    line: 24
+    reason: "This Termux package recipe changes into a transient build directory inside a shell-collapsed helper snippet. We review Shuck's stricter warning for this corpus-specific recipe fragment."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__gping__build.sh"
+    line: 25
+    reason: "This Termux package recipe briefly returns from its in-source build directory between build steps. We review Shuck's stricter directory-change warning for this package helper."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__luajit__build.sh"
+    line: 75
+    reason: "This Termux package recipe hops into a temporary source tree while stitching in host-side resources. We review Shuck's stricter warning for this package-specific helper flow."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__root-packages__docker__build.sh"
+    line: 41
+    reason: "This Termux root-package recipe changes into a generated build context before immediately continuing with the package workflow. We review Shuck's stricter warning for this recipe-specific helper."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__bin__update-packages"
+    line: 205
+    reason: "This Termux maintenance script changes into a repo-local package directory selected by directive-driven helper logic. We review Shuck's stricter warning for this project-specific maintenance flow."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__gw__build.sh"
+    line: 56
+    reason: "This Termux package recipe returns from a temporary package subdirectory during a helper step. We review Shuck's stricter warning for this package-specific directory hop."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__build-style__void-cross.sh"
+    reason: "This shared Void build-style helper repeatedly switches between work directories while driving cross-toolchain stages. ShellCheck stays quiet on these shell-collapsed helper hops, while Shuck keeps them visible."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__jenkins__files__jenkins__run"
+    line: 9
+    reason: "This service wrapper resets its working directory to `/` just before execing the Jenkins daemon. We review Shuck's stricter warning for this deployment-specific wrapper."

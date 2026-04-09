@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+expression: $crate::test::print_diagnostics(&$diagnostics, $source)
+---
+C012 wildcard arguments should be guarded with `./` or `--`
+ --> <source>:2:4
+  |
+2 | rm *
+  |
+
+C012 wildcard arguments should be guarded with `./` or `--`
+ --> <source>:3:5
+  |
+3 | cat ?a
+  |
+
+C012 wildcard arguments should be guarded with `./` or `--`
+ --> <source>:4:12
+  |
+4 | command mv *a dest/
+  |

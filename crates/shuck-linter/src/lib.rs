@@ -48,6 +48,7 @@ pub use suppression::{
 };
 pub use violation::Violation;
 
+use rustc_hash::FxHashSet;
 use shuck_ast::{File, TextSize};
 use shuck_indexer::Indexer;
 use shuck_semantic::{
@@ -120,6 +121,12 @@ pub fn analyze_file_at_path_with_resolver(
     let file_context = classify_file_context(source, source_path, shell);
     let file_entry_contract =
         ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
+    let analyzed_paths_fallback =
+        source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
+    let analyzed_paths = settings
+        .analyzed_paths
+        .as_deref()
+        .or(analyzed_paths_fallback.as_ref());
 
     let mut observer = LintTraversalObserver::default();
     let semantic = build_with_observer_with_options(
@@ -131,6 +138,7 @@ pub fn analyze_file_at_path_with_resolver(
             source_path,
             source_path_resolver,
             file_entry_contract,
+            analyzed_paths,
         },
     );
     let checker = Checker::new(

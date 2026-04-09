@@ -20,7 +20,7 @@ use crate::cfg::{
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
-use crate::source_ref::{SourceRef, SourceRefKind};
+use crate::source_ref::{SourceRef, SourceRefKind, SourceRefResolution};
 use crate::{
     BindingId, FunctionScopeKind, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind,
     SourceDirectiveOverride, SpanKey, TraversalObserver,
@@ -1959,6 +1959,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         kind: self.classify_source_ref(command.span.line(), argument),
                         span: command.span,
                         path_span: argument.span,
+                        resolution: SourceRefResolution::Unchecked,
+                        explicitly_provided: false,
                     });
                 }
             }
@@ -2802,29 +2804,48 @@ fn parse_source_directives(
     indexer: &Indexer,
 ) -> FxHashMap<usize, SourceDirectiveOverride> {
     let mut directives = FxHashMap::default();
+    let mut pending_own_line: Option<SourceDirectiveOverride> = None;
+    let mut previous_comment_line = None;
+
     for comment in indexer.comment_index().comments() {
+        if !comment.is_own_line || previous_comment_line.is_none_or(|line| comment.line != line + 1)
+        {
+            pending_own_line = None;
+        }
+
+        if comment.is_own_line
+            && let Some(directive) = pending_own_line.as_ref()
+        {
+            directives
+                .entry(comment.line)
+                .or_insert_with(|| directive.clone());
+        }
+
         let text = comment.range.slice(source).trim_start_matches('#').trim();
-        if !text.contains("shellcheck") {
-            continue;
+        if let Some(directive) = parse_source_directive_override(text, comment.is_own_line) {
+            directives.insert(comment.line, directive.clone());
+            pending_own_line = comment.is_own_line.then_some(directive);
         }
-        for part in text.split_whitespace() {
-            if let Some(value) = part.strip_prefix("source=") {
-                let kind = if value == "/dev/null" {
-                    SourceRefKind::DirectiveDevNull
-                } else {
-                    SourceRefKind::Directive(value.to_string())
-                };
-                directives.insert(
-                    comment.line,
-                    SourceDirectiveOverride {
-                        kind,
-                        own_line: comment.is_own_line,
-                    },
-                );
-            }
-        }
+
+        previous_comment_line = Some(comment.line);
     }
     directives
+}
+
+fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceDirectiveOverride> {
+    text.contains("shellcheck").then_some(())?;
+    for part in text.split_whitespace() {
+        if let Some(value) = part.strip_prefix("source=") {
+            let kind = if value == "/dev/null" {
+                SourceRefKind::DirectiveDevNull
+            } else {
+                SourceRefKind::Directive(value.to_string())
+            };
+            return Some(SourceDirectiveOverride { kind, own_line });
+        }
+    }
+
+    None
 }
 
 fn arithmetic_name_span(span: Span, name: &Name) -> Span {
