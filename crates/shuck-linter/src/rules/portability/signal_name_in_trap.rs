@@ -51,7 +51,9 @@ fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
             let text = static_word_text(word, source)?;
             (text.len() > 3
                 && text.starts_with("SIG")
-                && text[3..].chars().all(|character| character.is_ascii_alphanumeric()))
+                && text[3..]
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric()))
             .then_some(word.span)
         })
         .collect()

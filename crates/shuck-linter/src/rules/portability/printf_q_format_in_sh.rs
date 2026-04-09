@@ -45,17 +45,18 @@ mod tests {
 #!/bin/sh
 printf '%q\\n' foo
 printf '%10q\\n' foo
+printf '%*q\\n' 10 foo
 printf '%%q\\n' foo
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PrintfQFormatInSh));
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["'%q\\n'", "'%10q\\n'"]
+            vec!["'%q\\n'", "'%10q\\n'", "'%*q\\n'"]
         );
     }
 

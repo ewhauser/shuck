@@ -30,9 +30,8 @@ pub fn errexit_trap_in_sh(checker: &mut Checker) {
         .flat_map(|fact| {
             fact.body_args().iter().filter_map(|word| {
                 let text = static_word_text(word, checker.source())?;
-                (text == "errtrace"
-                    || (text.starts_with(['-', '+']) && text[1..].contains('E')))
-                .then_some(word.span)
+                (text == "errtrace" || (text.starts_with(['-', '+']) && text[1..].contains('E')))
+                    .then_some(word.span)
             })
         })
         .collect::<Vec<_>>();

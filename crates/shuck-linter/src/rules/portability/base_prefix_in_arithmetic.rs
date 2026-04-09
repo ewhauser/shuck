@@ -34,7 +34,10 @@ echo $((10#123))
 echo $((10#${foo}))
 echo ${foo:10#1:2}
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BasePrefixInArithmetic));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+        );
 
         assert_eq!(diagnostics.len(), 3);
         assert_eq!(
@@ -52,7 +55,10 @@ echo ${foo:10#1:2}
 #!/bin/bash
 echo $((10#123))
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BasePrefixInArithmetic));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+        );
 
         assert!(diagnostics.is_empty());
     }
