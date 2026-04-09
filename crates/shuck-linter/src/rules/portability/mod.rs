@@ -2,6 +2,7 @@ pub mod ansi_c_quoting;
 pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
 pub mod array_assignment;
+pub mod array_reference;
 pub mod bash_case_fallthrough;
 pub mod brace_expansion;
 pub mod brace_fd_redirection;
@@ -75,6 +76,7 @@ mod tests {
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
     #[test_case(Rule::IndirectExpansion, Path::new("X018.sh"))]
+    #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]

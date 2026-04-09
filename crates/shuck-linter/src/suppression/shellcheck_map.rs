@@ -99,11 +99,12 @@ impl Default for ShellCheckCodeMap {
             (3001, Rule::ProcessSubstitution),
             (3003, Rule::AnsiCQuoting),
             (3009, Rule::BraceExpansion),
-            // ShellCheck 0.11.0 reports here-string portability warnings as SC3011.
-            // Keep SC3054 as a suppression alias, but prefer the current code for comparisons.
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
             (3053, Rule::IndirectExpansion),
+            // ShellCheck 0.11.0 reports array references as SC3054.
+            // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
+            (3054, Rule::ArrayReference),
             (2038, Rule::FindOutputToXargs),
             (2064, Rule::TrapStringExpansion),
             (2068, Rule::UnquotedArrayExpansion),
@@ -251,7 +252,8 @@ impl Default for ShellCheckCodeMap {
                 (3011, Rule::HereString),
                 (3030, Rule::ArrayAssignment),
                 (3053, Rule::IndirectExpansion),
-                (3054, Rule::HereString),
+                (3028, Rule::ArrayReference),
+                (3054, Rule::ArrayReference),
                 (2038, Rule::FindOutputToXargs),
                 (2064, Rule::TrapStringExpansion),
                 (2068, Rule::UnquotedArrayExpansion),
@@ -411,9 +413,10 @@ mod tests {
         assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
         assert_eq!(map.resolve("SC3009"), Some(Rule::BraceExpansion));
         assert_eq!(map.resolve("SC3011"), Some(Rule::HereString));
+        assert_eq!(map.resolve("SC3028"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC3030"), Some(Rule::ArrayAssignment));
         assert_eq!(map.resolve("SC3053"), Some(Rule::IndirectExpansion));
-        assert_eq!(map.resolve("SC3054"), Some(Rule::HereString));
+        assert_eq!(map.resolve("SC3054"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2064"), Some(Rule::TrapStringExpansion));
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
@@ -676,12 +679,12 @@ mod tests {
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
         assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
+        assert!(comparison.contains(&(3054, Rule::ArrayReference)));
         assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
         assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
-        assert!(!comparison.contains(&(3054, Rule::HereString)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));

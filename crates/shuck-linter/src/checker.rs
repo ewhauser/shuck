@@ -265,6 +265,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::IndirectExpansion) {
             rules::portability::indirect_expansion::indirect_expansion(self);
         }
+        if self.is_rule_enabled(Rule::ArrayReference) {
+            rules::portability::array_reference::array_reference(self);
+        }
         if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
             rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
         }

@@ -522,6 +522,17 @@ impl IndirectExpansionFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct IndexedArrayReferenceFragmentFact {
+    span: Span,
+}
+
+impl IndexedArrayReferenceFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordFactContext {
     Expansion(ExpansionContext),
@@ -1387,6 +1398,7 @@ pub struct LinterFacts<'a> {
     pattern_charclass_spans: Vec<Span>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
+    indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1570,6 +1582,10 @@ impl<'a> LinterFacts<'a> {
     pub fn indirect_expansion_fragments(&self) -> &[IndirectExpansionFragmentFact] {
         &self.indirect_expansion_fragments
     }
+
+    pub fn indexed_array_reference_fragments(&self) -> &[IndexedArrayReferenceFragmentFact] {
+        &self.indexed_array_reference_fragments
+    }
 }
 
 struct LinterFactsBuilder<'a> {
@@ -1732,6 +1748,7 @@ impl<'a> LinterFactsBuilder<'a> {
             pattern_charclass_spans,
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
             indirect_expansion_fragments: surface_fragments.indirect_expansions,
+            indexed_array_reference_fragments: surface_fragments.indexed_array_references,
         }
     }
 }
@@ -4838,6 +4855,7 @@ command jq '$__loc__'
 test -v '$name'
 printf '%s\n' $'tab\t'
 printf '%s\n' \"${!name}\" \"${!arr[*]}\"
+printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
 printf '%s\\n' 123 | command kill -9
 echo \"#!/bin/bash
 if [[ \"$@\" =~ x ]]; then :; fi
@@ -4928,7 +4946,19 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .iter()
                     .map(|fragment| (fragment.span().slice(source), fragment.array_keys()))
                     .collect::<Vec<_>>(),
-                vec![("${!name}", false), ("${!arr[*]}", true)]
+                vec![
+                    ("${!name}", false),
+                    ("${!arr[*]}", true),
+                    ("${!arr[0]}", false),
+                ]
+            );
+            assert_eq!(
+                facts
+                    .indexed_array_reference_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${arr[0]}", "${arr[@]}", "${arr[*]}"]
             );
 
             let jq = facts

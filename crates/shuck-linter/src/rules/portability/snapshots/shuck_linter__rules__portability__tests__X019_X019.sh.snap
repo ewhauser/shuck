@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 106
+---
+X019 array references are not portable in `sh`
+ --> <source>:4:16
+  |
+4 | printf '%s\n' "${arr[0]}"
+  |
+
+X019 array references are not portable in `sh`
+ --> <source>:7:16
+  |
+7 | printf '%s\n' "${arr[@]}" "${arr[*]}"
+  |
+
+X019 array references are not portable in `sh`
+ --> <source>:7:28
+  |
+7 | printf '%s\n' "${arr[@]}" "${arr[*]}"
+  |

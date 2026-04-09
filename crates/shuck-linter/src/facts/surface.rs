@@ -11,6 +11,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) unicode_smart_quote_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
+    pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -75,6 +76,15 @@ impl<'a> SurfaceFragmentCollector<'a> {
 
     fn finish(self) -> SurfaceFragmentFacts {
         self.facts
+    }
+
+    fn record_array_reference(&mut self, span: Span) {
+        let Some(span) = plain_array_reference_span(span, self.source) else {
+            return;
+        };
+        self.facts
+            .indexed_array_references
+            .push(IndexedArrayReferenceFragmentFact { span });
     }
 
     fn collect_commands(&mut self, commands: &StmtSeq) {
@@ -453,6 +463,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
                             .nested_parameter_expansions
                             .push(NestedParameterExpansionFragmentFact { span: part.span });
                     }
+                    if parameter_has_array_reference(parameter) {
+                        self.record_array_reference(part.span);
+                    }
                     self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
                         if matches!(
@@ -513,9 +526,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     self.collect_parameter_operator_patterns(operator, operand.as_ref(), context);
                 }
                 WordPart::Length(reference)
-                | WordPart::ArrayAccess(reference)
                 | WordPart::ArrayLength(reference)
                 | WordPart::Transformation { reference, .. } => {
+                    self.record_var_ref_subscript(reference);
+                }
+                WordPart::ArrayAccess(reference) => {
+                    if reference_has_array_subscript(reference) {
+                        self.record_array_reference(part.span);
+                    }
                     self.record_var_ref_subscript(reference);
                 }
                 WordPart::ArrayIndices(reference) => {
@@ -736,6 +754,48 @@ impl<'a> SurfaceFragmentCollector<'a> {
     fn command_fact_for_command(&self, command: &Command) -> Option<&CommandFact<'a>> {
         command_fact_for_command(command, self.commands, self.command_ids_by_span)
     }
+}
+
+fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference } => {
+                reference_has_array_subscript(reference)
+            }
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Operation { .. }
+            | BourneParameterExpansion::Transformation { .. } => false,
+            BourneParameterExpansion::PrefixMatch { .. } => false,
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Reference(reference) => reference_has_array_subscript(reference),
+            ZshExpansionTarget::Nested(parameter) => parameter_has_array_reference(parameter),
+            ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
+        },
+    }
+}
+
+fn reference_has_array_subscript(reference: &VarRef) -> bool {
+    reference.subscript.is_some()
+}
+
+fn plain_array_reference_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let inner = text.strip_prefix("${")?.strip_suffix('}')?;
+    if inner.starts_with('#') || inner.starts_with('!') || !inner.ends_with(']') {
+        return None;
+    }
+
+    let open = inner.find('[')?;
+    let close = inner.rfind(']')?;
+    if close != inner.len() - 1 || close <= open {
+        return None;
+    }
+
+    Some(span)
 }
 
 pub(super) fn build_surface_fragment_facts<'a>(

@@ -3,12 +3,12 @@ legacy_name: array-reference
 new_category: Portability
 new_code: X019
 runtime_kind: ast
-shellcheck_code: SC3028
+shellcheck_code: SC3054
 shells:
   - sh
   - dash
-description: The script references an indexed array value, which portable `sh` does not support.
-rationale: Use separate variables or positional parameters instead of array indexing in portable shell.
+description: The script uses a direct array reference, which portable `sh` does not support.
+rationale: Use separate variables or positional parameters instead of array references in portable shell.
 source:
   shell_checks_rule: rules/SH-024.yaml
   shell_checks_example: examples/024.sh
