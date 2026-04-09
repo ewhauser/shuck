@@ -1,4 +1,5 @@
 pub mod echoed_command_substitution;
+pub mod escaped_underscore;
 pub mod export_command_substitution;
 pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
@@ -29,6 +30,7 @@ mod tests {
     #[test_case(Rule::UnquotedArrayExpansion, Path::new("S008.sh"))]
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
+    #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

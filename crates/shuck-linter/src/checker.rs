@@ -235,6 +235,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedExpansion) {
             rules::style::unquoted_expansion::unquoted_expansion(self);
         }
+        if self.is_rule_enabled(Rule::EscapedUnderscore) {
+            rules::style::escaped_underscore::escaped_underscore(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
             rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
         }

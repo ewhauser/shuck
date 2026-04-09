@@ -177,6 +177,7 @@ declare_rules! {
     ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
+    ("S023", Category::Style, Severity::Warning, EscapedUnderscore),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -188,6 +189,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-005" => Some(Rule::UnquotedCommandSubstitution),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
+        "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),
@@ -246,7 +248,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-293" => Some(Rule::UnreachableAfterExit),
-<<<<<<< HEAD
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -300,6 +301,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));
+        assert_eq!(code_to_rule("S023"), Some(Rule::EscapedUnderscore));
+        assert_eq!(code_to_rule("SH-082"), Some(Rule::EscapedUnderscore));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
