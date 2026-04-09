@@ -12,6 +12,7 @@ pub mod conditional_portability;
 pub mod coproc;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
+pub mod errexit_trap_in_sh;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
 pub mod here_string;
@@ -126,6 +127,7 @@ mod tests {
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]
     #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
     #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
+    #[test_case(Rule::ErrexitTrapInSh, Path::new("X068.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]

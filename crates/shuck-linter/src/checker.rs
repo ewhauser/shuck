@@ -292,6 +292,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PrintfQFormatInSh) {
             rules::portability::printf_q_format_in_sh::printf_q_format_in_sh(self);
         }
+        if self.is_rule_enabled(Rule::ErrexitTrapInSh) {
+            rules::portability::errexit_trap_in_sh::errexit_trap_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::FunctionKeywordInSh) {
             rules::portability::function_keyword_in_sh::function_keyword_in_sh(self);
         }
