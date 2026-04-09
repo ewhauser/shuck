@@ -256,6 +256,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SourcedWithArgs) {
             rules::portability::sourced_with_args::sourced_with_args(self);
         }
+        if self.is_rule_enabled(Rule::ZshAssignmentToZero) {
+            rules::portability::zsh_assignment_to_zero::zsh_assignment_to_zero(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

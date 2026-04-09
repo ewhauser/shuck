@@ -11,6 +11,7 @@ pub mod nested_zsh_substitution;
 pub mod sourced_with_args;
 pub mod zsh_flag_expansion;
 pub mod zsh_always_block;
+pub mod zsh_assignment_to_zero;
 pub mod zsh_brace_if;
 pub mod zsh_nested_expansion;
 
@@ -39,6 +40,7 @@ mod tests {
     #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
     #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
+    #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
     #[test_case(Rule::ArraySubscriptTest, Path::new("X040.sh"))]
     #[test_case(Rule::ArraySubscriptCondition, Path::new("X041.sh"))]
     #[test_case(Rule::ExtglobInTest, Path::new("X046.sh"))]

@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X053 assigning to `0` is a zsh-only pattern
+ --> <source>:5:1
+  |
+5 | 0="${${ZERO:-default}:-value}"
+  |
+
+X053 assigning to `0` is a zsh-only pattern
+ --> <source>:8:1
+  |
+8 | 0="$PWD"
+  |
