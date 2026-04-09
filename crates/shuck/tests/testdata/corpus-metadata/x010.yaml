@@ -1,0 +1,19 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    reason: "The remaining ShellCheck-only SC3009 corpus hits come from sourced Termux package recipes and build helpers that the comparison path collapses to POSIX sh more aggressively than Shuck's project-aware dialect resolution. X010 intentionally stays tied to files Shuck actually treats as sh or dash."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This startup file is loading zsh-specific function paths, so the brace lists belong to intentional zsh setup rather than the POSIX sh portability target for X010."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_create_debian_subpackages.sh"
+    line: 10
+    end_line: 10
+    reason: "This remaining mismatch is a span-only delta on the same reviewed brace list inside a sourced build helper."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_create_pacman_subpackages.sh"
+    line: 10
+    end_line: 10
+    reason: "This remaining mismatch is a span-only delta on the same reviewed brace list inside a sourced build helper."

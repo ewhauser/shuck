@@ -160,6 +160,7 @@ declare_rules! {
     ("X005", Category::Portability, Severity::Warning, BashCaseFallthrough),
     ("X006", Category::Portability, Severity::Warning, ProcessSubstitution),
     ("X007", Category::Portability, Severity::Warning, AnsiCQuoting),
+    ("X010", Category::Portability, Severity::Warning, BraceExpansion),
     ("X008", Category::Portability, Severity::Warning, StandaloneArithmetic),
     ("X009", Category::Portability, Severity::Warning, SelectLoop),
     ("X014", Category::Portability, Severity::Warning, Coproc),
@@ -242,9 +243,14 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-010" => Some(Rule::BashCaseFallthrough),
         "SH-011" => Some(Rule::ProcessSubstitution),
         "SH-012" => Some(Rule::AnsiCQuoting),
+<<<<<<< HEAD
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
+||||||| parent of 6edf430 (Implement X010 brace expansion portability rule)
+=======
+        "SH-015" => Some(Rule::BraceExpansion),
+>>>>>>> 6edf430 (Implement X010 brace expansion portability rule)
         "SH-020" => Some(Rule::LetCommand),
         "SH-021" => Some(Rule::DeclareCommand),
         "SH-080" => Some(Rule::SourceBuiltinInSh),

@@ -98,6 +98,7 @@ impl Default for ShellCheckCodeMap {
             (3043, Rule::LocalVariableInSh),
             (3001, Rule::ProcessSubstitution),
             (3003, Rule::AnsiCQuoting),
+            (3009, Rule::BraceExpansion),
             (2038, Rule::FindOutputToXargs),
             (2064, Rule::TrapStringExpansion),
             (2068, Rule::UnquotedArrayExpansion),
@@ -241,6 +242,7 @@ impl Default for ShellCheckCodeMap {
                 (3043, Rule::LocalVariableInSh),
                 (3001, Rule::ProcessSubstitution),
                 (3003, Rule::AnsiCQuoting),
+                (3009, Rule::BraceExpansion),
                 (2038, Rule::FindOutputToXargs),
                 (2064, Rule::TrapStringExpansion),
                 (2068, Rule::UnquotedArrayExpansion),
@@ -398,6 +400,7 @@ mod tests {
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
         assert_eq!(map.resolve("SC3001"), Some(Rule::ProcessSubstitution));
         assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
+        assert_eq!(map.resolve("SC3009"), Some(Rule::BraceExpansion));
         assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2064"), Some(Rule::TrapStringExpansion));
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));

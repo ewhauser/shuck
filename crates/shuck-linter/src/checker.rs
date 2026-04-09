@@ -418,6 +418,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AnsiCQuoting) {
             rules::portability::ansi_c_quoting::ansi_c_quoting(self);
         }
+        if self.is_rule_enabled(Rule::BraceExpansion) {
+            rules::portability::brace_expansion::brace_expansion(self);
+        }
         if self.is_rule_enabled(Rule::LegacyArithmeticInSh) {
             rules::portability::legacy_arithmetic_in_sh::legacy_arithmetic_in_sh(self);
         }
