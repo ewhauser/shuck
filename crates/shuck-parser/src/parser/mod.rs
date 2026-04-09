@@ -1637,6 +1637,9 @@ impl<'a> Parser<'a> {
         }
 
         let start = self.current_span.start;
+        if !self.source_word_contains_zsh_glob_control(start) {
+            return None;
+        }
         let (text, end) = self.scan_source_word(start)?;
         if !text.contains("(#") {
             return None;
@@ -1649,6 +1652,62 @@ impl<'a> Parser<'a> {
         }
 
         Some(self.parse_word_with_context(&text, span, start, true))
+    }
+
+    fn source_word_contains_zsh_glob_control(&self, start: Position) -> bool {
+        if start.offset >= self.input.len() {
+            return false;
+        }
+
+        let source = &self.input[start.offset..];
+        let mut chars = source.chars().peekable();
+        let mut cursor = start;
+        let mut paren_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+        let mut prev_char = None;
+
+        while let Some(&ch) = chars.peek() {
+            if !in_single
+                && !in_double
+                && !in_backtick
+                && paren_depth == 0
+                && brace_depth == 0
+                && matches!(ch, ' ' | '\t' | '\n' | ';' | '|' | '&' | '>' | '<' | ')')
+            {
+                break;
+            }
+
+            let ch = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+            if prev_char == Some('(') && ch == '#' {
+                return true;
+            }
+
+            if escaped {
+                escaped = false;
+                prev_char = Some(ch);
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '`' if !in_single => in_backtick = !in_backtick,
+                '(' if !in_single && !in_double => paren_depth += 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                _ => {}
+            }
+
+            prev_char = Some(ch);
+        }
+
+        false
     }
 
     fn scan_source_word(&self, start: Position) -> Option<(String, Position)> {

@@ -53,8 +53,10 @@ small wins here should compound across the whole parse.
       than callers actually need it.
 - [ ] Prototype an offset-first path that keeps byte offsets hot and only
       computes full `Position` data when spans escape the parser hot path.
-- [ ] If full deferral is too invasive, prototype a cheaper incremental path
+- [x] If full deferral is too invasive, prototype a cheaper incremental path
       that carries the current line/column forward without repeated map lookups.
+      The first incremental-position prototype did not produce a measurable
+      `parser/nvm` win and was reverted.
 - [ ] Re-run `make flame-parser` and `make bench-parser` after each prototype.
 
 ### 2. Word Lookup And Decode
@@ -68,8 +70,10 @@ The next cluster is the word pipeline: `current_word`, `scan_source_word`,
       the same simple-command parse.
 - [ ] Prototype a cheaper cached representation for the current word so the hot
       path does not need to clone a full `Word` just to read it again.
-- [ ] Prototype a source-backed fast path that avoids rebuilding a fresh
+- [x] Prototype a source-backed fast path that avoids rebuilding a fresh
       `String` in `scan_source_word` when a span or slice is sufficient.
+      Added a no-allocation `(#` precheck before `scan_source_word`, which
+      materially improved `parser/nvm`.
 - [ ] Try fusing simple-command classification with decode so we inspect the
       token once instead of classifying first and fully decoding later.
 - [ ] Re-profile all parser benchmark cases, not just `nvm`, after any change
@@ -137,17 +141,17 @@ tracking once the bigger items are cheaper.
 Use this checklist for each experiment so we keep results comparable and do not
 lose track of regressions.
 
-- [ ] Record the current branch, benchmark case, and runtime before changing
+- [x] Record the current branch, benchmark case, and runtime before changing
       anything.
 - [ ] Run `make flame-parser` on the default case before and after the change.
-- [ ] Run `make bench-parser` before and after the change.
+- [x] Run `make bench-parser` before and after the change.
 - [ ] Run at least one non-`nvm` parser profile, for example
       `PROFILE_CASE=homebrew-install make flame-parser`, before declaring a win.
-- [ ] Run `cargo test -p shuck-parser`.
-- [ ] Run any targeted parser or syntax regressions touched by the experiment.
-- [ ] Save a short note in this document about what changed, what improved, and
+- [x] Run `cargo test -p shuck-parser`.
+- [x] Run any targeted parser or syntax regressions touched by the experiment.
+- [x] Save a short note in this document about what changed, what improved, and
       what did not move.
-- [ ] Keep experiments isolated enough that a regression can be tied back to a
+- [x] Keep experiments isolated enough that a regression can be tied back to a
       single idea.
 
 ## Near-Term Order Of Operations
@@ -164,3 +168,16 @@ lose track of regressions.
   roadmap is intentionally parser-only.
 - If a future flamegraph shifts the hot set materially, update this file before
   starting the next optimization pass.
+- 2026-04-08 experiment: prototyped incremental lexer `Position` tracking to
+  avoid repeated `current_position()` map lookups, then compared the same
+  direct Criterion `parser/nvm` run before and after the change. Baseline:
+  `7.6871 ms .. 8.1277 ms .. 8.5123 ms`. Prototype:
+  `7.8437 ms .. 8.1571 ms .. 8.4989 ms`. Criterion reported no significant
+  change, so the prototype was reverted.
+- 2026-04-08 experiment: added a no-allocation `(#` precheck before
+  `current_zsh_glob_word_from_source()` falls through to `scan_source_word`.
+  This keeps the old parsing behavior but avoids building a fresh `String`
+  for words that cannot contain zsh glob controls. Baseline:
+  `6.9883 ms .. 7.5500 ms .. 8.2312 ms`. After the change:
+  `6.0614 ms .. 6.1018 ms .. 6.1234 ms`. Criterion reported a statistically
+  significant improvement.
