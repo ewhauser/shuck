@@ -423,6 +423,7 @@ impl<'a> RedirectFact<'a> {
 #[derive(Debug, Clone)]
 pub struct SingleQuotedFragmentFact {
     span: Span,
+    dollar_quoted: bool,
     command_name: Option<Box<str>>,
     assignment_target: Option<Box<str>>,
     variable_set_operand: bool,
@@ -431,6 +432,10 @@ pub struct SingleQuotedFragmentFact {
 impl SingleQuotedFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn dollar_quoted(&self) -> bool {
+        self.dollar_quoted
     }
 
     pub fn command_name(&self) -> Option<&str> {
@@ -4809,6 +4814,7 @@ echo \"$(( x $1 y ))\"
 PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
+printf '%s\n' $'tab\t'
 printf '%s\\n' 123 | command kill -9
 echo \"#!/bin/bash
 if [[ \"$@\" =~ x ]]; then :; fi
@@ -4860,6 +4866,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 .map(|fragment| {
                     (
                         fragment.span().slice(source).to_owned(),
+                        fragment.dollar_quoted(),
                         fragment.command_name().map(str::to_owned),
                         fragment.assignment_target().map(str::to_owned),
                         fragment.variable_set_operand(),
@@ -4867,7 +4874,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 })
                 .collect::<Vec<_>>();
             assert!(single_quoted.iter().any(
-                |(text, _, assignment_target, variable_set_operand)| {
+                |(text, _, _, assignment_target, variable_set_operand)| {
                     text == "'$prompt'"
                         && assignment_target.as_deref() == Some("PS4")
                         && !variable_set_operand
@@ -4875,16 +4882,23 @@ if [[ \"$@\" =~ x ]]; then :; fi
             ));
             assert!(single_quoted.contains(&(
                 "'$__loc__'".to_owned(),
+                false,
                 Some("jq".to_owned()),
                 None,
                 false,
             )));
             assert!(single_quoted.contains(&(
                 "'$name'".to_owned(),
+                false,
                 Some("test".to_owned()),
                 None,
                 true,
             )));
+            assert!(single_quoted.iter().any(
+                |(text, dollar_quoted, _, _, variable_set_operand)| {
+                    text.starts_with("$'tab") && *dollar_quoted && !variable_set_operand
+                }
+            ));
 
             let jq = facts
                 .structural_commands()

@@ -69,7 +69,7 @@ Detect bash-specific parameter expansion, process substitution, arrays, and
 related syntax in POSIX sh. Mostly surface-level AST node type checks.
 
 - [x] **L** X006 (SC3001) `process-substitution` — `<()` / `>()` in sh
-- [ ] **L** X007 (SC3003) `ansi-c-quoting` — `$'...'` in sh
+- [x] **L** X007 (SC3003) `ansi-c-quoting` — `$'...'` in sh
 - [ ] **L** X010 (SC3009) `brace-expansion` — `{a,b}` expansion in sh
 - [ ] **L** X011 (SC3054) `here-string` — `<<<` in sh
 - [ ] **L** X013 (SC3030) `array-assignment` — array variable assignment in sh

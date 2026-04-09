@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 96
+---
+X007 ANSI-C quoting is not portable in `sh`
+ --> <source>:4:10
+  |
+4 | greeting=$'hello\n'
+  |
+
+X007 ANSI-C quoting is not portable in `sh`
+ --> <source>:7:15
+  |
+7 | printf '%s\n' $'tab\t'
+  |
+
+X007 ANSI-C quoting is not portable in `sh`
+  --> <source>:10:25
+   |
+10 | printf '%s\n' "${value//$'\n'/' '}"
+   |

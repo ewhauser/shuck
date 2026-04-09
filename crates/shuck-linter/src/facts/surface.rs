@@ -379,9 +379,10 @@ impl<'a> SurfaceFragmentCollector<'a> {
             }
 
             match &part.kind {
-                WordPart::SingleQuoted { .. } => {
+                WordPart::SingleQuoted { dollar, .. } => {
                     self.facts.single_quoted.push(SingleQuotedFragmentFact {
                         span: part.span,
+                        dollar_quoted: *dollar,
                         command_name: context
                             .command_name
                             .map(str::to_owned)
@@ -452,12 +453,30 @@ impl<'a> SurfaceFragmentCollector<'a> {
                             .push(NestedParameterExpansionFragmentFact { span: part.span });
                     }
                     self.record_parameter_subscripts(parameter);
-                    if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
-                        operator,
-                        ..
-                    }) = &parameter.syntax
-                    {
-                        self.collect_parameter_operator_patterns(operator, context);
+                    if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
+                        match syntax {
+                            BourneParameterExpansion::Operation {
+                                operator, operand, ..
+                            }
+                            | BourneParameterExpansion::Indirect {
+                                operator: Some(operator),
+                                operand,
+                                ..
+                            } => {
+                                self.collect_parameter_operator_patterns(
+                                    operator,
+                                    operand.as_ref(),
+                                    context,
+                                );
+                            }
+                            BourneParameterExpansion::Access { .. }
+                            | BourneParameterExpansion::Length { .. }
+                            | BourneParameterExpansion::Indices { .. }
+                            | BourneParameterExpansion::Indirect { operator: None, .. }
+                            | BourneParameterExpansion::PrefixMatch { .. }
+                            | BourneParameterExpansion::Slice { .. }
+                            | BourneParameterExpansion::Transformation { .. } => {}
+                        }
                     }
                 }
                 WordPart::Variable(name)
@@ -468,11 +487,13 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         .nested_parameter_expansions
                         .push(NestedParameterExpansionFragmentFact { span: part.span });
                 }
-                WordPart::ParameterExpansion { operator, .. } => {
+                WordPart::ParameterExpansion {
+                    operator, operand, ..
+                } => {
                     if let WordPart::ParameterExpansion { reference, .. } = &part.kind {
                         self.record_var_ref_subscript(reference);
                     }
-                    self.collect_parameter_operator_patterns(operator, context);
+                    self.collect_parameter_operator_patterns(operator, operand.as_ref(), context);
                 }
                 WordPart::Length(reference)
                 | WordPart::ArrayAccess(reference)
@@ -487,10 +508,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::IndirectExpansion {
                     reference,
                     operator: Some(operator),
+                    operand,
                     ..
                 } => {
                     self.record_var_ref_subscript(reference);
-                    self.collect_parameter_operator_patterns(operator, context);
+                    self.collect_parameter_operator_patterns(operator, operand.as_ref(), context);
                 }
                 WordPart::IndirectExpansion {
                     reference,
@@ -515,6 +537,16 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 | PatternPart::CharClass(_) => {}
             }
         }
+    }
+
+    fn collect_source_text_word(&mut self, text: &SourceText, context: SurfaceScanContext<'_>) {
+        let snippet = text.slice(self.source);
+        if snippet.is_empty() {
+            return;
+        }
+
+        let word = Parser::parse_word_fragment(self.source, snippet, text.span());
+        self.collect_word(&word, context.without_open_double_quote_scan());
     }
 
     fn collect_zsh_qualified_glob(
@@ -582,20 +614,34 @@ impl<'a> SurfaceFragmentCollector<'a> {
     fn collect_parameter_operator_patterns(
         &mut self,
         operator: &ParameterOp,
+        operand: Option<&SourceText>,
         context: SurfaceScanContext<'_>,
     ) {
         match operator {
             ParameterOp::RemovePrefixShort { pattern }
             | ParameterOp::RemovePrefixLong { pattern }
             | ParameterOp::RemoveSuffixShort { pattern }
-            | ParameterOp::RemoveSuffixLong { pattern }
-            | ParameterOp::ReplaceFirst { pattern, .. }
-            | ParameterOp::ReplaceAll { pattern, .. } => self.collect_pattern(pattern, context),
+            | ParameterOp::RemoveSuffixLong { pattern } => self.collect_pattern(pattern, context),
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement,
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement,
+            } => {
+                self.collect_pattern(pattern, context);
+                self.collect_source_text_word(replacement, context);
+            }
             ParameterOp::UseDefault
             | ParameterOp::AssignDefault
             | ParameterOp::UseReplacement
-            | ParameterOp::Error
-            | ParameterOp::UpperFirst
+            | ParameterOp::Error => {
+                if let Some(operand) = operand {
+                    self.collect_source_text_word(operand, context);
+                }
+            }
+            ParameterOp::UpperFirst
             | ParameterOp::UpperAll
             | ParameterOp::LowerFirst
             | ParameterOp::LowerAll => {}

@@ -159,6 +159,7 @@ declare_rules! {
     ("X004", Category::Portability, Severity::Warning, FunctionKeyword),
     ("X005", Category::Portability, Severity::Warning, BashCaseFallthrough),
     ("X006", Category::Portability, Severity::Warning, ProcessSubstitution),
+    ("X007", Category::Portability, Severity::Warning, AnsiCQuoting),
     ("X008", Category::Portability, Severity::Warning, StandaloneArithmetic),
     ("X009", Category::Portability, Severity::Warning, SelectLoop),
     ("X014", Category::Portability, Severity::Warning, Coproc),
@@ -238,15 +239,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-005" => Some(Rule::UnquotedCommandSubstitution),
         "SH-008" => Some(Rule::LocalVariableInSh),
         "SH-009" => Some(Rule::FunctionKeyword),
-<<<<<<< HEAD
         "SH-010" => Some(Rule::BashCaseFallthrough),
+        "SH-011" => Some(Rule::ProcessSubstitution),
+        "SH-012" => Some(Rule::AnsiCQuoting),
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
-||||||| parent of 2d7e324 (Implement X006 process substitution portability rule)
-=======
-        "SH-011" => Some(Rule::ProcessSubstitution),
->>>>>>> 2d7e324 (Implement X006 process substitution portability rule)
         "SH-020" => Some(Rule::LetCommand),
         "SH-021" => Some(Rule::DeclareCommand),
         "SH-080" => Some(Rule::SourceBuiltinInSh),
