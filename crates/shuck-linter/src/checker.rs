@@ -253,6 +253,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ZshRedirPipe) {
             rules::portability::zsh_redir_pipe::zsh_redir_pipe(self);
         }
+        if self.is_rule_enabled(Rule::SourcedWithArgs) {
+            rules::portability::sourced_with_args::sourced_with_args(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

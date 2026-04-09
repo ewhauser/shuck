@@ -189,6 +189,7 @@ impl Default for ShellCheckCodeMap {
                 (1129, Rule::ZshBraceIf),
                 (1130, Rule::ZshAlwaysBlock),
                 (1132, Rule::CPrototypeFragment),
+                (2240, Rule::SourcedWithArgs),
                 (2164, Rule::UncheckedDirectoryChange),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
@@ -314,6 +315,7 @@ mod tests {
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1130"), Some(Rule::ZshAlwaysBlock));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
+        assert_eq!(map.resolve("SC2240"), Some(Rule::SourcedWithArgs));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
@@ -429,6 +431,7 @@ mod tests {
                 (1129, Rule::ZshBraceIf),
                 (1130, Rule::ZshAlwaysBlock),
                 (1132, Rule::CPrototypeFragment),
+                (2240, Rule::SourcedWithArgs),
                 (2003, Rule::ExprArithmetic),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),

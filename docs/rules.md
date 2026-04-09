@@ -152,7 +152,7 @@ Detect zsh-only syntax in scripts targeting other shells.
 - [x] **L** X036 (SC1070) `zsh-redir-pipe` — zsh-only redirection operator
 - [x] **L** X038 (SC1129) `zsh-brace-if` — zsh-style conditional bracing
 - [x] **L** X039 (SC1130) `zsh-always-block` — zsh `always` block
-- [ ] **L** X042 (SC2240) `sourced-with-args` — sourced file with extra args
+- [x] **L** X042 (SC2240) `sourced-with-args` — sourced file with extra args
 - [ ] **L** X043 (SC2251) `zsh-flag-expansion` — zsh-only parameter expansion form
 - [ ] **L** X044 (SC2252) `nested-zsh-substitution` — nested zsh-style expansion
 - [ ] **M** X047 (SC2275) `multi-var-for-loop` — for loop binds multiple variables

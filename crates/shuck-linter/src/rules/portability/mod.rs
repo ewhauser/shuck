@@ -6,6 +6,7 @@ pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
+pub mod sourced_with_args;
 pub mod zsh_always_block;
 pub mod zsh_brace_if;
 
@@ -29,6 +30,7 @@ mod tests {
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]
     #[test_case(Rule::ZshBraceIf, Path::new("X038.sh"))]
     #[test_case(Rule::ZshAlwaysBlock, Path::new("X039.sh"))]
+    #[test_case(Rule::SourcedWithArgs, Path::new("X042.sh"))]
     #[test_case(Rule::ArraySubscriptTest, Path::new("X040.sh"))]
     #[test_case(Rule::ArraySubscriptCondition, Path::new("X041.sh"))]
     #[test_case(Rule::ExtglobInTest, Path::new("X046.sh"))]
