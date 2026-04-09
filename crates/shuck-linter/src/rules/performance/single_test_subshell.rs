@@ -36,8 +36,8 @@ until (command test -f /etc/passwd); do :; done
         assert_eq!(
             diagnostics
                 .iter()
-            .map(|diagnostic| diagnostic.span.slice(source))
-            .collect::<Vec<_>>(),
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
             vec![
                 "(test -f /etc/passwd)",
                 "(test -f /etc/passwd)",

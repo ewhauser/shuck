@@ -1,5 +1,5 @@
-pub mod grep_count_pipeline;
 pub mod expr_arithmetic;
+pub mod grep_count_pipeline;
 pub mod single_test_subshell;
 pub mod subshell_test_group;
 

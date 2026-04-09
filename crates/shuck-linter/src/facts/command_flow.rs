@@ -976,7 +976,10 @@ fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
         .all(|wrapper| matches!(wrapper, WrapperKind::Command | WrapperKind::Builtin))
         && (fact.effective_name_is("test")
             || fact.effective_name_is("[")
-            || matches!(fact.command(), Command::Compound(CompoundCommand::Conditional(_))))
+            || matches!(
+                fact.command(),
+                Command::Compound(CompoundCommand::Conditional(_))
+            ))
 }
 
 fn subshell_test_group_span<'a>(

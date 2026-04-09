@@ -18,8 +18,8 @@ use shuck_ast::{
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, Name, ParameterExpansionSyntax,
     ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
-    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
+    WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -28,9 +28,9 @@ use std::borrow::Cow;
 
 use self::{
     command_flow::{
-        build_for_header_facts, build_list_facts, build_pipeline_facts,
-        build_select_header_facts, build_single_test_subshell_spans,
-        build_subshell_test_group_spans, build_substitution_facts,
+        build_for_header_facts, build_list_facts, build_pipeline_facts, build_select_header_facts,
+        build_single_test_subshell_spans, build_subshell_test_group_spans,
+        build_substitution_facts,
     },
     presence::build_presence_tested_names,
     surface::{build_subscript_index_reference_spans, build_surface_fragment_facts},
@@ -3375,9 +3375,7 @@ fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
         .get(1)
         .and_then(|word| static_word_text(word, source))
         .as_deref()
-        .is_some_and(|text| {
-            matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "==")
-        })
+        .is_some_and(|text| matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "=="))
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {

@@ -114,11 +114,7 @@ grep foo file | grep bar | wc -l
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "grep foo file",
-                "grep foo file 2>/dev/null",
-                "grep bar",
-            ]
+            vec!["grep foo file", "grep foo file 2>/dev/null", "grep bar",]
         );
     }
 }
