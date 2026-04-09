@@ -11,9 +11,9 @@ use shuck_ast::{
 use crate::ast_format::flatten_comments;
 use crate::command::{
     case_item_was_inline_in_source, group_attachment_span, group_open_suffix,
-    group_was_inline_in_source,
-    rendered_stmt_end_line, should_render_verbatim, stmt_attachment_span, stmt_has_trailing_comment,
-    stmt_format_span, stmt_span, stmt_verbatim_span,
+    group_was_inline_in_source, rendered_stmt_end_line, should_render_verbatim,
+    stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_span,
+    stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments};
 use crate::options::ResolvedShellFormatOptions;
@@ -188,17 +188,22 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn pipeline_has_explicit_line_break(&self, pipeline: &BinaryCommand) -> bool {
-        self.pipeline_breaks.contains(&FactSpan::from(pipeline.span))
+        self.pipeline_breaks
+            .contains(&FactSpan::from(pipeline.span))
     }
 
     pub(crate) fn list_item_has_explicit_line_break(&self, operator_span: Span) -> bool {
-        self.list_item_breaks.contains(&FactSpan::from(operator_span))
+        self.list_item_breaks
+            .contains(&FactSpan::from(operator_span))
     }
 
     pub(crate) fn background_has_explicit_line_break(&self, stmt: &Stmt) -> bool {
         stmt.terminator_span
             .map(FactSpan::from)
-            .or_else(|| matches!(stmt.terminator, Some(StmtTerminator::Background(_))).then_some(FactSpan::from(stmt_span(stmt))))
+            .or_else(|| {
+                matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
+                    .then_some(FactSpan::from(stmt_span(stmt)))
+            })
             .is_some_and(|key| self.background_breaks.contains(&key))
     }
 
@@ -297,11 +302,10 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             .iter()
             .copied()
             .filter(|comment| comment.span().start.offset >= lower_bound)
+            .filter(|comment| sequence_limit.is_none_or(|limit| comment.span().end.offset <= limit))
             .filter(|comment| {
-                sequence_limit.is_none_or(|limit| comment.span().end.offset <= limit)
-            })
-            .filter(|comment| {
-                facts.group_open_suffix_span
+                facts
+                    .group_open_suffix_span
                     .is_none_or(|span| !span_contains_comment(span, *comment))
             })
             .collect::<Vec<_>>();
@@ -314,8 +318,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .iter()
                 .map(|stmt| self.facts.stmt(stmt).attachment_span())
                 .collect::<Vec<_>>();
-            let attachment =
-                inspect_sequence_comments(filtered_comments.as_slice(), &child_spans, sequence_limit);
+            let attachment = inspect_sequence_comments(
+                filtered_comments.as_slice(),
+                &child_spans,
+                sequence_limit,
+            );
             let (leading, trailing, dangling, ambiguous) = attachment.into_parts();
             facts.leading = leading;
             facts.trailing = trailing;
@@ -323,8 +330,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             facts.ambiguous = ambiguous;
 
             for (index, stmt) in sequence.iter().enumerate() {
-                facts.first_rendered_lines[index] = facts
-                    .leading[index]
+                facts.first_rendered_lines[index] = facts.leading[index]
                     .first()
                     .map(SourceComment::line)
                     .unwrap_or(self.facts.stmt(stmt).attachment_span().start.line);
@@ -358,8 +364,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn visit_stmt(&mut self, stmt: &Stmt) {
         let stmt_key = FactSpan::from(stmt_span(stmt));
         if !self.facts.stmt_facts.contains_key(&stmt_key) {
-            let preserve_verbatim =
-                should_render_verbatim(stmt, self.source_map(), self.options);
+            let preserve_verbatim = should_render_verbatim(stmt, self.source_map(), self.options);
             let render_span = if preserve_verbatim {
                 stmt_verbatim_span(stmt, self.source)
             } else {
@@ -375,11 +380,7 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         self.options,
                     ),
                     render_span,
-                    rendered_end_line: rendered_stmt_end_line(
-                        stmt,
-                        self.source,
-                        self.source_map(),
-                    ),
+                    rendered_end_line: rendered_stmt_end_line(stmt, self.source, self.source_map()),
                     has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
                     preserve_verbatim,
                 },
@@ -545,7 +546,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                         .inline_group_sequences
                         .insert(FactSpan::from(command.body.span));
                 }
-                self.visit_sequence(&command.body, Some(command.span.end.offset), group_open_char);
+                self.visit_sequence(
+                    &command.body,
+                    Some(command.span.end.offset),
+                    group_open_char,
+                );
             }
             CompoundCommand::ArithmeticFor(command) => {
                 self.visit_sequence(&command.body, Some(command.span.end.offset), None);
@@ -606,7 +611,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         let brace_syntax = matches!(command.syntax, shuck_ast::IfSyntax::Brace { .. });
         let group_open_char = brace_syntax.then_some('{');
         if brace_syntax
-            && group_was_inline_in_source(command.then_branch.as_slice(), self.source_map(), '{', '}')
+            && group_was_inline_in_source(
+                command.then_branch.as_slice(),
+                self.source_map(),
+                '{',
+                '}',
+            )
         {
             self.facts
                 .inline_group_sequences
@@ -670,13 +680,17 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.body.span));
         }
-        self.visit_sequence(&command.body, Some(command.span.end.offset), group_open_char);
+        self.visit_sequence(
+            &command.body,
+            Some(command.span.end.offset),
+            group_open_char,
+        );
     }
 
     fn visit_repeat(&mut self, command: &RepeatCommand) {
         self.visit_word(&command.count);
-        let group_open_char = matches!(command.syntax, shuck_ast::RepeatSyntax::Brace { .. })
-            .then_some('{');
+        let group_open_char =
+            matches!(command.syntax, shuck_ast::RepeatSyntax::Brace { .. }).then_some('{');
         if group_open_char.is_some()
             && group_was_inline_in_source(command.body.as_slice(), self.source_map(), '{', '}')
         {
@@ -684,7 +698,11 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 .inline_group_sequences
                 .insert(FactSpan::from(command.body.span));
         }
-        self.visit_sequence(&command.body, Some(command.span.end.offset), group_open_char);
+        self.visit_sequence(
+            &command.body,
+            Some(command.span.end.offset),
+            group_open_char,
+        );
     }
 
     fn visit_while(&mut self, command: &WhileCommand) {
@@ -913,7 +931,6 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn source_map(&self) -> &SourceMap<'source> {
         &self.facts.source_map
     }
-
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1051,7 +1068,7 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::*;
-    use crate::{ShellFormatOptions, ShellDialect};
+    use crate::{ShellDialect, ShellFormatOptions};
 
     fn parse(source: &str) -> shuck_ast::File {
         Parser::new(source).parse().unwrap().file
@@ -1059,7 +1076,8 @@ mod tests {
 
     #[test]
     fn builds_branch_comment_sequence_facts() {
-        let source = "if foo; then\n  one\nelif bar; then\n  # note\n  two\nelse\n  # alt\n  three\nfi\n";
+        let source =
+            "if foo; then\n  one\nelif bar; then\n  # note\n  two\nelse\n  # alt\n  three\nfi\n";
         let file = parse(source);
         let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
         let resolved = options.resolve(source, Some(Path::new("test.bash")));
@@ -1069,14 +1087,17 @@ mod tests {
             Command::Compound(CompoundCommand::If(command)) => &command.elif_branches[0],
             _ => panic!("expected if command"),
         };
-        let elif_facts = facts.sequence(elif_body, Some(if_branch_upper_bound(
-            match &file.body[0].command {
-                Command::Compound(CompoundCommand::If(command)) => command,
-                _ => unreachable!(),
-            },
-            1,
-            source,
-        )));
+        let elif_facts = facts.sequence(
+            elif_body,
+            Some(if_branch_upper_bound(
+                match &file.body[0].command {
+                    Command::Compound(CompoundCommand::If(command)) => command,
+                    _ => unreachable!(),
+                },
+                1,
+                source,
+            )),
+        );
         assert_eq!(elif_facts.leading_for(0).len(), 1);
         assert!(!elif_facts.is_ambiguous());
     }
@@ -1121,14 +1142,17 @@ mod tests {
             Command::Compound(CompoundCommand::If(command)) => &command.then_branch,
             _ => panic!("expected if command"),
         };
-        let sequence = facts.sequence(then_branch, Some(if_branch_upper_bound(
-            match &file.body[0].command {
-                Command::Compound(CompoundCommand::If(command)) => command,
-                _ => unreachable!(),
-            },
-            0,
-            source,
-        )));
+        let sequence = facts.sequence(
+            then_branch,
+            Some(if_branch_upper_bound(
+                match &file.body[0].command {
+                    Command::Compound(CompoundCommand::If(command)) => command,
+                    _ => unreachable!(),
+                },
+                0,
+                source,
+            )),
+        );
         assert!(sequence.is_ambiguous());
     }
 

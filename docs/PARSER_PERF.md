@@ -65,9 +65,11 @@ The next cluster is the word pipeline: `current_word`, `scan_source_word`,
 `decode_word_parts_into_with_quote_fragments`, and related helpers.
 
 - [ ] Measure cache-hit versus decode-hit behavior inside `current_word`.
-- [ ] Check how often the same token goes through
+- [x] Check how often the same token goes through
       `current_source_like_word_text`, `is_assignment`, and `current_word` in
-      the same simple-command parse.
+      the same simple-command parse. The simple-command assignment path was
+      re-reading the same candidate word for split indexed-assignment fallback;
+      reusing the first classification produced a measurable `parser/nvm` win.
 - [ ] Prototype a cheaper cached representation for the current word so the hot
       path does not need to clone a full `Word` just to read it again.
 - [x] Prototype a source-backed fast path that avoids rebuilding a fresh
@@ -180,4 +182,13 @@ lose track of regressions.
   for words that cannot contain zsh glob controls. Baseline:
   `6.9883 ms .. 7.5500 ms .. 8.2312 ms`. After the change:
   `6.0614 ms .. 6.1018 ms .. 6.1234 ms`. Criterion reported a statistically
+  significant improvement.
+- 2026-04-08 experiment: prototyped a conservative brace-syntax precheck to
+  skip the recursive brace metadata walk for words without brace candidates.
+  On `parser/nvm` this measured as noise and was reverted.
+- 2026-04-08 experiment: reused the initial simple-command assignment
+  classification for split indexed-assignment fallback instead of fetching and
+  classifying the same token text twice. Baseline:
+  `6.5720 ms .. 6.7652 ms .. 7.0191 ms`. After the change:
+  `5.7782 ms .. 6.0722 ms .. 6.4740 ms`. Criterion reported a statistically
   significant improvement.

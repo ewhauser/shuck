@@ -82,12 +82,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         options: &ResolvedShellFormatOptions,
         facts: &'facts FormatterFacts<'source>,
     ) -> Self {
-        Self::with_output_buffer(
-            source,
-            options,
-            facts,
-            String::with_capacity(source.len()),
-        )
+        Self::with_output_buffer(source, options, facts, String::with_capacity(source.len()))
     }
 
     fn with_output_buffer(
@@ -403,7 +398,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     .copied()
                     .filter(|comment| comment.span().end.offset <= span.start.offset)
                     .collect::<Vec<_>>();
-                self.emit_leading_comments(&leading, self.facts().stmt(first).render_span().start.line);
+                self.emit_leading_comments(
+                    &leading,
+                    self.facts().stmt(first).render_span().start.line,
+                );
             }
             self.write_verbatim(span.slice(source));
             if let Some(attachment) = attachments.as_ref() {
@@ -431,7 +429,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                         let next_start = attachments
                             .as_ref()
                             .map(|attachment| attachment.first_rendered_line_for(index + 1))
-                            .unwrap_or(self.facts().stmt(&statements[index + 1]).attachment_span().start.line);
+                            .unwrap_or(
+                                self.facts()
+                                    .stmt(&statements[index + 1])
+                                    .attachment_span()
+                                    .start
+                                    .line,
+                            );
                         self.write_line_breaks(line_gap_break_count(current_end, next_start));
                     } else {
                         self.write_space();
@@ -443,7 +447,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     let next_start = attachments
                         .as_ref()
                         .map(|attachment| attachment.first_rendered_line_for(index + 1))
-                        .unwrap_or(self.facts().stmt(&statements[index + 1]).attachment_span().start.line);
+                        .unwrap_or(
+                            self.facts()
+                                .stmt(&statements[index + 1])
+                                .attachment_span()
+                                .start
+                                .line,
+                        );
                     self.write_line_breaks(line_gap_break_count(current_end, next_start));
                 }
             }

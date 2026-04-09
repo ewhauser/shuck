@@ -77,8 +77,15 @@ fn render_word_syntax_internal(
     rendered: &mut String,
 ) {
     if word_needs_special_rendering(word) {
-        render_word_parts(word.parts.as_slice(), source, options, source_map, facts, rendered)
-            .expect("writing into a String should not fail");
+        render_word_parts(
+            word.parts.as_slice(),
+            source,
+            options,
+            source_map,
+            facts,
+            rendered,
+        )
+        .expect("writing into a String should not fail");
         return;
     }
 
@@ -145,7 +152,9 @@ fn render_word_parts(
     rendered: &mut String,
 ) -> Result<(), std::fmt::Error> {
     for part in parts {
-        render_word_part(rendered, &part.kind, part.span, source, options, source_map, facts)?;
+        render_word_part(
+            rendered, &part.kind, part.span, source, options, source_map, facts,
+        )?;
     }
     Ok(())
 }
@@ -179,17 +188,9 @@ fn render_word_part(
                     WordPart::Literal(text) => {
                         render_double_quoted_literal(rendered, text.as_str(source, part.span))
                     }
-                    other => {
-                        render_word_part(
-                            rendered,
-                            other,
-                            part.span,
-                            source,
-                            options,
-                            source_map,
-                            facts,
-                        )?
-                    }
+                    other => render_word_part(
+                        rendered, other, part.span, source, options, source_map, facts,
+                    )?,
                 }
             }
             rendered.push('"');
@@ -218,13 +219,7 @@ fn render_word_part(
                     rendered.push_str(raw);
                 }
             } else if render_command_substitution(
-                rendered,
-                body,
-                source,
-                options,
-                true,
-                source_map,
-                facts,
+                rendered, body, source, options, true, source_map, facts,
             )
             .is_some()
             {

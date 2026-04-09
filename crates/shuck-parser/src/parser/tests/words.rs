@@ -866,13 +866,22 @@ fn test_brace_syntax_marks_literal_and_quoted_brace_forms() {
 
 #[test]
 fn test_brace_syntax_preserves_brace_expansion_suffix_forms() {
-    for input in ["{a,b}}", "{~,~root}/pwd", "\"\"{~,~root}/pwd", "\\{~,~root}/pwd"] {
+    for input in [
+        "{a,b}}",
+        "{~,~root}/pwd",
+        "\"\"{~,~root}/pwd",
+        "\\{~,~root}/pwd",
+    ] {
         let word = Parser::parse_word_string(input);
         assert_eq!(word.render_syntax(input), input);
         if input == "\\{~,~root}/pwd" {
             assert_eq!(brace_slices(&word, input), Vec::<&str>::new());
         } else {
-            let expected = if input == "{a,b}}" { "{a,b}" } else { "{~,~root}" };
+            let expected = if input == "{a,b}}" {
+                "{a,b}"
+            } else {
+                "{~,~root}"
+            };
             assert_eq!(brace_slices(&word, input), vec![expected]);
         }
     }
@@ -2304,7 +2313,10 @@ fn test_for_loop_preserves_non_identifier_target_surface() {
 
         assert!(redirects.is_empty());
         assert_eq!(command.targets.len(), 1);
-        assert_eq!(command.targets[0].span.slice(source), command.targets[0].word.render(source));
+        assert_eq!(
+            command.targets[0].span.slice(source),
+            command.targets[0].word.render(source)
+        );
         assert!(command.targets[0].name.is_none());
     }
 }
@@ -2448,7 +2460,8 @@ fn test_zsh_for_loop_paren_word_list_allows_newlines() {
 
 #[test]
 fn test_zsh_for_loop_paren_word_list_ignores_comments() {
-    let source = "for file (\n  # first path\n  one\n  # second path\n  two\n); do echo $file; done\n";
+    let source =
+        "for file (\n  # first path\n  one\n  # second path\n  two\n); do echo $file; done\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
         .parse()
         .unwrap();

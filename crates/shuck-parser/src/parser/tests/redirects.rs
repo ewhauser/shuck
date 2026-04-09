@@ -148,7 +148,9 @@ fn test_function_conditional_body_absorbs_trailing_redirect() {
 #[test]
 fn test_prefix_redirect_before_for_loop_is_rejected_in_bash_mode() {
     let input = ">out for item in a b; do echo \"$item\"; done\n";
-    let error = Parser::new(input).parse().expect_err("expected parse error");
+    let error = Parser::new(input)
+        .parse()
+        .expect_err("expected parse error");
     assert!(
         error.to_string().contains("expected command"),
         "unexpected error: {error}"

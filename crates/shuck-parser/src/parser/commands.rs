@@ -3905,6 +3905,9 @@ impl<'a> Parser<'a> {
                 Some(kind) if kind.is_word_like() => {
                     let is_literal = kind == TokenKind::LiteralWord;
                     let word_text = self.current_source_like_word_text().unwrap();
+                    let assignment_shape = (!is_literal && words.is_empty())
+                        .then(|| Self::is_assignment(word_text.as_ref()));
+                    let assignment_shape = assignment_shape.flatten();
 
                     // Stop if this word cannot start a command (like 'then', 'fi', etc.)
                     if words.is_empty()
@@ -3918,8 +3921,8 @@ impl<'a> Parser<'a> {
                     // Check for assignment (only before the command name, not for literal words)
                     if words.is_empty()
                         && !is_literal
-                        && let Some((assignment, needs_advance)) =
-                            self.try_parse_assignment(word_text.as_ref())
+                        && let Some((assignment, needs_advance)) = self
+                            .try_parse_assignment_with_shape(word_text.as_ref(), assignment_shape)
                     {
                         if needs_advance {
                             self.advance();
@@ -3930,7 +3933,10 @@ impl<'a> Parser<'a> {
 
                     if words.is_empty()
                         && !is_literal
-                        && let Some(assignment) = self.try_parse_split_indexed_assignment()
+                        && assignment_shape.is_none()
+                        && word_text.contains('[')
+                        && let Some(assignment) =
+                            self.try_parse_split_indexed_assignment_from_text()
                     {
                         assignments.push(assignment);
                         continue;

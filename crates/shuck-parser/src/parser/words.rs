@@ -776,12 +776,8 @@ impl<'a> Parser<'a> {
         Some((text, cursor))
     }
 
-    pub(super) fn try_parse_split_indexed_assignment(&mut self) -> Option<Assignment> {
+    pub(super) fn try_parse_split_indexed_assignment_from_text(&mut self) -> Option<Assignment> {
         if !self.at(TokenKind::Word) {
-            return None;
-        }
-        let word = self.current_source_like_word_text()?;
-        if !word.contains('[') || Self::is_assignment(&word).is_some() {
             return None;
         }
 
@@ -2109,8 +2105,12 @@ impl<'a> Parser<'a> {
     /// Parse the value side of an assignment (`VAR=value`).
     /// Returns `Some((Assignment, needs_advance))` if the current word is an assignment.
     /// The bool indicates whether the caller must call `self.advance()` afterward.
-    pub(super) fn try_parse_assignment(&mut self, raw: &str) -> Option<(Assignment, bool)> {
-        let (_, _, value_str, _) = Self::is_assignment(raw)?;
+    pub(super) fn try_parse_assignment_with_shape(
+        &mut self,
+        raw: &str,
+        assignment_shape: Option<(&str, Option<&str>, &str, bool)>,
+    ) -> Option<(Assignment, bool)> {
+        let (_, _, value_str, _) = assignment_shape?;
 
         // Empty value — check for arr=(...) syntax with separate tokens
         if value_str.is_empty() {
