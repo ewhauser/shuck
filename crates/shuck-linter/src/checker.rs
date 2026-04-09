@@ -352,6 +352,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ElseWithoutThen) {
             rules::correctness::else_without_then::else_without_then(self);
         }
+        if self.is_rule_enabled(Rule::MissingSemicolonBeforeBrace) {
+            rules::correctness::missing_semicolon_before_brace::missing_semicolon_before_brace(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::UnreachableAfterExit) {
             rules::correctness::unreachable_after_exit::unreachable_after_exit(self);
         }

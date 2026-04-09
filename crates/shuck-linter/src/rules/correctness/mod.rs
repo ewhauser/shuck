@@ -23,6 +23,7 @@ pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
 pub mod missing_fi;
+pub mod missing_semicolon_before_brace;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
 pub mod open_double_quote;
@@ -104,6 +105,7 @@ mod tests {
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]
     #[test_case(Rule::IfMissingThen, Path::new("C064.sh"))]
     #[test_case(Rule::ElseWithoutThen, Path::new("C065.sh"))]
+    #[test_case(Rule::MissingSemicolonBeforeBrace, Path::new("C066.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

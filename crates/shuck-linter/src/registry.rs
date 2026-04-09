@@ -135,6 +135,7 @@ declare_rules! {
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
     ("C064", Category::Correctness, Severity::Warning, IfMissingThen),
     ("C065", Category::Correctness, Severity::Warning, ElseWithoutThen),
+    ("C066", Category::Correctness, Severity::Warning, MissingSemicolonBeforeBrace),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
@@ -207,6 +208,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-171" => Some(Rule::OverwrittenFunction),
         "SH-175" => Some(Rule::IfMissingThen),
         "SH-176" => Some(Rule::ElseWithoutThen),
+        "SH-177" => Some(Rule::MissingSemicolonBeforeBrace),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         _ => None,
     })
@@ -307,6 +309,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-171"), Some(Rule::OverwrittenFunction));
         assert_eq!(code_to_rule("SH-175"), Some(Rule::IfMissingThen));
         assert_eq!(code_to_rule("SH-176"), Some(Rule::ElseWithoutThen));
+        assert_eq!(
+            code_to_rule("SH-177"),
+            Some(Rule::MissingSemicolonBeforeBrace)
+        );
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
