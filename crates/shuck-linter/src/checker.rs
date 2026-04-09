@@ -203,6 +203,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CStyleComment) {
             rules::correctness::c_style_comment::c_style_comment(self);
         }
+        if self.is_rule_enabled(Rule::CPrototypeFragment) {
+            rules::correctness::c_prototype_fragment::c_prototype_fragment(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

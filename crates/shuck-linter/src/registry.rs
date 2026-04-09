@@ -117,6 +117,7 @@ declare_rules! {
     ("C039", Category::Correctness, Severity::Warning, OpenDoubleQuote),
     ("C040", Category::Correctness, Severity::Error, LinebreakInTest),
     ("C041", Category::Correctness, Severity::Error, CStyleComment),
+    ("C042", Category::Correctness, Severity::Warning, CPrototypeFragment),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
@@ -180,6 +181,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-115" => Some(Rule::LinebreakInTest),
         "SH-121" => Some(Rule::CStyleComment),
+        "SH-123" => Some(Rule::CPrototypeFragment),
         "SH-141" => Some(Rule::InvalidExitStatus),
         "SH-142" => Some(Rule::CasePatternVar),
         "SH-144" => Some(Rule::ArithmeticRedirectionTarget),
@@ -262,6 +264,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-115"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("C041"), Some(Rule::CStyleComment));
         assert_eq!(code_to_rule("SH-121"), Some(Rule::CStyleComment));
+        assert_eq!(code_to_rule("C042"), Some(Rule::CPrototypeFragment));
+        assert_eq!(code_to_rule("SH-123"), Some(Rule::CPrototypeFragment));
         assert_eq!(code_to_rule("SH-141"), Some(Rule::InvalidExitStatus));
         assert_eq!(code_to_rule("SH-142"), Some(Rule::CasePatternVar));
         assert_eq!(

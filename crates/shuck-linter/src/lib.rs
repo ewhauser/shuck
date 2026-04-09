@@ -265,6 +265,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_diagnostics(
 
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
         file,
+        source,
         parse_diagnostics,
         &settings.rules,
     ));
