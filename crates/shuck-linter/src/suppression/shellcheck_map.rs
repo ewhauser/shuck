@@ -112,8 +112,12 @@ impl Default for ShellCheckCodeMap {
             (3042, Rule::LetCommand),
             (3039, Rule::LetCommand),
             (3046, Rule::SourceBuiltinInSh),
+            (3050, Rule::BraceFdRedirection),
+            (3052, Rule::AmpersandRedirection),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
             (3051, Rule::SourceInsideFunctionInSh),
+            (3070, Rule::AmpersandRedirectInSh),
+            (3073, Rule::PipeStderrInSh),
             (2155, Rule::ExportCommandSubstitution),
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),
@@ -201,6 +205,10 @@ impl Default for ShellCheckCodeMap {
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
+                (3052, Rule::AmpersandRedirection),
+                (3050, Rule::BraceFdRedirection),
+                (3070, Rule::AmpersandRedirectInSh),
+                (3073, Rule::PipeStderrInSh),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
@@ -337,6 +345,10 @@ mod tests {
         assert_eq!(map.resolve("SC2371"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
+        assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
+        assert_eq!(map.resolve("SC3050"), Some(Rule::BraceFdRedirection));
+        assert_eq!(map.resolve("SC3070"), Some(Rule::AmpersandRedirectInSh));
+        assert_eq!(map.resolve("SC3073"), Some(Rule::PipeStderrInSh));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
@@ -532,10 +544,14 @@ mod tests {
                 (3043, Rule::LocalVariableInSh),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
+                (3050, Rule::BraceFdRedirection),
                 (3051, Rule::SourceInsideFunctionInSh),
+                (3052, Rule::AmpersandRedirection),
                 (3062, Rule::OptionTestInSh),
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
+                (3070, Rule::AmpersandRedirectInSh),
+                (3073, Rule::PipeStderrInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
             ]
         );
@@ -575,7 +591,11 @@ mod tests {
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
+        assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
+        assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
+        assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
+        assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));

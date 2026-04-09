@@ -102,8 +102,10 @@ impl<'a> Parser<'a> {
         &mut self,
         strip_tabs: bool,
         redirects: &mut Vec<Redirect>,
+        fd_var: Option<Name>,
+        fd_var_span: Option<Span>,
     ) -> Result<()> {
-        self.consume_heredoc_redirect(strip_tabs, redirects, None, None, true, true)?;
+        self.consume_heredoc_redirect(strip_tabs, redirects, fd_var, fd_var_span, true, true)?;
         Ok(())
     }
 

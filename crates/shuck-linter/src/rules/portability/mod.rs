@@ -1,3 +1,6 @@
+pub mod ampersand_redirect_in_sh;
+pub mod ampersand_redirection;
+pub mod brace_fd_redirection;
 pub mod conditional_portability;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
@@ -7,6 +10,7 @@ pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
+pub mod pipe_stderr_in_sh;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
@@ -45,8 +49,10 @@ mod tests {
     #[test_case(Rule::TestEqualityOperator, Path::new("X002.sh"))]
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
+    #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
+    #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]
@@ -71,6 +77,8 @@ mod tests {
     #[test_case(Rule::RegexMatchInSh, Path::new("X059.sh"))]
     #[test_case(Rule::VTestInSh, Path::new("X060.sh"))]
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]
+    #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
+    #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]

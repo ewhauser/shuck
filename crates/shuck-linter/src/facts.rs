@@ -863,11 +863,28 @@ impl<'a> PipelineSegmentFact<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PipelineOperatorFact {
+    op: BinaryOp,
+    span: Span,
+}
+
+impl PipelineOperatorFact {
+    pub fn op(&self) -> BinaryOp {
+        self.op
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PipelineFact<'a> {
     key: FactSpan,
     command: &'a BinaryCommand,
     segments: Box<[PipelineSegmentFact<'a>]>,
+    operators: Box<[PipelineOperatorFact]>,
 }
 
 impl<'a> PipelineFact<'a> {
@@ -885,6 +902,10 @@ impl<'a> PipelineFact<'a> {
 
     pub fn segments(&self) -> &[PipelineSegmentFact<'a>] {
         &self.segments
+    }
+
+    pub fn operators(&self) -> &[PipelineOperatorFact] {
+        &self.operators
     }
 
     pub fn first_segment(&self) -> Option<&PipelineSegmentFact<'a>> {
@@ -3736,6 +3757,7 @@ fn compound_span(command: &CompoundCommand) -> Span {
 mod tests {
     use std::path::Path;
 
+    use shuck_ast::BinaryOp;
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
     use shuck_semantic::SemanticModel;
@@ -4390,7 +4412,7 @@ test
 #!/bin/bash
 for file in $(printf '%s\\n' one two) \"$(command find . -type f)\" literal; do :; done
 select choice in $(printf '%s\\n' a b) \"$(find . -type f)\" literal; do :; done
-printf '%s\\n' 123 | command kill -9 | tee out.txt
+printf '%s\\n' 123 |& command kill -9 | tee out.txt
 summary=$(printf '%s\\n' 456 | kill -TERM)
 echo \"$(for nested in $(printf nested); do :; done)\"
 true && false || printf '%s\\n' fallback
@@ -4441,6 +4463,14 @@ true && false || printf '%s\\n' fallback
             );
 
             let first_pipeline = &facts.pipelines()[0];
+            assert_eq!(
+                first_pipeline
+                    .operators()
+                    .iter()
+                    .map(|operator| operator.op())
+                    .collect::<Vec<_>>(),
+                vec![BinaryOp::PipeAll, BinaryOp::Pipe]
+            );
             let first_segment = &first_pipeline.segments()[0];
             assert_eq!(
                 facts

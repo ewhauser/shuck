@@ -4007,17 +4007,69 @@ impl<'a> Parser<'a> {
                     self.advance_past_word(&word);
                     words.push(word);
                 }
+                Some(TokenKind::Newline) => {
+                    let next_kind = self.peek_next_kind();
+                    let supports_fd_var = next_kind.is_some_and(|kind| {
+                        matches!(kind, TokenKind::HereDoc | TokenKind::HereDocStrip)
+                            || Self::redirect_supports_fd_var(kind)
+                    });
+                    if supports_fd_var {
+                        let (fd_var, fd_var_span) = self.pop_line_continuation_fd_var(&mut words);
+                        if let Some(fd_var) = fd_var {
+                            self.advance();
+                            if matches!(
+                                self.current_token_kind,
+                                Some(TokenKind::HereDoc | TokenKind::HereDocStrip)
+                            ) {
+                                self.parse_heredoc_redirect(
+                                    self.current_token_kind == Some(TokenKind::HereDocStrip),
+                                    &mut redirects,
+                                    Some(fd_var),
+                                    fd_var_span,
+                                )?;
+                                continue;
+                            }
+
+                            if self.consume_non_heredoc_redirect(
+                                &mut redirects,
+                                Some(fd_var),
+                                fd_var_span,
+                                true,
+                            )? {
+                                continue;
+                            }
+                        }
+                    }
+                    break;
+                }
                 Some(kind) if Self::is_redirect_kind(kind) => {
                     if matches!(kind, TokenKind::HereDoc | TokenKind::HereDocStrip) {
+                        let (fd_var, fd_var_span) = if words
+                            .last()
+                            .is_some_and(|word| self.word_is_attached_to_current_token(word))
+                        {
+                            self.pop_fd_var(&mut words)
+                        } else {
+                            (None, None)
+                        };
                         self.parse_heredoc_redirect(
                             kind == TokenKind::HereDocStrip,
                             &mut redirects,
+                            fd_var,
+                            fd_var_span,
                         )?;
                         continue;
                     }
 
                     let (fd_var, fd_var_span) = if Self::redirect_supports_fd_var(kind) {
-                        self.pop_fd_var(&mut words)
+                        if words
+                            .last()
+                            .is_some_and(|word| self.word_is_attached_to_current_token(word))
+                        {
+                            self.pop_fd_var(&mut words)
+                        } else {
+                            (None, None)
+                        }
                     } else {
                         (None, None)
                     };
@@ -4049,8 +4101,7 @@ impl<'a> Parser<'a> {
                     words.push(Word::literal_with_span("}", self.current_span));
                     self.advance();
                 }
-                Some(TokenKind::Newline)
-                | Some(TokenKind::Semicolon)
+                Some(TokenKind::Semicolon)
                 | Some(TokenKind::Pipe)
                 | Some(TokenKind::And)
                 | Some(TokenKind::Or)
@@ -4109,5 +4160,31 @@ impl<'a> Parser<'a> {
             return (Some(Name::from(var_name)), Some(span));
         }
         (None, None)
+    }
+
+    fn word_is_attached_to_current_token(&self, word: &Word) -> bool {
+        let start = word.span.end.offset;
+        let end = self.current_span.start.offset;
+        let input_len = self.input.len();
+        start <= end
+            && end <= input_len
+            && Self::fd_var_gap_allows_attachment(&self.input[start..end])
+    }
+
+    fn pop_line_continuation_fd_var(&self, words: &mut Vec<Word>) -> (Option<Name>, Option<Span>) {
+        let Some(last) = words.last() else {
+            return (None, None);
+        };
+        let Some(text) = self.single_literal_word_text(last) else {
+            return (None, None);
+        };
+        let Some(fd_text) = text.strip_suffix('\\') else {
+            return (None, None);
+        };
+        let Some((fd_var, fd_var_span)) = Self::fd_var_from_text(fd_text, last.span) else {
+            return (None, None);
+        };
+        words.pop();
+        (Some(fd_var), Some(fd_var_span))
     }
 }
