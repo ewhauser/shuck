@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X060 `-v` tests are not available in POSIX sh
+ --> <source>:2:4
+  |
+2 | [[ -v myvar ]] || :
+  |

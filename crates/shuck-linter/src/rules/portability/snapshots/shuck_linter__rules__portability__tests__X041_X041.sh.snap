@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X041 array-style subscripts in `[[ ... ]]` are not portable to POSIX sh
+ --> <source>:2:7
+  |
+2 | if [[ $words[2] = */ ]]; then :; fi
+  |
+
+X041 array-style subscripts in `[[ ... ]]` are not portable to POSIX sh
+ --> <source>:3:10
+  |
+3 | if [[ -v assoc["$key"] ]]; then :; fi
+  |

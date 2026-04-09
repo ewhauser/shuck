@@ -126,6 +126,15 @@ impl Default for ShellCheckCodeMap {
                 (2274, Rule::BareClosingBrace),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
+                (3010, Rule::DoubleBracketInSh),
+                (3012, Rule::GreaterThanInDoubleBracket),
+                (3014, Rule::TestEqualityOperator),
+                (3015, Rule::RegexMatchInSh),
+                (3016, Rule::VTestInSh),
+                (3017, Rule::ATestInSh),
+                (3062, Rule::OptionTestInSh),
+                (3065, Rule::StickyBitTestInSh),
+                (3067, Rule::OwnershipTestInSh),
             ]),
         }
     }
@@ -319,18 +328,34 @@ mod tests {
                 (2288, Rule::TemplateBraceInCommand),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
+                (3010, Rule::DoubleBracketInSh),
+                (3012, Rule::GreaterThanInDoubleBracket),
+                (3014, Rule::TestEqualityOperator),
+                (3015, Rule::RegexMatchInSh),
+                (3016, Rule::VTestInSh),
+                (3017, Rule::ATestInSh),
+                (3062, Rule::OptionTestInSh),
+                (3065, Rule::StickyBitTestInSh),
+                (3067, Rule::OwnershipTestInSh),
             ]
         );
     }
 
     #[test]
-    fn every_real_rule_has_a_shellcheck_mapping() {
+    fn every_real_rule_has_a_primary_shellcheck_mapping() {
         let map = ShellCheckCodeMap::default();
         let mapped_rules: std::collections::HashSet<Rule> =
             map.mappings().map(|(_, rule)| rule).collect();
+        let allowed_unmapped = std::collections::HashSet::from([
+            Rule::IfElifBashTest,
+            Rule::ExtendedGlobInTest,
+            Rule::ArraySubscriptTest,
+            Rule::ArraySubscriptCondition,
+            Rule::ExtglobInTest,
+        ]);
 
         let unmapped: Vec<&str> = Rule::iter()
-            .filter(|r| !mapped_rules.contains(r))
+            .filter(|r| !mapped_rules.contains(r) && !allowed_unmapped.contains(r))
             .map(|r| r.code())
             .collect();
 

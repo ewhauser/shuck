@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X001 `[[ ... ]]` is not available in POSIX sh
+ --> <source>:2:4
+  |
+2 | if [[ -n $1 ]]; then :; fi
+  |
+
+X001 `[[ ... ]]` is not available in POSIX sh
+ --> <source>:3:7
+  |
+3 | while [[ -n $2 ]]; do :; done
+  |

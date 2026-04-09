@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X074 `-k` file tests are not portable to POSIX sh
+ --> <source>:2:6
+  |
+2 | if [ -k "$file" ]; then :; fi
+  |
+
+X074 `-k` file tests are not portable to POSIX sh
+ --> <source>:3:6
+  |
+3 | if ! test -k "$file"; then :; fi
+  |
+
+X074 `-k` file tests are not portable to POSIX sh
+ --> <source>:6:8
+  |
+6 | if [ ! -k "$file" -a -w "$file" ]; then :; fi
+  |

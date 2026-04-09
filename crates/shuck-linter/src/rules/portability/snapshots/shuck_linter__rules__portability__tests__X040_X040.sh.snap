@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X040 array-style subscripts in test expressions are not portable to POSIX sh
+ --> <source>:2:6
+  |
+2 | if [ $tools[kops] ]; then :; fi
+  |
+
+X040 array-style subscripts in test expressions are not portable to POSIX sh
+ --> <source>:3:7
+  |
+3 | if [ "${tools[kops]}" ]; then :; fi
+  |

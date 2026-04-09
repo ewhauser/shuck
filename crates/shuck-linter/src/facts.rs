@@ -1232,6 +1232,7 @@ pub struct LinterFacts<'a> {
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
+    elif_condition_command_ids: FxHashSet<CommandId>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
     presence_tested_names: FxHashSet<Name>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
@@ -1298,6 +1299,10 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn scalar_binding_values(&self) -> &FxHashMap<FactSpan, &'a Word> {
         &self.scalar_bindings
+    }
+
+    pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
+        self.elif_condition_command_ids.contains(&id)
     }
 
     pub fn presence_tested_names(&self) -> &FxHashSet<Name> {
@@ -1505,6 +1510,8 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.substitution_facts = substitutions;
         }
 
+        let elif_condition_command_ids =
+            build_elif_condition_command_ids(&self.file.body, &command_ids_by_span);
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
@@ -1534,6 +1541,7 @@ impl<'a> LinterFactsBuilder<'a> {
             commands,
             structural_command_ids,
             command_ids_by_span,
+            elif_condition_command_ids,
             scalar_bindings,
             presence_tested_names,
             subscript_index_reference_spans,
@@ -1641,6 +1649,41 @@ fn has_header_shellcheck_shell_directive(source: &str) -> bool {
     }
 
     false
+}
+
+fn build_elif_condition_command_ids(
+    commands: &StmtSeq,
+    command_ids_by_span: &CommandLookupIndex,
+) -> FxHashSet<CommandId> {
+    let mut ids = FxHashSet::default();
+
+    for visit in query::iter_commands(
+        commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        let Command::Compound(CompoundCommand::If(command)) = visit.command else {
+            continue;
+        };
+
+        for (condition, _) in &command.elif_branches {
+            for condition_visit in query::iter_commands(
+                condition,
+                CommandWalkOptions {
+                    descend_nested_word_commands: true,
+                },
+            ) {
+                if let Some(id) =
+                    command_id_for_command(condition_visit.command, command_ids_by_span)
+                {
+                    ids.insert(id);
+                }
+            }
+        }
+    }
+
+    ids
 }
 
 fn build_condition_status_capture_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
