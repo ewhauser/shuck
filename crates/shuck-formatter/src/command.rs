@@ -2146,17 +2146,48 @@ pub(crate) fn group_attachment_span(
 fn find_group_close_offset(source: &str, sequence_end: usize, close: char) -> Option<usize> {
     let close_len = close.len_utf8();
     let capped_end = sequence_end.min(source.len());
-    if capped_end >= close_len
-        && source
-            .get(capped_end - close_len..capped_end)
-            .is_some_and(|slice| slice.starts_with(close))
-    {
-        return Some(capped_end - close_len);
+    if let Some(offset) = find_group_close_offset_after_sequence(source, capped_end, close) {
+        return Some(offset);
     }
 
-    source[capped_end..]
-        .find(close)
-        .map(|offset| capped_end + offset)
+    let trimmed_end = source[..capped_end]
+        .trim_end_matches(char::is_whitespace)
+        .len();
+    if trimmed_end >= close_len
+        && source
+            .get(trimmed_end - close_len..trimmed_end)
+            .is_some_and(|slice| slice.starts_with(close))
+    {
+        return Some(trimmed_end - close_len);
+    }
+
+    None
+}
+
+fn find_group_close_offset_after_sequence(
+    source: &str,
+    sequence_end: usize,
+    close: char,
+) -> Option<usize> {
+    let mut offset = sequence_end.min(source.len());
+    while offset < source.len() {
+        let tail = &source[offset..];
+        let ch = tail.chars().next()?;
+        if ch.is_whitespace() {
+            offset += ch.len_utf8();
+            continue;
+        }
+        if ch == '#' {
+            offset = tail
+                .find('\n')
+                .map(|newline| offset + newline + 1)
+                .unwrap_or(source.len());
+            continue;
+        }
+        return (ch == close).then_some(offset);
+    }
+
+    None
 }
 
 pub(crate) fn group_was_inline_in_source(

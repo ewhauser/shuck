@@ -1232,4 +1232,45 @@ mod tests {
             "(try_curl $url || try_wget $url)"
         );
     }
+
+    #[test]
+    fn brace_group_attachment_span_reaches_wrapper_close_after_parameter_expansion() {
+        let source = "{\n  echo ${value}\n}\n# outside\nprintf '%s\\n' done\n";
+        let file = parse(source);
+        let options = ShellFormatOptions::default();
+        let resolved = options.resolve(source, Some(Path::new("test.sh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+
+        let brace_group = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+        let attachment_span =
+            group_attachment_span(brace_group.as_slice(), facts.source_map(), '{', '}')
+                .expect("expected brace group attachment span");
+
+        assert_eq!(attachment_span.slice(source), "{\n  echo ${value}\n}");
+    }
+
+    #[test]
+    fn subshell_attachment_span_reaches_wrapper_close_after_command_substitution() {
+        let source = "(\n  echo $(printf '%s' value)\n)\n# outside\nprintf '%s\\n' done\n";
+        let file = parse(source);
+        let options = ShellFormatOptions::default();
+        let resolved = options.resolve(source, Some(Path::new("test.sh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+
+        let subshell = match &file.body[0].command {
+            Command::Compound(CompoundCommand::Subshell(commands)) => commands,
+            _ => panic!("expected subshell"),
+        };
+        let attachment_span =
+            group_attachment_span(subshell.as_slice(), facts.source_map(), '(', ')')
+                .expect("expected subshell attachment span");
+
+        assert_eq!(
+            attachment_span.slice(source),
+            "(\n  echo $(printf '%s' value)\n)"
+        );
+    }
 }
