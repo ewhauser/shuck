@@ -295,6 +295,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ZshFlagExpansion) {
             rules::portability::zsh_flag_expansion::zsh_flag_expansion(self);
         }
+        if self.is_rule_enabled(Rule::NestedZshSubstitution) {
+            rules::portability::nested_zsh_substitution::nested_zsh_substitution(self);
+        }
     }
 
     fn check_loop_list_and_pipeline_facts(&mut self) {
