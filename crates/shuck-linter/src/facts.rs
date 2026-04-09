@@ -967,6 +967,11 @@ pub struct SetCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct ExprCommandFacts {
+    pub uses_arithmetic_operator: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ExitCommandFacts<'a> {
     pub status_word: Option<&'a Word>,
     pub is_numeric_literal: bool,
@@ -992,6 +997,7 @@ pub struct CommandOptionFacts<'a> {
     find: Option<FindCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     set: Option<SetCommandFacts>,
+    expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
 }
@@ -1019,6 +1025,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn set(&self) -> Option<&SetCommandFacts> {
         self.set.as_ref()
+    }
+
+    pub fn expr(&self) -> Option<&ExprCommandFacts> {
+        self.expr.as_ref()
     }
 
     pub fn exit(&self) -> Option<&ExitCommandFacts<'a>> {
@@ -1070,6 +1080,10 @@ impl<'a> CommandOptionFacts<'a> {
             set: normalized
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
+            expr: normalized
+                .effective_name_is("expr")
+                .then_some(())
+                .and_then(|_| parse_expr_command(normalized.body_args(), source)),
             exit: parse_exit_command(command, source),
             sudo_family: normalized.has_wrapper(WrapperKind::SudoFamily).then(|| {
                 SudoFamilyCommandFacts {
@@ -3238,6 +3252,31 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     }
 
     SetCommandFacts { errexit_change }
+}
+
+fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
+    if expr_uses_string_form(args, source) {
+        return None;
+    }
+
+    Some(ExprCommandFacts {
+        uses_arithmetic_operator: true,
+    })
+}
+
+fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
+    matches!(
+        args.first()
+            .and_then(|word| static_word_text(word, source))
+            .as_deref(),
+        Some("length" | "index" | "match" | "substr")
+    ) || args
+        .get(1)
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        .is_some_and(|text| {
+            matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "==")
+        })
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {

@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/performance/mod.rs
+---
+P001 use shell arithmetic instead of `expr` for numeric operations
+ --> <source>:2:1
+  |
+2 | expr 1 + 2
+  |

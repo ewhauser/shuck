@@ -59,6 +59,7 @@ impl Default for ShellCheckCodeMap {
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (2003, Rule::ExprArithmetic),
                 (2009, Rule::DoubleParenGrouping),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
@@ -138,6 +139,7 @@ mod tests {
         assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
+        assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
         assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
@@ -254,6 +256,7 @@ mod tests {
                 (1110, Rule::UnicodeQuoteInString),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
+                (2003, Rule::ExprArithmetic),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
