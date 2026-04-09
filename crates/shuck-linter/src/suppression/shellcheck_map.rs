@@ -76,6 +76,7 @@ impl Default for ShellCheckCodeMap {
                 (2154, Rule::UndefinedVariable),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
+                (2248, Rule::BareSlashMarker),
                 (2257, Rule::ArithmeticRedirectionTarget),
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
@@ -142,6 +143,7 @@ mod tests {
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
         assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
+        assert_eq!(map.resolve("SC2248"), Some(Rule::BareSlashMarker));
         assert_eq!(
             map.resolve("SC2257"),
             Some(Rule::ArithmeticRedirectionTarget)
@@ -206,6 +208,7 @@ mod tests {
                 (2216, Rule::PipeToKill),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
+                (2248, Rule::BareSlashMarker),
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),

@@ -1,5 +1,6 @@
 pub mod arithmetic_redirection_target;
 pub mod bad_redirection_fd_order;
+pub mod bare_slash_marker;
 pub mod broken_test_end;
 pub mod broken_test_parse;
 pub mod c_prototype_fragment;
@@ -84,6 +85,7 @@ mod tests {
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]
     #[test_case(Rule::ArithmeticRedirectionTarget, Path::new("C050.sh"))]
+    #[test_case(Rule::BareSlashMarker, Path::new("C054.sh"))]
     #[test_case(Rule::PatternWithVariable, Path::new("C055.sh"))]
     #[test_case(Rule::SubstWithRedirect, Path::new("C057.sh"))]
     #[test_case(Rule::SubstWithRedirectErr, Path::new("C058.sh"))]

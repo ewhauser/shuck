@@ -123,6 +123,7 @@ declare_rules! {
     ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
     ("C050", Category::Correctness, Severity::Warning, ArithmeticRedirectionTarget),
+    ("C054", Category::Correctness, Severity::Warning, BareSlashMarker),
     ("C055", Category::Correctness, Severity::Warning, PatternWithVariable),
     ("C057", Category::Correctness, Severity::Warning, SubstWithRedirect),
     ("C058", Category::Correctness, Severity::Warning, SubstWithRedirectErr),
@@ -187,6 +188,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-141" => Some(Rule::InvalidExitStatus),
         "SH-142" => Some(Rule::CasePatternVar),
         "SH-144" => Some(Rule::ArithmeticRedirectionTarget),
+        "SH-148" => Some(Rule::BareSlashMarker),
         "SH-152" => Some(Rule::PatternWithVariable),
         "SH-159" => Some(Rule::SubstWithRedirect),
         "SH-160" => Some(Rule::SubstWithRedirectErr),
@@ -276,6 +278,7 @@ mod tests {
             code_to_rule("SH-144"),
             Some(Rule::ArithmeticRedirectionTarget)
         );
+        assert_eq!(code_to_rule("SH-148"), Some(Rule::BareSlashMarker));
         assert_eq!(code_to_rule("SH-152"), Some(Rule::PatternWithVariable));
         assert_eq!(code_to_rule("SH-159"), Some(Rule::SubstWithRedirect));
         assert_eq!(code_to_rule("SH-160"), Some(Rule::SubstWithRedirectErr));
