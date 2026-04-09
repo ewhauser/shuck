@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 130
+---
+C137 a unicode curly single quote appears inside a single-quoted string
+ --> <source>:3:13
+  |
+3 | echo 'hello ‘world’'
+  |
+
+C137 a unicode curly single quote appears inside a single-quoted string
+ --> <source>:3:19
+  |
+3 | echo 'hello ‘world’'
+  |

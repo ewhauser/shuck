@@ -143,6 +143,12 @@ declare_rules! {
     ("C071", Category::Correctness, Severity::Warning, DoubleParenGrouping),
     ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
+    (
+        "C137",
+        Category::Correctness,
+        Severity::Warning,
+        UnicodeSingleQuoteInSingleQuotes
+    ),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
@@ -240,6 +246,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-293" => Some(Rule::UnreachableAfterExit),
+<<<<<<< HEAD
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -258,6 +265,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-280" => Some(Rule::OptionTestInSh),
         "SH-281" => Some(Rule::StickyBitTestInSh),
         "SH-282" => Some(Rule::OwnershipTestInSh),
+        "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
         _ => None,
     })
 }
@@ -381,5 +389,13 @@ mod tests {
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(
+            code_to_rule("C137"),
+            Some(Rule::UnicodeSingleQuoteInSingleQuotes)
+        );
+        assert_eq!(
+            code_to_rule("SH-315"),
+            Some(Rule::UnicodeSingleQuoteInSingleQuotes)
+        );
     }
 }

@@ -48,6 +48,9 @@ impl ShellCheckCodeMap {
         if number == 2284 {
             return Some(Rule::UnicodeQuoteInString);
         }
+        if number == 2385 {
+            return Some(Rule::UnicodeSingleQuoteInSingleQuotes);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -77,6 +80,7 @@ impl Default for ShellCheckCodeMap {
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
+                (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -173,6 +177,10 @@ mod tests {
         );
         assert_eq!(map.resolve("SC1102"), Some(Rule::PositionalParamAsOperator));
         assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(
+            map.resolve("SC2385"),
+            Some(Rule::UnicodeSingleQuoteInSingleQuotes)
+        );
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -271,6 +279,7 @@ mod tests {
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
+                (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2003, Rule::ExprArithmetic),
