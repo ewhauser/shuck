@@ -1,2 +1,5 @@
-# Keep embedded benchmark fixtures byte-stable across platforms.
-crates/shuck-benchmark/resources/files/*.sh text eol=lf
+# Keep shell sources and fixtures byte-stable across platforms.
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.ksh text eol=lf
