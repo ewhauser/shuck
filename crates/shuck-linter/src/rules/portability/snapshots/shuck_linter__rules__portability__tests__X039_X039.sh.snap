@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X039 `always` blocks are zsh-only syntax
+ --> <source>:4:8
+  |
+4 | { :; } always { :; }
+  |
+
+X039 `always` blocks are zsh-only syntax
+ --> <source>:9:3
+  |
+9 | } always {
+  |
