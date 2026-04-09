@@ -15,7 +15,7 @@ X074 `-k` file tests are not portable to POSIX sh
   |
 
 X074 `-k` file tests are not portable to POSIX sh
- --> <source>:5:8
+ --> <source>:6:8
   |
-5 | if [ ! -k "$file" -a -w "$file" ]; then :; fi
+6 | if [ ! -k "$file" -a -w "$file" ]; then :; fi
   |

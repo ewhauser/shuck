@@ -195,13 +195,15 @@ pub fn test_equality_operator(checker: &mut Checker) {
             };
 
             match simple_test.syntax() {
-                SimpleTestSyntax::Test => simple_test_contains_token(simple_test, source, "==")
-                    .then(|| simple_test_command_span(fact, simple_test))
-                    .flatten()
-                    .into_iter()
-                    .collect(),
+                SimpleTestSyntax::Test => {
+                    (!simple_test_binary_operator_token_spans(simple_test, source, "==").is_empty())
+                        .then(|| simple_test_command_span(fact, simple_test))
+                        .flatten()
+                        .into_iter()
+                        .collect()
+                }
                 SimpleTestSyntax::Bracket => {
-                    simple_test_token_spans(simple_test, source, "==").collect()
+                    simple_test_binary_operator_token_spans(simple_test, source, "==")
                 }
             }
         })
@@ -474,20 +476,131 @@ fn conditional_command<'a>(fact: &'a crate::CommandFact<'a>) -> Option<&'a Condi
     Some(command)
 }
 
-fn simple_test_token_spans<'a>(
-    fact: &'a SimpleTestFact<'a>,
-    source: &'a str,
-    token: &'a str,
-) -> impl Iterator<Item = Span> + 'a {
-    fact.operands().iter().filter_map(move |word| {
-        (static_word_text(word, source).as_deref() == Some(token)).then_some(word.span)
-    })
+fn simple_test_binary_operator_token_spans(
+    fact: &SimpleTestFact<'_>,
+    source: &str,
+    token: &str,
+) -> Vec<Span> {
+    simple_test_operator_token_spans(fact, source, token, SimpleTestOperatorKind::Binary)
 }
 
-fn simple_test_contains_token(fact: &SimpleTestFact<'_>, source: &str, token: &str) -> bool {
-    fact.operands()
-        .iter()
-        .any(|word| static_word_text(word, source).as_deref() == Some(token))
+fn simple_test_unary_operator_token_spans(
+    fact: &SimpleTestFact<'_>,
+    source: &str,
+    token: &str,
+) -> Vec<Span> {
+    simple_test_operator_token_spans(fact, source, token, SimpleTestOperatorKind::Unary)
+}
+
+fn simple_test_operator_token_spans(
+    fact: &SimpleTestFact<'_>,
+    source: &str,
+    token: &str,
+    kind: SimpleTestOperatorKind,
+) -> Vec<Span> {
+    let operands = fact.operands();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index < operands.len() {
+        while index < operands.len()
+            && is_simple_test_separator(static_word_text(operands[index], source).as_deref())
+        {
+            index += 1;
+        }
+        while index < operands.len()
+            && static_word_text(operands[index], source).as_deref() == Some("!")
+        {
+            index += 1;
+        }
+
+        if index >= operands.len() {
+            break;
+        }
+
+        if index + 2 < operands.len()
+            && static_word_text(operands[index + 1], source)
+                .as_deref()
+                .is_some_and(is_simple_test_binary_operator)
+        {
+            if kind == SimpleTestOperatorKind::Binary
+                && static_word_text(operands[index + 1], source).as_deref() == Some(token)
+            {
+                spans.push(operands[index + 1].span);
+            }
+            index += 3;
+            continue;
+        }
+
+        if index + 1 < operands.len()
+            && static_word_text(operands[index], source)
+                .as_deref()
+                .is_some_and(is_simple_test_unary_operator)
+        {
+            if kind == SimpleTestOperatorKind::Unary
+                && static_word_text(operands[index], source).as_deref() == Some(token)
+            {
+                spans.push(operands[index].span);
+            }
+            index += 2;
+            continue;
+        }
+
+        index += 1;
+    }
+
+    spans
+}
+
+fn is_simple_test_separator(token: Option<&str>) -> bool {
+    matches!(token, Some("-a" | "-o" | "(" | ")" | "\\(" | "\\)"))
+}
+
+fn is_simple_test_binary_operator(token: &str) -> bool {
+    matches!(
+        token,
+        "=" | "=="
+            | "!="
+            | "<"
+            | ">"
+            | "-eq"
+            | "-ne"
+            | "-lt"
+            | "-le"
+            | "-gt"
+            | "-ge"
+            | "-ef"
+            | "-nt"
+            | "-ot"
+    )
+}
+
+fn is_simple_test_unary_operator(token: &str) -> bool {
+    matches!(
+        token,
+        "-a" | "-b"
+            | "-c"
+            | "-d"
+            | "-e"
+            | "-f"
+            | "-g"
+            | "-h"
+            | "-k"
+            | "-L"
+            | "-n"
+            | "-N"
+            | "-O"
+            | "-p"
+            | "-r"
+            | "-s"
+            | "-S"
+            | "-t"
+            | "-u"
+            | "-v"
+            | "-w"
+            | "-x"
+            | "-z"
+    )
 }
 
 fn simple_test_flag_spans(
@@ -497,12 +610,13 @@ fn simple_test_flag_spans(
     token: &str,
 ) -> Vec<Span> {
     match fact.syntax() {
-        SimpleTestSyntax::Test => simple_test_contains_token(fact, source, token)
-            .then(|| simple_test_command_span(command, fact))
-            .flatten()
-            .into_iter()
-            .collect(),
-        SimpleTestSyntax::Bracket => simple_test_token_spans(fact, source, token).collect(),
+        SimpleTestSyntax::Test => (!simple_test_unary_operator_token_spans(fact, source, token)
+            .is_empty())
+        .then(|| simple_test_command_span(command, fact))
+        .flatten()
+        .into_iter()
+        .collect::<Vec<_>>(),
+        SimpleTestSyntax::Bracket => simple_test_unary_operator_token_spans(fact, source, token),
     }
 }
 
@@ -598,16 +712,23 @@ fn pattern_array_subscript_span(pattern: &Pattern, source: &str) -> Option<Span>
 }
 
 fn word_array_subscript_span(word: &Word, source: &str) -> Option<Span> {
-    word_array_subscript_span_from_parts(&word.parts)
-        .or_else(|| text_has_variable_subscript(word.span.slice(source)).then_some(word.span))
+    word_array_subscript_span_from_parts(&word.parts, source).or_else(|| {
+        (!word.has_quoted_parts() && text_has_variable_subscript(word.span.slice(source)))
+            .then_some(word.span)
+    })
 }
 
-fn word_array_subscript_span_from_parts(parts: &[WordPartNode]) -> Option<Span> {
+fn word_array_subscript_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<Span> {
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => {
-                if let Some(span) = word_array_subscript_span_from_parts(parts) {
+                if let Some(span) = word_array_subscript_span_from_parts(parts, source) {
                     return Some(span);
+                }
+            }
+            WordPart::Literal(_) => {
+                if text_has_variable_subscript(part.span.slice(source)) {
+                    return Some(part.span);
                 }
             }
             WordPart::Parameter(parameter) => {
@@ -628,8 +749,7 @@ fn word_array_subscript_span_from_parts(parts: &[WordPartNode]) -> Option<Span> 
                     return Some(span);
                 }
             }
-            WordPart::Literal(_)
-            | WordPart::ZshQualifiedGlob(_)
+            WordPart::ZshQualifiedGlob(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
             | WordPart::CommandSubstitution { .. }
@@ -673,23 +793,21 @@ fn var_ref_subscript_span(reference: &VarRef) -> Option<Span> {
 }
 
 fn word_extglob_span(word: &Word, source: &str) -> Option<Span> {
-    word_extglob_span_from_parts(&word.parts, source)
-        .or_else(|| text_looks_like_extglob(word.span.slice(source)).then_some(word.span))
+    word_extglob_span_from_parts(&word.parts, source).or_else(|| {
+        (!word.has_quoted_parts() && text_looks_like_extglob(word.span.slice(source)))
+            .then_some(word.span)
+    })
 }
 
 fn word_extglob_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<Span> {
     for part in parts {
         match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                if let Some(span) = word_extglob_span_from_parts(parts, source) {
-                    return Some(span);
-                }
-            }
-            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
+            WordPart::Literal(_) => {
                 if text_looks_like_extglob(part.span.slice(source)) {
                     return Some(part.span);
                 }
             }
+            WordPart::DoubleQuoted { .. } | WordPart::SingleQuoted { .. } => {}
             WordPart::ZshQualifiedGlob(_)
             | WordPart::Variable(_)
             | WordPart::CommandSubstitution { .. }
@@ -849,6 +967,12 @@ fn collect_conditional_unary_operator_spans(
         | ConditionalExpr::Pattern(_)
         | ConditionalExpr::VarRef(_) => {}
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SimpleTestOperatorKind {
+    Unary,
+    Binary,
 }
 
 fn is_name_start(byte: u8) -> bool {

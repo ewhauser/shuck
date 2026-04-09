@@ -9,7 +9,7 @@ X034 extended glob patterns in `[[` matches are not portable to POSIX sh
   |
 
 X034 extended glob patterns in `[[` matches are not portable to POSIX sh
- --> <source>:4:16
+ --> <source>:5:16
   |
-4 | if [[ $term != @(foo|bar) ]]; then :; fi
+5 | if [[ $term != @(foo|bar) ]]; then :; fi
   |

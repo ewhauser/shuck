@@ -15,7 +15,7 @@ X075 `-O` file tests are not portable to POSIX sh
   |
 
 X075 `-O` file tests are not portable to POSIX sh
- --> <source>:4:8
+ --> <source>:5:8
   |
-4 | if [ ! -O "$file" -a -w "$file" ]; then :; fi
+5 | if [ ! -O "$file" -a -w "$file" ]; then :; fi
   |
