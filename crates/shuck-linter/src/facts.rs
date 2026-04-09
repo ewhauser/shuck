@@ -59,6 +59,66 @@ impl From<Span> for FactSpan {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CommandId(usize);
+
+impl CommandId {
+    fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    fn index(self) -> usize {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum CommandLookupKind {
+    Simple,
+    Builtin(BuiltinLookupKind),
+    Decl,
+    Binary,
+    Compound(CompoundLookupKind),
+    Function,
+    AnonymousFunction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum BuiltinLookupKind {
+    Break,
+    Continue,
+    Return,
+    Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum CompoundLookupKind {
+    If,
+    For,
+    Repeat,
+    Foreach,
+    ArithmeticFor,
+    While,
+    Until,
+    Case,
+    Select,
+    Subshell,
+    BraceGroup,
+    Arithmetic,
+    Time,
+    Conditional,
+    Coproc,
+    Always,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CommandLookupEntry {
+    kind: CommandLookupKind,
+    id: CommandId,
+}
+
+type CommandLookupIndex = FxHashMap<FactSpan, Vec<CommandLookupEntry>>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SudoFamilyInvoker {
     Sudo,
@@ -403,7 +463,7 @@ pub enum WordFactHostKind {
 pub struct WordFact<'a> {
     key: FactSpan,
     word: Cow<'a, Word>,
-    command_key: FactSpan,
+    command_id: CommandId,
     nested_word_command: bool,
     context: WordFactContext,
     host_kind: WordFactHostKind,
@@ -432,8 +492,8 @@ impl<'a> WordFact<'a> {
         self.word.span
     }
 
-    pub fn command_key(&self) -> FactSpan {
-        self.command_key
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
     }
 
     pub fn is_nested_word_command(&self) -> bool {
@@ -609,7 +669,7 @@ impl<'a> LoopHeaderWordFact<'a> {
 #[derive(Debug, Clone)]
 pub struct ForHeaderFact<'a> {
     command: &'a ForCommand,
-    command_key: FactSpan,
+    command_id: CommandId,
     nested_word_command: bool,
     words: Box<[LoopHeaderWordFact<'a>]>,
 }
@@ -619,8 +679,8 @@ impl<'a> ForHeaderFact<'a> {
         self.command
     }
 
-    pub fn command_key(&self) -> FactSpan {
-        self.command_key
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
     }
 
     pub fn span(&self) -> Span {
@@ -651,7 +711,7 @@ impl<'a> ForHeaderFact<'a> {
 #[derive(Debug, Clone)]
 pub struct SelectHeaderFact<'a> {
     command: &'a SelectCommand,
-    command_key: FactSpan,
+    command_id: CommandId,
     nested_word_command: bool,
     words: Box<[LoopHeaderWordFact<'a>]>,
 }
@@ -661,8 +721,8 @@ impl<'a> SelectHeaderFact<'a> {
         self.command
     }
 
-    pub fn command_key(&self) -> FactSpan {
-        self.command_key
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
     }
 
     pub fn span(&self) -> Span {
@@ -693,7 +753,7 @@ impl<'a> SelectHeaderFact<'a> {
 #[derive(Debug, Clone)]
 pub struct PipelineSegmentFact<'a> {
     stmt: &'a Stmt,
-    command_key: FactSpan,
+    command_id: CommandId,
     literal_name: Option<Box<str>>,
     effective_name: Option<Box<str>>,
 }
@@ -707,8 +767,8 @@ impl<'a> PipelineSegmentFact<'a> {
         &self.stmt.command
     }
 
-    pub fn command_key(&self) -> FactSpan {
-        self.command_key
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
     }
 
     pub fn literal_name(&self) -> Option<&str> {
@@ -975,6 +1035,7 @@ impl<'a> CommandOptionFacts<'a> {
 
 #[derive(Debug, Clone)]
 pub struct CommandFact<'a> {
+    id: CommandId,
     key: FactSpan,
     visit: CommandVisit<'a>,
     nested_word_command: bool,
@@ -987,6 +1048,10 @@ pub struct CommandFact<'a> {
 }
 
 impl<'a> CommandFact<'a> {
+    pub fn id(&self) -> CommandId {
+        self.id
+    }
+
     pub fn key(&self) -> FactSpan {
         self.key
     }
@@ -1087,8 +1152,9 @@ impl<'a> CommandFact<'a> {
 #[derive(Debug, Clone)]
 pub struct LinterFacts<'a> {
     commands: Vec<CommandFact<'a>>,
-    structural_command_indices: Vec<usize>,
-    command_index: FxHashMap<*const Command, usize>,
+    structural_command_ids: Vec<CommandId>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    command_ids_by_span: CommandLookupIndex,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
     presence_tested_names: FxHashSet<Name>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
@@ -1120,23 +1186,24 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn structural_commands(&self) -> impl Iterator<Item = &CommandFact<'a>> + '_ {
-        self.structural_command_indices
+        self.structural_command_ids
             .iter()
-            .map(|&index| &self.commands[index])
+            .copied()
+            .map(|id| self.command(id))
     }
 
-    pub fn command(&self, span: Span) -> Option<&CommandFact<'a>> {
-        self.commands.iter().find(|fact| fact.span() == span)
+    pub fn command(&self, id: CommandId) -> &CommandFact<'a> {
+        &self.commands[id.index()]
     }
 
-    pub fn command_for_stmt(&self, stmt: &Stmt) -> Option<&CommandFact<'a>> {
-        self.command_for_command(&stmt.command)
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn command_id_for_stmt(&self, stmt: &Stmt) -> Option<CommandId> {
+        self.command_id_for_command(&stmt.command)
     }
 
-    pub fn command_for_command(&self, command: &Command) -> Option<&CommandFact<'a>> {
-        self.command_index
-            .get(&command_ptr(command))
-            .map(|&index| &self.commands[index])
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn command_id_for_command(&self, command: &Command) -> Option<CommandId> {
+        command_id_for_command(command, &self.command_ids_by_span)
     }
 
     pub fn scalar_binding_value(&self, span: Span) -> Option<&'a Word> {
@@ -1257,8 +1324,8 @@ impl<'a> LinterFactsBuilder<'a> {
         .map(|visit| FactSpan::new(command_span(visit.command)))
         .collect::<FxHashSet<_>>();
         let mut commands = Vec::new();
-        let mut structural_command_indices = Vec::new();
-        let mut command_index = FxHashMap::default();
+        let mut structural_command_ids = Vec::new();
+        let mut command_ids_by_span = CommandLookupIndex::default();
         let mut scalar_bindings = FxHashMap::default();
         let mut words = Vec::new();
 
@@ -1269,20 +1336,26 @@ impl<'a> LinterFactsBuilder<'a> {
             },
         ) {
             let key = FactSpan::new(command_span(visit.command));
-            let index = commands.len();
-            let previous = command_index.insert(command_ptr(visit.command), index);
-            debug_assert!(previous.is_none(), "duplicate command pointer");
+            let id = CommandId::new(commands.len());
+            let lookup_kind = command_lookup_kind(visit.command);
+            let entries = command_ids_by_span.entry(key).or_default();
+            let previous = entries.iter().find(|entry| entry.kind == lookup_kind);
+            debug_assert!(previous.is_none(), "duplicate command lookup key");
+            entries.push(CommandLookupEntry {
+                kind: lookup_kind,
+                id,
+            });
 
             collect_scalar_bindings(visit.command, &mut scalar_bindings);
             let normalized = command::normalize_command(visit.command, self.source);
             let nested_word_command = !structural_commands.contains(&key);
             if !nested_word_command {
-                structural_command_indices.push(index);
+                structural_command_ids.push(id);
             }
             words.extend(build_word_facts_for_command(
                 visit,
                 self.source,
-                key,
+                id,
                 nested_word_command,
             ));
             let redirect_facts = build_redirect_facts(visit.redirects, self.source);
@@ -1291,6 +1364,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 build_simple_test_fact(visit.command, self.source, self._file_context);
             let conditional = build_conditional_fact(visit.command, self.source);
             commands.push(CommandFact {
+                id,
                 key,
                 visit,
                 nested_word_command,
@@ -1303,18 +1377,20 @@ impl<'a> LinterFactsBuilder<'a> {
             });
         }
 
-        let substitution_facts = build_substitution_facts(&commands, &command_index, self.source);
+        let substitution_facts =
+            build_substitution_facts(&commands, &command_ids_by_span, self.source);
         for (fact, substitutions) in commands.iter_mut().zip(substitution_facts) {
             fact.substitution_facts = substitutions;
         }
 
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
-        let for_headers = build_for_header_facts(&commands, &command_index, self.source);
-        let select_headers = build_select_header_facts(&commands, &command_index, self.source);
-        let pipelines = build_pipeline_facts(&commands, &command_index);
-        let lists = build_list_facts(&commands);
+        let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
+        let select_headers =
+            build_select_header_facts(&commands, &command_ids_by_span, self.source);
+        let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
+        let lists = build_list_facts(&commands, &command_ids_by_span);
         let surface_fragments =
-            build_surface_fragment_facts(self.file, &commands, &command_index, self.source);
+            build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
         let subscript_index_reference_spans = build_subscript_index_reference_spans(
             self._semantic,
             &surface_fragments.subscript_spans,
@@ -1326,8 +1402,8 @@ impl<'a> LinterFactsBuilder<'a> {
 
         LinterFacts {
             commands,
-            structural_command_indices,
-            command_index,
+            structural_command_ids,
+            command_ids_by_span,
             scalar_bindings,
             presence_tested_names,
             subscript_index_reference_spans,
@@ -1571,27 +1647,27 @@ fn collect_presence_tested_names_from_parameter_expansion(
 fn build_word_facts_for_command<'a>(
     visit: CommandVisit<'a>,
     source: &'a str,
-    command_key: FactSpan,
+    command_id: CommandId,
     nested_word_command: bool,
 ) -> Vec<WordFact<'a>> {
-    let mut collector = WordFactCollector::new(source, command_key, nested_word_command);
+    let mut collector = WordFactCollector::new(source, command_id, nested_word_command);
     collector.collect_command(visit.command, visit.redirects);
     collector.finish()
 }
 
 struct WordFactCollector<'a> {
     source: &'a str,
-    command_key: FactSpan,
+    command_id: CommandId,
     nested_word_command: bool,
     facts: Vec<WordFact<'a>>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
 }
 
 impl<'a> WordFactCollector<'a> {
-    fn new(source: &'a str, command_key: FactSpan, nested_word_command: bool) -> Self {
+    fn new(source: &'a str, command_id: CommandId, nested_word_command: bool) -> Self {
         Self {
             source,
-            command_key,
+            command_id,
             nested_word_command,
             facts: Vec::new(),
             seen: FxHashSet::default(),
@@ -2121,7 +2197,7 @@ impl<'a> WordFactCollector<'a> {
             double_quoted_expansion_spans: double_quoted_expansion_part_spans(word_ref)
                 .into_boxed_slice(),
             word,
-            command_key: self.command_key,
+            command_id: self.command_id,
             nested_word_command: self.nested_word_command,
             context,
             host_kind,
@@ -2221,19 +2297,19 @@ fn collect_double_quoted_expansion_spans(
 
 fn build_substitution_facts<'a>(
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Vec<Box<[SubstitutionFact]>> {
     commands
         .iter()
-        .map(|fact| build_command_substitution_facts(fact, commands, command_index, source))
+        .map(|fact| build_command_substitution_facts(fact, commands, command_ids_by_span, source))
         .collect()
 }
 
 fn build_command_substitution_facts<'a>(
     fact: &CommandFact<'a>,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Box<[SubstitutionFact]> {
     let mut substitutions = Vec::new();
@@ -2244,7 +2320,7 @@ fn build_command_substitution_facts<'a>(
             word,
             SubstitutionHostKind::Other,
             commands,
-            command_index,
+            command_ids_by_span,
             source,
             &mut substitutions,
             &mut substitution_index,
@@ -2256,7 +2332,7 @@ fn build_command_substitution_facts<'a>(
             word,
             SubstitutionHostKind::CommandArgument,
             commands,
-            command_index,
+            command_ids_by_span,
             source,
             &mut substitutions,
             &mut substitution_index,
@@ -2268,7 +2344,7 @@ fn build_command_substitution_facts<'a>(
             word,
             SubstitutionHostKind::DeclarationAssignmentValue,
             commands,
-            command_index,
+            command_ids_by_span,
             source,
             &mut substitutions,
             &mut substitution_index,
@@ -2280,7 +2356,7 @@ fn build_command_substitution_facts<'a>(
             word,
             kind,
             commands,
-            command_index,
+            command_ids_by_span,
             source,
             &mut substitutions,
             &mut substitution_index,
@@ -2294,7 +2370,7 @@ fn collect_or_update_word_substitution_facts<'a>(
     word: &Word,
     host_kind: SubstitutionHostKind,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
     substitutions: &mut Vec<SubstitutionFact>,
     substitution_index: &mut FxHashMap<FactSpan, usize>,
@@ -2312,7 +2388,7 @@ fn collect_or_update_word_substitution_facts<'a>(
         }
 
         let (stdout_intent, has_stdout_redirect) =
-            classify_substitution_body(occurrence.body, commands, command_index, source);
+            classify_substitution_body(occurrence.body, commands, command_ids_by_span, source);
         substitution_index.insert(key, substitutions.len());
         substitutions.push(SubstitutionFact {
             span: occurrence.span,
@@ -2453,7 +2529,7 @@ fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
 fn classify_substitution_body<'a>(
     body: &'a StmtSeq,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> (SubstitutionOutputIntent, bool) {
     let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
@@ -2465,8 +2541,8 @@ fn classify_substitution_body<'a>(
             descend_nested_word_commands: false,
         },
     ) {
-        let state = if let Some(&index) = command_index.get(&command_ptr(visit.command)) {
-            classify_redirect_facts(commands[index].redirect_facts())
+        let state = if let Some(id) = command_id_for_command(visit.command, command_ids_by_span) {
+            classify_redirect_facts(command_fact(commands, id).redirect_facts())
         } else {
             let redirect_facts = build_redirect_facts(visit.redirects, source);
             classify_redirect_facts(&redirect_facts)
@@ -2913,7 +2989,7 @@ fn redirect_scan_word(redirect: &Redirect) -> &Word {
 
 fn build_for_header_facts<'a>(
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Vec<ForHeaderFact<'a>> {
     commands
@@ -2925,12 +3001,12 @@ fn build_for_header_facts<'a>(
 
             Some(ForHeaderFact {
                 command,
-                command_key: fact.key(),
+                command_id: fact.id(),
                 nested_word_command: fact.is_nested_word_command(),
                 words: build_loop_header_word_facts(
                     command.words.iter().flat_map(|words| words.iter()),
                     commands,
-                    command_index,
+                    command_ids_by_span,
                     source,
                 ),
             })
@@ -2940,7 +3016,7 @@ fn build_for_header_facts<'a>(
 
 fn build_select_header_facts<'a>(
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Vec<SelectHeaderFact<'a>> {
     commands
@@ -2952,12 +3028,12 @@ fn build_select_header_facts<'a>(
 
             Some(SelectHeaderFact {
                 command,
-                command_key: fact.key(),
+                command_id: fact.id(),
                 nested_word_command: fact.is_nested_word_command(),
                 words: build_loop_header_word_facts(
                     command.words.iter(),
                     commands,
-                    command_index,
+                    command_ids_by_span,
                     source,
                 ),
             })
@@ -2968,7 +3044,7 @@ fn build_select_header_facts<'a>(
 fn build_loop_header_word_facts<'a>(
     words: impl IntoIterator<Item = &'a Word>,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Box<[LoopHeaderWordFact<'a>]> {
     words
@@ -2984,12 +3060,12 @@ fn build_loop_header_word_facts<'a>(
                     word,
                     "ls",
                     commands,
-                    command_index,
+                    command_ids_by_span,
                 ),
                 contains_find_substitution: word_contains_find_substitution(
                     word,
                     commands,
-                    command_index,
+                    command_ids_by_span,
                 ),
             }
         })
@@ -2999,7 +3075,7 @@ fn build_loop_header_word_facts<'a>(
 
 fn build_pipeline_facts<'a>(
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> Vec<PipelineFact<'a>> {
     let mut nested_pipeline_commands = FxHashSet::default();
 
@@ -3015,13 +3091,17 @@ fn build_pipeline_facts<'a>(
             &command.left.command,
             Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll)
         ) {
-            nested_pipeline_commands.insert(command_ptr(&command.left.command));
+            if let Some(id) = command_id_for_command(&command.left.command, command_ids_by_span) {
+                nested_pipeline_commands.insert(id);
+            }
         }
         if matches!(
             &command.right.command,
             Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll)
         ) {
-            nested_pipeline_commands.insert(command_ptr(&command.right.command));
+            if let Some(id) = command_id_for_command(&command.right.command, command_ids_by_span) {
+                nested_pipeline_commands.insert(id);
+            }
         }
     }
 
@@ -3032,7 +3112,7 @@ fn build_pipeline_facts<'a>(
                 return None;
             };
             if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-                || nested_pipeline_commands.contains(&command_ptr(fact.command()))
+                || nested_pipeline_commands.contains(&fact.id())
             {
                 return None;
             }
@@ -3043,7 +3123,7 @@ fn build_pipeline_facts<'a>(
                 command,
                 segments: segments
                     .into_iter()
-                    .map(|stmt| build_pipeline_segment_fact(stmt, commands, command_index))
+                    .map(|stmt| build_pipeline_segment_fact(stmt, commands, command_ids_by_span))
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             })
@@ -3054,16 +3134,14 @@ fn build_pipeline_facts<'a>(
 fn build_pipeline_segment_fact<'a>(
     stmt: &'a Stmt,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> PipelineSegmentFact<'a> {
-    let fact = command_index
-        .get(&command_ptr(&stmt.command))
-        .map(|&index| &commands[index])
+    let fact = command_fact_for_stmt(stmt, commands, command_ids_by_span)
         .expect("pipeline segment should have a corresponding command fact");
 
     PipelineSegmentFact {
         stmt,
-        command_key: fact.key(),
+        command_id: fact.id(),
         literal_name: fact
             .literal_name()
             .map(str::to_owned)
@@ -3075,7 +3153,10 @@ fn build_pipeline_segment_fact<'a>(
     }
 }
 
-fn build_list_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<ListFact<'a>> {
+fn build_list_facts<'a>(
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> Vec<ListFact<'a>> {
     let mut nested_list_commands = FxHashSet::default();
 
     for fact in commands {
@@ -3088,11 +3169,15 @@ fn build_list_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<ListFact<'a>> {
 
         if matches!(&command.left.command, Command::Binary(left) if matches!(left.op, BinaryOp::And | BinaryOp::Or))
         {
-            nested_list_commands.insert(command_ptr(&command.left.command));
+            if let Some(id) = command_id_for_command(&command.left.command, command_ids_by_span) {
+                nested_list_commands.insert(id);
+            }
         }
         if matches!(&command.right.command, Command::Binary(right) if matches!(right.op, BinaryOp::And | BinaryOp::Or))
         {
-            nested_list_commands.insert(command_ptr(&command.right.command));
+            if let Some(id) = command_id_for_command(&command.right.command, command_ids_by_span) {
+                nested_list_commands.insert(id);
+            }
         }
     }
 
@@ -3103,7 +3188,7 @@ fn build_list_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<ListFact<'a>> {
                 return None;
             };
             if !matches!(command.op, BinaryOp::And | BinaryOp::Or)
-                || nested_list_commands.contains(&command_ptr(fact.command()))
+                || nested_list_commands.contains(&fact.id())
             {
                 return None;
             }
@@ -3160,21 +3245,21 @@ fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<S
 fn word_contains_find_substitution<'a>(
     word: &'a Word,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     word.parts
         .iter()
-        .any(|part| part_contains_find_substitution(&part.kind, commands, command_index))
+        .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span))
 }
 
 fn word_contains_command_substitution_named<'a>(
     word: &'a Word,
     name: &str,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     word.parts.iter().any(|part| {
-        part_contains_command_substitution_named(&part.kind, name, commands, command_index)
+        part_contains_command_substitution_named(&part.kind, name, commands, command_ids_by_span)
     })
 }
 
@@ -3182,14 +3267,19 @@ fn part_contains_command_substitution_named<'a>(
     part: &WordPart,
     name: &str,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
-            part_contains_command_substitution_named(&part.kind, name, commands, command_index)
+            part_contains_command_substitution_named(
+                &part.kind,
+                name,
+                commands,
+                command_ids_by_span,
+            )
         }),
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_simple_command_named(body, name, commands, command_index)
+            substitution_body_is_simple_command_named(body, name, commands, command_ids_by_span)
         }
         _ => false,
     }
@@ -3198,14 +3288,14 @@ fn part_contains_command_substitution_named<'a>(
 fn part_contains_find_substitution<'a>(
     part: &WordPart,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => parts
             .iter()
-            .any(|part| part_contains_find_substitution(&part.kind, commands, command_index)),
+            .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span)),
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_find(body, commands, command_index)
+            substitution_body_is_find(body, commands, command_ids_by_span)
         }
         _ => false,
     }
@@ -3214,29 +3304,28 @@ fn part_contains_find_substitution<'a>(
 fn substitution_body_is_find<'a>(
     body: &'a StmtSeq,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_effective_name_is(stmt, "find", commands, command_index))
+    matches!(body.as_slice(), [stmt] if stmt_effective_name_is(stmt, "find", commands, command_ids_by_span))
 }
 
 fn substitution_body_is_simple_command_named<'a>(
     body: &'a StmtSeq,
     name: &str,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_index))
+    matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_ids_by_span))
 }
 
 fn stmt_effective_name_is<'a>(
     stmt: &'a Stmt,
     name: &str,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_index
-        .get(&command_ptr(&stmt.command))
-        .map(|&index| commands[index].effective_name_is(name))
+    command_fact_for_stmt(stmt, commands, command_ids_by_span)
+        .map(|fact| fact.effective_name_is(name))
         .unwrap_or(false)
 }
 
@@ -3244,11 +3333,9 @@ fn stmt_literal_name_is<'a>(
     stmt: &'a Stmt,
     name: &str,
     commands: &[CommandFact<'a>],
-    command_index: &FxHashMap<*const Command, usize>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_index
-        .get(&command_ptr(&stmt.command))
-        .and_then(|&index| commands[index].literal_name())
+    command_fact_for_stmt(stmt, commands, command_ids_by_span).and_then(CommandFact::literal_name)
         == Some(name)
 }
 
@@ -3286,7 +3373,7 @@ impl<'a> SurfaceScanContext<'a> {
 
 struct SurfaceFragmentCollector<'a> {
     commands: &'a [CommandFact<'a>],
-    command_index: &'a FxHashMap<*const Command, usize>,
+    command_ids_by_span: &'a CommandLookupIndex,
     source: &'a str,
     facts: SurfaceFragmentFacts,
 }
@@ -3294,12 +3381,12 @@ struct SurfaceFragmentCollector<'a> {
 impl<'a> SurfaceFragmentCollector<'a> {
     fn new(
         commands: &'a [CommandFact<'a>],
-        command_index: &'a FxHashMap<*const Command, usize>,
+        command_ids_by_span: &'a CommandLookupIndex,
         source: &'a str,
     ) -> Self {
         Self {
             commands,
-            command_index,
+            command_ids_by_span,
             source,
             facts: SurfaceFragmentFacts::default(),
         }
@@ -3794,19 +3881,17 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn command_fact_for_command(&self, command: &Command) -> Option<&CommandFact<'a>> {
-        self.command_index
-            .get(&command_ptr(command))
-            .map(|&index| &self.commands[index])
+        command_fact_for_command(command, self.commands, self.command_ids_by_span)
     }
 }
 
 fn build_surface_fragment_facts<'a>(
     file: &'a File,
     commands: &'a [CommandFact<'a>],
-    command_index: &'a FxHashMap<*const Command, usize>,
+    command_ids_by_span: &'a CommandLookupIndex,
     source: &'a str,
 ) -> SurfaceFragmentFacts {
-    let mut collector = SurfaceFragmentCollector::new(commands, command_index, source);
+    let mut collector = SurfaceFragmentCollector::new(commands, command_ids_by_span, source);
     collector.collect_commands(&file.body);
     collector.finish()
 }
@@ -4325,8 +4410,73 @@ fn command_span(command: &Command) -> Span {
     }
 }
 
-fn command_ptr(command: &Command) -> *const Command {
-    std::ptr::from_ref(command)
+fn command_lookup_kind(command: &Command) -> CommandLookupKind {
+    match command {
+        Command::Simple(_) => CommandLookupKind::Simple,
+        Command::Builtin(command) => CommandLookupKind::Builtin(match command {
+            BuiltinCommand::Break(_) => BuiltinLookupKind::Break,
+            BuiltinCommand::Continue(_) => BuiltinLookupKind::Continue,
+            BuiltinCommand::Return(_) => BuiltinLookupKind::Return,
+            BuiltinCommand::Exit(_) => BuiltinLookupKind::Exit,
+        }),
+        Command::Decl(_) => CommandLookupKind::Decl,
+        Command::Binary(_) => CommandLookupKind::Binary,
+        Command::Compound(command) => CommandLookupKind::Compound(match command {
+            CompoundCommand::If(_) => CompoundLookupKind::If,
+            CompoundCommand::For(_) => CompoundLookupKind::For,
+            CompoundCommand::Repeat(_) => CompoundLookupKind::Repeat,
+            CompoundCommand::Foreach(_) => CompoundLookupKind::Foreach,
+            CompoundCommand::ArithmeticFor(_) => CompoundLookupKind::ArithmeticFor,
+            CompoundCommand::While(_) => CompoundLookupKind::While,
+            CompoundCommand::Until(_) => CompoundLookupKind::Until,
+            CompoundCommand::Case(_) => CompoundLookupKind::Case,
+            CompoundCommand::Select(_) => CompoundLookupKind::Select,
+            CompoundCommand::Subshell(_) => CompoundLookupKind::Subshell,
+            CompoundCommand::BraceGroup(_) => CompoundLookupKind::BraceGroup,
+            CompoundCommand::Arithmetic(_) => CompoundLookupKind::Arithmetic,
+            CompoundCommand::Time(_) => CompoundLookupKind::Time,
+            CompoundCommand::Conditional(_) => CompoundLookupKind::Conditional,
+            CompoundCommand::Coproc(_) => CompoundLookupKind::Coproc,
+            CompoundCommand::Always(_) => CompoundLookupKind::Always,
+        }),
+        Command::Function(_) => CommandLookupKind::Function,
+        Command::AnonymousFunction(_) => CommandLookupKind::AnonymousFunction,
+    }
+}
+
+fn command_id_for_command(
+    command: &Command,
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<CommandId> {
+    command_ids_by_span
+        .get(&FactSpan::new(command_span(command)))
+        .and_then(|entries| {
+            let kind = command_lookup_kind(command);
+            entries
+                .iter()
+                .find(|entry| entry.kind == kind)
+                .map(|entry| entry.id)
+        })
+}
+
+fn command_fact<'a>(commands: &'a [CommandFact<'a>], id: CommandId) -> &'a CommandFact<'a> {
+    &commands[id.index()]
+}
+
+fn command_fact_for_command<'a>(
+    command: &Command,
+    commands: &'a [CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<&'a CommandFact<'a>> {
+    command_id_for_command(command, command_ids_by_span).map(|id| command_fact(commands, id))
+}
+
+fn command_fact_for_stmt<'a>(
+    stmt: &Stmt,
+    commands: &'a [CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<&'a CommandFact<'a>> {
+    command_fact_for_command(&stmt.command, commands, command_ids_by_span)
 }
 
 fn builtin_span(command: &BuiltinCommand) -> Span {
@@ -4369,9 +4519,9 @@ mod tests {
     use shuck_semantic::SemanticModel;
 
     use super::{
-        ConditionalNodeFact, ConditionalOperatorFamily, LinterFacts, SimpleTestOperatorFamily,
-        SimpleTestShape, SimpleTestSyntax, SubstitutionHostKind, SudoFamilyInvoker,
-        WordFactHostKind,
+        CommandId, ConditionalNodeFact, ConditionalOperatorFamily, LinterFacts,
+        SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SubstitutionHostKind,
+        SudoFamilyInvoker, WordFactHostKind,
     };
     use crate::rules::common::command::WrapperKind;
     use crate::rules::common::expansion::{ExpansionContext, SubstitutionOutputIntent};
@@ -4440,10 +4590,18 @@ mod tests {
             .find(|fact| fact.effective_name_is("echo"))
             .expect("expected nested echo fact");
         assert!(nested.is_nested_word_command());
+        assert_eq!(
+            facts
+                .commands()
+                .iter()
+                .map(|fact| fact.id())
+                .collect::<Vec<_>>(),
+            vec![CommandId::new(0), CommandId::new(1)]
+        );
     }
 
     #[test]
-    fn exposes_structural_commands_and_stable_lookups() {
+    fn exposes_structural_commands_and_id_lookups() {
         let source = "#!/bin/bash\necho \"$(printf x)\"\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -4463,11 +4621,18 @@ mod tests {
 
         assert_eq!(structural, vec!["echo"]);
         assert_eq!(all, vec!["echo", "printf"]);
-        assert!(facts.command_for_stmt(&output.file.body[0]).is_some());
-        assert!(
-            facts
-                .command_for_command(&output.file.body[0].command)
-                .is_some()
+
+        let echo_id = facts
+            .command_id_for_stmt(&output.file.body[0])
+            .expect("expected command id for top-level stmt");
+        assert_eq!(echo_id, CommandId::new(0));
+        assert_eq!(
+            facts.command(echo_id).effective_or_literal_name(),
+            Some("echo")
+        );
+        assert_eq!(
+            facts.command_id_for_command(&output.file.body[0].command),
+            Some(echo_id)
         );
     }
 
@@ -5026,6 +5191,15 @@ true && false || printf '%s\\n' fallback
                     vec!["printf".to_owned(), "kill".to_owned(), "tee".to_owned()],
                     vec!["printf".to_owned(), "kill".to_owned()],
                 ]
+            );
+
+            let first_pipeline = &facts.pipelines()[0];
+            let first_segment = &first_pipeline.segments()[0];
+            assert_eq!(
+                facts
+                    .command(first_segment.command_id())
+                    .effective_or_literal_name(),
+                Some("printf")
             );
 
             let list = facts.lists().first().expect("expected list fact");

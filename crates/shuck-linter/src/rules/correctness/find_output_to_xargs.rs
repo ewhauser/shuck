@@ -32,8 +32,8 @@ fn unsafe_find_to_xargs_spans(checker: &Checker<'_>, pipeline: &PipelineFact<'_>
         .filter_map(|pair| {
             let left_segment = &pair[0];
             let right_segment = &pair[1];
-            let left = checker.facts().command_for_stmt(left_segment.stmt())?;
-            let right = checker.facts().command_for_stmt(right_segment.stmt())?;
+            let left = checker.facts().command(left_segment.command_id());
+            let right = checker.facts().command(right_segment.command_id());
 
             if !left_segment.effective_name_is("find") || !right_segment.effective_name_is("xargs")
             {
