@@ -201,6 +201,7 @@ impl Default for ShellCheckCodeMap {
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
+                (3052, Rule::AmpersandRedirection),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
@@ -337,6 +338,7 @@ mod tests {
         assert_eq!(map.resolve("SC2371"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
+        assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));

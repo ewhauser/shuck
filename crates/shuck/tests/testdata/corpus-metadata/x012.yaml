@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "Shuck treats `# -*- sh -*-` and similar shell-collapse headers as POSIX sh, so `&>` is flagged wherever those files use it. ShellCheck stays silent on the corpus hits here, which indicates it is resolving those helpers differently, so we record the mismatch as a reviewed divergence instead of weakening the portability rule."

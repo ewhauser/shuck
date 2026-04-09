@@ -1,3 +1,4 @@
+pub mod ampersand_redirection;
 pub mod conditional_portability;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
@@ -45,6 +46,7 @@ mod tests {
     #[test_case(Rule::TestEqualityOperator, Path::new("X002.sh"))]
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
+    #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]

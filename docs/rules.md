@@ -101,7 +101,7 @@ Detect bash-specific control flow constructs in POSIX sh.
 
 Detect bash-specific redirection and pipe operators in POSIX sh.
 
-- [ ] **L** X012 (SC3052) `ampersand-redirection` — `&>` combined redirect in sh
+- [x] **L** X012 (SC3052) `ampersand-redirection` — `&>` combined redirect in sh
 - [ ] **L** X020 (SC3050) `brace-fd-redirection` — `{fd}>` brace-based FD in sh
 - [ ] **L** X063 (SC3070) `ampersand-redirect-in-sh` — `>&` combined redirect in sh
 - [ ] **L** X066 (SC3073) `pipe-stderr-in-sh` — `|&` pipe-stderr in sh
