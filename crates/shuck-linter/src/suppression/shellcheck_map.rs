@@ -99,6 +99,7 @@ impl Default for ShellCheckCodeMap {
                 (2238, Rule::RedirectToCommandName),
                 (2266, Rule::OverwrittenFunction),
                 (2270, Rule::IfMissingThen),
+                (2271, Rule::ElseWithoutThen),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
             ]),
@@ -184,6 +185,7 @@ mod tests {
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
         assert_eq!(map.resolve("SC2270"), Some(Rule::IfMissingThen));
+        assert_eq!(map.resolve("SC2271"), Some(Rule::ElseWithoutThen));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -252,6 +254,7 @@ mod tests {
                 (2264, Rule::NestedParameterExpansion),
                 (2266, Rule::OverwrittenFunction),
                 (2270, Rule::IfMissingThen),
+                (2271, Rule::ElseWithoutThen),
                 (2288, Rule::TemplateBraceInCommand),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
