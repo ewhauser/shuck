@@ -68,6 +68,22 @@ fn test_named_fd_heredoc_redirect_keeps_fd_var_metadata() {
 }
 
 #[test]
+fn test_spaced_word_before_heredoc_stays_a_plain_argument() {
+    let input = "echo {docfd} <<EOF\nhello\nEOF\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let stmt = &script.body[0];
+    let command = expect_simple(stmt);
+    assert_eq!(command.name.render(input), "echo");
+    assert_eq!(command.args.len(), 1);
+    assert_eq!(command.args[0].render(input), "{docfd}");
+    assert_eq!(stmt.redirects.len(), 1);
+    assert_eq!(stmt.redirects[0].kind, RedirectKind::HereDoc);
+    assert_eq!(stmt.redirects[0].fd_var.as_deref(), None);
+    assert_eq!(stmt.redirects[0].fd_var_span, None);
+}
+
+#[test]
 fn test_dynamic_heredoc_delimiter_is_rejected() {
     let parser = Parser::new("cat <<\"$@\"\nbody\n$@\n");
     assert!(

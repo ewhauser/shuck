@@ -1,6 +1,6 @@
 use shuck_ast::{RedirectKind, Span};
 
-use crate::{Checker, RedirectFact, Rule, ShellDialect, Violation};
+use crate::{Checker, RedirectFact, Rule, ShellDialect, Violation, static_word_text};
 
 pub struct AmpersandRedirectInSh;
 
@@ -32,7 +32,10 @@ pub fn ampersand_redirect_in_sh(checker: &mut Checker) {
 
 fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -> Option<Span> {
     let redirect_data = redirect.redirect();
-    if redirect_data.kind != RedirectKind::DupOutput {
+    if !matches!(
+        redirect_data.kind,
+        RedirectKind::DupOutput | RedirectKind::Output
+    ) {
         return None;
     }
 
@@ -42,19 +45,24 @@ fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -
     }
 
     let target = redirect_data.word_target()?;
-    let target_text = target.span.slice(source);
+    let target_text = static_word_text(target, source)?;
     if target_text == "-" || target_text.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
 
     let redirect_text = redirect_data.span.slice(source);
-    if !redirect_text.starts_with(">&") {
+    let operator_offset = redirect_text.find(">&")?;
+    if !redirect_text[operator_offset..].starts_with(">&") {
         return None;
     }
 
+    let operator_start = redirect_data
+        .span
+        .start
+        .advanced_by(&redirect_text[..operator_offset]);
     Some(Span::from_positions(
-        redirect_data.span.start,
-        redirect_data.span.start.advanced_by(">&"),
+        operator_start,
+        operator_start.advanced_by(">&"),
     ))
 }
 
@@ -69,15 +77,17 @@ mod tests {
 #!/bin/sh
 echo test >& /dev/null
 echo test >&+1
+echo test 1>&/tmp/log
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AmpersandRedirectInSh),
         );
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(diagnostics[0].span.slice(source), ">&");
         assert_eq!(diagnostics[1].span.slice(source), ">&");
+        assert_eq!(diagnostics[2].span.slice(source), ">&");
     }
 
     #[test]
@@ -86,6 +96,8 @@ echo test >&+1
 #!/bin/sh
 echo test >&2
 echo test 1>&2
+echo test >&\"2\"
+echo test 1>&\"2\"
 echo test >&-
 echo test >&\"$fd\"
 ";

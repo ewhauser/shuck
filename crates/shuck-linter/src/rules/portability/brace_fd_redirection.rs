@@ -65,4 +65,17 @@ exec {fd}>/dev/null
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_braced_arguments_before_spaced_heredocs() {
+        let source = "\
+#!/bin/sh
+echo {fd} <<EOF
+hello
+EOF
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceFdRedirection));
+
+        assert!(diagnostics.is_empty());
+    }
 }
