@@ -242,7 +242,7 @@ fn filter_suppressed_diagnostics(
 mod tests {
     use super::*;
     use shuck_ast::Command;
-    use shuck_parser::parser::Parser;
+    use shuck_parser::parser::{Parser, ShellDialect as ParseDialect};
     use std::fs;
     use std::path::Path;
     use tempfile::tempdir;
@@ -270,6 +270,17 @@ mod tests {
 
     fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
+    }
+
+    fn lint_named_source_with_parse_dialect(
+        path: &Path,
+        source: &str,
+        parse_dialect: ParseDialect,
+        settings: &LinterSettings,
+    ) -> Vec<Diagnostic> {
+        let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
     }
@@ -574,6 +585,294 @@ EOF
             Rule::UndefinedVariable,
         );
 
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn quoted_heredoc_generated_shell_text_does_not_report_c006_with_source_closure() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+. \"$outdir\"/build.info
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn posix_quoted_heredoc_generated_shell_text_does_not_report_c006_with_source_closure() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+. \"$outdir\"/build.info
+END
+)\"
+";
+        fs::write(&main, source).unwrap();
+
+        let diagnostics = lint_named_source_with_parse_dialect(
+            &main,
+            source,
+            ParseDialect::Posix,
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn posix_second_quoted_heredoc_generated_shell_text_does_not_report_c006_with_source_closure() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "\
+#!/bin/sh
+usage=\"$(command cat <<\\END
+Usage
+END
+)\"
+
+build=\"$(command cat <<\\END
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+. \"$outdir\"/build.info
+END
+)\"
+";
+        fs::write(&main, source).unwrap();
+
+        let diagnostics = lint_named_source_with_parse_dialect(
+            &main,
+            source,
+            ParseDialect::Posix,
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn escaped_dollar_heredoc_generated_text_does_not_report_c006_with_source_closure() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+cat <<EOF > ./postinst
+if [ \"\\$1\" = \"configure\" ]; then
+  for ver in 1 current; do
+    for x in rewriteSystem rewriteURI; do
+      xmlcatalog --noout --add \\$x http://example.test/xsl/\\$ver
+    done
+  done
+fi
+EOF
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn quoted_heredoc_generated_shell_text_with_nested_same_name_heredoc_does_not_report_c006() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+command cat >&2 <<-END
+\tSUCCESS
+\tEND
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn tab_stripped_escaped_dollar_heredoc_generated_text_does_not_report_c006() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+cat <<- EOF > ./postinst
+\tif [ \"\\$1\" = \"configure\" ]; then
+\t\tfor ver in 1 current; do
+\t\t\tfor x in rewriteSystem rewriteURI; do
+\t\t\t\txmlcatalog --noout --add \\$x http://example.test/xsl/\\$ver
+\t\t\tdone
+\t\tdone
+\tfi
+\tEOF
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn posix_tab_stripped_escaped_dollar_heredoc_generated_text_does_not_report_c006() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "\
+#!/bin/sh
+cat <<- EOF > ./postinst
+\tif [ \"$TERMUX_PACKAGE_FORMAT\" = \"pacman\" ] || [ \"\\$1\" = \"configure\" ]; then
+\t\tfor ver in $TERMUX_PKG_VERSION current; do
+\t\t\tfor x in rewriteSystem rewriteURI; do
+\t\t\t\txmlcatalog --noout --add \\$x http://docbook.sourceforge.net/release/xsl-ns/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-$TERMUX_PKG_VERSION\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\t\t\tdone
+\t\tdone
+\tfi
+\tEOF
+";
+        fs::write(&main, source).unwrap();
+
+        let diagnostics = lint_named_source_with_parse_dialect(
+            &main,
+            source,
+            ParseDialect::Posix,
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn posix_docbook_wrapper_does_not_report_c006_for_escaped_placeholders() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "\
+#!/bin/sh
+termux_step_create_debscripts() {
+\tcat <<- EOF > ./postinst
+\t#!$TERMUX_PREFIX/bin/sh
+\tif [ \"$TERMUX_PACKAGE_FORMAT\" = \"pacman\" ] || [ \"\\$1\" = \"configure\" ]; then
+\t\tfor ver in $TERMUX_PKG_VERSION current; do
+\t\t\tfor x in rewriteSystem rewriteURI; do
+\t\t\t\txmlcatalog --noout --add \\$x http://cdn.docbook.org/release/xsl/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-$TERMUX_PKG_VERSION\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\
+\t\t\t\txmlcatalog --noout --add \\$x http://docbook.sourceforge.net/release/xsl-ns/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-$TERMUX_PKG_VERSION\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\
+\t\t\t\txmlcatalog --noout --add \\$x http://docbook.sourceforge.net/release/xsl/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-${TERMUX_PKG_VERSION}-nons\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\t\t\tdone
+\t\tdone
+\tfi
+\tEOF
+}
+";
+        fs::write(&main, source).unwrap();
+
+        let diagnostics = lint_named_source_with_parse_dialect(
+            &main,
+            source,
+            ParseDialect::Posix,
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn bash_quoted_heredoc_case_arm_text_does_not_report_c006() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+case \"$gitstatus_kernel\" in
+  linux)
+    for formula in libiconv cmake git wget; do
+      if command brew ls --version \"$formula\" >/dev/null; then
+        command brew upgrade \"$formula\"
+      else
+        command brew install \"$formula\"
+      fi
+    done
+  ;;
+esac
+command cat >&2 <<-END
+\tSUCCESS
+\tEND
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_named_source_with_parse_dialect(
+            &main,
+            &fs::read_to_string(&main).unwrap(),
+            ParseDialect::Bash,
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 

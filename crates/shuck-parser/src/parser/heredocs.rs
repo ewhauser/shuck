@@ -60,7 +60,7 @@ impl<'a> Parser<'a> {
             strip_tabs,
         };
 
-        let heredoc = self.lexer.read_heredoc(&delimiter_text);
+        let heredoc = self.lexer.read_heredoc(&delimiter_text, strip_tabs);
         let content_span = heredoc.content_span;
         let content = if strip_tabs {
             Self::strip_heredoc_tabs(heredoc.content)

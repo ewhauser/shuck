@@ -2714,25 +2714,38 @@ impl<'a> Parser<'a> {
                 } else {
                     let inner_start = cursor;
                     let body = if source_backed {
-                        let mut depth = 1;
-                        let mut inner_end = inner_start;
-                        while chars.peek().is_some() {
-                            let c = Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            match c {
-                                '(' => {
-                                    depth += 1;
-                                    inner_end = cursor;
-                                }
-                                ')' => {
-                                    depth -= 1;
-                                    if depth == 0 {
-                                        break;
-                                    }
-                                    inner_end = cursor;
-                                }
-                                _ => inner_end = cursor,
+                        let remaining_word_text = chars.clone().collect::<String>();
+                        let consumed =
+                            lexer::scan_command_substitution_body_len(&remaining_word_text);
+                        let inner_end = if let Some(consumed) = consumed {
+                            let consumed_text = &remaining_word_text[..consumed];
+                            for _ in consumed_text.chars() {
+                                Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
-                        }
+                            let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
+                            inner_start.advanced_by(inner_text)
+                        } else {
+                            let mut depth = 1;
+                            let mut inner_end = inner_start;
+                            while chars.peek().is_some() {
+                                let c = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                                match c {
+                                    '(' => {
+                                        depth += 1;
+                                        inner_end = cursor;
+                                    }
+                                    ')' => {
+                                        depth -= 1;
+                                        if depth == 0 {
+                                            break;
+                                        }
+                                        inner_end = cursor;
+                                    }
+                                    _ => inner_end = cursor,
+                                }
+                            }
+                            inner_end
+                        };
                         self.nested_stmt_seq_from_current_input(inner_start, inner_end)
                     } else {
                         let mut cmd_str = String::new();

@@ -2944,7 +2944,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Read here document content until the delimiter line is found
-    pub fn read_heredoc(&mut self, delimiter: &str) -> HeredocRead {
+    pub fn read_heredoc(&mut self, delimiter: &str, strip_tabs: bool) -> HeredocRead {
         let mut content = String::with_capacity(64);
         let mut current_line = String::with_capacity(64);
 
@@ -3000,7 +3000,7 @@ impl<'a> Lexer<'a> {
                 let line = &rest[..line_len];
                 let has_newline = line_len < rest.len();
 
-                if line.trim() == delimiter {
+                if heredoc_line_matches_delimiter(line, delimiter, strip_tabs) {
                     content_end = current_line_start;
                     self.consume_source_bytes(line_len);
                     if has_newline {
@@ -3027,7 +3027,7 @@ impl<'a> Lexer<'a> {
                 Some('\n') => {
                     self.advance();
                     // Check if current line matches delimiter
-                    if current_line.trim() == delimiter {
+                    if heredoc_line_matches_delimiter(&current_line, delimiter, strip_tabs) {
                         content_end = current_line_start;
                         break;
                     }
@@ -3042,7 +3042,7 @@ impl<'a> Lexer<'a> {
                 }
                 None => {
                     // End of input - check last line
-                    if current_line.trim() == delimiter {
+                    if heredoc_line_matches_delimiter(&current_line, delimiter, strip_tabs) {
                         content_end = current_line_start;
                         break;
                     }
@@ -3072,6 +3072,22 @@ impl<'a> Lexer<'a> {
             content_span: Span::from_positions(content_start, content_end),
         }
     }
+}
+
+fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool) -> bool {
+    if strip_tabs {
+        line.trim_start_matches('\t') == delimiter
+    } else {
+        line == delimiter
+    }
+}
+
+pub(super) fn scan_command_substitution_body_len(input: &str) -> Option<usize> {
+    let mut lexer = Lexer::new(input);
+    let mut content = Some(String::new());
+    lexer
+        .read_command_subst_into(&mut content)
+        .then_some(lexer.offset)
 }
 
 #[cfg(test)]
@@ -3607,14 +3623,14 @@ EOF
     fn test_read_heredoc() {
         // Simulate state after reading "cat <<EOF" - positioned at newline before content
         let mut lexer = Lexer::new("\nhello\nworld\nEOF");
-        let content = lexer.read_heredoc("EOF");
+        let content = lexer.read_heredoc("EOF", false);
         assert_eq!(content.content, "hello\nworld\n");
     }
 
     #[test]
     fn test_read_heredoc_single_line() {
         let mut lexer = Lexer::new("\ntest\nEOF");
-        let content = lexer.read_heredoc("EOF");
+        let content = lexer.read_heredoc("EOF", false);
         assert_eq!(content.content, "test\n");
     }
 
@@ -3629,7 +3645,7 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
         // Now read heredoc content
-        let content = lexer.read_heredoc("EOF");
+        let content = lexer.read_heredoc("EOF", false);
         assert_eq!(content.content, "hello\nworld\n");
     }
 
@@ -3640,7 +3656,7 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
         assert_next_token(&mut lexer, TokenKind::HereDoc, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
-        let content = lexer.read_heredoc("EOF");
+        let content = lexer.read_heredoc("EOF", false);
         assert_eq!(content.content, "hello\n");
         // The redirect tokens are now available from the lexer
         assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
@@ -3656,7 +3672,7 @@ EOF
         assert_next_token(&mut lexer, TokenKind::HereDoc, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
-        let heredoc = lexer.read_heredoc("EOF");
+        let heredoc = lexer.read_heredoc("EOF", false);
         assert_eq!(heredoc.content, "hello\n");
 
         let redirect = lexer.next_lexed_token_with_comments().unwrap();
@@ -3734,7 +3750,7 @@ EOF
         assert_next_token_with_comments(&mut lexer, TokenKind::HereDoc, None);
         assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("EOF"));
 
-        let heredoc = lexer.read_heredoc("EOF");
+        let heredoc = lexer.read_heredoc("EOF", false);
         assert_eq!(heredoc.content, "# not a comment\nreal line\n");
 
         // After heredoc, replayed line termination should appear before
@@ -3758,7 +3774,7 @@ EOF
         assert_next_token_with_comments(&mut lexer, TokenKind::HereDoc, None);
         assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("EOF"));
 
-        let heredoc = lexer.read_heredoc("EOF");
+        let heredoc = lexer.read_heredoc("EOF", false);
         assert_eq!(heredoc.content, "val=${x#prefix}\n");
     }
 
@@ -3773,7 +3789,7 @@ EOF
         assert_next_token(&mut lexer, TokenKind::HereDoc, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
-        let heredoc = lexer.read_heredoc("EOF");
+        let heredoc = lexer.read_heredoc("EOF", false);
         let start = heredoc.content_span.start.offset;
         let end = heredoc.content_span.end.offset;
         assert!(
@@ -3799,7 +3815,7 @@ EOF
         assert_next_token(&mut lexer, TokenKind::HereDoc, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
 
-        let heredoc = lexer.read_heredoc("EOF");
+        let heredoc = lexer.read_heredoc("EOF", false);
         assert_eq!(heredoc.content, "# 你好\ncafé\n");
         let start = heredoc.content_span.start.offset;
         let end = heredoc.content_span.end.offset;

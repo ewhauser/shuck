@@ -1191,6 +1191,21 @@ mod tests {
         SemanticModel::build(&output.file, source, &indexer)
     }
 
+    fn model_at_path_with_parse_dialect(path: &Path, dialect: ShellDialect) -> SemanticModel {
+        let source = fs::read_to_string(path).unwrap();
+        let output = Parser::with_dialect(&source, dialect).parse().unwrap();
+        let indexer = Indexer::new(&source, &output);
+        let mut observer = NoopTraversalObserver;
+        build_with_observer_at_path_with_resolver(
+            &output.file,
+            &source,
+            &indexer,
+            &mut observer,
+            Some(path),
+            None,
+        )
+    }
+
     fn model_at_path(path: &Path) -> SemanticModel {
         model_at_path_with_resolver(path, None)
     }
@@ -3430,6 +3445,347 @@ END
             unused.contains(&Name::from("outdir")),
             "unused: {:?}",
             unused
+        );
+    }
+
+    #[test]
+    fn quoted_heredoc_body_stays_inert_with_source_closure_enabled() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+. \"$outdir\"/build.info
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        assert!(
+            model.precompute_uninitialized_references().is_empty(),
+            "uninitialized: {:?}",
+            model.precompute_uninitialized_references()
+        );
+    }
+
+    #[test]
+    fn posix_quoted_heredoc_body_stays_inert_with_source_closure_enabled() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+. \"$outdir\"/build.info
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        assert!(
+            model.precompute_uninitialized_references().is_empty(),
+            "uninitialized: {:?}",
+            model.precompute_uninitialized_references()
+        );
+    }
+
+    #[test]
+    fn posix_second_quoted_heredoc_body_stays_inert_with_source_closure_enabled() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+usage=\"$(command cat <<\\END
+Usage
+END
+)\"
+
+build=\"$(command cat <<\\END
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+. \"$outdir\"/build.info
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        assert!(
+            model.precompute_uninitialized_references().is_empty(),
+            "uninitialized: {:?}",
+            model.precompute_uninitialized_references()
+        );
+    }
+
+    #[test]
+    fn quoted_heredoc_build_template_executed_later_stays_inert() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("build.info");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+usage=\"$(command cat <<\\END
+Usage
+END
+)\"
+
+build=\"$(command cat <<\\END
+outdir=\"$(command pwd)\"
+workdir=\"${TMPDIR:-/tmp}/gitstatus-build.tmp.$$\"\n\
+for formula in libiconv cmake git wget; do
+  if command brew ls --version \"$formula\" >/dev/null 2>&1; then
+    command brew upgrade \"$formula\"
+  else
+    command brew install \"$formula\"
+  fi
+done
+archflag=\"-march\"
+nopltflag=\"-fno-plt\"
+cflags=\"$archflag=$cpu $nopltflag\"
+. \"$outdir\"/build.info
+END
+)\"
+
+eval \"$build\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "libgit2_version=1.0\n").unwrap();
+
+        let mut model = model_at_path(&main);
+        let references = model.precompute_uninitialized_references().to_vec();
+        let names = references
+            .iter()
+            .map(|reference| model.reference(reference.reference).name.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            !names.iter().any(|name| {
+                matches!(
+                    name.as_str(),
+                    "formula" | "archflag" | "nopltflag" | "outdir"
+                )
+            }),
+            "uninitialized names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn escaped_dollar_heredoc_body_stays_inert_with_source_closure_enabled() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+cat <<EOF > ./postinst
+if [ \"\\$1\" = \"configure\" ]; then
+  for ver in 1 current; do
+    for x in rewriteSystem rewriteURI; do
+      xmlcatalog --noout --add \\$x http://example.test/xsl/\\$ver
+    done
+  done
+fi
+EOF
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        assert!(
+            model.precompute_uninitialized_references().is_empty(),
+            "uninitialized: {:?}",
+            model.precompute_uninitialized_references()
+        );
+    }
+
+    #[test]
+    fn quoted_heredoc_case_arm_and_nested_same_name_heredoc_stay_inert() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+build=\"$(command cat <<\\END
+case \"$gitstatus_kernel\" in
+  linux)
+    for formula in libiconv cmake git wget; do
+      if command brew ls --version \"$formula\" >/dev/null; then
+        command brew upgrade \"$formula\"
+      else
+        command brew install \"$formula\"
+      fi
+    done
+  ;;
+esac
+command cat >&2 <<-END
+\tSUCCESS
+\tEND
+END
+)\"
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        assert!(
+            model.precompute_uninitialized_references().is_empty(),
+            "uninitialized: {:?}",
+            model.precompute_uninitialized_references()
+        );
+    }
+
+    #[test]
+    fn tab_stripped_escaped_dollar_heredoc_body_stays_inert() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+cat <<- EOF > ./postinst
+\tif [ \"\\$1\" = \"configure\" ]; then
+\t\tfor ver in 1 current; do
+\t\t\tfor x in rewriteSystem rewriteURI; do
+\t\t\t\txmlcatalog --noout --add \\$x http://example.test/xsl/\\$ver
+\t\t\tdone
+\t\tdone
+\tfi
+\tEOF
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path(&main);
+        assert!(
+            model.precompute_uninitialized_references().is_empty(),
+            "uninitialized: {:?}",
+            model.precompute_uninitialized_references()
+        );
+    }
+
+    #[test]
+    fn posix_tab_stripped_escaped_dollar_heredoc_body_stays_inert() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+cat <<- EOF > ./postinst
+\tif [ \"$TERMUX_PACKAGE_FORMAT\" = \"pacman\" ] || [ \"\\$1\" = \"configure\" ]; then
+\t\tfor ver in $TERMUX_PKG_VERSION current; do
+\t\t\tfor x in rewriteSystem rewriteURI; do
+\t\t\t\txmlcatalog --noout --add \\$x http://docbook.sourceforge.net/release/xsl-ns/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-$TERMUX_PKG_VERSION\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\t\t\tdone
+\t\tdone
+\tfi
+\tEOF
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        let references = model.precompute_uninitialized_references().to_vec();
+        let names = references
+            .iter()
+            .map(|reference| model.reference(reference.reference).name.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            !names
+                .iter()
+                .any(|name| matches!(name.as_str(), "x" | "ver")),
+            "uninitialized names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn posix_docbook_wrapper_does_not_treat_escaped_placeholders_as_reads() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+termux_step_create_debscripts() {
+\tcat <<- EOF > ./postinst
+\t#!$TERMUX_PREFIX/bin/sh
+\tif [ \"$TERMUX_PACKAGE_FORMAT\" = \"pacman\" ] || [ \"\\$1\" = \"configure\" ]; then
+\t\tfor ver in $TERMUX_PKG_VERSION current; do
+\t\t\tfor x in rewriteSystem rewriteURI; do
+\t\t\t\txmlcatalog --noout --add \\$x http://cdn.docbook.org/release/xsl/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-$TERMUX_PKG_VERSION\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\
+\t\t\t\txmlcatalog --noout --add \\$x http://docbook.sourceforge.net/release/xsl-ns/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-$TERMUX_PKG_VERSION\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\
+\t\t\t\txmlcatalog --noout --add \\$x http://docbook.sourceforge.net/release/xsl/\\$ver \\
+\t\t\t\t\t\"$TERMUX_PREFIX/share/xml/docbook/xsl-stylesheets-${TERMUX_PKG_VERSION}-nons\" \\
+\t\t\t\t\t\"$TERMUX_PREFIX/etc/xml/catalog\"
+\t\t\tdone
+\t\tdone
+\tfi
+\tEOF
+}
+",
+        )
+        .unwrap();
+
+        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        let references = model.precompute_uninitialized_references().to_vec();
+        let names = references
+            .iter()
+            .map(|reference| model.reference(reference.reference).name.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            !names
+                .iter()
+                .any(|name| matches!(name.as_str(), "x" | "ver")),
+            "uninitialized names: {names:?}"
         );
     }
 

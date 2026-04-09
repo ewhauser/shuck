@@ -1,5 +1,4 @@
 use super::*;
-
 #[test]
 fn test_heredoc_pipe() {
     let parser = Parser::new("cat <<EOF | sort\nc\na\nb\nEOF\n");
@@ -182,22 +181,231 @@ fn test_heredoc_delimiter_preserves_mixed_quoted_raw_and_cooked_value() {
 #[test]
 fn test_backslash_escaped_heredoc_delimiter_is_treated_as_quoted_static_text() {
     let input = "cat <<\\EOF\nhello $name\nEOF\n";
-    let script = Parser::new(input).parse().unwrap().file;
+    for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
+        let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
 
-    let stmt = &script.body[0];
-    let _command = expect_simple(stmt);
-    let redirect = &stmt.redirects[0];
-    let heredoc = redirect_heredoc(redirect);
+        let stmt = &script.body[0];
+        let _command = expect_simple(stmt);
+        let redirect = &stmt.redirects[0];
+        let heredoc = redirect_heredoc(redirect);
 
-    assert_eq!(redirect.span.slice(input), "<<\\EOF");
-    assert_eq!(heredoc.delimiter.span.slice(input), "\\EOF");
-    assert_eq!(heredoc.delimiter.raw.span.slice(input), "\\EOF");
-    assert_eq!(heredoc.delimiter.cooked, "EOF");
+        assert_eq!(redirect.span.slice(input), "<<\\EOF");
+        assert_eq!(heredoc.delimiter.span.slice(input), "\\EOF");
+        assert_eq!(heredoc.delimiter.raw.span.slice(input), "\\EOF");
+        assert_eq!(heredoc.delimiter.cooked, "EOF", "dialect: {dialect:?}");
+        assert!(heredoc.delimiter.quoted, "dialect: {dialect:?}");
+        assert!(!heredoc.delimiter.expands_body, "dialect: {dialect:?}");
+        assert!(!heredoc.delimiter.strip_tabs, "dialect: {dialect:?}");
+        assert!(is_fully_quoted(&heredoc.body), "dialect: {dialect:?}");
+        assert_eq!(heredoc.body.render(input), "hello $name\n");
+    }
+}
+
+#[test]
+fn test_backslash_escaped_heredoc_inside_command_substitution_stays_quoted_in_posix() {
+    let input = "\
+build=\"$(command cat <<\\EOF
+hello $name
+EOF
+)\"
+";
+    let script = Parser::with_dialect(input, ShellDialect::Posix)
+        .parse()
+        .unwrap()
+        .file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted assignment value");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[0].kind else {
+        panic!("expected command substitution");
+    };
+    let command = expect_simple(&body[0]);
+    assert_eq!(
+        command.args.len(),
+        1,
+        "args: {:?}",
+        command
+            .args
+            .iter()
+            .map(|word| word.render(input))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(command.args[0].render(input), "cat");
+    assert_eq!(body[0].redirects.len(), 1);
+    let heredoc = redirect_heredoc(&body[0].redirects[0]);
+
     assert!(heredoc.delimiter.quoted);
     assert!(!heredoc.delimiter.expands_body);
-    assert!(!heredoc.delimiter.strip_tabs);
     assert!(is_fully_quoted(&heredoc.body));
-    assert_eq!(heredoc.body.render(input), "hello $name\n");
+}
+
+#[test]
+fn test_posix_quoted_heredoc_in_command_substitution_does_not_leak_body_statements() {
+    let input = "\
+build=\"$(command cat <<\\END
+outdir=\"$(command pwd)\"
+
+if command -v mktemp >/dev/null 2>&1; then
+  workdir=\"$(command mktemp -d \"${TMPDIR:-/tmp}\"/gitstatus-build.XXXXXXXXXX)\"
+else
+  workdir=\"${TMPDIR:-/tmp}/gitstatus-build.tmp.$$\" 
+  command mkdir -- \"$workdir\"
+fi
+
+if [ -n \"$gitstatus_install_tools\" ]; then
+  case \"$gitstatus_kernel\" in
+    darwin)
+      if command -v port >/dev/null 2>&1; then
+        sudo port -N install libiconv cmake wget
+      elif command -v brew >/dev/null 2>&1; then
+        for formula in libiconv cmake git wget; do
+          if command brew ls --version \"$formula\" &>/dev/null; then
+            command brew upgrade \"$formula\"
+          else
+            command brew install \"$formula\"
+          fi
+        done
+      fi
+    ;;
+  esac
+fi
+
+case \"$gitstatus_cpu\" in
+  powerpc64|powerpc64le)
+    archflag=\"-mcpu\"
+  ;;
+  *)
+    archflag=\"-march\"
+  ;;
+esac
+
+case \"$gitstatus_arch\" in
+  e2k)
+    nopltflag=\"\"
+  ;;
+  *)
+    nopltflag=\"-fno-plt\"
+  ;;
+esac
+
+cflags=\"$archflag=$gitstatus_cpu $nopltflag -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security -fpie\"
+END
+)\"
+";
+    let script = Parser::with_dialect(input, ShellDialect::Posix)
+        .parse()
+        .unwrap()
+        .file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted assignment value");
+    };
+    assert_eq!(parts.len(), 1, "parts: {parts:#?}");
+    let WordPart::CommandSubstitution { body, .. } = &parts[0].kind else {
+        panic!("expected command substitution");
+    };
+
+    assert_eq!(body.len(), 1, "body: {body:#?}");
+    let _command = expect_simple(&body[0]);
+    let heredoc = redirect_heredoc(&body[0].redirects[0]);
+    assert!(heredoc.delimiter.quoted);
+    assert!(!heredoc.delimiter.expands_body);
+    assert!(is_fully_quoted(&heredoc.body));
+}
+
+#[test]
+fn test_bash_quoted_heredoc_in_command_substitution_does_not_leak_body_statements() {
+    let input = "\
+build=\"$(command cat <<\\END
+outdir=\"$(command pwd)\"
+
+if command -v mktemp >/dev/null 2>&1; then
+  workdir=\"$(command mktemp -d \"${TMPDIR:-/tmp}\"/gitstatus-build.XXXXXXXXXX)\"
+else
+  workdir=\"${TMPDIR:-/tmp}/gitstatus-build.tmp.$$\" 
+  command mkdir -- \"$workdir\"
+fi
+
+if [ -n \"$gitstatus_install_tools\" ]; then
+  case \"$gitstatus_kernel\" in
+    darwin)
+      if command -v port >/dev/null 2>&1; then
+        sudo port -N install libiconv cmake wget
+      elif command -v brew >/dev/null 2>&1; then
+        for formula in libiconv cmake git wget; do
+          if command brew ls --version \"$formula\" &>/dev/null; then
+            command brew upgrade \"$formula\"
+          else
+            command brew install \"$formula\"
+          fi
+        done
+      fi
+    ;;
+  esac
+fi
+
+case \"$gitstatus_cpu\" in
+  powerpc64|powerpc64le)
+    archflag=\"-mcpu\"
+  ;;
+  *)
+    archflag=\"-march\"
+  ;;
+esac
+
+case \"$gitstatus_arch\" in
+  e2k)
+    nopltflag=\"\"
+  ;;
+  *)
+    nopltflag=\"-fno-plt\"
+  ;;
+esac
+
+cflags=\"$archflag=$gitstatus_cpu $nopltflag -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security -fpie\"
+command cat >&2 <<-END
+\tSUCCESS
+\tEND
+END
+)\"
+";
+    let script = Parser::with_dialect(input, ShellDialect::Bash)
+        .parse()
+        .unwrap()
+        .file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted assignment value");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[0].kind else {
+        panic!("expected command substitution");
+    };
+
+    assert_eq!(body.len(), 1, "body: {body:#?}");
+    let _command = expect_simple(&body[0]);
+    let heredoc = redirect_heredoc(&body[0].redirects[0]);
+    assert!(heredoc.delimiter.quoted);
+    assert!(!heredoc.delimiter.expands_body);
+    assert!(is_fully_quoted(&heredoc.body));
 }
 
 #[test]
