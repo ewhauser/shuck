@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+expression: $crate::test::print_diagnostics(&$diagnostics, $source)
+---
+C004 `cd` should check whether the directory change succeeded
+ --> <source>:2:1
+  |
+2 | cd /tmp
+  |

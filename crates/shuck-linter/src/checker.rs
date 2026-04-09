@@ -182,6 +182,9 @@ impl<'a> Checker<'a> {
     }
 
     fn check_command_facts(&mut self) {
+        if self.is_rule_enabled(Rule::UncheckedDirectoryChange) {
+            rules::correctness::unchecked_directory_change::unchecked_directory_change(self);
+        }
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }

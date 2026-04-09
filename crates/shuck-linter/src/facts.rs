@@ -939,6 +939,11 @@ pub struct XargsCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct SetCommandFacts {
+    pub errexit_change: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ExitCommandFacts<'a> {
     pub status_word: Option<&'a Word>,
     pub is_numeric_literal: bool,
@@ -963,6 +968,7 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     xargs: Option<XargsCommandFacts>,
+    set: Option<SetCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
 }
@@ -986,6 +992,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
         self.xargs.as_ref()
+    }
+
+    pub fn set(&self) -> Option<&SetCommandFacts> {
+        self.set.as_ref()
     }
 
     pub fn exit(&self) -> Option<&ExitCommandFacts<'a>> {
@@ -1034,6 +1044,9 @@ impl<'a> CommandOptionFacts<'a> {
                                     && arg[1..].contains('0'))
                         }),
                 }),
+            set: normalized
+                .effective_name_is("set")
+                .then(|| parse_set_command(normalized.body_args(), source)),
             exit: parse_exit_command(command, source),
             sudo_family: normalized.has_wrapper(WrapperKind::SudoFamily).then(|| {
                 SudoFamilyCommandFacts {
@@ -2448,6 +2461,55 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
         operand_words: operands.into_boxed_slice(),
         options_parseable,
     }
+}
+
+fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
+    let mut errexit_change = None;
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        match text.as_str() {
+            "-o" | "+o" => {
+                let enable = text.starts_with('-');
+                let Some(name) = args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
+                else {
+                    break;
+                };
+
+                if name == "errexit" {
+                    errexit_change = Some(enable);
+                }
+                index += 2;
+                continue;
+            }
+            _ => {}
+        }
+
+        let Some(flags) = text.strip_prefix('-').or_else(|| text.strip_prefix('+')) else {
+            break;
+        };
+        if flags.is_empty() {
+            break;
+        }
+
+        if flags.chars().any(|flag| flag == 'e') {
+            errexit_change = Some(text.starts_with('-'));
+        }
+
+        index += 1;
+    }
+
+    SetCommandFacts { errexit_change }
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {

@@ -24,6 +24,7 @@ pub mod sudo_redirection_order;
 pub mod syntax;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
+pub mod unchecked_directory_change;
 pub mod undefined_variable;
 pub mod unreachable_after_exit;
 pub mod untracked_source_file;
@@ -41,6 +42,7 @@ mod tests {
     #[test_case(Rule::UnusedAssignment, Path::new("C001.sh"))]
     #[test_case(Rule::DynamicSourcePath, Path::new("C002.sh"))]
     #[test_case(Rule::UntrackedSourceFile, Path::new("C003.sh"))]
+    #[test_case(Rule::UncheckedDirectoryChange, Path::new("C004.sh"))]
     #[test_case(Rule::SingleQuotedLiteral, Path::new("C005.sh"))]
     #[test_case(Rule::UndefinedVariable, Path::new("C006.sh"))]
     #[test_case(Rule::FindOutputToXargs, Path::new("C007.sh"))]

@@ -38,6 +38,7 @@ impl Default for ShellCheckCodeMap {
                 (1037, Rule::PositionalTenBraces),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (2164, Rule::UncheckedDirectoryChange),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
@@ -91,6 +92,7 @@ mod tests {
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
+        assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
@@ -168,6 +170,7 @@ mod tests {
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
                 (2162, Rule::ReadWithoutRaw),
+                (2164, Rule::UncheckedDirectoryChange),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2216, Rule::PipeToKill),
