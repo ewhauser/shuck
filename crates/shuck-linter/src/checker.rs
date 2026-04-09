@@ -299,6 +299,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
         }
+        if self.is_rule_enabled(Rule::BrokenTestEnd) {
+            rules::correctness::broken_test_end::broken_test_end(self);
+        }
     }
 
     fn check_flow(&mut self) {
