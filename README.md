@@ -6,13 +6,12 @@ Shuck parses and analyzes shell scripts to catch common bugs, style issues, and 
 
 ## Features
 
-- **Linting** with rules across correctness and style categories
-- **Formatting** with configurable indentation, operator placement, and layout options
-- **Auto-fix** support for safe and unsafe fixes
-- **Multi-dialect** support: bash, sh/POSIX, dash, ksh, mksh, zsh, bats
-- **Automatic file discovery** via extensions and shebang detection
-- **File-level caching** for fast re-runs on unchanged files
-- **ShellCheck suppression compatibility** (`# shellcheck disable=SC2086`)
+- High performance — ~20x faster than ShellCheck
+- Linting with rules across correctness and style categories
+- Formatting with configurable indentation, operator placement, and layout options
+- Multi-dialect support: bash, sh/POSIX, mksh, zsh
+- Automatic file discovery via extensions and shebang detection
+- ShellCheck suppression compatibility (`# shellcheck disable=SC2086`)
 
 ## Installation
 
@@ -39,12 +38,6 @@ shuck check .
 
 # Read from stdin
 echo 'echo $foo' | shuck check -
-
-# Apply safe fixes
-shuck check --fix .
-
-# Apply all fixes, including unsafe ones
-shuck check --unsafe-fixes .
 
 # Skip the cache
 shuck check --no-cache .
@@ -114,59 +107,25 @@ deploy.sh:45:3: warning[S005] legacy backtick command substitution
 
 ## Rules
 
-Rules are organized by category and severity.
+Shuck ships with rules organized into four categories:
 
-### Correctness (C)
+| Category | Prefix | Description |
+|----------|--------|-------------|
+| Correctness | C | Bugs, errors, and likely mistakes. Enabled by default. |
+| Style | S | Code quality and best-practice suggestions. |
+| Performance | P | Inefficient patterns that have simpler or faster alternatives. |
+| Portability | X | Bash-isms and shell-specific constructs that break under POSIX or other shells. |
 
-Bugs and errors. Enabled by default.
+Each rule has a short code (e.g., `C006`, `S001`) that appears in diagnostics and can be used in suppression directives. Diagnostics are classified as error, warning, or hint depending on severity.
 
-| Code | Name | Severity |
-|------|------|----------|
-| C001 | UnusedAssignment | Warning |
-| C002 | DynamicSourcePath | Warning |
-| C005 | SingleQuotedLiteral | Warning |
-| C006 | UndefinedVariable | Error |
-| C007 | FindOutputToXargs | Warning |
-| C008 | TrapStringExpansion | Warning |
-| C009 | QuotedBashRegex | Warning |
-| C010 | ChainedTestBranches | Warning |
-| C011 | LineOrientedInput | Warning |
-| C013 | FindOutputLoop | Warning |
-| C014 | LocalTopLevel | Error |
-| C015 | SudoRedirectionOrder | Warning |
-| C017 | ConstantComparisonTest | Warning |
-| C018 | LoopControlOutsideLoop | Error |
-| C019 | LiteralUnaryStringTest | Warning |
-| C020 | TruthyLiteralTest | Warning |
-| C021 | ConstantCaseSubject | Warning |
-| C022 | EmptyTest | Error |
-| C025 | PositionalTenBraces | Warning |
-| C046 | PipeToKill | Warning |
-| C047 | InvalidExitStatus | Error |
-| C048 | CasePatternVar | Warning |
-| C050 | ArithmeticRedirectionTarget | Warning |
-| C055 | PatternWithVariable | Warning |
-| C057 | SubstWithRedirect | Warning |
-| C058 | SubstWithRedirectErr | Warning |
-| C063 | OverwrittenFunction | Warning |
-| C124 | UnreachableAfterExit | Warning |
+### ShellCheck compatibility
 
-### Style (S)
+Where possible, shuck rules align with ShellCheck rules. Shuck supports ShellCheck suppression syntax (`# shellcheck disable=SC2086`) and maps ShellCheck codes to their shuck equivalents, so existing suppression comments continue to work without changes.
 
-Code style improvements. Must be explicitly selected.
+That said, shuck is not a port of ShellCheck. It is a clean-room reimplementation built on its own parser and analysis engine, so results will sometimes differ:
 
-| Code | Name |
-|------|------|
-| S001 | UnquotedExpansion |
-| S002 | ReadWithoutRaw |
-| S003 | LoopFromCommandOutput |
-| S004 | UnquotedCommandSubstitution |
-| S005 | LegacyBackticks |
-| S006 | LegacyArithmeticExpansion |
-| S007 | PrintfFormatVariable |
-| S008 | UnquotedArrayExpansion |
-| S009 | EchoedCommandSubstitution |
-| S010 | ExportCommandSubstitution |
+- Shuck's parser and analysis logic were written from scratch. Edge cases may be handled differently, and some diagnostics may fire in slightly different locations or contexts.
+- In cases where ShellCheck's behavior appears incorrect or inconsistent with shell semantics, shuck intentionally chooses correctness over compatibility.
 
 ## Suppression
 
