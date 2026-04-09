@@ -1,4 +1,5 @@
 use shuck_ast::{Command, Redirect, SimpleCommand, Span};
+use shuck_semantic::ScopeKind;
 
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -24,6 +25,7 @@ pub fn source_builtin_in_sh(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("source"))
+        .filter(|fact| !inside_function(checker, fact.span()))
         .map(|fact| {
             source_anchor_span(
                 fact.command(),
@@ -35,6 +37,14 @@ pub fn source_builtin_in_sh(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || SourceBuiltinInSh);
+}
+
+fn inside_function(checker: &Checker<'_>, span: Span) -> bool {
+    let scope = checker.semantic().scope_at(span.start.offset);
+    checker
+        .semantic()
+        .ancestor_scopes(scope)
+        .any(|scope| matches!(checker.semantic().scope_kind(scope), ScopeKind::Function(_)))
 }
 
 fn source_anchor_span(
