@@ -14,6 +14,7 @@ pub mod else_if;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+pub mod if_missing_then;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
@@ -100,6 +101,7 @@ mod tests {
     #[test_case(Rule::TemplateBraceInCommand, Path::new("C061.sh"))]
     #[test_case(Rule::NestedParameterExpansion, Path::new("C062.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]
+    #[test_case(Rule::IfMissingThen, Path::new("C064.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

@@ -346,6 +346,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }
+        if self.is_rule_enabled(Rule::IfMissingThen) {
+            rules::correctness::if_missing_then::if_missing_then(self);
+        }
         if self.is_rule_enabled(Rule::UnreachableAfterExit) {
             rules::correctness::unreachable_after_exit::unreachable_after_exit(self);
         }
