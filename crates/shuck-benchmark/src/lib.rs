@@ -48,7 +48,12 @@ impl TestCase {
 fn fixture_source(bytes: &'static [u8]) -> &'static str {
     let source = std::str::from_utf8(bytes).expect("benchmark fixtures should be valid UTF-8");
     if source.contains('\r') {
-        Box::leak(source.replace("\r\n", "\n").replace('\r', "\n").into_boxed_str())
+        Box::leak(
+            source
+                .replace("\r\n", "\n")
+                .replace('\r', "\n")
+                .into_boxed_str(),
+        )
     } else {
         source
     }

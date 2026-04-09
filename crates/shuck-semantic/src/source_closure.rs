@@ -1414,7 +1414,6 @@ fn render_template_candidate(
 fn path_to_template_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
-
 fn word_part_starts_with_shell_expansion(part: &WordPart) -> bool {
     matches!(
         part,
@@ -1828,6 +1827,9 @@ fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    use std::path::Path;
+
     use shuck_parser::parser::ShellDialect;
 
     #[test]
@@ -1849,7 +1851,6 @@ mod tests {
         assert!(call_names.iter().any(|name| name == "dirname"));
         assert!(call_names.iter().any(|name| name == "source"));
     }
-
     #[cfg(windows)]
     #[test]
     fn source_dir_templates_render_windows_paths_with_shell_separators() {
