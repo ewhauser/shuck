@@ -84,3 +84,5 @@ targets = [
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# Don't run release checks on pull requests
+pr-run-mode = "skip"
