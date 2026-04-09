@@ -298,6 +298,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::NestedZshSubstitution) {
             rules::portability::nested_zsh_substitution::nested_zsh_substitution(self);
         }
+        if self.is_rule_enabled(Rule::ZshNestedExpansion) {
+            rules::portability::zsh_nested_expansion::zsh_nested_expansion(self);
+        }
     }
 
     fn check_loop_list_and_pipeline_facts(&mut self) {
