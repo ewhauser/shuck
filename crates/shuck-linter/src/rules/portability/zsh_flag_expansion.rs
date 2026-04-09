@@ -1,7 +1,5 @@
-use shuck_ast::{ParameterExpansionSyntax, WordPart, ZshExpansionTarget};
-
 use super::targets_non_zsh_shell;
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, Violation, word_zsh_flag_modifier_spans};
 
 pub struct ZshFlagExpansion;
 
@@ -24,32 +22,7 @@ pub fn zsh_flag_expansion(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| {
-            fact.word()
-                .parts
-                .iter()
-                .filter_map(|part| {
-                    let WordPart::Parameter(parameter) = &part.kind else {
-                        return None;
-                    };
-                    let ParameterExpansionSyntax::Zsh(syntax) = &parameter.syntax else {
-                        return None;
-                    };
-                    if syntax.modifiers.is_empty() {
-                        return None;
-                    }
-
-                    match syntax.target {
-                        ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Word(_) => {}
-                        ZshExpansionTarget::Nested(_) | ZshExpansionTarget::Empty => {
-                            return None;
-                        }
-                    }
-
-                    syntax.modifiers.first().map(|modifier| modifier.span)
-                })
-                .collect::<Vec<_>>()
-        })
+        .flat_map(|fact| word_zsh_flag_modifier_spans(fact.word()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshFlagExpansion);

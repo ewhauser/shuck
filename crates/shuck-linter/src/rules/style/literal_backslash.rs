@@ -1,6 +1,4 @@
-use shuck_ast::{Span, Word, WordPart};
-
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, ExpansionContext, Rule, Violation, word_standalone_literal_backslash_span};
 
 pub struct LiteralBackslash;
 
@@ -25,7 +23,7 @@ pub fn literal_backslash(checker: &mut Checker) {
         .filter(|fact| !fact.is_nested_word_command())
         .filter(|fact| !is_command_name_word(facts, fact))
         .filter(|fact| !is_unalias_argument(facts, fact))
-        .filter_map(|fact| standalone_literal_backslash_span(fact.word(), source))
+        .filter_map(|fact| word_standalone_literal_backslash_span(fact.word(), source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || LiteralBackslash);
@@ -40,28 +38,6 @@ fn is_relevant_word_context(context: Option<ExpansionContext>) -> bool {
                 | ExpansionContext::SelectList
         )
     )
-}
-
-fn standalone_literal_backslash_span(word: &Word, source: &str) -> Option<Span> {
-    let [part] = word.parts.as_slice() else {
-        return None;
-    };
-    if !matches!(part.kind, WordPart::Literal(_)) {
-        return None;
-    }
-
-    let text = word.span.slice(source);
-    let bytes = text.as_bytes();
-    if bytes.len() != 2 || bytes[0] != b'\\' {
-        return None;
-    }
-
-    let target = bytes[1];
-    if !target.is_ascii_lowercase() || matches!(target, b'n' | b'r' | b't') {
-        return None;
-    }
-
-    Some(Span::from_positions(word.span.start, word.span.start))
 }
 
 fn is_command_name_word<'a>(

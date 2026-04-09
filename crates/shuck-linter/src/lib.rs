@@ -40,7 +40,14 @@ pub use rules::common::command::{DeclarationKind, WrapperKind};
 pub use rules::common::expansion::{ExpansionContext, WordQuote};
 pub use rules::common::query::CommandSubstitutionKind;
 pub use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
-pub use rules::common::span::assignment_name_span;
+pub use rules::common::span::{
+    assignment_name_span, conditional_array_subscript_span, conditional_extglob_span,
+    double_quoted_scalar_affix_span, word_array_subscript_span, word_extglob_span,
+    word_has_single_literal_part, word_literal_part_spans_excluding_parameter_operator_tails,
+    word_literal_scan_segments_excluding_expansions, word_nested_zsh_substitution_spans,
+    word_standalone_literal_backslash_span, word_unquoted_star_parameter_spans,
+    word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
+};
 pub use rules::common::word::{TestOperandClass, static_word_text};
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;

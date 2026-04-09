@@ -1,7 +1,5 @@
-use shuck_ast::{ParameterExpansionSyntax, WordPart, ZshExpansionTarget};
-
 use super::targets_non_zsh_shell;
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, Violation, word_zsh_nested_expansion_spans};
 
 pub struct ZshNestedExpansion;
 
@@ -24,24 +22,7 @@ pub fn zsh_nested_expansion(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| {
-            fact.word()
-                .parts
-                .iter()
-                .filter_map(|part| {
-                    let WordPart::Parameter(parameter) = &part.kind else {
-                        return None;
-                    };
-                    let ParameterExpansionSyntax::Zsh(syntax) = &parameter.syntax else {
-                        return None;
-                    };
-                    matches!(syntax.target, ZshExpansionTarget::Nested(_))
-                        .then_some(syntax.operation.is_none())
-                        .filter(|is_none| *is_none)
-                        .map(|_| parameter.span)
-                })
-                .collect::<Vec<_>>()
-        })
+        .flat_map(|fact| word_zsh_nested_expansion_spans(fact.word()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshNestedExpansion);
