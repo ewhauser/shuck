@@ -12,6 +12,7 @@ pub enum FileContextTag {
     TestHarness,
     ProjectClosure,
     DirectiveHandling,
+    PatchFile,
 }
 
 impl FileContextTag {
@@ -23,6 +24,7 @@ impl FileContextTag {
             Self::TestHarness => "test-harness",
             Self::ProjectClosure => "project-closure",
             Self::DirectiveHandling => "directive-handling",
+            Self::PatchFile => "patch-file",
         }
     }
 }
@@ -161,6 +163,14 @@ pub fn classify_file_context(
             .is_some_and(|body| matches_directive(body.trim_start()))
     }) {
         tags.push(FileContextTag::DirectiveHandling);
+    }
+
+    if path
+        .and_then(Path::extension)
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("patch"))
+    {
+        tags.push(FileContextTag::PatchFile);
     }
 
     let regions = if tags.contains(&FileContextTag::ShellSpec) {

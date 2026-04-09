@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 80
+---
+C037 `[` test expression is malformed
+ --> <source>:2:4
+  |
+2 | if [ x = y; then :; fi
+  |

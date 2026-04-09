@@ -110,6 +110,15 @@ declare_rules! {
     ("C021", Category::Correctness, Severity::Warning, ConstantCaseSubject),
     ("C022", Category::Correctness, Severity::Error, EmptyTest),
     ("C025", Category::Correctness, Severity::Warning, PositionalTenBraces),
+    ("C035", Category::Correctness, Severity::Error, MissingFi),
+    ("C036", Category::Correctness, Severity::Error, BrokenTestEnd),
+    ("C037", Category::Correctness, Severity::Error, BrokenTestParse),
+    ("C038", Category::Correctness, Severity::Error, ElseIf),
+    ("C039", Category::Correctness, Severity::Warning, OpenDoubleQuote),
+    ("C040", Category::Correctness, Severity::Error, LinebreakInTest),
+    ("C041", Category::Correctness, Severity::Error, CStyleComment),
+    ("C042", Category::Correctness, Severity::Warning, CPrototypeFragment),
+    ("C043", Category::Correctness, Severity::Warning, BadRedirectionFdOrder),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
@@ -166,6 +175,15 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-075" => Some(Rule::EmptyTest),
         "SH-134" => Some(Rule::PipeToKill),
         "SH-086" => Some(Rule::PositionalTenBraces),
+        "SH-106" => Some(Rule::MissingFi),
+        "SH-109" => Some(Rule::BrokenTestEnd),
+        "SH-110" => Some(Rule::BrokenTestParse),
+        "SH-112" => Some(Rule::ElseIf),
+        "SH-113" => Some(Rule::OpenDoubleQuote),
+        "SH-115" => Some(Rule::LinebreakInTest),
+        "SH-121" => Some(Rule::CStyleComment),
+        "SH-123" => Some(Rule::CPrototypeFragment),
+        "SH-129" => Some(Rule::BadRedirectionFdOrder),
         "SH-141" => Some(Rule::InvalidExitStatus),
         "SH-142" => Some(Rule::CasePatternVar),
         "SH-144" => Some(Rule::ArithmeticRedirectionTarget),
@@ -234,6 +252,24 @@ mod tests {
         assert_eq!(code_to_rule("SH-075"), Some(Rule::EmptyTest));
         assert_eq!(code_to_rule("SH-134"), Some(Rule::PipeToKill));
         assert_eq!(code_to_rule("SH-086"), Some(Rule::PositionalTenBraces));
+        assert_eq!(code_to_rule("C035"), Some(Rule::MissingFi));
+        assert_eq!(code_to_rule("SH-106"), Some(Rule::MissingFi));
+        assert_eq!(code_to_rule("C036"), Some(Rule::BrokenTestEnd));
+        assert_eq!(code_to_rule("SH-109"), Some(Rule::BrokenTestEnd));
+        assert_eq!(code_to_rule("C037"), Some(Rule::BrokenTestParse));
+        assert_eq!(code_to_rule("SH-110"), Some(Rule::BrokenTestParse));
+        assert_eq!(code_to_rule("C038"), Some(Rule::ElseIf));
+        assert_eq!(code_to_rule("SH-112"), Some(Rule::ElseIf));
+        assert_eq!(code_to_rule("C039"), Some(Rule::OpenDoubleQuote));
+        assert_eq!(code_to_rule("SH-113"), Some(Rule::OpenDoubleQuote));
+        assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
+        assert_eq!(code_to_rule("SH-115"), Some(Rule::LinebreakInTest));
+        assert_eq!(code_to_rule("C041"), Some(Rule::CStyleComment));
+        assert_eq!(code_to_rule("SH-121"), Some(Rule::CStyleComment));
+        assert_eq!(code_to_rule("C042"), Some(Rule::CPrototypeFragment));
+        assert_eq!(code_to_rule("SH-123"), Some(Rule::CPrototypeFragment));
+        assert_eq!(code_to_rule("C043"), Some(Rule::BadRedirectionFdOrder));
+        assert_eq!(code_to_rule("SH-129"), Some(Rule::BadRedirectionFdOrder));
         assert_eq!(code_to_rule("SH-141"), Some(Rule::InvalidExitStatus));
         assert_eq!(code_to_rule("SH-142"), Some(Rule::CasePatternVar));
         assert_eq!(

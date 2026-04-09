@@ -17,8 +17,8 @@ fn configure_env_cache(cmd: &mut Command, root: &Path) {
 fn configure_default_cache_env(cmd: &mut Command, root: &Path) {
     let home = root.join("home");
     let xdg_cache = root.join("xdg-cache");
-    let appdata = root.join("appdata");
-    let local_appdata = root.join("local-appdata");
+    let appdata = root.join("appdata").join("Roaming");
+    let local_appdata = root.join("appdata").join("Local");
 
     cmd.env_remove("SHUCK_CACHE_DIR");
     cmd.env("HOME", &home);

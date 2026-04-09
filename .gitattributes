@@ -3,3 +3,4 @@
 *.bash text eol=lf
 *.zsh text eol=lf
 *.ksh text eol=lf
+*.mksh text eol=lf

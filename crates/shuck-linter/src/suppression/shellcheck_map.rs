@@ -36,8 +36,16 @@ impl Default for ShellCheckCodeMap {
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
                 (1037, Rule::PositionalTenBraces),
+                (1047, Rule::MissingFi),
+                (1072, Rule::BrokenTestParse),
+                (1073, Rule::BrokenTestEnd),
+                (1075, Rule::ElseIf),
+                (1078, Rule::OpenDoubleQuote),
+                (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1127, Rule::CStyleComment),
+                (1132, Rule::CPrototypeFragment),
                 (2164, Rule::UncheckedDirectoryChange),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
@@ -64,6 +72,7 @@ impl Default for ShellCheckCodeMap {
                 (2078, Rule::TruthyLiteralTest),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
+                (2210, Rule::BadRedirectionFdOrder),
                 (2154, Rule::UndefinedVariable),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
@@ -91,8 +100,16 @@ mod tests {
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
+        assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
+        assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
+        assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
+        assert_eq!(map.resolve("SC1075"), Some(Rule::ElseIf));
+        assert_eq!(map.resolve("SC1078"), Some(Rule::OpenDoubleQuote));
+        assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
+        assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
+        assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
@@ -121,6 +138,7 @@ mod tests {
         assert_eq!(map.resolve("SC2162"), Some(Rule::ReadWithoutRaw));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("SC2194"), Some(Rule::ConstantCaseSubject));
+        assert_eq!(map.resolve("SC2210"), Some(Rule::BadRedirectionFdOrder));
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
         assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
@@ -146,8 +164,16 @@ mod tests {
             vec![
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
+                (1047, Rule::MissingFi),
+                (1072, Rule::BrokenTestParse),
+                (1073, Rule::BrokenTestEnd),
+                (1075, Rule::ElseIf),
+                (1078, Rule::OpenDoubleQuote),
+                (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1127, Rule::CStyleComment),
+                (1132, Rule::CPrototypeFragment),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
@@ -176,6 +202,7 @@ mod tests {
                 (2164, Rule::UncheckedDirectoryChange),
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
+                (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),

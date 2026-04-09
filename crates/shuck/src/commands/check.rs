@@ -12,7 +12,10 @@ use shuck_linter::{
     LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex, first_statement_line,
     parse_directives,
 };
-use shuck_parser::{Error as ParseError, parser::Parser};
+use shuck_parser::{
+    Error as ParseError,
+    parser::{ParseDiagnostic, ParseOutput, Parser},
+};
 
 use crate::ExitStatus;
 use crate::args::CheckCommand;
@@ -254,78 +257,59 @@ fn analyze_file(
         ShellDialect::Unknown | ShellDialect::Bash => shuck_parser::ShellDialect::Bash,
     };
 
+    let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
     let (cache_data, diagnostics) = match Parser::with_dialect(&source, parse_dialect).parse() {
-        Ok(output) => {
-            let indexer = Indexer::new(&source, &output);
-            let directives = parse_directives(&source, indexer.comment_index(), shellcheck_map);
-            let suppression_index = (!directives.is_empty()).then(|| {
-                SuppressionIndex::new(
-                    &directives,
-                    &output.file,
-                    first_statement_line(&output.file).unwrap_or(u32::MAX),
-                )
-            });
-            let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
-            let diagnostics = shuck_linter::lint_file_at_path(
-                &output.file,
-                &source,
-                &indexer,
-                &linter_settings,
-                suppression_index.as_ref(),
-                Some(&pending.file.absolute_path),
-            );
-            let diagnostic_source =
-                (!diagnostics.is_empty() && include_source).then_some(source.clone());
-
-            (
-                CheckCacheData::Success(
-                    diagnostics
-                        .iter()
-                        .map(CachedLintDiagnostic::from_diagnostic)
-                        .collect(),
-                ),
-                diagnostics
-                    .iter()
-                    .map(|diagnostic| DisplayedDiagnostic {
-                        path: pending.file.display_path.clone(),
-                        span: DisplaySpan::new(
-                            DisplayPosition::new(
-                                diagnostic.span.start.line,
-                                diagnostic.span.start.column,
-                            ),
-                            DisplayPosition::new(
-                                diagnostic.span.end.line,
-                                diagnostic.span.end.column,
-                            ),
-                        ),
-                        message: diagnostic.message.clone(),
-                        kind: DisplayedDiagnosticKind::Lint {
-                            code: diagnostic.code().to_owned(),
-                            severity: diagnostic.severity.as_str().to_owned(),
-                        },
-                        source: diagnostic_source.clone(),
-                    })
-                    .collect(),
-            )
-        }
+        Ok(output) => lint_parsed_output(
+            &pending,
+            &source,
+            output,
+            &[],
+            &linter_settings,
+            shellcheck_map,
+            include_source,
+        ),
         Err(ParseError::Parse {
             message,
             line,
             column,
-        }) => (
-            CheckCacheData::ParseError(ParseCacheFailure {
-                message: message.clone(),
-                line,
-                column,
-            }),
-            vec![DisplayedDiagnostic {
-                path: pending.file.display_path.clone(),
-                span: DisplaySpan::point(line, column),
-                message,
-                kind: DisplayedDiagnosticKind::ParseError,
-                source: include_source.then_some(source.clone()),
-            }],
-        ),
+        }) => {
+            let recovered = Parser::with_dialect(&source, parse_dialect).parse_recovered();
+            let output = ParseOutput {
+                file: recovered.file,
+            };
+            let recovered_result = lint_parsed_output(
+                &pending,
+                &source,
+                output,
+                &recovered.diagnostics,
+                &linter_settings,
+                shellcheck_map,
+                include_source,
+            );
+            let handled_parse_diagnostic = linter_settings
+                .rules
+                .contains(shuck_linter::Rule::MissingFi)
+                && parse_diagnostics_include_missing_fi(&recovered.diagnostics);
+
+            if !recovered_result.1.is_empty() || handled_parse_diagnostic {
+                recovered_result
+            } else {
+                (
+                    CheckCacheData::ParseError(ParseCacheFailure {
+                        message: message.clone(),
+                        line,
+                        column,
+                    }),
+                    vec![DisplayedDiagnostic {
+                        path: pending.file.display_path.clone(),
+                        span: DisplaySpan::point(line, column),
+                        message,
+                        kind: DisplayedDiagnosticKind::ParseError,
+                        source: include_source.then_some(source.clone()),
+                    }],
+                )
+            }
+        }
     };
 
     Ok(FileCheckResult {
@@ -334,6 +318,68 @@ fn analyze_file(
         cache_data,
         diagnostics,
     })
+}
+
+fn lint_parsed_output(
+    pending: &PendingProjectFile,
+    source: &str,
+    output: ParseOutput,
+    parse_diagnostics: &[ParseDiagnostic],
+    linter_settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    include_source: bool,
+) -> (CheckCacheData, Vec<DisplayedDiagnostic>) {
+    let indexer = Indexer::new(source, &output);
+    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
+    let suppression_index = (!directives.is_empty()).then(|| {
+        SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        )
+    });
+    let diagnostics = shuck_linter::lint_file_at_path_with_parse_diagnostics(
+        &output.file,
+        source,
+        &indexer,
+        linter_settings,
+        suppression_index.as_ref(),
+        Some(&pending.file.absolute_path),
+        parse_diagnostics,
+    );
+    let diagnostic_source =
+        (!diagnostics.is_empty() && include_source).then(|| Arc::<str>::from(source));
+
+    (
+        CheckCacheData::Success(
+            diagnostics
+                .iter()
+                .map(CachedLintDiagnostic::from_diagnostic)
+                .collect(),
+        ),
+        diagnostics
+            .iter()
+            .map(|diagnostic| DisplayedDiagnostic {
+                path: pending.file.display_path.clone(),
+                span: DisplaySpan::new(
+                    DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
+                    DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
+                ),
+                message: diagnostic.message.clone(),
+                kind: DisplayedDiagnosticKind::Lint {
+                    code: diagnostic.code().to_owned(),
+                    severity: diagnostic.severity.as_str().to_owned(),
+                },
+                source: diagnostic_source.clone(),
+            })
+            .collect(),
+    )
+}
+
+fn parse_diagnostics_include_missing_fi(parse_diagnostics: &[ParseDiagnostic]) -> bool {
+    parse_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.starts_with("expected 'fi'"))
 }
 
 fn push_cached_lint_diagnostics(
@@ -413,6 +459,29 @@ mod tests {
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
+    }
+
+    #[test]
+    fn reports_missing_fi_as_c035_lint() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("broken.sh"),
+            "#!/bin/sh\nif true; then\n  :\n",
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(false),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(report.diagnostics.len(), 1);
+        match &report.diagnostics[0].kind {
+            DisplayedDiagnosticKind::Lint { code, .. } => assert_eq!(code, "C035"),
+            other => panic!("expected lint diagnostic, got {other:?}"),
+        }
     }
 
     #[test]

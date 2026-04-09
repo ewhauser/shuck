@@ -3,13 +3,13 @@ legacy_name: else-if
 new_category: Correctness
 new_code: C038
 runtime_kind: ast
-shellcheck_code: SC1064
+shellcheck_code: SC1075
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: "`else if` is used where bash expects `elif`."
+description: "An `if` starts on the same line as `else` instead of using `elif`."
 rationale: "Collapse the nested form into a single `elif` branch."
 source:
   shell_checks_rule: rules/SH-112.yaml

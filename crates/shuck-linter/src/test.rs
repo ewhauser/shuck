@@ -3,15 +3,33 @@ use std::fs;
 use std::path::Path;
 
 use shuck_indexer::Indexer;
-use shuck_parser::parser::Parser;
+use shuck_parser::parser::{ParseDiagnostic, ParseOutput, Parser};
 
-use crate::{Diagnostic, LinterSettings, lint_file, lint_file_at_path};
+use crate::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_diagnostics};
+
+fn parse_for_lint(source: &str) -> (ParseOutput, Vec<ParseDiagnostic>) {
+    let recovered = Parser::new(source).parse_recovered();
+    (
+        ParseOutput {
+            file: recovered.file,
+        },
+        recovered.diagnostics,
+    )
+}
 
 /// Lint a source string directly (no file needed).
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
-    let output = Parser::new(source).parse().unwrap();
+    let (output, parse_diagnostics) = parse_for_lint(source);
     let indexer = Indexer::new(source, &output);
-    lint_file(&output.file, source, &indexer, settings, None)
+    lint_file_at_path_with_parse_diagnostics(
+        &output.file,
+        source,
+        &indexer,
+        settings,
+        None,
+        None,
+        &parse_diagnostics,
+    )
 }
 
 /// Lint a source string while preserving an explicit path for path-sensitive rules.
@@ -20,9 +38,17 @@ pub fn test_snippet_at_path(
     source: &str,
     settings: &LinterSettings,
 ) -> Vec<Diagnostic> {
-    let output = Parser::new(source).parse().unwrap();
+    let (output, parse_diagnostics) = parse_for_lint(source);
     let indexer = Indexer::new(source, &output);
-    lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
+    lint_file_at_path_with_parse_diagnostics(
+        &output.file,
+        source,
+        &indexer,
+        settings,
+        None,
+        Some(path),
+        &parse_diagnostics,
+    )
 }
 
 /// Lint a fixture file relative to `resources/test/fixtures/`.

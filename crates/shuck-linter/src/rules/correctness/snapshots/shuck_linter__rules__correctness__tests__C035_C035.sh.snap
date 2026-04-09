@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 76
+---
+C035 this `if` block is missing a closing `fi`
+ --> <source>:4:1
+  |
+  |

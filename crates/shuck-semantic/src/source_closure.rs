@@ -1382,11 +1382,11 @@ fn render_template_candidate(
                 rendered.push_str(value);
             }
             TemplatePart::SourceDir => {
-                let value = source_path.parent()?.to_string_lossy();
+                let value = path_to_template_string(source_path.parent()?);
                 rendered.push_str(&value);
             }
             TemplatePart::SourceFile => {
-                let value = source_path.to_string_lossy();
+                let value = path_to_template_string(source_path);
                 rendered.push_str(&value);
             }
         }
@@ -1409,6 +1409,10 @@ fn render_template_candidate(
         .trim_start_matches('/')
         .to_owned();
     (!normalized.is_empty()).then_some(normalized)
+}
+
+fn path_to_template_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn word_part_starts_with_shell_expansion(part: &WordPart) -> bool {
@@ -1844,5 +1848,20 @@ mod tests {
         assert!(call_names.iter().any(|name| name == "printf"));
         assert!(call_names.iter().any(|name| name == "dirname"));
         assert!(call_names.iter().any(|name| name == "source"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn source_dir_templates_render_windows_paths_with_shell_separators() {
+        let candidate = render_template_candidate(
+            &[
+                TemplatePart::SourceDir,
+                TemplatePart::Literal("/helper.bash".to_owned()),
+            ],
+            &[],
+            Path::new(r"C:\workspace\loader.bash"),
+        );
+
+        assert_eq!(candidate.as_deref(), Some("C:/workspace/helper.bash"));
     }
 }

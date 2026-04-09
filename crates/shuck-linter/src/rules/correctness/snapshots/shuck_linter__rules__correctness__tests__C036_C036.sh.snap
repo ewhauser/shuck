@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 78
+---
+C036 `[` test is missing its closing `]`
+ --> <source>:2:4
+  |
+2 | if [ x = y; then :; fi
+  |

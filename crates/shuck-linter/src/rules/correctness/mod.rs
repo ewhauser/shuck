@@ -1,17 +1,26 @@
 pub mod arithmetic_redirection_target;
+pub mod bad_redirection_fd_order;
+pub mod broken_test_end;
+pub mod broken_test_parse;
+pub mod c_prototype_fragment;
+pub mod c_style_comment;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
 pub mod dynamic_source_path;
+pub mod else_if;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
+pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
+pub mod missing_fi;
+pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
 pub mod pipe_to_kill;
@@ -62,6 +71,15 @@ mod tests {
     #[test_case(Rule::ConstantCaseSubject, Path::new("C021.sh"))]
     #[test_case(Rule::EmptyTest, Path::new("C022.sh"))]
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
+    #[test_case(Rule::MissingFi, Path::new("C035.sh"))]
+    #[test_case(Rule::BrokenTestEnd, Path::new("C036.sh"))]
+    #[test_case(Rule::BrokenTestParse, Path::new("C037.sh"))]
+    #[test_case(Rule::ElseIf, Path::new("C038.sh"))]
+    #[test_case(Rule::OpenDoubleQuote, Path::new("C039.sh"))]
+    #[test_case(Rule::LinebreakInTest, Path::new("C040.sh"))]
+    #[test_case(Rule::CStyleComment, Path::new("C041.sh"))]
+    #[test_case(Rule::CPrototypeFragment, Path::new("C042.sh"))]
+    #[test_case(Rule::BadRedirectionFdOrder, Path::new("C043.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]

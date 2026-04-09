@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 90
+---
+C042 add a space after `&` when using background execution
+ --> <source>:2:3
+  |
+2 | X &NextItem ();
+  |
+
+C042 add a space after `&` when using background execution
+ --> <source>:3:10
+  |
+3 | echo foo &bar
+  |

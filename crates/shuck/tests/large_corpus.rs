@@ -2048,38 +2048,50 @@ fn run_shuck_with_parse_dialect(
         }
     };
 
-    let output = match shuck_parser::parser::Parser::with_dialect(&source, parse_dialect).parse() {
-        Ok(o) => o,
-        Err(e) => {
-            return ShuckRun {
-                diagnostics: Vec::new(),
-                parse_error: Some(e.to_string()),
-            };
-        }
-    };
-
-    let indexer = shuck_indexer::Indexer::new(&source, &output);
-    let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
-    let directives =
-        shuck_linter::parse_directives(&source, indexer.comment_index(), &shellcheck_map);
-    let suppression_index = (!directives.is_empty()).then(|| {
-        shuck_linter::SuppressionIndex::new(
-            &directives,
-            &output.file,
-            shuck_linter::first_statement_line(&output.file).unwrap_or(u32::MAX),
-        )
-    });
     let linter_settings = linter_settings
         .clone()
         .with_shell(shuck_linter::ShellDialect::from_name(shell))
         .with_analyzed_paths([fixture.path.clone()]);
-    let diagnostics = shuck_linter::lint_file_at_path_with_resolver(
-        &output.file,
+    let parsed = match shuck_parser::parser::Parser::with_dialect(&source, parse_dialect).parse() {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let recovered = shuck_parser::parser::Parser::with_dialect(&source, parse_dialect)
+                .parse_recovered();
+            let output = shuck_parser::parser::ParseOutput {
+                file: recovered.file,
+            };
+            let diagnostics = lint_large_corpus_output(
+                fixture,
+                &source,
+                &output,
+                &recovered.diagnostics,
+                &linter_settings,
+                source_path_resolver,
+            );
+            let handled_parse_diagnostic = linter_settings
+                .rules
+                .contains(shuck_linter::Rule::MissingFi)
+                && parse_diagnostics_include_missing_fi(&recovered.diagnostics);
+
+            if !diagnostics.is_empty() || handled_parse_diagnostic {
+                return ShuckRun {
+                    diagnostics,
+                    parse_error: None,
+                };
+            }
+
+            return ShuckRun {
+                diagnostics: Vec::new(),
+                parse_error: Some(error.to_string()),
+            };
+        }
+    };
+    let diagnostics = lint_large_corpus_output(
+        fixture,
         &source,
-        &indexer,
+        &parsed,
+        &[],
         &linter_settings,
-        suppression_index.as_ref(),
-        Some(&fixture.path),
         source_path_resolver,
     );
 
@@ -2087,6 +2099,46 @@ fn run_shuck_with_parse_dialect(
         diagnostics,
         parse_error: None,
     }
+}
+
+fn lint_large_corpus_output(
+    fixture: &LargeCorpusFixture,
+    source: &str,
+    output: &shuck_parser::parser::ParseOutput,
+    parse_diagnostics: &[shuck_parser::parser::ParseDiagnostic],
+    linter_settings: &shuck_linter::LinterSettings,
+    source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
+) -> Vec<shuck_linter::Diagnostic> {
+    let indexer = shuck_indexer::Indexer::new(source, output);
+    let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+    let directives =
+        shuck_linter::parse_directives(source, indexer.comment_index(), &shellcheck_map);
+    let suppression_index = (!directives.is_empty()).then(|| {
+        shuck_linter::SuppressionIndex::new(
+            &directives,
+            &output.file,
+            shuck_linter::first_statement_line(&output.file).unwrap_or(u32::MAX),
+        )
+    });
+
+    shuck_linter::lint_file_at_path_with_resolver_and_parse_diagnostics(
+        &output.file,
+        source,
+        &indexer,
+        linter_settings,
+        suppression_index.as_ref(),
+        Some(&fixture.path),
+        source_path_resolver,
+        parse_diagnostics,
+    )
+}
+
+fn parse_diagnostics_include_missing_fi(
+    parse_diagnostics: &[shuck_parser::parser::ParseDiagnostic],
+) -> bool {
+    parse_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.starts_with("expected 'fi'"))
 }
 
 fn run_shuck(
@@ -3069,7 +3121,7 @@ mod tests {
             diagnostics: vec![
                 shellcheck_diagnostic(2034),
                 shellcheck_diagnostic(2086),
-                shellcheck_diagnostic(1072),
+                shellcheck_diagnostic(9999),
             ],
             parse_aborted: true,
         };
@@ -3111,6 +3163,32 @@ demo() {
 
         assert!(run.parse_error.is_none());
         assert!(run.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn run_shuck_reports_missing_fi_as_c035() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture_path = tempdir.path().join("fixture.sh");
+        let source = "#!/bin/sh\nif true; then\n  :\n";
+        fs::write(&fixture_path, source).unwrap();
+
+        let fixture = LargeCorpusFixture {
+            path: fixture_path.clone(),
+            cache_rel_path: PathBuf::from("fixture.sh"),
+            shell: "sh".into(),
+            source_hash: hash_bytes(source.as_bytes()),
+        };
+        let run = run_shuck(
+            &fixture,
+            &shuck_linter::LinterSettings::for_rule(shuck_linter::Rule::MissingFi),
+            None,
+        );
+
+        assert!(run.parse_error.is_none());
+        assert_eq!(run.diagnostics.len(), 1);
+        assert_eq!(run.diagnostics[0].code(), "C035");
+        assert_eq!(run.diagnostics[0].span.start.line, 4);
+        assert_eq!(run.diagnostics[0].span.start.column, 1);
     }
 
     #[test]

@@ -200,6 +200,12 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::InvalidExitStatus) {
             rules::correctness::invalid_exit_status::invalid_exit_status(self);
         }
+        if self.is_rule_enabled(Rule::CStyleComment) {
+            rules::correctness::c_style_comment::c_style_comment(self);
+        }
+        if self.is_rule_enabled(Rule::CPrototypeFragment) {
+            rules::correctness::c_prototype_fragment::c_prototype_fragment(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {
@@ -260,6 +266,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArithmeticRedirectionTarget) {
             rules::correctness::arithmetic_redirection_target::arithmetic_redirection_target(self);
         }
+        if self.is_rule_enabled(Rule::BadRedirectionFdOrder) {
+            rules::correctness::bad_redirection_fd_order::bad_redirection_fd_order(self);
+        }
         if self.is_rule_enabled(Rule::SubstWithRedirect) {
             rules::correctness::subst_with_redirect::subst_with_redirect(self);
         }
@@ -277,6 +286,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
             rules::correctness::single_quoted_literal::single_quoted_literal(self);
+        }
+        if self.is_rule_enabled(Rule::OpenDoubleQuote) {
+            rules::correctness::open_double_quote::open_double_quote(self);
         }
         if self.is_rule_enabled(Rule::PositionalTenBraces) {
             rules::correctness::positional_ten_braces::positional_ten_braces(self);
@@ -298,6 +310,18 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
+        }
+        if self.is_rule_enabled(Rule::BrokenTestEnd) {
+            rules::correctness::broken_test_end::broken_test_end(self);
+        }
+        if self.is_rule_enabled(Rule::BrokenTestParse) {
+            rules::correctness::broken_test_parse::broken_test_parse(self);
+        }
+        if self.is_rule_enabled(Rule::LinebreakInTest) {
+            rules::correctness::linebreak_in_test::linebreak_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::ElseIf) {
+            rules::correctness::else_if::else_if(self);
         }
     }
 

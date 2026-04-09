@@ -3,14 +3,14 @@ legacy_name: c-prototype-fragment
 new_category: Correctness
 new_code: C042
 runtime_kind: ast
-shellcheck_code: SC1128
+shellcheck_code: SC1132
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: A C/C++-style declaration is being read as shell code.
-rationale: Keep non-shell source out of shell scripts or quote it as data.
+description: A token like `&name` is parsed as a background operator followed by another command.
+rationale: Put a space after `&` when you mean backgrounding, or escape/quote a literal ampersand.
 source:
   shell_checks_rule: rules/SH-123.yaml
   shell_checks_example: examples/123.sh
