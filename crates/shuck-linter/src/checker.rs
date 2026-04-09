@@ -292,6 +292,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PatternWithVariable) {
             rules::correctness::pattern_with_variable::pattern_with_variable(self);
         }
+        if self.is_rule_enabled(Rule::ZshFlagExpansion) {
+            rules::portability::zsh_flag_expansion::zsh_flag_expansion(self);
+        }
     }
 
     fn check_loop_list_and_pipeline_facts(&mut self) {

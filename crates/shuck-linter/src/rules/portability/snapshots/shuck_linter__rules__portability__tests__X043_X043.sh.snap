@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X043 zsh parameter modifier syntax is not portable to this shell
+ --> <source>:4:5
+  |
+4 | x=${(f)foo}
+  |

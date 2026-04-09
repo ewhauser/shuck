@@ -168,6 +168,7 @@ declare_rules! {
     ("X040", Category::Portability, Severity::Warning, ArraySubscriptTest),
     ("X041", Category::Portability, Severity::Warning, ArraySubscriptCondition),
     ("X042", Category::Portability, Severity::Warning, SourcedWithArgs),
+    ("X043", Category::Portability, Severity::Warning, ZshFlagExpansion),
     ("X046", Category::Portability, Severity::Warning, ExtglobInTest),
     ("X052", Category::Portability, Severity::Warning, FunctionKeywordInSh),
     ("X058", Category::Portability, Severity::Warning, GreaterThanInDoubleBracket),
@@ -300,6 +301,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-124" => Some(Rule::ZshBraceIf),
         "SH-125" => Some(Rule::ZshAlwaysBlock),
         "SH-140" => Some(Rule::SourcedWithArgs),
+        "SH-153" => Some(Rule::ZshFlagExpansion),
         "SH-126" => Some(Rule::ArraySubscriptTest),
         "SH-127" => Some(Rule::ArraySubscriptCondition),
         "SH-174" => Some(Rule::ExtglobInTest),
@@ -466,5 +468,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-125"), Some(Rule::ZshAlwaysBlock));
         assert_eq!(code_to_rule("X042"), Some(Rule::SourcedWithArgs));
         assert_eq!(code_to_rule("SH-140"), Some(Rule::SourcedWithArgs));
+        assert_eq!(code_to_rule("X043"), Some(Rule::ZshFlagExpansion));
+        assert_eq!(code_to_rule("SH-153"), Some(Rule::ZshFlagExpansion));
     }
 }
