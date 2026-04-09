@@ -18,8 +18,8 @@ use shuck_ast::{
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, Name, ParameterExpansionSyntax,
     ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
-    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
-    WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
+    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -28,8 +28,8 @@ use std::borrow::Cow;
 
 use self::{
     command_flow::{
-        build_for_header_facts, build_list_facts, build_pipeline_facts, build_select_header_facts,
-        build_substitution_facts,
+        build_for_header_facts, build_list_facts, build_pipeline_facts,
+        build_select_header_facts, build_single_test_subshell_spans, build_substitution_facts,
     },
     presence::build_presence_tested_names,
     surface::{build_subscript_index_reference_spans, build_surface_fragment_facts},
@@ -1240,6 +1240,7 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
+    single_test_subshell_spans: Vec<Span>,
     non_absolute_shebang_span: Option<Span>,
     condition_status_capture_spans: Vec<Span>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
@@ -1353,6 +1354,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn lists(&self) -> &[ListFact<'a>] {
         &self.lists
+    }
+
+    pub fn single_test_subshell_spans(&self) -> &[Span] {
+        &self.single_test_subshell_spans
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
@@ -1500,6 +1505,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span);
+        let single_test_subshell_spans =
+            build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
         let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
@@ -1528,6 +1535,7 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             pipelines,
             lists,
+            single_test_subshell_spans,
             non_absolute_shebang_span,
             condition_status_capture_spans,
             single_quoted_fragments: surface_fragments.single_quoted,

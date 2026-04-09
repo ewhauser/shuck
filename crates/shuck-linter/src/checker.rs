@@ -194,6 +194,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::GrepCountPipeline) {
             rules::performance::grep_count_pipeline::grep_count_pipeline(self);
         }
+        if self.is_rule_enabled(Rule::SingleTestSubshell) {
+            rules::performance::single_test_subshell::single_test_subshell(self);
+        }
         if self.is_rule_enabled(Rule::PrintfFormatVariable) {
             rules::style::printf_format_variable::printf_format_variable(self);
         }

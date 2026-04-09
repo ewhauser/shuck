@@ -62,6 +62,7 @@ impl Default for ShellCheckCodeMap {
                 (2003, Rule::ExprArithmetic),
                 (2126, Rule::GrepCountPipeline),
                 (2009, Rule::DoubleParenGrouping),
+                (2233, Rule::SingleTestSubshell),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
                 (1072, Rule::BrokenTestParse),
@@ -143,6 +144,7 @@ mod tests {
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(map.resolve("SC2233"), Some(Rule::SingleTestSubshell));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
@@ -291,6 +293,7 @@ mod tests {
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
+                (2233, Rule::SingleTestSubshell),
                 (2238, Rule::RedirectToCommandName),
                 (2239, Rule::NonAbsoluteShebang),
                 (2241, Rule::InvalidExitStatus),

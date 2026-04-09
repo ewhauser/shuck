@@ -908,6 +908,115 @@ pub(super) fn build_list_facts<'a>(
         .collect()
 }
 
+pub(super) fn build_single_test_subshell_spans<'a>(
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| single_test_subshell_span(fact, commands, command_ids_by_span, source))
+        .collect()
+}
+
+fn single_test_subshell_span<'a>(
+    fact: &CommandFact<'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Option<Span> {
+    let condition = match fact.command() {
+        Command::Compound(CompoundCommand::If(command)) => &command.condition,
+        Command::Compound(CompoundCommand::While(command)) => &command.condition,
+        Command::Compound(CompoundCommand::Until(command)) => &command.condition,
+        _ => return None,
+    };
+
+    let [stmt] = condition.as_slice() else {
+        return None;
+    };
+    if stmt.negated {
+        return None;
+    }
+
+    let condition_fact = command_fact_for_stmt(stmt, commands, command_ids_by_span)?;
+    let Command::Compound(CompoundCommand::Subshell(body)) = condition_fact.command() else {
+        return None;
+    };
+
+    let [body_stmt] = body.as_slice() else {
+        return None;
+    };
+    if body_stmt.negated {
+        return None;
+    }
+
+    let body_fact = command_fact_for_stmt(body_stmt, commands, command_ids_by_span)?;
+    if !is_test_like_command(body_fact) {
+        return None;
+    }
+
+    Some(subshell_anchor_span(stmt.span, source))
+}
+
+fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
+    fact.wrappers()
+        .iter()
+        .all(|wrapper| matches!(wrapper, WrapperKind::Command | WrapperKind::Builtin))
+        && (fact.effective_name_is("test")
+            || fact.effective_name_is("[")
+            || matches!(fact.command(), Command::Compound(CompoundCommand::Conditional(_))))
+}
+
+fn subshell_anchor_span(span: Span, source: &str) -> Span {
+    let Some(open_paren_offset) = leading_open_paren_offset(source, span.start.offset) else {
+        return span;
+    };
+
+    let end_offset = trim_trailing_whitespace_offset(source, span.end.offset);
+    Span::from_positions(
+        position_at_offset(source, open_paren_offset),
+        position_at_offset(source, end_offset),
+    )
+}
+
+fn leading_open_paren_offset(source: &str, start_offset: usize) -> Option<usize> {
+    for (offset, ch) in source[..start_offset].char_indices().rev() {
+        if ch.is_whitespace() {
+            continue;
+        }
+
+        if ch == '(' {
+            return Some(offset);
+        }
+
+        return None;
+    }
+
+    None
+}
+
+fn position_at_offset(source: &str, target_offset: usize) -> Position {
+    source[..target_offset]
+        .chars()
+        .fold(Position::new(), |mut position, ch| {
+            position.advance(ch);
+            position
+        })
+}
+
+fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
+    for (offset, ch) in source[..end_offset].char_indices().rev() {
+        if ch.is_whitespace() {
+            continue;
+        }
+
+        return offset + ch.len_utf8();
+    }
+
+    end_offset
+}
+
 fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
     if let Command::Binary(left) = &command.left.command
         && matches!(left.op, BinaryOp::And | BinaryOp::Or)

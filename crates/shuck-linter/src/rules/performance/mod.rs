@@ -1,5 +1,6 @@
 pub mod grep_count_pipeline;
 pub mod expr_arithmetic;
+pub mod single_test_subshell;
 
 #[cfg(test)]
 mod tests {
@@ -12,6 +13,7 @@ mod tests {
 
     #[test_case(Rule::ExprArithmetic, Path::new("P001.sh"))]
     #[test_case(Rule::GrepCountPipeline, Path::new("P002.sh"))]
+    #[test_case(Rule::SingleTestSubshell, Path::new("P003.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
