@@ -25,10 +25,10 @@ pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
 pub mod pipefail_option;
 pub mod process_substitution;
+pub mod printf_q_format_in_sh;
 pub mod replacement_expansion;
 pub mod select_loop;
-pub mod printf_q_format_in_sh;
-pub mod select_loop;
+pub mod signal_name_in_trap;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
@@ -128,6 +128,7 @@ mod tests {
     #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
     #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
     #[test_case(Rule::ErrexitTrapInSh, Path::new("X068.sh"))]
+    #[test_case(Rule::SignalNameInTrap, Path::new("X069.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]

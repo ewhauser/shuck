@@ -115,7 +115,7 @@ Detect bash-specific set/trap options in POSIX sh.
 - [x] **L** X022 (SC3048) `wait-option` — wait flags in sh
 - [x] **L** X032 (SC3025) `printf-q-format-in-sh` — `%q` printf conversion in sh
 - [x] **L** X068 (SC3075) `errexit-trap-in-sh` — `set -E` in sh
-- [ ] **M** X069 (SC3076) `signal-name-in-trap` — symbolic signal names in trap
+- [x] **M** X069 (SC3076) `signal-name-in-trap` — symbolic signal names in trap
 - [ ] **L** X070 (SC3077) `base-prefix-in-arithmetic` — `10#` base prefix in sh
 
 ### Portability — Extended Glob Patterns

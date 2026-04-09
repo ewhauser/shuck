@@ -169,6 +169,7 @@ impl Default for ShellCheckCodeMap {
             (3058, Rule::BashCaseFallthrough),
             (2127, Rule::BashCaseFallthrough),
             (3075, Rule::ErrexitTrapInSh),
+            (3076, Rule::SignalNameInTrap),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
             (3051, Rule::SourceInsideFunctionInSh),
             (3070, Rule::AmpersandRedirectInSh),
@@ -320,6 +321,7 @@ impl Default for ShellCheckCodeMap {
                 (3064, Rule::LegacyArithmeticInSh),
                 (3069, Rule::CStyleForArithmeticInSh),
                 (3075, Rule::ErrexitTrapInSh),
+                (3076, Rule::SignalNameInTrap),
                 (2321, Rule::FunctionKeywordInSh),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
@@ -511,6 +513,7 @@ mod tests {
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
         assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
         assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
+        assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
@@ -720,6 +723,7 @@ mod tests {
             (3070, Rule::AmpersandRedirectInSh),
             (3073, Rule::PipeStderrInSh),
             (3075, Rule::ErrexitTrapInSh),
+            (3076, Rule::SignalNameInTrap),
             (3084, Rule::SourceInsideFunctionInSh),
         ]
         .into_iter()
@@ -783,6 +787,7 @@ mod tests {
         assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
         assert!(comparison.contains(&(3060, Rule::ReplacementExpansion)));
         assert!(comparison.contains(&(3075, Rule::ErrexitTrapInSh)));
+        assert!(comparison.contains(&(3076, Rule::SignalNameInTrap)));
         assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
         assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
