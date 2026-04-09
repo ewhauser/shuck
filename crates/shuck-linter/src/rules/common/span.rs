@@ -294,6 +294,63 @@ pub fn conditional_exactly_one_extglob_span(
     }
 }
 
+pub fn text_looks_like_caret_negated_bracket(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'['
+            || byte_is_backslash_escaped(bytes, index)
+            || bytes[index + 1] != b'^'
+            || byte_is_backslash_escaped(bytes, index + 1)
+        {
+            index += 1;
+            continue;
+        }
+
+        for close in index + 2..bytes.len() {
+            if bytes[close] == b']' && !byte_is_backslash_escaped(bytes, close) {
+                return true;
+            }
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+pub fn word_caret_negated_bracket_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for part in &word.parts {
+        match &part.kind {
+            WordPart::Literal(_) => {
+                spans.extend(literal_caret_negated_bracket_spans(part.span, source));
+            }
+            WordPart::DoubleQuoted { .. }
+            | WordPart::SingleQuoted { .. }
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
+        }
+    }
+
+    spans
+}
+
 fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
@@ -863,6 +920,43 @@ fn text_looks_like_exactly_one_extglob(text: &str) -> bool {
     }
 
     false
+}
+
+fn literal_caret_negated_bracket_spans(span: Span, source: &str) -> Vec<Span> {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'['
+            || byte_is_backslash_escaped(bytes, index)
+            || bytes[index + 1] != b'^'
+            || byte_is_backslash_escaped(bytes, index + 1)
+        {
+            index += 1;
+            continue;
+        }
+
+        let mut close = index + 2;
+        while close < bytes.len() {
+            if bytes[close] == b']' && !byte_is_backslash_escaped(bytes, close) {
+                spans.push(Span::from_positions(
+                    span.start.advanced_by(&text[..index]),
+                    span.start.advanced_by(&text[..close + 1]),
+                ));
+                index = close + 1;
+                break;
+            }
+            close += 1;
+        }
+
+        if close >= bytes.len() {
+            break;
+        }
+    }
+
+    spans
 }
 
 fn text_has_parenthesized_alternation(bytes: &[u8]) -> bool {

@@ -34,7 +34,9 @@ use self::{
         build_subshell_test_group_spans, build_substitution_facts,
     },
     presence::build_presence_tested_names,
-    surface::{build_subscript_index_reference_spans, build_surface_fragment_facts},
+    surface::{
+        SurfaceFragmentFacts, build_subscript_index_reference_spans, build_surface_fragment_facts,
+    },
 };
 use crate::FileContext;
 use crate::context::ContextRegionKind;
@@ -1676,7 +1678,6 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut scalar_bindings = FxHashMap::default();
         let mut words = Vec::new();
         let mut pattern_literal_spans = Vec::new();
-        let mut pattern_charclass_spans = Vec::new();
 
         for visit in query::iter_commands(
             &self.file.body,
@@ -1701,11 +1702,10 @@ impl<'a> LinterFactsBuilder<'a> {
             if !nested_word_command {
                 structural_command_ids.push(id);
             }
-            let (command_words, command_pattern_literal_spans, command_pattern_charclass_spans) =
+            let (command_words, command_pattern_literal_spans) =
                 build_word_facts_for_command(visit, self.source, id, nested_word_command);
             words.extend(command_words);
             pattern_literal_spans.extend(command_pattern_literal_spans);
-            pattern_charclass_spans.extend(command_pattern_charclass_spans);
             let redirect_facts = build_redirect_facts(visit.redirects, self.source);
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
             let simple_test =
@@ -1748,15 +1748,28 @@ impl<'a> LinterFactsBuilder<'a> {
         let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
-        let surface_fragments =
-            build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
+        let SurfaceFragmentFacts {
+            single_quoted,
+            open_double_quotes,
+            backticks,
+            legacy_arithmetic,
+            positional_parameters,
+            positional_parameter_operator_spans,
+            unicode_smart_quote_spans,
+            pattern_charclass_spans,
+            nested_parameter_expansions,
+            indirect_expansions,
+            indexed_array_references,
+            substring_expansions,
+            case_modifications,
+            replacement_expansions,
+            subscript_spans,
+        } = build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
         let arithmetic_for_update_operator_spans =
             build_arithmetic_for_update_operator_spans(&commands, self.source);
-        let subscript_index_reference_spans = build_subscript_index_reference_spans(
-            self._semantic,
-            &surface_fragments.subscript_spans,
-        );
+        let subscript_index_reference_spans =
+            build_subscript_index_reference_spans(self._semantic, &subscript_spans);
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -1782,24 +1795,23 @@ impl<'a> LinterFactsBuilder<'a> {
             subshell_test_group_spans,
             non_absolute_shebang_span,
             condition_status_capture_spans,
-            single_quoted_fragments: surface_fragments.single_quoted,
-            open_double_quote_fragments: surface_fragments.open_double_quotes,
-            backtick_fragments: surface_fragments.backticks,
-            legacy_arithmetic_fragments: surface_fragments.legacy_arithmetic,
-            positional_parameter_fragments: surface_fragments.positional_parameters,
-            positional_parameter_operator_spans: surface_fragments
-                .positional_parameter_operator_spans,
+            single_quoted_fragments: single_quoted,
+            open_double_quote_fragments: open_double_quotes,
+            backtick_fragments: backticks,
+            legacy_arithmetic_fragments: legacy_arithmetic,
+            positional_parameter_fragments: positional_parameters,
+            positional_parameter_operator_spans,
             double_paren_grouping_spans,
             arithmetic_for_update_operator_spans,
-            unicode_smart_quote_spans: surface_fragments.unicode_smart_quote_spans,
+            unicode_smart_quote_spans,
             pattern_literal_spans,
             pattern_charclass_spans,
-            nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
-            indirect_expansion_fragments: surface_fragments.indirect_expansions,
-            indexed_array_reference_fragments: surface_fragments.indexed_array_references,
-            substring_expansion_fragments: surface_fragments.substring_expansions,
-            case_modification_fragments: surface_fragments.case_modifications,
-            replacement_expansion_fragments: surface_fragments.replacement_expansions,
+            nested_parameter_expansion_fragments: nested_parameter_expansions,
+            indirect_expansion_fragments: indirect_expansions,
+            indexed_array_reference_fragments: indexed_array_references,
+            substring_expansion_fragments: substring_expansions,
+            case_modification_fragments: case_modifications,
+            replacement_expansion_fragments: replacement_expansions,
         }
     }
 }
@@ -2654,7 +2666,7 @@ fn build_word_facts_for_command<'a>(
     source: &'a str,
     command_id: CommandId,
     nested_word_command: bool,
-) -> (Vec<WordFact<'a>>, Vec<Span>, Vec<Span>) {
+) -> (Vec<WordFact<'a>>, Vec<Span>) {
     let mut collector = WordFactCollector::new(source, command_id, nested_word_command);
     collector.collect_command(visit.command, visit.redirects);
     collector.finish()
@@ -2667,7 +2679,6 @@ struct WordFactCollector<'a> {
     facts: Vec<WordFact<'a>>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     pattern_literal_spans: Vec<Span>,
-    pattern_charclass_spans: Vec<Span>,
 }
 
 impl<'a> WordFactCollector<'a> {
@@ -2679,16 +2690,11 @@ impl<'a> WordFactCollector<'a> {
             facts: Vec::new(),
             seen: FxHashSet::default(),
             pattern_literal_spans: Vec::new(),
-            pattern_charclass_spans: Vec::new(),
         }
     }
 
-    fn finish(self) -> (Vec<WordFact<'a>>, Vec<Span>, Vec<Span>) {
-        (
-            self.facts,
-            self.pattern_literal_spans,
-            self.pattern_charclass_spans,
-        )
+    fn finish(self) -> (Vec<WordFact<'a>>, Vec<Span>) {
+        (self.facts, self.pattern_literal_spans)
     }
 
     fn collect_command(&mut self, command: &'a Command, redirects: &'a [Redirect]) {
@@ -3014,9 +3020,10 @@ impl<'a> WordFactCollector<'a> {
                     }
                 }
                 PatternPart::Word(word) => self.push_owned_word(word.clone(), context, host_kind),
-                PatternPart::Literal(_) | PatternPart::CharClass(_) if is_case_pattern => {}
+                PatternPart::Literal(_) if is_case_pattern => {}
                 PatternPart::AnyString | PatternPart::AnyChar => {}
-                PatternPart::Literal(_) | PatternPart::CharClass(_) => {}
+                PatternPart::CharClass(_) => {}
+                PatternPart::Literal(_) => {}
             }
         }
     }
@@ -5142,6 +5149,44 @@ case x in *[!a-zA-Z0-9._/+\\-]*) continue ;; esac
                 vec!["*[!a-zA-Z0-9._/+\\-]*"]
             );
             assert!(facts.pattern_charclass_spans().is_empty());
+        });
+    }
+
+    #[test]
+    fn traces_case_pattern_charclass_spans_for_caret_negation() {
+        let source = "\
+#!/bin/sh
+case x in [^a]*) continue ;; esac
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .pattern_charclass_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["[^a]"]
+            );
+        });
+    }
+
+    #[test]
+    fn traces_pattern_charclass_spans_for_conditional_patterns() {
+        let source = "\
+#!/bin/sh
+[[ $x = [^a]* ]]
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .pattern_charclass_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["[^a]"]
+            );
         });
     }
 

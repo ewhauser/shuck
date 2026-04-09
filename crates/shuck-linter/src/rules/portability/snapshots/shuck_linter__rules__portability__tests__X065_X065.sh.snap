@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X065 caret negation in bracket expressions is not portable to POSIX sh
+ --> <source>:4:6
+  |
+4 | echo [^a]*
+  |
+
+X065 caret negation in bracket expressions is not portable to POSIX sh
+ --> <source>:6:3
+  |
+6 |   [^a]*) : ;;
+  |
+
+X065 caret negation in bracket expressions is not portable to POSIX sh
+ --> <source>:8:9
+  |
+8 | [[ $x = [^a]* ]]
+  |

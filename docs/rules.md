@@ -125,7 +125,7 @@ Detect extended glob syntax in contexts where it is not supported.
 - [x] **L** X037 (SC1075) `extglob-case` — non-POSIX case pattern syntax
 - [x] **L** X048 (SC2277) `extglob-in-case-pattern` — extended-glob alternation in case
 - [x] **L** X054 (SC3061) `extglob-in-sh` — `@()` extended glob in sh
-- [ ] **L** X065 (SC3072) `caret-negation-in-bracket` — `[^...]` negation in sh
+- [x] **L** X065 (SC3072) `caret-negation-in-bracket` — `[^...]` negation in sh
 
 ### Portability — Echo, tr, and printf Locale
 

@@ -9,6 +9,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
     pub(super) positional_parameter_operator_spans: Vec<Span>,
     pub(super) unicode_smart_quote_spans: Vec<Span>,
+    pub(super) pattern_charclass_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
@@ -24,12 +25,14 @@ struct SurfaceScanContext<'a> {
     assignment_target: Option<&'a str>,
     variable_set_operand: bool,
     collect_open_double_quotes: bool,
+    collect_pattern_charclasses: bool,
 }
 
 impl<'a> SurfaceScanContext<'a> {
     fn new() -> Self {
         Self {
             collect_open_double_quotes: true,
+            collect_pattern_charclasses: false,
             ..Self::default()
         }
     }
@@ -51,6 +54,13 @@ impl<'a> SurfaceScanContext<'a> {
     fn without_open_double_quote_scan(self) -> Self {
         Self {
             collect_open_double_quotes: false,
+            ..self
+        }
+    }
+
+    fn with_pattern_charclass_scan(self) -> Self {
+        Self {
+            collect_pattern_charclasses: true,
             ..self
         }
     }
@@ -302,7 +312,10 @@ impl<'a> SurfaceFragmentCollector<'a> {
             CompoundCommand::Case(command) => {
                 self.collect_word(&command.word, SurfaceScanContext::new());
                 for case in &command.cases {
-                    self.collect_patterns(&case.patterns, SurfaceScanContext::new());
+                    self.collect_patterns(
+                        &case.patterns,
+                        SurfaceScanContext::new().with_pattern_charclass_scan(),
+                    );
                     self.collect_commands(&case.body);
                 }
             }
@@ -685,14 +698,17 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
-        for (part, _) in pattern.parts_with_spans() {
+        for (part, span) in pattern.parts_with_spans() {
             match part {
                 PatternPart::Group { patterns, .. } => self.collect_patterns(patterns, context),
                 PatternPart::Word(word) => self.collect_word(word, context),
-                PatternPart::Literal(_)
+                PatternPart::CharClass(_) if context.collect_pattern_charclasses => {
+                    self.facts.pattern_charclass_spans.push(span)
+                }
+                PatternPart::CharClass(_)
+                | PatternPart::Literal(_)
                 | PatternPart::AnyString
-                | PatternPart::AnyChar
-                | PatternPart::CharClass(_) => {}
+                | PatternPart::AnyChar => {}
             }
         }
     }
@@ -824,7 +840,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
             ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
                 self.collect_word(word, context)
             }
-            ConditionalExpr::Pattern(pattern) => self.collect_pattern(pattern, context),
+            ConditionalExpr::Pattern(pattern) => {
+                self.collect_pattern(pattern, context.with_pattern_charclass_scan())
+            }
             ConditionalExpr::VarRef(reference) => {
                 self.record_var_ref_subscript(reference);
                 query::visit_var_ref_subscript_words_with_source(

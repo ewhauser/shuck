@@ -2,7 +2,8 @@ use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span};
 
 use crate::rules::common::expansion::ExpansionContext;
 use crate::rules::common::span::{
-    conditional_exactly_one_extglob_span, word_exactly_one_extglob_span,
+    conditional_exactly_one_extglob_span, text_looks_like_caret_negated_bracket,
+    word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
 };
 use crate::{
     Checker, ConditionalNodeFact, Rule, ShellDialect, SimpleTestFact, SimpleTestSyntax, Violation,
@@ -15,6 +16,7 @@ pub struct TestEqualityOperator;
 pub struct IfElifBashTest;
 pub struct ExtendedGlobInTest;
 pub struct ExtglobInSh;
+pub struct CaretNegationInBracket;
 pub struct ArraySubscriptTest;
 pub struct ArraySubscriptCondition;
 pub struct ExtglobInTest;
@@ -73,6 +75,16 @@ impl Violation for ExtglobInSh {
 
     fn message(&self) -> String {
         "extended glob syntax is not available in POSIX sh".to_owned()
+    }
+}
+
+impl Violation for CaretNegationInBracket {
+    fn rule() -> Rule {
+        Rule::CaretNegationInBracket
+    }
+
+    fn message(&self) -> String {
+        "caret negation in bracket expressions is not portable to POSIX sh".to_owned()
     }
 }
 
@@ -294,6 +306,34 @@ pub fn extglob_in_sh(checker: &mut Checker) {
     );
 
     checker.report_all_dedup(spans, || ExtglobInSh);
+}
+
+pub fn caret_negation_in_bracket(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let source = checker.source();
+    let mut spans = checker
+        .facts()
+        .pattern_charclass_spans()
+        .iter()
+        .filter(|span| text_looks_like_caret_negated_bracket(span.slice(source)))
+        .copied()
+        .collect::<Vec<_>>();
+    spans.extend(
+        checker
+            .facts()
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && !fact.is_nested_word_command()
+            })
+            .flat_map(|fact| word_caret_negated_bracket_spans(fact.word(), source)),
+    );
+
+    checker.report_all_dedup(spans, || CaretNegationInBracket);
 }
 
 pub fn array_subscript_test(checker: &mut Checker) {
@@ -724,6 +764,29 @@ mod tests {
     }
 
     #[test]
+    fn reports_caret_negation_in_bracket_in_posix_shells() {
+        let source = "\
+#!/bin/sh
+echo [^a]*
+case x in
+  [^a]*) : ;;
+esac
+[[ $x = [^a]* ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 3);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule == Rule::CaretNegationInBracket)
+        );
+    }
+
+    #[test]
     fn sh_portability_rules_ignore_bash_shells() {
         let source = "\
 #!/bin/bash
@@ -742,6 +805,7 @@ fi
                 Rule::IfElifBashTest,
                 Rule::ExtendedGlobInTest,
                 Rule::ExtglobInSh,
+                Rule::CaretNegationInBracket,
                 Rule::ArraySubscriptTest,
                 Rule::ArraySubscriptCondition,
                 Rule::ExtglobInTest,
