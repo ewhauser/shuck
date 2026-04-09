@@ -9,7 +9,19 @@ X046 extended glob syntax in test operands is not portable to POSIX sh
   |
 
 X046 extended glob syntax in test operands is not portable to POSIX sh
- --> <source>:5:10
+ --> <source>:3:10
   |
-5 | [ "$x" = @(foo|bar) ]
+3 | [ "$x" = @(foo) ]
+  |
+
+X046 extended glob syntax in test operands is not portable to POSIX sh
+ --> <source>:4:10
+  |
+4 | [ "$x" = !(name) ]
+  |
+
+X046 extended glob syntax in test operands is not portable to POSIX sh
+ --> <source>:7:10
+  |
+7 | [ "$x" = @(foo|bar) ]
   |

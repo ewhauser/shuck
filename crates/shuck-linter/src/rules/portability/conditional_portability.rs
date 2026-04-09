@@ -835,7 +835,7 @@ fn text_has_variable_subscript(text: &str) -> bool {
     let mut index = 0usize;
 
     while index < bytes.len() {
-        if bytes[index] != b'$' {
+        if bytes[index] != b'$' || byte_is_backslash_escaped(bytes, index) {
             index += 1;
             continue;
         }
@@ -881,22 +881,99 @@ fn text_has_variable_subscript(text: &str) -> bool {
 }
 
 fn text_looks_like_extglob(text: &str) -> bool {
-    let mut open = None;
-    for (index, char) in text.char_indices() {
-        if matches!(char, '(' | '@' | '?' | '+' | '*' | '!') {
-            let next = text[index + char.len_utf8()..].chars().next();
-            if char == '(' || next == Some('(') {
-                open = Some(index + usize::from(char != '('));
-                break;
-            }
-        }
+    let bytes = text.as_bytes();
+    if text_has_parenthesized_alternation(bytes) {
+        return true;
     }
 
-    let Some(open_index) = open else {
-        return false;
-    };
-    let rest = &text[open_index..];
-    rest.contains('|') && rest.contains(')')
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if !is_extglob_operator(bytes[index])
+            || bytes[index + 1] != b'('
+            || byte_is_backslash_escaped(bytes, index)
+        {
+            index += 1;
+            continue;
+        }
+
+        return matching_group_end(bytes, index + 1).is_some();
+    }
+
+    false
+}
+
+fn text_has_parenthesized_alternation(bytes: &[u8]) -> bool {
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'(' || byte_is_backslash_escaped(bytes, index) {
+            index += 1;
+            continue;
+        }
+
+        let Some(close) = matching_group_end(bytes, index) else {
+            index += 1;
+            continue;
+        };
+
+        if bytes[index + 1..close]
+            .iter()
+            .enumerate()
+            .any(|(offset, byte)| *byte == b'|' && !byte_is_backslash_escaped(bytes, index + 1 + offset))
+        {
+            return true;
+        }
+
+        index = close + 1;
+    }
+
+    false
+}
+
+fn matching_group_end(bytes: &[u8], open_index: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut cursor = open_index + 1;
+
+    while cursor < bytes.len() {
+        if byte_is_backslash_escaped(bytes, cursor) {
+            cursor += 1;
+            continue;
+        }
+
+        match bytes[cursor] {
+            b'(' => {
+                depth += 1;
+            }
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(cursor);
+                }
+            }
+            _ => {}
+        }
+
+        cursor += 1;
+    }
+
+    None
+}
+
+fn byte_is_backslash_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut cursor = index;
+    let mut backslashes = 0usize;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
+}
+
+fn is_extglob_operator(byte: u8) -> bool {
+    matches!(byte, b'@' | b'?' | b'+' | b'*' | b'!')
 }
 
 fn conditional_binary_operator_spans(
