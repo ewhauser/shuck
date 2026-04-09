@@ -37,6 +37,7 @@ impl Default for ShellCheckCodeMap {
                 (2007, Rule::LegacyArithmeticExpansion),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
+                (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
@@ -94,6 +95,7 @@ mod tests {
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
+        assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
@@ -151,6 +153,7 @@ mod tests {
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
+                (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),

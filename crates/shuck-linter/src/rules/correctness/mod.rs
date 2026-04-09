@@ -1,5 +1,6 @@
 pub mod arithmetic_redirection_target;
 pub mod broken_test_end;
+pub mod broken_test_parse;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod constant_case_subject;
@@ -66,6 +67,7 @@ mod tests {
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]
     #[test_case(Rule::BrokenTestEnd, Path::new("C036.sh"))]
+    #[test_case(Rule::BrokenTestParse, Path::new("C037.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]

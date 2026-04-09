@@ -3,13 +3,13 @@ legacy_name: broken-test-parse
 new_category: Correctness
 new_code: C037
 runtime_kind: ast
-shellcheck_code: SC1074
+shellcheck_code: SC1072
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: "A malformed `[` test expression cannot be parsed by ShellCheck."
+description: "A malformed `[` test expression leaves ShellCheck at a parser recovery boundary."
 rationale: Correct the test syntax before relying on any other static checks.
 source:
   shell_checks_rule: rules/SH-110.yaml
@@ -19,5 +19,5 @@ examples:
     source: shell-checks/examples/110.sh
     code: |
       #!/bin/sh
-      # shellcheck disable=1009,1072
+      # shellcheck disable=1009,1073
       if [ x = y; then :; fi

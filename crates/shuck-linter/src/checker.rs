@@ -302,6 +302,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BrokenTestEnd) {
             rules::correctness::broken_test_end::broken_test_end(self);
         }
+        if self.is_rule_enabled(Rule::BrokenTestParse) {
+            rules::correctness::broken_test_parse::broken_test_parse(self);
+        }
     }
 
     fn check_flow(&mut self) {
