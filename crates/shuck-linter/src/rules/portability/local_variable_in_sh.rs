@@ -22,8 +22,15 @@ pub fn local_variable_in_sh(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|fact| {
-            let declaration = fact.declaration()?;
-            (declaration.kind == DeclarationKind::Local).then_some(declaration.head_span)
+            if !fact.effective_name_is("local") {
+                return None;
+            }
+
+            Some(
+                fact.declaration()
+                    .filter(|declaration| declaration.kind == DeclarationKind::Local)
+                    .map_or_else(|| fact.body_span(), |declaration| declaration.head_span),
+            )
         })
         .collect::<Vec<_>>();
 

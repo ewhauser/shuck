@@ -1,9 +1,8 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 29
 ---
 X052 `function` with trailing `()` is not portable in `sh` scripts
  --> <source>:4:1
   |
-4 | function with_parens() { :; }
+4 | function with_parens()
   |

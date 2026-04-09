@@ -797,7 +797,7 @@ impl<'a> FunctionHeaderFact<'a> {
     }
 
     pub fn span_in_source(&self, source: &str) -> Span {
-        trim_trailing_whitespace_span(self.function.span, source)
+        trim_trailing_whitespace_span(self.function.header.span(), source)
     }
 
     pub fn uses_function_keyword(&self) -> bool {
@@ -3782,6 +3782,23 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![CommandId::new(0), CommandId::new(1)]
         );
+    }
+
+    #[test]
+    fn function_header_fact_span_in_source_stops_at_header() {
+        let source = "#!/bin/bash\nfunction wrapped()\n{\n  printf '%s\\n' hi\n}\n";
+
+        with_facts(source, None, |_, facts| {
+            let header = facts
+                .function_headers()
+                .first()
+                .expect("expected function header fact");
+
+            assert_eq!(
+                header.span_in_source(source).slice(source),
+                "function wrapped()"
+            );
+        });
     }
 
     #[test]

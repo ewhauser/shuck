@@ -7,6 +7,13 @@ inside_function() {
 }
 inside_function
 
+# Should trigger: wrapped local stays non-portable in sh
+wrapped_function() {
+  command local wrapped=value
+  printf '%s\n' "$wrapped"
+}
+wrapped_function
+
 # Should trigger: local at script scope in sh
 local top_level=value
 printf '%s\n' "$top_level"

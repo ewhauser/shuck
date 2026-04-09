@@ -25,7 +25,12 @@ pub fn source_builtin_in_sh(checker: &mut Checker) {
         .iter()
         .filter(|fact| fact.effective_name_is("source"))
         .map(|fact| {
-            source_anchor_span(fact.command(), fact.redirects(), fact.span(), checker.source())
+            source_anchor_span(
+                fact.command(),
+                fact.redirects(),
+                fact.span(),
+                checker.source(),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -39,7 +44,9 @@ fn source_anchor_span(
     source: &str,
 ) -> Span {
     match command {
-        Command::Simple(command) => clip_first_line(simple_command_span(command, redirects), source),
+        Command::Simple(command) => {
+            clip_first_line(simple_command_span(command, redirects), source)
+        }
         _ => clip_first_line(fallback, source),
     }
 }

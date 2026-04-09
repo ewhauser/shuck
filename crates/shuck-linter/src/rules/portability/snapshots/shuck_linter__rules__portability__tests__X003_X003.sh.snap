@@ -1,6 +1,5 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 19
 ---
 X003 `local` is not portable in `sh` scripts
  --> <source>:5:3
@@ -9,7 +8,13 @@ X003 `local` is not portable in `sh` scripts
   |
 
 X003 `local` is not portable in `sh` scripts
-  --> <source>:11:1
+  --> <source>:12:11
    |
-11 | local top_level=value
+12 |   command local wrapped=value
+   |
+
+X003 `local` is not portable in `sh` scripts
+  --> <source>:18:1
+   |
+18 | local top_level=value
    |

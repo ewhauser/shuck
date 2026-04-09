@@ -3266,6 +3266,53 @@ demo() {
     }
 
     #[test]
+    fn x004_metadata_loads_header_span_reviewed_divergences() {
+        let metadata = load_rule_corpus_metadata("X004");
+
+        assert!(metadata.reviewed_divergences.iter().any(|entry| {
+            entry.side == CompatibilitySide::ShellcheckOnly
+                && entry.path_suffix.as_deref()
+                    == Some("ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh")
+                && entry.labels == ["helper-library", "shell-collapse"]
+        }));
+
+        let all = load_all_rule_corpus_metadata();
+        assert!(all.contains_key("X004"));
+    }
+
+    #[test]
+    fn x004_reviewed_divergence_matches_location_only_shell_collapse_helper() {
+        let metadata = HashMap::from([("X004".to_string(), load_rule_corpus_metadata("X004"))]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShellcheckOnly,
+            rule_code: Some("X004".into()),
+            shellcheck_code: "SC2112".into(),
+            range: DiagnosticRange {
+                line: 14,
+                end_line: 17,
+                column: 1,
+                end_column: 2,
+            },
+            message: "function keyword".into(),
+            labels: vec!["helper-library".into(), "shell-collapse".into()],
+        };
+
+        let (classification, reason) = classify_compatibility_record(
+            &record,
+            Path::new(
+                "/tmp/.cache/large-corpus/scripts/ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh",
+            ),
+            &metadata,
+        );
+
+        assert_eq!(
+            classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert!(reason.is_some());
+    }
+
+    #[test]
     fn reviewed_divergence_classification_matches_exact_shellcheck_record() {
         let metadata = HashMap::from([("C001".to_string(), load_rule_corpus_metadata("C001"))]);
         let record = CompatibilityRecord {

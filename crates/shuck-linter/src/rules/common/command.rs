@@ -668,7 +668,10 @@ mod tests {
     fn normalize_command_tracks_declaration_head_span_without_final_assignment_values() {
         let cases = [
             ("local name=portable\n", "local name"),
-            ("local plugins_path plugin_path ext_cmd_path ext_cmds plugin\n", "local plugins_path plugin_path ext_cmd_path ext_cmds plugin"),
+            (
+                "local plugins_path plugin_path ext_cmd_path ext_cmds plugin\n",
+                "local plugins_path plugin_path ext_cmd_path ext_cmds plugin",
+            ),
             ("local -r foo=$(date) bar\n", "local -r foo=$(date) bar"),
         ];
 
