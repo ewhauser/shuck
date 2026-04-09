@@ -146,6 +146,7 @@ declare_rules! {
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
+    ("P004", Category::Performance, Severity::Warning, SubshellTestGroup),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
     ("S003", Category::Style, Severity::Warning, LoopFromCommandOutput),
@@ -228,6 +229,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
+        "SH-164" => Some(Rule::SubshellTestGroup),
         _ => None,
     })
 }
@@ -261,6 +263,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
+        assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));

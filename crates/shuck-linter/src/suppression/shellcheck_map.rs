@@ -63,6 +63,8 @@ impl Default for ShellCheckCodeMap {
                 (2126, Rule::GrepCountPipeline),
                 (2009, Rule::DoubleParenGrouping),
                 (2233, Rule::SingleTestSubshell),
+                (2235, Rule::SubshellTestGroup),
+                (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
                 (1072, Rule::BrokenTestParse),
@@ -145,6 +147,8 @@ mod tests {
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2233"), Some(Rule::SingleTestSubshell));
+        assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
+        assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
@@ -294,6 +298,7 @@ mod tests {
                 (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
                 (2233, Rule::SingleTestSubshell),
+                (2235, Rule::SubshellTestGroup),
                 (2238, Rule::RedirectToCommandName),
                 (2239, Rule::NonAbsoluteShebang),
                 (2241, Rule::InvalidExitStatus),
@@ -303,6 +308,7 @@ mod tests {
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
                 (2257, Rule::ArithmeticRedirectionTarget),
+                (2259, Rule::SubshellTestGroup),
                 (2264, Rule::NestedParameterExpansion),
                 (2266, Rule::OverwrittenFunction),
                 (2270, Rule::IfMissingThen),
