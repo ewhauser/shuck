@@ -289,6 +289,14 @@ impl<'a> ConditionalUnaryFact<'a> {
         self.expression
     }
 
+    pub fn operator_span(&self) -> Span {
+        let ConditionalExpr::Unary(expression) = self.expression else {
+            unreachable!("conditional unary fact should wrap a unary expression");
+        };
+
+        expression.op_span
+    }
+
     pub fn op(&self) -> ConditionalUnaryOp {
         self.op
     }
@@ -314,6 +322,14 @@ pub struct ConditionalBinaryFact<'a> {
 impl<'a> ConditionalBinaryFact<'a> {
     pub fn expression(&self) -> &'a ConditionalExpr {
         self.expression
+    }
+
+    pub fn operator_span(&self) -> Span {
+        let ConditionalExpr::Binary(expression) = self.expression else {
+            unreachable!("conditional binary fact should wrap a binary expression");
+        };
+
+        expression.op_span
     }
 
     pub fn op(&self) -> ConditionalBinaryOp {
@@ -358,6 +374,10 @@ pub struct ConditionalFact<'a> {
 }
 
 impl<'a> ConditionalFact<'a> {
+    pub fn expression(&self) -> &'a ConditionalExpr {
+        self.root().expression()
+    }
+
     pub fn root(&self) -> &ConditionalNodeFact<'a> {
         &self.nodes[0]
     }
@@ -1271,6 +1291,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn body_name_word(&self) -> Option<&'a Word> {
         self.normalized.body_name_word()
+    }
+
+    pub fn body_word_span(&self) -> Option<Span> {
+        self.normalized.body_word_span()
     }
 
     pub fn body_args(&self) -> &[&'a Word] {

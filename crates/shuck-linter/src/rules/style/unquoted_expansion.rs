@@ -1,8 +1,6 @@
-use shuck_ast::WordPart;
-
 use crate::{
     Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
-    WordFact,
+    WordFact, word_unquoted_star_parameter_spans,
 };
 
 pub struct UnquotedExpansion;
@@ -63,7 +61,8 @@ fn report_word_expansions(
 ) {
     let scalar_spans = fact.scalar_expansion_spans();
     let array_spans = fact.unquoted_array_expansion_spans();
-    if scalar_spans.is_empty() && !contains_unquoted_star_parameter(fact) {
+    let star_spans = word_unquoted_star_parameter_spans(fact.word(), array_spans);
+    if scalar_spans.is_empty() && star_spans.is_empty() {
         return;
     }
     if context == ExpansionContext::CommandName && !fact.has_literal_affixes() {
@@ -73,8 +72,7 @@ fn report_word_expansions(
         .expect("checked expansion context should map to a safe-value query");
 
     for (part, part_span) in fact.word().parts_with_spans() {
-        let report_unquoted_star = array_spans.contains(&part_span)
-            && matches!(part, WordPart::Variable(name) if name.as_str() == "*");
+        let report_unquoted_star = star_spans.contains(&part_span);
         if !scalar_spans.contains(&part_span) && !report_unquoted_star {
             continue;
         }
@@ -84,13 +82,6 @@ fn report_word_expansions(
 
         spans.push(part_span);
     }
-}
-
-fn contains_unquoted_star_parameter(fact: &WordFact<'_>) -> bool {
-    fact.word().parts_with_spans().any(|(part, span)| {
-        fact.unquoted_array_expansion_spans().contains(&span)
-            && matches!(part, WordPart::Variable(name) if name.as_str() == "*")
-    })
 }
 
 #[cfg(test)]

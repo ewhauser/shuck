@@ -1,7 +1,11 @@
-use shuck_ast::{Command, Span, WordPart, WordPartNode};
+use shuck_ast::Span;
 
 use crate::context::FileContextTag;
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{
+    Checker, ExpansionContext, Rule, Violation, word_has_single_literal_part,
+    word_literal_part_spans_excluding_parameter_operator_tails,
+    word_literal_scan_segments_excluding_expansions,
+};
 
 pub struct NeedlessBackslashUnderscore;
 
@@ -38,24 +42,9 @@ pub fn needless_backslash_underscore(checker: &mut Checker) {
             )
         })
         .flat_map(|fact| {
-            fact.word()
-                .parts
-                .iter()
-                .enumerate()
-                .filter_map(|(index, part)| match &part.kind {
-                    WordPart::Literal(_)
-                        if !literal_part_is_parameter_operator_tail(
-                            &fact.word().parts,
-                            index,
-                            source,
-                        ) =>
-                    {
-                        Some(needless_backslash_spans(part.span, source))
-                    }
-                    WordPart::Literal(_) => None,
-                    _ => None,
-                })
-                .flatten()
+            word_literal_part_spans_excluding_parameter_operator_tails(fact.word(), source)
+                .into_iter()
+                .flat_map(|span| needless_backslash_spans(span, source))
                 .collect::<Vec<_>>()
         })
         .chain(
@@ -72,12 +61,7 @@ pub fn needless_backslash_underscore(checker: &mut Checker) {
                         )
                     )
                 })
-                .filter(|fact| {
-                    matches!(
-                        fact.word().parts.as_slice(),
-                        [part] if matches!(part.kind, WordPart::Literal(_))
-                    )
-                })
+                .filter(|fact| word_has_single_literal_part(fact.word()))
                 .filter(|fact| {
                     !word_contains_single_quoted_fragment(fact.span(), single_quoted_fragments)
                 })
@@ -118,11 +102,11 @@ pub fn needless_backslash_underscore(checker: &mut Checker) {
             facts
                 .commands()
                 .iter()
-                .filter_map(|command| match command.command() {
-                    Command::Simple(simple) if simple.name.span.slice(source).contains('/') => {
-                        Some(needless_backslash_spans(simple.name.span, source))
-                    }
-                    _ => None,
+                .filter_map(|command| {
+                    command
+                        .body_word_span()
+                        .filter(|span| span.slice(source).contains('/'))
+                        .map(|span| needless_backslash_spans(span, source))
                 })
                 .flatten(),
         )
@@ -187,67 +171,10 @@ fn redirect_target_needless_backslash_spans(
     fact: &crate::facts::WordFact<'_>,
     source: &str,
 ) -> Vec<Span> {
-    let mut excluded = Vec::new();
-    collect_redirect_target_excluded_spans(fact.word().parts.as_slice(), &mut excluded);
-    scan_span_excluding(fact.span(), &excluded, source)
-}
-
-fn collect_redirect_target_excluded_spans(parts: &[WordPartNode], excluded: &mut Vec<Span>) {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(_) => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_redirect_target_excluded_spans(parts, excluded);
-            }
-            WordPart::CommandSubstitution { .. }
-            | WordPart::ProcessSubstitution { .. }
-            | WordPart::SingleQuoted { .. }
-            | WordPart::Variable(_)
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. }
-            | WordPart::ZshQualifiedGlob(_) => excluded.push(part.span),
-        }
-    }
-}
-
-fn scan_span_excluding(span: Span, excluded: &[Span], source: &str) -> Vec<Span> {
-    if excluded.is_empty() {
-        return needless_backslash_spans(span, source);
-    }
-
-    let mut spans = Vec::new();
-    let mut cursor = span.start.offset;
-    for excluded_span in excluded.iter().copied().filter(|excluded_span| {
-        excluded_span.end.offset > span.start.offset && excluded_span.start.offset < span.end.offset
-    }) {
-        let segment_end = excluded_span.start.offset.min(span.end.offset);
-        if cursor < segment_end {
-            spans.extend(scan_span_segment(span, cursor, segment_end, source));
-        }
-        cursor = cursor.max(excluded_span.end.offset).min(span.end.offset);
-    }
-
-    if cursor < span.end.offset {
-        spans.extend(scan_span_segment(span, cursor, span.end.offset, source));
-    }
-
-    spans
-}
-
-fn scan_span_segment(span: Span, start: usize, end: usize, source: &str) -> Vec<Span> {
-    let segment_start = span.start.advanced_by(&source[span.start.offset..start]);
-    let segment_end = span.start.advanced_by(&source[span.start.offset..end]);
-    needless_backslash_spans(Span::from_positions(segment_start, segment_end), source)
+    word_literal_scan_segments_excluding_expansions(fact.word(), source)
+        .into_iter()
+        .flat_map(|span| needless_backslash_spans(span, source))
+        .collect()
 }
 
 fn is_grep_style_argument<'a>(
@@ -269,27 +196,6 @@ fn is_grep_style_argument<'a>(
     command
         .effective_or_literal_name()
         .is_some_and(|name| name.contains("grep"))
-}
-
-fn literal_part_is_parameter_operator_tail(
-    parts: &[WordPartNode],
-    index: usize,
-    source: &str,
-) -> bool {
-    let Some(previous) = index.checked_sub(1).and_then(|index| parts.get(index)) else {
-        return false;
-    };
-    if !matches!(
-        previous.kind,
-        WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::IndirectExpansion { .. }
-    ) {
-        return false;
-    }
-
-    let text = parts[index].span.slice(source);
-    text.ends_with('}') && (text.starts_with('/') || text.starts_with('%') || text.starts_with('#'))
 }
 
 fn needless_backslash_spans(word_span: Span, source: &str) -> Vec<Span> {
@@ -403,5 +309,19 @@ fi
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_dynamic_path_like_command_names() {
+        let source = "\
+#!/bin/bash
+${bindir}/foo\\nbar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NeedlessBackslashUnderscore),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
     }
 }
