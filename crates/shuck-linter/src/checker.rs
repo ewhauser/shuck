@@ -339,6 +339,48 @@ impl<'a> Checker<'a> {
     }
 
     fn check_test_and_conditional_facts(&mut self) {
+        if self.is_rule_enabled(Rule::DoubleBracketInSh) {
+            rules::portability::conditional_portability::double_bracket_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::TestEqualityOperator) {
+            rules::portability::conditional_portability::test_equality_operator(self);
+        }
+        if self.is_rule_enabled(Rule::IfElifBashTest) {
+            rules::portability::conditional_portability::if_elif_bash_test(self);
+        }
+        if self.is_rule_enabled(Rule::ExtendedGlobInTest) {
+            rules::portability::conditional_portability::extended_glob_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::ArraySubscriptTest) {
+            rules::portability::conditional_portability::array_subscript_test(self);
+        }
+        if self.is_rule_enabled(Rule::ArraySubscriptCondition) {
+            rules::portability::conditional_portability::array_subscript_condition(self);
+        }
+        if self.is_rule_enabled(Rule::ExtglobInTest) {
+            rules::portability::conditional_portability::extglob_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::GreaterThanInDoubleBracket) {
+            rules::portability::conditional_portability::greater_than_in_double_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::RegexMatchInSh) {
+            rules::portability::conditional_portability::regex_match_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::VTestInSh) {
+            rules::portability::conditional_portability::v_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ATestInSh) {
+            rules::portability::conditional_portability::a_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::OptionTestInSh) {
+            rules::portability::conditional_portability::option_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::StickyBitTestInSh) {
+            rules::portability::conditional_portability::sticky_bit_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::OwnershipTestInSh) {
+            rules::portability::conditional_portability::ownership_test_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::QuotedBashRegex) {
             rules::correctness::quoted_bash_regex::quoted_bash_regex(self);
         }

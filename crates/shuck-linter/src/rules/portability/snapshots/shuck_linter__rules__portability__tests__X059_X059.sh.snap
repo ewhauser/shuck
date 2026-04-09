@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X059 `=~` regex matching is not available in POSIX sh
+ --> <source>:2:10
+  |
+2 | if [[ $1 =~ '-' ]]; then :; fi
+  |

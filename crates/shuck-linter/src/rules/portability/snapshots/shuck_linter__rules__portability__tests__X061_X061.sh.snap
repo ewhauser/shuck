@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X061 use `-e` instead of `-a` for file-existence checks in POSIX sh
+ --> <source>:2:7
+  |
+2 | if [[ -a "$file" ]]; then :; fi
+  |

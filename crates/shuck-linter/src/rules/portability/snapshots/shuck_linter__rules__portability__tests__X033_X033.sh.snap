@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X033 `elif` uses `[[ ... ]]`, which is not available in POSIX sh
+ --> <source>:4:6
+  |
+4 | elif [[ "$OSTYPE" == foo ]]; then
+  |

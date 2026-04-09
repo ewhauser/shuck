@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 32
+---
+X034 extended glob patterns in `[[` matches are not portable to POSIX sh
+ --> <source>:2:16
+  |
+2 | if [[ $term == @(xterm|screen)* ]]; then :; fi
+  |
+
+X034 extended glob patterns in `[[` matches are not portable to POSIX sh
+ --> <source>:4:16
+  |
+4 | if [[ $term != @(foo|bar) ]]; then :; fi
+  |
