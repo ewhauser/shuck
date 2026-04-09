@@ -1591,11 +1591,11 @@ fn resolve_helper_paths(
     candidate: &str,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<PathBuf> {
-    let candidate_path = Path::new(candidate);
+    let candidate_path = filesystem_candidate_path(candidate);
     if candidate_path.is_absolute() {
         return candidate_path
             .is_file()
-            .then_some(candidate_path.to_path_buf())
+            .then_some(candidate_path)
             .into_iter()
             .collect();
     }
@@ -1604,7 +1604,7 @@ fn resolve_helper_paths(
         return Vec::new();
     };
 
-    let direct = base_dir.join(candidate_path);
+    let direct = base_dir.join(&candidate_path);
     if direct.is_file() {
         return vec![direct];
     }
@@ -1614,6 +1614,18 @@ fn resolve_helper_paths(
         .flat_map(|resolver| resolver.resolve_candidate_paths(source_path, candidate))
         .filter(|path| path.is_file())
         .collect()
+}
+
+fn filesystem_candidate_path(candidate: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        return PathBuf::from(candidate.replace('/', "\\"));
+    }
+
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(candidate)
+    }
 }
 
 fn summarize_helper(
