@@ -227,6 +227,16 @@ Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
 
 Disable caching with `--no-cache` or remove the current project's cache entries with `shuck clean`.
 
+## Acknowledgements
+
+Shuck builds on ideas and inspiration from several excellent open-source projects. This section is a thank-you to those communities — it does not imply endorsement, affiliation, or any formal relationship between shuck and these projects.
+
+- **[bashkit](https://github.com/everruns/bashkit)** — Source of the bash lexer and parser that powers shuck-parser.
+- **[Ruff](https://github.com/astral-sh/ruff)** — Linter architecture inspiration, particularly around caching, rule organization, and diagnostic output.
+- **[ShellCheck](https://github.com/koalaman/shellcheck)** — An amazing project and the original source of inspiration for shuck. ShellCheck set the standard for shell script analysis.
+- **[shfmt](https://github.com/mvdan/sh)** — Shell formatter whose design informed shuck's formatting approach.
+- **[gbash](https://github.com/ewhauser/gbash)** — A lot of lessons learned from this earlier project carried forward into shuck.
+
 ## License
 
 MIT
