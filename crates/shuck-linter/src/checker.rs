@@ -278,6 +278,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
             rules::correctness::single_quoted_literal::single_quoted_literal(self);
         }
+        if self.is_rule_enabled(Rule::OpenDoubleQuote) {
+            rules::correctness::open_double_quote::open_double_quote(self);
+        }
         if self.is_rule_enabled(Rule::PositionalTenBraces) {
             rules::correctness::positional_ten_braces::positional_ten_braces(self);
         }

@@ -3,6 +3,7 @@ use super::*;
 #[derive(Debug, Default)]
 pub(super) struct SurfaceFragmentFacts {
     pub(super) single_quoted: Vec<SingleQuotedFragmentFact>,
+    pub(super) open_double_quotes: Vec<OpenDoubleQuoteFragmentFact>,
     pub(super) backticks: Vec<BacktickFragmentFact>,
     pub(super) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
@@ -14,9 +15,17 @@ struct SurfaceScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
     variable_set_operand: bool,
+    collect_open_double_quotes: bool,
 }
 
 impl<'a> SurfaceScanContext<'a> {
+    fn new() -> Self {
+        Self {
+            collect_open_double_quotes: true,
+            ..Self::default()
+        }
+    }
+
     fn with_assignment_target(self, assignment_target: &'a str) -> Self {
         Self {
             assignment_target: Some(assignment_target),
@@ -27,6 +36,13 @@ impl<'a> SurfaceScanContext<'a> {
     fn variable_set_operand(self) -> Self {
         Self {
             variable_set_operand: true,
+            ..self
+        }
+    }
+
+    fn without_open_double_quote_scan(self) -> Self {
+        Self {
+            collect_open_double_quotes: false,
             ..self
         }
     }
@@ -71,7 +87,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
             .map(String::into_boxed_str);
         let context = SurfaceScanContext {
             command_name: command_name_storage.as_deref(),
-            ..SurfaceScanContext::default()
+            ..SurfaceScanContext::new()
         };
 
         match &stmt.command {
@@ -97,7 +113,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
             }
         }
 
-        self.collect_redirects(&stmt.redirects, SurfaceScanContext::default());
+        self.collect_redirects(&stmt.redirects, SurfaceScanContext::new());
     }
 
     fn collect_simple_command(&mut self, command: &SimpleCommand, context: SurfaceScanContext<'_>) {
@@ -125,7 +141,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_builtin(&mut self, command: &BuiltinCommand) {
-        let context = SurfaceScanContext::default();
+        let context = SurfaceScanContext::new();
         match command {
             BuiltinCommand::Break(command) => {
                 self.collect_assignments(&command.assignments, context);
@@ -159,7 +175,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_decl_command(&mut self, command: &DeclClause) {
-        let context = SurfaceScanContext::default();
+        let context = SurfaceScanContext::new();
         self.collect_assignments(&command.assignments, context);
         for operand in &command.operands {
             match operand {
@@ -194,16 +210,16 @@ impl<'a> SurfaceFragmentCollector<'a> {
             }
             CompoundCommand::For(command) => {
                 if let Some(words) = &command.words {
-                    self.collect_words(words, SurfaceScanContext::default());
+                    self.collect_words(words, SurfaceScanContext::new());
                 }
                 self.collect_commands(&command.body);
             }
             CompoundCommand::Repeat(command) => {
-                self.collect_word(&command.count, SurfaceScanContext::default());
+                self.collect_word(&command.count, SurfaceScanContext::new());
                 self.collect_commands(&command.body);
             }
             CompoundCommand::Foreach(command) => {
-                self.collect_words(&command.words, SurfaceScanContext::default());
+                self.collect_words(&command.words, SurfaceScanContext::new());
                 self.collect_commands(&command.body);
             }
             CompoundCommand::ArithmeticFor(command) => self.collect_commands(&command.body),
@@ -216,14 +232,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 self.collect_commands(&command.body);
             }
             CompoundCommand::Case(command) => {
-                self.collect_word(&command.word, SurfaceScanContext::default());
+                self.collect_word(&command.word, SurfaceScanContext::new());
                 for case in &command.cases {
-                    self.collect_patterns(&case.patterns, SurfaceScanContext::default());
+                    self.collect_patterns(&case.patterns, SurfaceScanContext::new());
                     self.collect_commands(&case.body);
                 }
             }
             CompoundCommand::Select(command) => {
-                self.collect_words(&command.words, SurfaceScanContext::default());
+                self.collect_words(&command.words, SurfaceScanContext::new());
                 self.collect_commands(&command.body);
             }
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
@@ -240,7 +256,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 }
             }
             CompoundCommand::Conditional(command) => {
-                self.collect_conditional_expr(&command.expression, SurfaceScanContext::default());
+                self.collect_conditional_expr(&command.expression, SurfaceScanContext::new());
             }
             CompoundCommand::Coproc(command) => self.collect_command(&command.body),
         }
@@ -292,7 +308,45 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) {
+        if context.collect_open_double_quotes && context.assignment_target.is_none() {
+            self.collect_open_double_quote_fragments(word);
+        }
         self.collect_word_parts(&word.parts, context);
+    }
+
+    fn collect_open_double_quote_fragments(&mut self, word: &Word) {
+        for (index, part) in word.parts.iter().enumerate() {
+            let WordPart::DoubleQuoted { .. } = &part.kind else {
+                continue;
+            };
+            if !part.span.slice(self.source).contains('\n') {
+                continue;
+            }
+            let Some(next_double_quoted_index) = word.parts[index + 1..]
+                .iter()
+                .position(|later| matches!(later.kind, WordPart::DoubleQuoted { .. }))
+                .map(|relative_index| index + 1 + relative_index)
+            else {
+                continue;
+            };
+            if word.parts[index + 1..next_double_quoted_index]
+                .iter()
+                .any(|between| {
+                    matches!(
+                        between.kind,
+                        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. }
+                    )
+                })
+            {
+                continue;
+            }
+            let Some(span) = opening_double_quote_span(part.span, self.source) else {
+                continue;
+            };
+            self.facts
+                .open_double_quotes
+                .push(OpenDoubleQuoteFragmentFact { span });
+        }
     }
 
     fn collect_word_parts(&mut self, parts: &[WordPartNode], context: SurfaceScanContext<'_>) {
@@ -443,7 +497,10 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
-                        self.collect_word(&heredoc.body, context);
+                        self.collect_word(
+                            &heredoc.body,
+                            context.without_open_double_quote_scan(),
+                        );
                     }
                 }
             }
@@ -658,6 +715,13 @@ fn is_shell_name(text: &str) -> bool {
     };
     (first == '_' || first.is_ascii_alphabetic())
         && chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
+}
+
+fn opening_double_quote_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let quote_offset = text.find('"')?;
+    let start = span.start.advanced_by(&text[..quote_offset]);
+    Some(Span::from_positions(start, start))
 }
 
 fn simple_command_variable_set_operand<'a>(

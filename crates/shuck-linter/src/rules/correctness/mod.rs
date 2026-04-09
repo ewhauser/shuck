@@ -16,6 +16,7 @@ pub mod line_oriented_input;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
 pub mod missing_fi;
+pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
 pub mod pipe_to_kill;
@@ -70,6 +71,7 @@ mod tests {
     #[test_case(Rule::BrokenTestEnd, Path::new("C036.sh"))]
     #[test_case(Rule::BrokenTestParse, Path::new("C037.sh"))]
     #[test_case(Rule::ElseIf, Path::new("C038.sh"))]
+    #[test_case(Rule::OpenDoubleQuote, Path::new("C039.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]

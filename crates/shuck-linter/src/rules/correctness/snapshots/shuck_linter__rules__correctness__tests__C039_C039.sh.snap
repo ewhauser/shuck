@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 84
+---
+C039 double-quoted string looks unterminated
+ --> <source>:2:6
+  |
+2 | echo "#!/bin/bash
+  |

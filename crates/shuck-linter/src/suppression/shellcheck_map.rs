@@ -40,6 +40,7 @@ impl Default for ShellCheckCodeMap {
                 (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1075, Rule::ElseIf),
+                (1078, Rule::OpenDoubleQuote),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -99,6 +100,7 @@ mod tests {
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
         assert_eq!(map.resolve("SC1075"), Some(Rule::ElseIf));
+        assert_eq!(map.resolve("SC1078"), Some(Rule::OpenDoubleQuote));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -158,6 +160,7 @@ mod tests {
                 (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1075, Rule::ElseIf),
+                (1078, Rule::OpenDoubleQuote),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
                 (2005, Rule::EchoedCommandSubstitution),

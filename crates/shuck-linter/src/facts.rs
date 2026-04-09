@@ -424,6 +424,17 @@ impl SingleQuotedFragmentFact {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct OpenDoubleQuoteFragmentFact {
+    span: Span,
+}
+
+impl OpenDoubleQuoteFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct BacktickFragmentFact {
     span: Span,
 }
@@ -1190,6 +1201,7 @@ pub struct LinterFacts<'a> {
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
+    open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
     backtick_fragments: Vec<BacktickFragmentFact>,
     legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
@@ -1299,6 +1311,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn single_quoted_fragments(&self) -> &[SingleQuotedFragmentFact] {
         &self.single_quoted_fragments
+    }
+
+    pub fn open_double_quote_fragments(&self) -> &[OpenDoubleQuoteFragmentFact] {
+        &self.open_double_quote_fragments
     }
 
     pub fn backtick_fragments(&self) -> &[BacktickFragmentFact] {
@@ -1439,6 +1455,7 @@ impl<'a> LinterFactsBuilder<'a> {
             pipelines,
             lists,
             single_quoted_fragments: surface_fragments.single_quoted,
+            open_double_quote_fragments: surface_fragments.open_double_quotes,
             backtick_fragments: surface_fragments.backticks,
             legacy_arithmetic_fragments: surface_fragments.legacy_arithmetic,
             positional_parameter_fragments: surface_fragments.positional_parameters,
@@ -3555,6 +3572,9 @@ PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
 printf '%s\\n' 123 | command kill -9
+echo \"#!/bin/bash
+if [[ \"$@\" =~ x ]]; then :; fi
+\"
 ";
 
         with_facts(source, None, |_, facts| {
@@ -3581,6 +3601,14 @@ printf '%s\\n' 123 | command kill -9
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
                 vec!["$10", "$10"]
+            );
+            assert_eq!(
+                facts
+                    .open_double_quote_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["\""]
             );
 
             let single_quoted = facts
