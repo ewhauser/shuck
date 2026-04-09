@@ -24,6 +24,9 @@ impl ShellCheckCodeMap {
             .or_else(|| sc_code.strip_prefix("sc"))?
             .parse()
             .ok()?;
+        if number == 2262 {
+            return Some(Rule::TemplateBraceInCommand);
+        }
         if number == 2261 {
             return Some(Rule::NonAbsoluteShebang);
         }
@@ -84,6 +87,7 @@ impl Default for ShellCheckCodeMap {
                 (2210, Rule::BadRedirectionFdOrder),
                 (2154, Rule::UndefinedVariable),
                 (2239, Rule::NonAbsoluteShebang),
+                (2288, Rule::TemplateBraceInCommand),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -175,6 +179,8 @@ mod tests {
         assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
+        assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
+        assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
@@ -240,6 +246,7 @@ mod tests {
                 (2256, Rule::SubstWithRedirectErr),
                 (2257, Rule::ArithmeticRedirectionTarget),
                 (2266, Rule::OverwrittenFunction),
+                (2288, Rule::TemplateBraceInCommand),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
             ]

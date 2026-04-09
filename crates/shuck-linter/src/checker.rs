@@ -214,6 +214,9 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::TemplateBraceInCommand) {
+            rules::correctness::template_brace_in_command::template_brace_in_command(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

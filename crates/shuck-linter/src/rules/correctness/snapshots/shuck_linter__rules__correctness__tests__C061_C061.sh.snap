@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 84
+---
+C061 template placeholder `{{...}}` appears where a command name is expected
+ --> <source>:3:1
+  |
+3 | "$root/pkg/{{name}}/bin/{{cmd}}" "$@"
+  |

@@ -36,6 +36,7 @@ pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
 pub mod syntax;
+pub mod template_brace_in_command;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
 pub mod unchecked_directory_change;
@@ -95,6 +96,7 @@ mod tests {
     #[test_case(Rule::SubstWithRedirectErr, Path::new("C058.sh"))]
     #[test_case(Rule::RedirectToCommandName, Path::new("C059.sh"))]
     #[test_case(Rule::NonAbsoluteShebang, Path::new("C060.sh"))]
+    #[test_case(Rule::TemplateBraceInCommand, Path::new("C061.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
