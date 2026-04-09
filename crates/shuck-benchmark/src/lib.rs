@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 #[cfg(feature = "parser-benchmarking")]
 use shuck_parser::parser::ParserBenchmarkCounters;
@@ -44,33 +45,44 @@ impl TestCase {
     }
 }
 
-pub static TEST_FILES: &[TestFile] = &[
-    TestFile {
-        name: "fzf-install",
-        source: include_str!("../resources/files/fzf-install.sh"),
-        speed: TestCaseSpeed::Fast,
-    },
-    TestFile {
-        name: "homebrew-install",
-        source: include_str!("../resources/files/homebrew-install.sh"),
-        speed: TestCaseSpeed::Fast,
-    },
-    TestFile {
-        name: "ruby-build",
-        source: include_str!("../resources/files/ruby-build.sh"),
-        speed: TestCaseSpeed::Normal,
-    },
-    TestFile {
-        name: "pyenv-python-build",
-        source: include_str!("../resources/files/pyenv-python-build.sh"),
-        speed: TestCaseSpeed::Normal,
-    },
-    TestFile {
-        name: "nvm",
-        source: include_str!("../resources/files/nvm.sh"),
-        speed: TestCaseSpeed::Slow,
-    },
-];
+fn fixture_source(bytes: &'static [u8]) -> &'static str {
+    let source = std::str::from_utf8(bytes).expect("benchmark fixtures should be valid UTF-8");
+    if source.contains('\r') {
+        Box::leak(source.replace("\r\n", "\n").replace('\r', "\n").into_boxed_str())
+    } else {
+        source
+    }
+}
+
+pub static TEST_FILES: LazyLock<Vec<TestFile>> = LazyLock::new(|| {
+    vec![
+        TestFile {
+            name: "fzf-install",
+            source: fixture_source(include_bytes!("../resources/files/fzf-install.sh")),
+            speed: TestCaseSpeed::Fast,
+        },
+        TestFile {
+            name: "homebrew-install",
+            source: fixture_source(include_bytes!("../resources/files/homebrew-install.sh")),
+            speed: TestCaseSpeed::Fast,
+        },
+        TestFile {
+            name: "ruby-build",
+            source: fixture_source(include_bytes!("../resources/files/ruby-build.sh")),
+            speed: TestCaseSpeed::Normal,
+        },
+        TestFile {
+            name: "pyenv-python-build",
+            source: fixture_source(include_bytes!("../resources/files/pyenv-python-build.sh")),
+            speed: TestCaseSpeed::Normal,
+        },
+        TestFile {
+            name: "nvm",
+            source: fixture_source(include_bytes!("../resources/files/nvm.sh")),
+            speed: TestCaseSpeed::Slow,
+        },
+    ]
+});
 
 pub fn benchmark_cases() -> Vec<TestCase> {
     let mut cases = TEST_FILES
@@ -84,7 +96,7 @@ pub fn benchmark_cases() -> Vec<TestCase> {
 
     cases.push(TestCase {
         name: "all",
-        files: TEST_FILES,
+        files: TEST_FILES.as_slice(),
         speed: TestCaseSpeed::Slow,
     });
 
@@ -197,7 +209,7 @@ mod tests {
             .map(|fixture| (fixture.local_filename.as_str(), fixture.byte_size))
             .collect::<std::collections::BTreeMap<_, _>>();
 
-        for test_file in TEST_FILES {
+        for test_file in TEST_FILES.iter() {
             let local_filename = format!("files/{}.sh", test_file.name);
             assert_eq!(
                 fixture_sizes.get(local_filename.as_str()).copied(),
@@ -228,7 +240,7 @@ mod tests {
 
     #[test]
     fn benchmark_corpus_parses_in_best_effort_mode() {
-        for file in TEST_FILES {
+        for file in TEST_FILES.iter() {
             let output = parse_fixture(file.source);
             assert!(
                 !output.file.body.is_empty(),
@@ -243,7 +255,7 @@ mod tests {
         let settings = LinterSettings::default();
         let shellcheck_map = ShellCheckCodeMap::default();
 
-        for file in TEST_FILES {
+        for file in TEST_FILES.iter() {
             let output = parse_fixture(file.source);
             let indexer = Indexer::new(file.source, &output);
             let directives =
@@ -275,7 +287,7 @@ mod tests {
     fn benchmark_corpus_survives_formatter_pipeline() {
         let options = ShellFormatOptions::default();
 
-        for file in TEST_FILES {
+        for file in TEST_FILES.iter() {
             match format_source(file.source, None, &options) {
                 Ok(FormattedSource::Unchanged) | Ok(FormattedSource::Formatted(_)) => {}
                 Err(error) => panic!("{} should format successfully: {error}", file.name),
@@ -287,7 +299,7 @@ mod tests {
     fn benchmark_corpus_survives_ast_formatter_pipeline() {
         let options = ShellFormatOptions::default();
 
-        for file in TEST_FILES {
+        for file in TEST_FILES.iter() {
             let output = parse_fixture(file.source);
             match format_file_ast(file.source, output.file, None, &options) {
                 Ok(FormattedSource::Unchanged) | Ok(FormattedSource::Formatted(_)) => {}

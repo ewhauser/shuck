@@ -40,7 +40,7 @@ fn benchmark_corpus_matches_shfmt() {
 
     let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
     let mut mismatches = Vec::new();
-    for file in TEST_FILES {
+    for file in TEST_FILES.iter() {
         let filename = format!("{}.bash", file.name);
         let shuck = run_shuck_formatter(file.source, &filename, &options);
         let shfmt = run_shfmt(file.source, &filename, &["-ln=bash"]);
