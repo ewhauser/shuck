@@ -1,9 +1,15 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 94
+assertion_line: 106
 ---
 X005 bash-style case fallthrough is not portable to this shell
- --> <source>:3:1
+ --> <source>:6:5
   |
-3 | case "$mode" in
+6 |     ;&
+  |
+
+X005 bash-style case fallthrough is not portable to this shell
+ --> <source>:9:5
+  |
+9 |     ;;&
   |

@@ -32,12 +32,7 @@ pub fn bash_case_fallthrough(checker: &mut Checker) {
                 CaseTerminator::FallThrough | CaseTerminator::Continue
             )
         })
-        .map(|item| {
-            checker
-                .facts()
-                .command(item.command_id())
-                .span_in_source(checker.source())
-        })
+        .filter_map(|item| item.terminator_span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || BashCaseFallthrough);
@@ -72,13 +67,15 @@ mod tests {
     }
 
     #[test]
-    fn reports_each_case_command_once() {
+    fn reports_each_fallthrough_arm() {
         let source = "#!/bin/sh\ncase $x in\n  a) : ;&\n  b) : ;;&\n  c) : ;;\nesac\n";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::BashCaseFallthrough));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.column, 8);
+        assert_eq!(diagnostics[1].span.start.line, 4);
+        assert_eq!(diagnostics[1].span.start.column, 8);
     }
 }
