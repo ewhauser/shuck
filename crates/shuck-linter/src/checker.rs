@@ -244,6 +244,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SelectLoop) {
             rules::portability::select_loop::select_loop(self);
         }
+        if self.is_rule_enabled(Rule::Coproc) {
+            rules::portability::coproc::coproc(self);
+        }
         if self.is_rule_enabled(Rule::LetCommand) {
             rules::portability::let_command::let_command(self);
         }

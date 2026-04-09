@@ -3,6 +3,7 @@ pub mod ampersand_redirection;
 pub mod bash_case_fallthrough;
 pub mod brace_fd_redirection;
 pub mod conditional_portability;
+pub mod coproc;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
 pub mod function_keyword;
@@ -55,6 +56,7 @@ mod tests {
     #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
     #[test_case(Rule::StandaloneArithmetic, Path::new("X008.sh"))]
     #[test_case(Rule::SelectLoop, Path::new("X009.sh"))]
+    #[test_case(Rule::Coproc, Path::new("X014.sh"))]
     #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]

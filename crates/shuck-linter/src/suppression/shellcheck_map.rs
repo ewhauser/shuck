@@ -109,6 +109,7 @@ impl Default for ShellCheckCodeMap {
             (2235, Rule::SubshellTestGroup),
             (3006, Rule::StandaloneArithmetic),
             (3008, Rule::SelectLoop),
+            (3032, Rule::Coproc),
             // ShellCheck 0.11.0 reports `let` portability warnings as SC3039.
             // Keep SC3042 as a suppression alias, but prefer the current code for comparisons.
             (3042, Rule::LetCommand),
@@ -238,6 +239,7 @@ impl Default for ShellCheckCodeMap {
                 (3006, Rule::StandaloneArithmetic),
                 (3008, Rule::SelectLoop),
                 (3018, Rule::StandaloneArithmetic),
+                (3032, Rule::Coproc),
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
                 (3044, Rule::DeclareCommand),
@@ -386,6 +388,8 @@ mod tests {
         assert_eq!(map.resolve("SC3006"), Some(Rule::StandaloneArithmetic));
         assert_eq!(map.resolve("SC3008"), Some(Rule::SelectLoop));
         assert_eq!(map.resolve("SC3018"), Some(Rule::StandaloneArithmetic));
+        assert_eq!(map.resolve("SC3032"), Some(Rule::Coproc));
+        assert_eq!(map.resolve("SC3007"), Some(Rule::Coproc));
         assert_eq!(map.resolve("SC3033"), Some(Rule::SelectLoop));
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
@@ -609,6 +613,7 @@ mod tests {
 
         assert!(comparison.contains(&(3006, Rule::StandaloneArithmetic)));
         assert!(comparison.contains(&(3008, Rule::SelectLoop)));
+        assert!(comparison.contains(&(3032, Rule::Coproc)));
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
