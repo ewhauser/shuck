@@ -1,0 +1,5 @@
+reviewed_divergences:
+  - side: shuck-only
+    labels:
+      - project-closure
+    reason: "Shuck intentionally keeps the function-local `source` portability warning even when the sourced path participates in project-closure analysis, because the non-POSIX builtin still appears inside the function body."

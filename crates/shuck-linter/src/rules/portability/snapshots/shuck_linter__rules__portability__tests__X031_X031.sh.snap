@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 27
+---
+X031 `source` is not portable in `sh` scripts
+ --> <source>:4:1
+  |
+4 | source ./helpers.sh
+  |
+
+X031 `source` is not portable in `sh` scripts
+ --> <source>:7:1
+  |
+7 | command source ./wrapped.sh
+  |

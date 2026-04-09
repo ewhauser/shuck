@@ -229,6 +229,27 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TemplateBraceInCommand) {
             rules::correctness::template_brace_in_command::template_brace_in_command(self);
         }
+        if self.is_rule_enabled(Rule::LocalVariableInSh) {
+            rules::portability::local_variable_in_sh::local_variable_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionKeyword) {
+            rules::portability::function_keyword::function_keyword(self);
+        }
+        if self.is_rule_enabled(Rule::LetCommand) {
+            rules::portability::let_command::let_command(self);
+        }
+        if self.is_rule_enabled(Rule::DeclareCommand) {
+            rules::portability::declare_command::declare_command(self);
+        }
+        if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
+            rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionKeywordInSh) {
+            rules::portability::function_keyword_in_sh::function_keyword_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::SourceInsideFunctionInSh) {
+            rules::portability::source_inside_function_in_sh::source_inside_function_in_sh(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

@@ -2193,14 +2193,14 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
 
 fn build_rule_to_shellcheck_index() -> HashMap<String, String> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
         .collect()
 }
 
 fn build_shellcheck_to_rule_index() -> HashMap<u32, String> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .map(|(sc_code, rule)| (sc_code, rule.code().to_owned()))
         .collect()
 }
@@ -2229,22 +2229,50 @@ fn build_shellcheck_filter_codes(
     mapped_only: bool,
 ) -> Option<HashSet<u32>> {
     selected_rules
-        .map(|rules| build_selected_shellcheck_codes(&rules))
+        .map(|rules| {
+            validate_selected_rules_for_large_corpus(&rules)
+                .unwrap_or_else(|err| panic!("{LARGE_CORPUS_RULES_ENV}, {err}"));
+            build_selected_shellcheck_codes(&rules)
+        })
         .or_else(|| mapped_only.then(build_mapped_shellcheck_codes))
 }
 
 fn build_mapped_shellcheck_codes() -> HashSet<u32> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .map(|(sc_code, _)| sc_code)
         .collect()
 }
 
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
     shuck_linter::ShellCheckCodeMap::default()
-        .mappings()
+        .comparison_mappings()
         .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
         .collect()
+}
+
+fn validate_selected_rules_for_large_corpus(
+    selected_rules: &shuck_linter::RuleSet,
+) -> Result<(), String> {
+    let comparable_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
+        .comparison_mappings()
+        .map(|(_, rule)| rule)
+        .collect();
+    let mut missing_rules: Vec<_> = selected_rules
+        .iter()
+        .filter(|rule| !comparable_rules.contains(rule))
+        .map(shuck_linter::Rule::code)
+        .collect();
+    missing_rules.sort_unstable();
+
+    if missing_rules.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "selected rules lack large-corpus comparison mappings: {}",
+            missing_rules.join(", ")
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3040,6 +3068,10 @@ mod tests {
         assert_eq!(index.get("S001").map(String::as_str), Some("SC2086"));
         assert_eq!(index.get("C006").map(String::as_str), Some("SC2154"));
         assert_eq!(index.get("C124").map(String::as_str), Some("SC2365"));
+        assert_eq!(index.get("X015").map(String::as_str), Some("SC3039"));
+        assert_eq!(index.get("X016"), None);
+        assert_eq!(index.get("X052"), None);
+        assert_eq!(index.get("X080").map(String::as_str), Some("SC3051"));
     }
 
     #[test]
@@ -3075,6 +3107,48 @@ mod tests {
         let codes = build_shellcheck_filter_codes(Some(rules), true).unwrap();
 
         assert_eq!(codes, HashSet::from([2034]));
+    }
+
+    #[test]
+    fn selected_rule_filter_rejects_rules_without_compare_codes() {
+        let rules = parse_large_corpus_rule_set("X016,C001,X052").unwrap();
+        let err = validate_selected_rules_for_large_corpus(&rules).unwrap_err();
+
+        assert_eq!(
+            err,
+            "selected rules lack large-corpus comparison mappings: X016, X052"
+        );
+    }
+
+    #[test]
+    fn selected_rule_filter_accepts_rules_with_compare_codes() {
+        let rules = parse_large_corpus_rule_set("C001,X080").unwrap();
+
+        assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
+    }
+
+    #[test]
+    fn selected_rule_filter_skips_ambiguous_x016_shellcheck_code() {
+        let rules = parse_large_corpus_rule_set("X016").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert!(codes.is_empty());
+    }
+
+    #[test]
+    fn selected_rule_filter_skips_ambiguous_x052_shellcheck_code() {
+        let rules = parse_large_corpus_rule_set("X052").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert!(codes.is_empty());
+    }
+
+    #[test]
+    fn selected_rule_filter_uses_current_x080_shellcheck_code() {
+        let rules = parse_large_corpus_rule_set("X080").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([3051]));
     }
 
     #[test]
@@ -3235,6 +3309,53 @@ demo() {
                 && entry.reason
                     == "loop variable is consumed by the sibling query_gamedig.sh helper invoked in the loop"
         }));
+    }
+
+    #[test]
+    fn x004_metadata_loads_header_span_reviewed_divergences() {
+        let metadata = load_rule_corpus_metadata("X004");
+
+        assert!(metadata.reviewed_divergences.iter().any(|entry| {
+            entry.side == CompatibilitySide::ShellcheckOnly
+                && entry.path_suffix.as_deref()
+                    == Some("ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh")
+                && entry.labels == ["helper-library", "shell-collapse"]
+        }));
+
+        let all = load_all_rule_corpus_metadata();
+        assert!(all.contains_key("X004"));
+    }
+
+    #[test]
+    fn x004_reviewed_divergence_matches_location_only_shell_collapse_helper() {
+        let metadata = HashMap::from([("X004".to_string(), load_rule_corpus_metadata("X004"))]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShellcheckOnly,
+            rule_code: Some("X004".into()),
+            shellcheck_code: "SC2112".into(),
+            range: DiagnosticRange {
+                line: 14,
+                end_line: 17,
+                column: 1,
+                end_column: 2,
+            },
+            message: "function keyword".into(),
+            labels: vec!["helper-library".into(), "shell-collapse".into()],
+        };
+
+        let (classification, reason) = classify_compatibility_record(
+            &record,
+            Path::new(
+                "/tmp/.cache/large-corpus/scripts/ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh",
+            ),
+            &metadata,
+        );
+
+        assert_eq!(
+            classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert!(reason.is_some());
     }
 
     #[test]

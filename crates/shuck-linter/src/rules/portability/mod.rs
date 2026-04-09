@@ -1,4 +1,11 @@
 pub mod conditional_portability;
+pub mod declare_command;
+pub mod function_keyword;
+pub mod function_keyword_in_sh;
+pub mod let_command;
+pub mod local_variable_in_sh;
+pub mod source_builtin_in_sh;
+pub mod source_inside_function_in_sh;
 
 #[cfg(test)]
 mod tests {
@@ -11,11 +18,17 @@ mod tests {
 
     #[test_case(Rule::DoubleBracketInSh, Path::new("X001.sh"))]
     #[test_case(Rule::TestEqualityOperator, Path::new("X002.sh"))]
+    #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
+    #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
+    #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
+    #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
+    #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]
     #[test_case(Rule::ArraySubscriptTest, Path::new("X040.sh"))]
     #[test_case(Rule::ArraySubscriptCondition, Path::new("X041.sh"))]
     #[test_case(Rule::ExtglobInTest, Path::new("X046.sh"))]
+    #[test_case(Rule::FunctionKeywordInSh, Path::new("X052.sh"))]
     #[test_case(Rule::GreaterThanInDoubleBracket, Path::new("X058.sh"))]
     #[test_case(Rule::RegexMatchInSh, Path::new("X059.sh"))]
     #[test_case(Rule::VTestInSh, Path::new("X060.sh"))]
@@ -23,6 +36,7 @@ mod tests {
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]
+    #[test_case(Rule::SourceInsideFunctionInSh, Path::new("X080.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

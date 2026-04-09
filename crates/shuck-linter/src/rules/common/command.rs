@@ -39,6 +39,7 @@ pub struct NormalizedDeclaration<'a> {
     pub kind: DeclarationKind,
     pub readonly_flag: bool,
     pub span: Span,
+    pub head_span: Span,
     pub redirects: &'a [Redirect],
     pub assignments: &'a [Assignment],
     pub operands: &'a [DeclOperand],
@@ -181,6 +182,7 @@ fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> Normaliz
             kind: declaration_kind(raw_kind),
             readonly_flag: declaration_has_readonly_flag(command, source),
             span: command.span,
+            head_span: declaration_head_span(command),
             redirects: &[],
             assignments: &command.assignments,
             operands: &command.operands,
@@ -209,6 +211,22 @@ fn declaration_has_readonly_flag(command: &DeclClause, source: &str) -> bool {
             static_word_text(word, source)
                 .is_some_and(|text| text.starts_with('-') && text.contains('r'))
         })
+}
+
+fn declaration_head_span(command: &DeclClause) -> Span {
+    let end = command
+        .operands
+        .last()
+        .map_or(command.variant_span.end, declaration_operand_head_end);
+    Span::from_positions(command.variant_span.start, end)
+}
+
+fn declaration_operand_head_end(operand: &DeclOperand) -> shuck_ast::Position {
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span.end,
+        DeclOperand::Name(name) => name.span.end,
+        DeclOperand::Assignment(assignment) => assignment.target.name_span.end,
+    }
 }
 
 fn empty_normalized_command<'a>(span: Span) -> NormalizedCommand<'a> {
@@ -643,6 +661,25 @@ mod tests {
                     .collect::<Vec<_>>(),
                 assignment_names
             );
+        }
+    }
+
+    #[test]
+    fn normalize_command_tracks_declaration_head_span_without_final_assignment_values() {
+        let cases = [
+            ("local name=portable\n", "local name"),
+            (
+                "local plugins_path plugin_path ext_cmd_path ext_cmds plugin\n",
+                "local plugins_path plugin_path ext_cmd_path ext_cmds plugin",
+            ),
+            ("local -r foo=$(date) bar\n", "local -r foo=$(date) bar"),
+        ];
+
+        for (source, expected) in cases {
+            let command = parse_first_command(source);
+            let normalized = normalize_command(&command, source);
+            let declaration = normalized.declaration.expect("expected declaration");
+            assert_eq!(declaration.head_span.slice(source), expected);
         }
     }
 

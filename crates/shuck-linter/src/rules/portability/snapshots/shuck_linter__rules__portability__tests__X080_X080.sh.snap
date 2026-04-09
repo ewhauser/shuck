@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 31
+---
+X080 `source` inside a function is not portable in `sh` scripts
+ --> <source>:4:3
+  |
+4 |   source ./inside.sh
+  |

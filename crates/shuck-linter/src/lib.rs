@@ -25,12 +25,13 @@ pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
     ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
     ConditionalOperatorFamily, ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts,
-    ForHeaderFact, LegacyArithmeticFragmentFact, LinterFacts, ListFact, ListOperatorFact,
-    LoopHeaderWordFact, PipelineFact, PipelineSegmentFact, PositionalParameterFragmentFact,
-    PrintfCommandFacts, ReadCommandFacts, RedirectFact, SelectHeaderFact, SimpleTestFact,
-    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
-    SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker,
-    UnsetCommandFacts, WordFact, WordFactContext, WordFactHostKind, XargsCommandFacts,
+    ForHeaderFact, FunctionHeaderFact, LegacyArithmeticFragmentFact, LinterFacts, ListFact,
+    ListOperatorFact, LoopHeaderWordFact, PipelineFact, PipelineSegmentFact,
+    PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts, RedirectFact,
+    SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
+    SingleQuotedFragmentFact, SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts,
+    SudoFamilyInvoker, UnsetCommandFacts, WordFact, WordFactContext, WordFactHostKind,
+    XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
@@ -1310,6 +1311,266 @@ f
     }
 
     #[test]
+    fn local_is_flagged_in_sh_scripts() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+f() {
+  local foo=bar
+  printf '%s\\n' \"$foo\"
+}
+f
+",
+            &LinterSettings::for_rule(Rule::LocalVariableInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LocalVariableInSh);
+    }
+
+    #[test]
+    fn local_in_bash_script_is_not_flagged_for_portability_rule() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+f() {
+  local foo=bar
+  printf '%s\\n' \"$foo\"
+}
+f
+",
+            &LinterSettings::for_rule(Rule::LocalVariableInSh),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_keyword_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nfunction f { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeyword),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionKeyword);
+    }
+
+    #[test]
+    fn function_keyword_in_dash_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/dash\nfunction f { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeyword),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionKeyword);
+    }
+
+    #[test]
+    fn function_keyword_with_parens_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nfunction f() { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeyword),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionKeyword);
+    }
+
+    #[test]
+    fn function_keyword_in_bash_is_not_flagged_for_portability_rule() {
+        let diagnostics = lint(
+            "#!/bin/bash\nfunction f { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeyword),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_keyword_with_parens_in_sh_is_flagged_by_x052() {
+        let diagnostics = lint(
+            "#!/bin/sh\nfunction f() { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionKeywordInSh);
+    }
+
+    #[test]
+    fn function_keyword_without_parens_is_not_flagged_by_x052() {
+        let diagnostics = lint(
+            "#!/bin/sh\nfunction f { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_keyword_with_parens_in_dash_is_flagged_by_x052() {
+        let diagnostics = lint(
+            "#!/bin/dash\nfunction f() { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionKeywordInSh);
+    }
+
+    #[test]
+    fn function_keyword_with_parens_in_bash_is_not_flagged_by_x052() {
+        let diagnostics = lint(
+            "#!/bin/bash\nfunction f() { :; }\n",
+            &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn source_inside_function_in_sh_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/sh\nf() {\n  source ./helpers.sh\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
+    fn source_inside_function_in_dash_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/dash\nf() {\n  source ./helpers.sh\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
+    fn top_level_source_is_not_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/sh\nsource ./helpers.sh\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn source_inside_function_in_bash_is_not_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/bash\nf() {\n  source ./helpers.sh\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn let_command_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nlet x=1\n",
+            &LinterSettings::for_rule(Rule::LetCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LetCommand);
+    }
+
+    #[test]
+    fn let_command_in_dash_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/dash\nlet x=1\n",
+            &LinterSettings::for_rule(Rule::LetCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LetCommand);
+    }
+
+    #[test]
+    fn let_command_in_bash_is_not_flagged_for_portability_rule() {
+        let diagnostics = lint(
+            "#!/bin/bash\nlet x=1\n",
+            &LinterSettings::for_rule(Rule::LetCommand),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn declare_command_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\ndeclare foo=bar\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DeclareCommand);
+    }
+
+    #[test]
+    fn declare_command_in_dash_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/dash\ndeclare foo=bar\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DeclareCommand);
+    }
+
+    #[test]
+    fn declare_command_in_bash_is_not_flagged_for_portability_rule() {
+        let diagnostics = lint(
+            "#!/bin/bash\ndeclare foo=bar\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn multiline_declare_command_is_clipped_to_opening_line() {
+        let source = "\
+#!/bin/sh
+declare -a values=(
+  one
+  two
+)
+";
+        let diagnostics = lint(source, &LinterSettings::for_rule(Rule::DeclareCommand));
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "declare -a values=(");
+        assert_eq!(diagnostics[0].span.end.line, 2);
+    }
+
+    #[test]
+    fn source_builtin_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nsource ./helpers.sh\n",
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceBuiltinInSh);
+    }
+
+    #[test]
+    fn source_builtin_in_dash_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/dash\nsource ./helpers.sh\n",
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceBuiltinInSh);
+    }
+
+    #[test]
+    fn source_builtin_in_bash_is_not_flagged_for_portability_rule() {
+        let diagnostics = lint(
+            "#!/bin/bash\nsource ./helpers.sh\n",
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn source_builtin_in_command_substitution_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nversion=$(source ./helpers.sh)\n",
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceBuiltinInSh);
+    }
+
+    #[test]
     fn exported_variable_not_flagged() {
         let diagnostics = lint_for_rule("#!/bin/sh\nexport FOO=1\n", Rule::UnusedAssignment);
         assert!(diagnostics.is_empty());
@@ -2526,6 +2787,215 @@ printf '%s\\n' \"$foo\"
             source,
             &indexer,
             &LinterSettings::default(),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn local_in_sh_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC3043
+f() {
+  local foo=bar
+  printf '%s\\n' \"$foo\"
+}
+f
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::LocalVariableInSh),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_keyword_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC2112
+function f { :; }
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::FunctionKeyword),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn let_command_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC3042
+let x=1
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::LetCommand),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn declare_command_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC3044
+declare foo=bar
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn source_builtin_in_sh_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC3046
+source ./helpers.sh
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_keyword_with_parens_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC2321
+function f() { :; }
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn source_inside_function_suppressed_by_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC3084
+f() {
+  source ./helpers.sh
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
             Some(&suppressions),
         );
         assert!(diagnostics.is_empty());

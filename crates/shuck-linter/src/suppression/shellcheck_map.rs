@@ -6,6 +6,7 @@ use crate::Rule;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCheckCodeMap {
     map: FxHashMap<u32, Rule>,
+    comparison: Vec<(u32, Rule)>,
 }
 
 impl ShellCheckCodeMap {
@@ -15,6 +16,11 @@ impl ShellCheckCodeMap {
 
     pub fn mappings(&self) -> impl Iterator<Item = (u32, Rule)> + '_ {
         self.map.iter().map(|(sc_code, rule)| (*sc_code, *rule))
+    }
+
+    /// Mappings that are stable enough to compare in the large corpus harness.
+    pub fn comparison_mappings(&self) -> impl Iterator<Item = (u32, Rule)> + '_ {
+        self.comparison.iter().copied()
     }
 
     /// Look up a shellcheck code like `SC2086`.
@@ -57,6 +63,97 @@ impl ShellCheckCodeMap {
 
 impl Default for ShellCheckCodeMap {
     fn default() -> Self {
+        let comparison = vec![
+            (2003, Rule::ExprArithmetic),
+            (2005, Rule::EchoedCommandSubstitution),
+            (2006, Rule::LegacyBackticks),
+            (2007, Rule::LegacyArithmeticExpansion),
+            (2009, Rule::DoubleParenGrouping),
+            (1037, Rule::PositionalTenBraces),
+            (1047, Rule::MissingFi),
+            (1072, Rule::BrokenTestParse),
+            (1073, Rule::BrokenTestEnd),
+            (1075, Rule::ElseIf),
+            (1078, Rule::OpenDoubleQuote),
+            (1080, Rule::LinebreakInTest),
+            (1090, Rule::DynamicSourcePath),
+            (1091, Rule::UntrackedSourceFile),
+            (1101, Rule::BackslashBeforeClosingBacktick),
+            (1102, Rule::PositionalParamAsOperator),
+            (1110, Rule::UnicodeQuoteInString),
+            (1127, Rule::CStyleComment),
+            (1132, Rule::CPrototypeFragment),
+            (2164, Rule::UncheckedDirectoryChange),
+            (2016, Rule::SingleQuotedLiteral),
+            (2013, Rule::LineOrientedInput),
+            (2015, Rule::ChainedTestBranches),
+            (1019, Rule::EmptyTest),
+            (2024, Rule::SudoRedirectionOrder),
+            (2034, Rule::UnusedAssignment),
+            (2035, Rule::LeadingGlobArgument),
+            (2044, Rule::FindOutputLoop),
+            (2045, Rule::LoopFromCommandOutput),
+            (2046, Rule::UnquotedCommandSubstitution),
+            (2059, Rule::PrintfFormatVariable),
+            (3043, Rule::LocalVariableInSh),
+            (2038, Rule::FindOutputToXargs),
+            (2064, Rule::TrapStringExpansion),
+            (2068, Rule::UnquotedArrayExpansion),
+            (2076, Rule::QuotedBashRegex),
+            (2086, Rule::UnquotedExpansion),
+            (2104, Rule::LoopControlOutsideLoop),
+            (2126, Rule::GrepCountPipeline),
+            (2112, Rule::FunctionKeyword),
+            (2216, Rule::PipeToKill),
+            (2233, Rule::SingleTestSubshell),
+            (2235, Rule::SubshellTestGroup),
+            // ShellCheck 0.11.0 reports `let` portability warnings as SC3039.
+            // Keep SC3042 as a suppression alias, but prefer the current code for comparisons.
+            (3042, Rule::LetCommand),
+            (3039, Rule::LetCommand),
+            (3046, Rule::SourceBuiltinInSh),
+            // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
+            (3051, Rule::SourceInsideFunctionInSh),
+            (2155, Rule::ExportCommandSubstitution),
+            (2157, Rule::ConstantComparisonTest),
+            (2158, Rule::LiteralUnaryStringTest),
+            (2162, Rule::ReadWithoutRaw),
+            (2078, Rule::TruthyLiteralTest),
+            (2168, Rule::LocalTopLevel),
+            (2194, Rule::ConstantCaseSubject),
+            (2210, Rule::BadRedirectionFdOrder),
+            (2154, Rule::UndefinedVariable),
+            (2239, Rule::NonAbsoluteShebang),
+            (2288, Rule::TemplateBraceInCommand),
+            (2241, Rule::InvalidExitStatus),
+            (2242, Rule::CasePatternVar),
+            (2248, Rule::BareSlashMarker),
+            (2257, Rule::ArithmeticRedirectionTarget),
+            (2264, Rule::NestedParameterExpansion),
+            (2250, Rule::PatternWithVariable),
+            (2255, Rule::SubstWithRedirect),
+            (2256, Rule::SubstWithRedirectErr),
+            (2238, Rule::RedirectToCommandName),
+            (2259, Rule::SubshellTestGroup),
+            (2266, Rule::OverwrittenFunction),
+            (2270, Rule::IfMissingThen),
+            (2271, Rule::ElseWithoutThen),
+            (2272, Rule::MissingSemicolonBeforeBrace),
+            (2273, Rule::EmptyFunctionBody),
+            (2274, Rule::BareClosingBrace),
+            (2319, Rule::StatusCaptureAfterBranchTest),
+            (2365, Rule::UnreachableAfterExit),
+            (3010, Rule::DoubleBracketInSh),
+            (3012, Rule::GreaterThanInDoubleBracket),
+            (3014, Rule::TestEqualityOperator),
+            (3015, Rule::RegexMatchInSh),
+            (3016, Rule::VTestInSh),
+            (3017, Rule::ATestInSh),
+            (3062, Rule::OptionTestInSh),
+            (3065, Rule::StickyBitTestInSh),
+            (3067, Rule::OwnershipTestInSh),
+        ];
+
         Self {
             map: FxHashMap::from_iter([
                 (1001, Rule::EscapedUnderscore),
@@ -101,13 +198,22 @@ impl Default for ShellCheckCodeMap {
                 (2045, Rule::LoopFromCommandOutput),
                 (2046, Rule::UnquotedCommandSubstitution),
                 (2059, Rule::PrintfFormatVariable),
+                (3043, Rule::LocalVariableInSh),
                 (2038, Rule::FindOutputToXargs),
                 (2064, Rule::TrapStringExpansion),
                 (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
+                (2112, Rule::FunctionKeyword),
                 (2216, Rule::PipeToKill),
+                (3039, Rule::LetCommand),
+                (3042, Rule::LetCommand),
+                (3044, Rule::DeclareCommand),
+                (3046, Rule::SourceBuiltinInSh),
+                (2321, Rule::FunctionKeywordInSh),
+                (3051, Rule::SourceInsideFunctionInSh),
+                (3084, Rule::SourceInsideFunctionInSh),
                 (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
@@ -146,6 +252,7 @@ impl Default for ShellCheckCodeMap {
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
             ]),
+            comparison,
         }
     }
 }
@@ -221,7 +328,15 @@ mod tests {
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
+        assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
+        assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
+        assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
+        assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
+        assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
+        assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
+        assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
+        assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
@@ -327,6 +442,7 @@ mod tests {
                 (2078, Rule::TruthyLiteralTest),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
+                (2112, Rule::FunctionKeyword),
                 (2126, Rule::GrepCountPipeline),
                 (2154, Rule::UndefinedVariable),
                 (2155, Rule::ExportCommandSubstitution),
@@ -360,6 +476,7 @@ mod tests {
                 (2274, Rule::BareClosingBrace),
                 (2288, Rule::TemplateBraceInCommand),
                 (2319, Rule::StatusCaptureAfterBranchTest),
+                (2321, Rule::FunctionKeywordInSh),
                 (2365, Rule::UnreachableAfterExit),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (3010, Rule::DoubleBracketInSh),
@@ -368,9 +485,16 @@ mod tests {
                 (3015, Rule::RegexMatchInSh),
                 (3016, Rule::VTestInSh),
                 (3017, Rule::ATestInSh),
+                (3039, Rule::LetCommand),
+                (3042, Rule::LetCommand),
+                (3043, Rule::LocalVariableInSh),
+                (3044, Rule::DeclareCommand),
+                (3046, Rule::SourceBuiltinInSh),
+                (3051, Rule::SourceInsideFunctionInSh),
                 (3062, Rule::OptionTestInSh),
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
+                (3084, Rule::SourceInsideFunctionInSh),
             ]
         );
     }
@@ -398,5 +522,20 @@ mod tests {
             unmapped.is_empty(),
             "rules without a shellcheck mapping: {unmapped:?}"
         );
+    }
+
+    #[test]
+    fn comparison_mappings_skip_ambiguous_codes() {
+        let comparison = ShellCheckCodeMap::default()
+            .comparison_mappings()
+            .collect::<Vec<_>>();
+
+        assert!(comparison.contains(&(3039, Rule::LetCommand)));
+        assert!(comparison.contains(&(3042, Rule::LetCommand)));
+        assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
+        assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
+        assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
+        assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
+        assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
     }
 }
