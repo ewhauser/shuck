@@ -1595,22 +1595,22 @@ fn resolve_helper_paths(
     candidate: &str,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<PathBuf> {
-    let candidate_path = Path::new(candidate);
-    if candidate_path.is_absolute() {
-        return candidate_path
-            .is_file()
-            .then_some(candidate_path.to_path_buf())
-            .into_iter()
-            .collect();
-    }
+    for candidate_path in candidate_path_variants(candidate) {
+        if candidate_path.is_absolute() {
+            if candidate_path.is_file() {
+                return vec![candidate_path];
+            }
+            continue;
+        }
 
-    let Some(base_dir) = source_path.parent() else {
-        return Vec::new();
-    };
+        let Some(base_dir) = source_path.parent() else {
+            return Vec::new();
+        };
 
-    let direct = base_dir.join(candidate_path);
-    if direct.is_file() {
-        return vec![direct];
+        let direct = base_dir.join(&candidate_path);
+        if direct.is_file() {
+            return vec![direct];
+        }
     }
 
     source_path_resolver
@@ -1618,6 +1618,23 @@ fn resolve_helper_paths(
         .flat_map(|resolver| resolver.resolve_candidate_paths(source_path, candidate))
         .filter(|path| path.is_file())
         .collect()
+}
+
+fn candidate_path_variants(candidate: &str) -> Vec<PathBuf> {
+    #[cfg(not(windows))]
+    let variants = vec![PathBuf::from(candidate)];
+    #[cfg(windows)]
+    let mut variants = vec![PathBuf::from(candidate)];
+    #[cfg(windows)]
+    if candidate.starts_with(r"\\?\") && candidate.contains('/') {
+        // Windows canonicalize() can produce verbatim paths, which do not accept
+        // forward slashes once we stitch in a Bash-style "/helper.bash" suffix.
+        let normalized = PathBuf::from(candidate.replace('/', "\\"));
+        if !variants.contains(&normalized) {
+            variants.push(normalized);
+        }
+    }
+    variants
 }
 
 fn summarize_helper(
@@ -1829,6 +1846,10 @@ fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut Stri
 mod tests {
     use super::*;
     use shuck_parser::parser::ShellDialect;
+    #[cfg(windows)]
+    use std::fs;
+    #[cfg(windows)]
+    use tempfile::tempdir;
 
     #[test]
     fn zsh_operation_operands_are_walked_when_collecting_ast_facts() {
@@ -1849,7 +1870,6 @@ mod tests {
         assert!(call_names.iter().any(|name| name == "dirname"));
         assert!(call_names.iter().any(|name| name == "source"));
     }
-
     #[cfg(windows)]
     #[test]
     fn source_dir_templates_render_windows_paths_with_shell_separators() {
@@ -1863,5 +1883,29 @@ mod tests {
         );
 
         assert_eq!(candidate.as_deref(), Some("C:/workspace/helper.bash"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_helper_paths_accepts_verbatim_candidates_with_shell_separators() {
+        let temp = tempdir().unwrap();
+        let loader = temp.path().join("loader.bash");
+        let helper = temp.path().join("helper.bash");
+        fs::write(&loader, "#!/bin/bash\n").unwrap();
+        fs::write(&helper, "#!/bin/bash\n").unwrap();
+
+        let canonical_loader = fs::canonicalize(&loader).unwrap();
+        let candidate = format!(
+            "{}/helper.bash",
+            canonical_loader.parent().unwrap().to_string_lossy()
+        );
+
+        let resolved = resolve_helper_paths(&canonical_loader, &candidate, None);
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            fs::canonicalize(&resolved[0]).unwrap(),
+            fs::canonicalize(&helper).unwrap()
+        );
     }
 }
