@@ -920,7 +920,9 @@ fn text_has_parenthesized_alternation(bytes: &[u8]) -> bool {
         if bytes[index + 1..close]
             .iter()
             .enumerate()
-            .any(|(offset, byte)| *byte == b'|' && !byte_is_backslash_escaped(bytes, index + 1 + offset))
+            .any(|(offset, byte)| {
+                *byte == b'|' && !byte_is_backslash_escaped(bytes, index + 1 + offset)
+            })
         {
             return true;
         }
