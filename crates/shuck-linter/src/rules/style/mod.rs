@@ -6,6 +6,7 @@ pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
 pub mod loop_from_command_output;
 pub mod literal_backslash;
+pub mod literal_backslash_in_single_quotes;
 pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
 pub mod read_without_raw;
@@ -38,6 +39,7 @@ mod tests {
     #[test_case(Rule::EscapedUnderscoreLiteral, Path::new("S027.sh"))]
     #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]
     #[test_case(Rule::LiteralBackslash, Path::new("S025.sh"))]
+    #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

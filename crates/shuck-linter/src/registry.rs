@@ -187,6 +187,12 @@ declare_rules! {
         NeedlessBackslashUnderscore
     ),
     ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
+    (
+        "S039",
+        Category::Style,
+        Severity::Warning,
+        LiteralBackslashInSingleQuotes
+    ),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -201,6 +207,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
+        "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
         "SH-088" => Some(Rule::LiteralBackslash),
         "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
         "SH-025" => Some(Rule::DynamicSourcePath),
@@ -321,6 +328,14 @@ mod tests {
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
+        assert_eq!(
+            code_to_rule("S039"),
+            Some(Rule::LiteralBackslashInSingleQuotes)
+        );
+        assert_eq!(
+            code_to_rule("SH-172"),
+            Some(Rule::LiteralBackslashInSingleQuotes)
+        );
         assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));

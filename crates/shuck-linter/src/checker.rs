@@ -325,6 +325,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SingleQuoteBackslash) {
             rules::style::single_quote_backslash::single_quote_backslash(self);
         }
+        if self.is_rule_enabled(Rule::LiteralBackslashInSingleQuotes) {
+            rules::style::literal_backslash_in_single_quotes::literal_backslash_in_single_quotes(self);
+        }
         if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
             rules::correctness::single_quoted_literal::single_quoted_literal(self);
         }

@@ -64,6 +64,7 @@ impl Default for ShellCheckCodeMap {
                 (1003, Rule::SingleQuoteBackslash),
                 (1004, Rule::LiteralBackslash),
                 (1012, Rule::NeedlessBackslashUnderscore),
+                (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
@@ -178,6 +179,10 @@ mod tests {
         assert_eq!(
             map.resolve("SC1012"),
             Some(Rule::NeedlessBackslashUnderscore)
+        );
+        assert_eq!(
+            map.resolve("SC2267"),
+            Some(Rule::LiteralBackslashInSingleQuotes)
         );
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
@@ -308,6 +313,7 @@ mod tests {
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
                 (2016, Rule::SingleQuotedLiteral),
+                (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
                 (2035, Rule::LeadingGlobArgument),

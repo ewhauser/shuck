@@ -301,7 +301,7 @@ facts or word facts for single-quoted strings.
 - [x] **L** S025 (SC1004) `literal-backslash` — backslash before normal letter is literal
 - [x] **L** S026 (SC1012) `needless-backslash-underscore` — backslash before normal char in word
 - [x] **L** S027 (SC1002) `escaped-underscore` — backslash before `_` is unnecessary
-- [ ] **L** S039 (SC2267) `literal-backslash-in-single-quotes` — backslash in single quotes is literal
+- [x] **L** S039 (SC2267) `literal-backslash-in-single-quotes` — backslash in single quotes is literal
 - [ ] **L** S040 (SC2268) `backslash-before-command` — backslash before command to bypass aliases
 
 ### Arithmetic Expressions
