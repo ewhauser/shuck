@@ -1,7 +1,7 @@
 use shuck_ast::{
     Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr, ParameterExpansion,
-    ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Redirect, Span, VarRef,
-    Word, WordPart, WordPartNode, ZshExpansionTarget,
+    ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Redirect, Span, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -281,10 +281,8 @@ pub fn conditional_exactly_one_extglob_span(
     source: &str,
 ) -> Option<Span> {
     match expression {
-        ConditionalExpr::Binary(expr) => {
-            conditional_exactly_one_extglob_span(&expr.left, source)
-                .or_else(|| conditional_exactly_one_extglob_span(&expr.right, source))
-        }
+        ConditionalExpr::Binary(expr) => conditional_exactly_one_extglob_span(&expr.left, source)
+            .or_else(|| conditional_exactly_one_extglob_span(&expr.right, source)),
         ConditionalExpr::Unary(expr) => conditional_exactly_one_extglob_span(&expr.expr, source),
         ConditionalExpr::Parenthesized(expr) => {
             conditional_exactly_one_extglob_span(&expr.expr, source)
@@ -760,10 +758,7 @@ fn word_extglob_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<
     None
 }
 
-fn word_exactly_one_extglob_span_from_parts(
-    parts: &[WordPartNode],
-    source: &str,
-) -> Option<Span> {
+fn word_exactly_one_extglob_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<Span> {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) => {
