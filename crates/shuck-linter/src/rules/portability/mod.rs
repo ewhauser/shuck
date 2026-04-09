@@ -22,6 +22,7 @@ pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
+pub mod pipefail_option;
 pub mod process_substitution;
 pub mod replacement_expansion;
 pub mod select_loop;
@@ -83,6 +84,7 @@ mod tests {
     #[test_case(Rule::IndirectExpansion, Path::new("X018.sh"))]
     #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
+    #[test_case(Rule::PipefailOption, Path::new("X021.sh"))]
     #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
     #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]

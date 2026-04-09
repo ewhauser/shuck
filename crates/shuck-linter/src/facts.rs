@@ -1135,6 +1135,7 @@ pub struct GrepCommandFacts {
 #[derive(Debug, Clone, Copy)]
 pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
+    pub pipefail_change: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3778,6 +3779,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
 
 fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errexit_change = None;
+    let mut pipefail_change = None;
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
@@ -3801,6 +3803,8 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
 
                 if name == "errexit" {
                     errexit_change = Some(enable);
+                } else if name == "pipefail" {
+                    pipefail_change = Some(enable);
                 }
                 index += 2;
                 continue;
@@ -3819,10 +3823,29 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
             errexit_change = Some(text.starts_with('-'));
         }
 
+        if flags.chars().any(|flag| flag == 'o') {
+            let enable = text.starts_with('-');
+            let Some(name) = args
+                .get(index + 1)
+                .and_then(|word| static_word_text(word, source))
+            else {
+                break;
+            };
+
+            if name == "pipefail" {
+                pipefail_change = Some(enable);
+            }
+            index += 2;
+            continue;
+        }
+
         index += 1;
     }
 
-    SetCommandFacts { errexit_change }
+    SetCommandFacts {
+        errexit_change,
+        pipefail_change,
+    }
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
@@ -4245,7 +4268,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\ngrep -o content file | wc -l\nexit foo\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\ngrep -o content file | wc -l\nexit foo\nset -eo pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -4301,6 +4324,15 @@ mod tests {
             .and_then(|fact| fact.options().xargs())
             .expect("expected xargs facts");
         assert!(xargs.uses_null_input);
+
+        let set = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("set"))
+            .and_then(|fact| fact.options().set())
+            .expect("expected set facts");
+        assert_eq!(set.errexit_change, Some(true));
+        assert_eq!(set.pipefail_change, Some(true));
 
         let grep = facts
             .commands()

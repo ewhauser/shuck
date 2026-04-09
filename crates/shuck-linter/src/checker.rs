@@ -280,6 +280,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TrapErr) {
             rules::portability::trap_err::trap_err(self);
         }
+        if self.is_rule_enabled(Rule::PipefailOption) {
+            rules::portability::pipefail_option::pipefail_option(self);
+        }
         if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
             rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
         }

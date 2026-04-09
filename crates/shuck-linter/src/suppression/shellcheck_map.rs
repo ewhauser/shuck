@@ -158,6 +158,7 @@ impl Default for ShellCheckCodeMap {
             // Keep SC3042 as a suppression alias, but prefer the current code for comparisons.
             (3042, Rule::LetCommand),
             (3039, Rule::LetCommand),
+            (3040, Rule::PipefailOption),
             (3047, Rule::TrapErr),
             (3046, Rule::SourceBuiltinInSh),
             (3050, Rule::BraceFdRedirection),
@@ -307,6 +308,7 @@ impl Default for ShellCheckCodeMap {
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
                 (3047, Rule::TrapErr),
+                (3040, Rule::PipefailOption),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
                 (3058, Rule::BashCaseFallthrough),
@@ -500,6 +502,7 @@ mod tests {
         assert_eq!(map.resolve("SC3033"), Some(Rule::SelectLoop));
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
+        assert_eq!(map.resolve("SC3040"), Some(Rule::PipefailOption));
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
         assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
@@ -686,6 +689,7 @@ mod tests {
             (3033, Rule::SelectLoop),
             (3039, Rule::LetCommand),
             (3042, Rule::LetCommand),
+            (3040, Rule::PipefailOption),
             (3043, Rule::LocalVariableInSh),
             (3044, Rule::DeclareCommand),
             (3046, Rule::SourceBuiltinInSh),
@@ -760,6 +764,7 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
+        assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
