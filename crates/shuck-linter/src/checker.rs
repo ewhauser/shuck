@@ -318,6 +318,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PositionalParamAsOperator) {
             rules::correctness::positional_param_as_operator::positional_param_as_operator(self);
         }
+        if self.is_rule_enabled(Rule::DoubleParenGrouping) {
+            rules::correctness::double_paren_grouping::double_paren_grouping(self);
+        }
     }
 
     fn check_test_and_conditional_facts(&mut self) {

@@ -42,6 +42,9 @@ impl ShellCheckCodeMap {
         if number == 2282 {
             return Some(Rule::PositionalParamAsOperator);
         }
+        if number == 2283 {
+            return Some(Rule::DoubleParenGrouping);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -53,6 +56,7 @@ impl Default for ShellCheckCodeMap {
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (2009, Rule::DoubleParenGrouping),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
                 (1072, Rule::BrokenTestParse),
@@ -130,6 +134,7 @@ mod tests {
         assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
+        assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
@@ -213,6 +218,7 @@ mod tests {
             Some(Rule::BackslashBeforeClosingBacktick)
         );
         assert_eq!(map.resolve("SC2282"), Some(Rule::PositionalParamAsOperator));
+        assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -244,6 +250,7 @@ mod tests {
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (2009, Rule::DoubleParenGrouping),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
                 (2016, Rule::SingleQuotedLiteral),

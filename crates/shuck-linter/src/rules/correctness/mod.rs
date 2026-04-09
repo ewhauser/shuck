@@ -11,6 +11,7 @@ pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
+pub mod double_paren_grouping;
 pub mod dynamic_source_path;
 pub mod else_if;
 pub mod else_without_then;
@@ -114,6 +115,7 @@ mod tests {
     #[test_case(Rule::BareClosingBrace, Path::new("C068.sh"))]
     #[test_case(Rule::BackslashBeforeClosingBacktick, Path::new("C069.sh"))]
     #[test_case(Rule::PositionalParamAsOperator, Path::new("C070.sh"))]
+    #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

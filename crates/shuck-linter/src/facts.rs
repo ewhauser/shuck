@@ -1220,6 +1220,7 @@ pub struct LinterFacts<'a> {
     legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
     positional_parameter_operator_spans: Vec<Span>,
+    double_paren_grouping_spans: Vec<Span>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
 }
 
@@ -1357,6 +1358,10 @@ impl<'a> LinterFacts<'a> {
         &self.positional_parameter_operator_spans
     }
 
+    pub fn double_paren_grouping_spans(&self) -> &[Span] {
+        &self.double_paren_grouping_spans
+    }
+
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
         &self.nested_parameter_expansion_fragments
     }
@@ -1467,6 +1472,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_condition_status_capture_spans(&self.file.body, self.source);
         let surface_fragments =
             build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
+        let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
         let subscript_index_reference_spans = build_subscript_index_reference_spans(
             self._semantic,
             &surface_fragments.subscript_spans,
@@ -1498,6 +1504,7 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameter_fragments: surface_fragments.positional_parameters,
             positional_parameter_operator_spans: surface_fragments
                 .positional_parameter_operator_spans,
+            double_paren_grouping_spans,
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
         }
     }
@@ -1523,6 +1530,46 @@ fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
     };
     let end = start.advanced_by(line);
     Some(Span::from_positions(start, end))
+}
+
+fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Compound(CompoundCommand::Subshell(_)) => {
+                double_paren_grouping_anchor(fact.span(), source)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let body_start = if text.starts_with("((") {
+        2 + text[2..].find(|char: char| !char.is_whitespace())?
+    } else if text.starts_with('(')
+        && span.start.offset > 0
+        && source.as_bytes().get(span.start.offset - 1) == Some(&b'(')
+    {
+        1 + text[1..].find(|char: char| !char.is_whitespace())?
+    } else {
+        return None;
+    };
+
+    let body = &text[body_start..];
+    let has_grouping_operator =
+        body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+    if !has_grouping_operator {
+        return None;
+    }
+
+    let command_offset = body.find(|char: char| char == '_' || char.is_ascii_alphabetic())?;
+    let command_start = span.start.advanced_by(&text[..body_start + command_offset]);
+    let head = &body[command_offset..];
+    let first_char_len = head.chars().next()?.len_utf8();
+    let command_end = command_start.advanced_by(&head[..first_char_len]);
+    Some(Span::from_positions(command_start, command_end))
 }
 
 fn has_header_shellcheck_shell_directive(source: &str) -> bool {
@@ -4319,6 +4366,26 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 .expect("expected pipeline tail");
             assert_eq!(tail.static_utility_name(), Some("kill"));
             assert!(tail.static_utility_name_is("kill"));
+        });
+    }
+
+    #[test]
+    fn builds_double_paren_grouping_spans() {
+        let source = "\
+#!/bin/sh
+((ps aux | grep foo) || kill \"$pid\") 2>/dev/null
+(( i += 1 ))
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .double_paren_grouping_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["p"]
+            );
         });
     }
 
