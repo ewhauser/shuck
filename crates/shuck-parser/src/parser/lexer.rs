@@ -578,6 +578,12 @@ struct PositionMap<'a> {
     cached: Position,
 }
 
+#[cfg(feature = "benchmarking")]
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct LexerBenchmarkCounters {
+    pub(crate) current_position_calls: u64,
+}
+
 impl<'a> PositionMap<'a> {
     fn new(source: &'a str) -> Self {
         let mut line_starts =
@@ -674,6 +680,8 @@ pub struct Lexer<'a> {
     reinject_resume_offset: Option<usize>,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
+    #[cfg(feature = "benchmarking")]
+    benchmark_counters: Option<LexerBenchmarkCounters>,
 }
 
 impl<'a> Lexer<'a> {
@@ -693,6 +701,8 @@ impl<'a> Lexer<'a> {
             reinject_buf: VecDeque::new(),
             reinject_resume_offset: None,
             max_subst_depth: max_depth,
+            #[cfg(feature = "benchmarking")]
+            benchmark_counters: None,
         }
     }
 
@@ -702,7 +712,26 @@ impl<'a> Lexer<'a> {
     }
 
     fn current_position(&mut self) -> Position {
+        #[cfg(feature = "benchmarking")]
+        self.maybe_record_current_position_call();
         self.position_map.position(self.offset)
+    }
+
+    #[cfg(feature = "benchmarking")]
+    pub(crate) fn enable_benchmark_counters(&mut self) {
+        self.benchmark_counters = Some(LexerBenchmarkCounters::default());
+    }
+
+    #[cfg(feature = "benchmarking")]
+    pub(crate) fn benchmark_counters(&self) -> LexerBenchmarkCounters {
+        self.benchmark_counters.unwrap_or_default()
+    }
+
+    #[cfg(feature = "benchmarking")]
+    fn maybe_record_current_position_call(&mut self) {
+        if let Some(counters) = &mut self.benchmark_counters {
+            counters.current_position_calls += 1;
+        }
     }
 
     fn sync_offset_to_cursor(&mut self) {

@@ -12,6 +12,9 @@ keywords = ["shell", "bash", "parser", "lexer"]
 categories = ["parsing", "development-tools"]
 readme = "../../README.md"
 
+[features]
+benchmarking = []
+
 [dependencies]
 shuck-ast = { path = "../shuck-ast" }
 memchr.workspace = true

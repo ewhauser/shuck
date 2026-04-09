@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "parser-benchmarking")]
+use shuck_parser::parser::ParserBenchmarkCounters;
 use shuck_parser::parser::{ParseOutput, Parser};
 
 /// Categorize fixtures by expected runtime so Criterion can spend
@@ -93,12 +95,57 @@ pub fn resources_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")
 }
 
+fn parse_fixture_with<T, E>(
+    source: &str,
+    parse: impl FnOnce(Parser<'_>) -> std::result::Result<T, E>,
+    recover: impl FnOnce(Parser<'_>) -> T,
+) -> (T, bool) {
+    match parse(Parser::new(source)) {
+        Ok(output) => (output, false),
+        Err(_) => (recover(Parser::new(source)), true),
+    }
+}
+
 pub fn parse_fixture(source: &str) -> ParseOutput {
-    match Parser::new(source).parse() {
-        Ok(output) => output,
-        Err(_) => ParseOutput {
-            file: Parser::new(source).parse_recovered().file,
+    parse_fixture_with(
+        source,
+        |parser| parser.parse(),
+        |parser| ParseOutput {
+            file: parser.parse_recovered().file,
         },
+    )
+    .0
+}
+
+#[cfg(feature = "parser-benchmarking")]
+#[doc(hidden)]
+pub struct CountedParseFixtureOutput {
+    pub output: ParseOutput,
+    pub counters: ParserBenchmarkCounters,
+    pub recovered: bool,
+}
+
+#[cfg(feature = "parser-benchmarking")]
+#[doc(hidden)]
+pub fn parse_fixture_with_benchmark_counters(source: &str) -> CountedParseFixtureOutput {
+    let ((output, counters), recovered) = parse_fixture_with(
+        source,
+        |parser| parser.parse_with_benchmark_counters(),
+        |parser| {
+            let (recovered, counters) = parser.parse_recovered_with_benchmark_counters();
+            (
+                ParseOutput {
+                    file: recovered.file,
+                },
+                counters,
+            )
+        },
+    );
+
+    CountedParseFixtureOutput {
+        output,
+        counters,
+        recovered,
     }
 }
 
@@ -120,7 +167,10 @@ mod tests {
         LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
         parse_directives,
     };
+    use shuck_parser::parser::Parser;
 
+    #[cfg(feature = "parser-benchmarking")]
+    use super::parse_fixture_with_benchmark_counters;
     use super::{TEST_FILES, benchmark_cases, parse_fixture, resources_dir};
 
     #[derive(Debug, Deserialize)]
@@ -244,5 +294,26 @@ mod tests {
                 Err(error) => panic!("{} should format from AST successfully: {error}", file.name),
             }
         }
+    }
+
+    #[cfg(feature = "parser-benchmarking")]
+    #[test]
+    fn counted_parse_fixture_matches_best_effort_parse_mode() {
+        let file = TEST_FILES
+            .iter()
+            .find(|file| file.name == "nvm")
+            .expect("nvm benchmark fixture should exist");
+
+        let counted = parse_fixture_with_benchmark_counters(file.source);
+        let uncounted_recovered = Parser::new(file.source).parse().is_err();
+
+        assert_eq!(counted.recovered, uncounted_recovered);
+        assert!(
+            !counted.output.file.body.is_empty(),
+            "counted parse should produce some parsed commands"
+        );
+        assert!(counted.counters.lexer_current_position_calls > 0);
+        assert!(counted.counters.parser_set_current_spanned_calls > 0);
+        assert!(counted.counters.parser_advance_raw_calls > 0);
     }
 }

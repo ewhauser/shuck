@@ -74,6 +74,15 @@ pub struct ParseOutput {
     pub file: File,
 }
 
+#[cfg(feature = "benchmarking")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[doc(hidden)]
+pub struct ParserBenchmarkCounters {
+    pub lexer_current_position_calls: u64,
+    pub parser_set_current_spanned_calls: u64,
+    pub parser_advance_raw_calls: u64,
+}
+
 #[derive(Debug, Clone)]
 struct SimpleCommand {
     name: Word,
@@ -318,6 +327,8 @@ pub struct Parser<'a> {
     /// closers from literal `}` arguments.
     brace_body_stack: Vec<BraceBodyContext>,
     dialect: ShellDialect,
+    #[cfg(feature = "benchmarking")]
+    benchmark_counters: Option<ParserBenchmarkCounters>,
 }
 
 /// A parser diagnostic emitted while recovering from invalid input.
@@ -564,7 +575,24 @@ impl<'a> Parser<'a> {
         max_fuel: usize,
         dialect: ShellDialect,
     ) -> Self {
+        Self::with_limits_and_dialect_and_benchmarking(input, max_depth, max_fuel, dialect, false)
+    }
+
+    fn with_limits_and_dialect_and_benchmarking(
+        input: &'a str,
+        max_depth: usize,
+        max_fuel: usize,
+        dialect: ShellDialect,
+        benchmark_counters_enabled: bool,
+    ) -> Self {
+        #[cfg(not(feature = "benchmarking"))]
+        let _ = benchmark_counters_enabled;
+
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
+        #[cfg(feature = "benchmarking")]
+        if benchmark_counters_enabled {
+            lexer.enable_benchmark_counters();
+        }
         let mut comments = Vec::new();
         let (current_token, current_token_kind, current_keyword, current_span) = loop {
             match lexer.next_lexed_token_with_comments() {
@@ -606,7 +634,20 @@ impl<'a> Parser<'a> {
             brace_group_depth: 0,
             brace_body_stack: Vec::new(),
             dialect,
+            #[cfg(feature = "benchmarking")]
+            benchmark_counters: benchmark_counters_enabled.then(ParserBenchmarkCounters::default),
         }
+    }
+
+    #[cfg(feature = "benchmarking")]
+    fn rebuild_with_benchmark_counters(&self) -> Self {
+        Self::with_limits_and_dialect_and_benchmarking(
+            self.input,
+            self.max_depth,
+            self.max_fuel,
+            self.dialect,
+            true,
+        )
     }
 
     pub fn dialect(&self) -> ShellDialect {
@@ -3518,6 +3559,8 @@ impl<'a> Parser<'a> {
     }
 
     fn set_current_spanned(&mut self, token: LexedToken<'a>) {
+        #[cfg(feature = "benchmarking")]
+        self.maybe_record_set_current_spanned_call();
         let span = token.span;
         self.current_token_kind = Some(token.kind);
         self.current_keyword = Self::keyword_from_token(&token);
@@ -4497,6 +4540,8 @@ impl<'a> Parser<'a> {
     }
 
     fn advance_raw(&mut self) {
+        #[cfg(feature = "benchmarking")]
+        self.maybe_record_advance_raw_call();
         if let Some(peeked) = self.peeked_token.take() {
             self.set_current_spanned(peeked);
         } else {
@@ -4517,6 +4562,28 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "benchmarking")]
+    fn maybe_record_set_current_spanned_call(&mut self) {
+        if let Some(counters) = &mut self.benchmark_counters {
+            counters.parser_set_current_spanned_calls += 1;
+        }
+    }
+
+    #[cfg(feature = "benchmarking")]
+    fn maybe_record_advance_raw_call(&mut self) {
+        if let Some(counters) = &mut self.benchmark_counters {
+            counters.parser_advance_raw_calls += 1;
+        }
+    }
+
+    #[cfg(feature = "benchmarking")]
+    fn finish_benchmark_counters(&self) -> ParserBenchmarkCounters {
+        let mut counters = self.benchmark_counters.unwrap_or_default();
+        counters.lexer_current_position_calls =
+            self.lexer.benchmark_counters().current_position_calls;
+        counters
     }
 
     fn advance(&mut self) {

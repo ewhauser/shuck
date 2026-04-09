@@ -109,6 +109,22 @@ fn test_parse_recovered_skips_invalid_command_and_continues() {
     assert_eq!(second.args[0].render(input), "two");
 }
 
+#[cfg(feature = "benchmarking")]
+#[test]
+fn test_parse_with_benchmark_counters_is_repeatable() {
+    let input = "echo hello\nprintf '%s' \"$x\"\n";
+
+    let (first, first_counters) = Parser::new(input).parse_with_benchmark_counters().unwrap();
+    let (second, second_counters) = Parser::new(input).parse_with_benchmark_counters().unwrap();
+
+    assert_eq!(first.file.body.len(), second.file.body.len());
+    assert_eq!(first.file.span, second.file.span);
+    assert_eq!(first_counters, second_counters);
+    assert!(first_counters.lexer_current_position_calls > 0);
+    assert!(first_counters.parser_set_current_spanned_calls > 0);
+    assert!(first_counters.parser_advance_raw_calls > 0);
+}
+
 #[test]
 fn test_parse_pipeline() {
     let parser = Parser::new("echo hello | cat");

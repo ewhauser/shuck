@@ -10,6 +10,9 @@ keywords = ["benchmark"]
 categories = ["development-tools::profiling"]
 publish = false
 
+[features]
+parser-benchmarking = ["shuck-parser/benchmarking"]
+
 [dependencies]
 shuck-formatter = { path = "../shuck-formatter", features = ["benchmarking"] }
 shuck-indexer = { path = "../shuck-indexer" }

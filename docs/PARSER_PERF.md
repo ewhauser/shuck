@@ -47,7 +47,7 @@ This is the highest-value area to explore first. The flamegraph points at
 `next_lexed_token_inner`, and nearby token-advance helpers often enough that
 small wins here should compound across the whole parse.
 
-- [ ] Count how often `current_position`, `set_current_spanned`, and
+- [x] Count how often `current_position`, `set_current_spanned`, and
       `advance_raw` run during the `parser/nvm` benchmark.
 - [ ] Confirm whether we are paying for line/column materialization earlier
       than callers actually need it.
@@ -192,3 +192,12 @@ lose track of regressions.
   `6.5720 ms .. 6.7652 ms .. 7.0191 ms`. After the change:
   `5.7782 ms .. 6.0722 ms .. 6.4740 ms`. Criterion reported a statistically
   significant improvement.
+- 2026-04-08 experiment: added a benchmark-only parser counter probe for
+  `Lexer::current_position`, `Parser::set_current_spanned`, and
+  `Parser::advance_raw`, then ran
+  `cargo run -p shuck-benchmark --features parser-benchmarking --example parser_counts -- nvm`.
+  The `nvm` fixture completed without recovery and reported
+  `lexer_current_position_calls=66006`,
+  `parser_set_current_spanned_calls=15545`, and
+  `parser_advance_raw_calls=15546`. These counts are for a single counted parse
+  of `parser/nvm`, not an aggregate across Criterion samples.

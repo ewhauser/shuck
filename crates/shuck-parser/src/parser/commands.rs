@@ -180,8 +180,7 @@ impl<'a> Parser<'a> {
         advanced
     }
 
-    /// Parse the input and return the AST with collected comments.
-    pub fn parse(mut self) -> Result<ParseOutput> {
+    fn parse_impl(&mut self) -> Result<ParseOutput> {
         // Check if the very first token is an error
         self.check_error_token()?;
 
@@ -209,8 +208,12 @@ impl<'a> Parser<'a> {
         Ok(ParseOutput { file })
     }
 
-    /// Parse the input while recovering at top-level command boundaries.
-    pub fn parse_recovered(mut self) -> RecoveredParse {
+    /// Parse the input and return the AST with collected comments.
+    pub fn parse(mut self) -> Result<ParseOutput> {
+        self.parse_impl()
+    }
+
+    fn parse_recovered_impl(&mut self) -> RecoveredParse {
         let file_span =
             Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
         let mut commands = Vec::new();
@@ -260,6 +263,30 @@ impl<'a> Parser<'a> {
         self.attach_comments_to_file(&mut file);
         RecoveredParse { file, diagnostics }
     }
+
+    /// Parse the input while recovering at top-level command boundaries.
+    pub fn parse_recovered(mut self) -> RecoveredParse {
+        self.parse_recovered_impl()
+    }
+
+    #[cfg(feature = "benchmarking")]
+    #[doc(hidden)]
+    pub fn parse_with_benchmark_counters(self) -> Result<(ParseOutput, ParserBenchmarkCounters)> {
+        let mut parser = self.rebuild_with_benchmark_counters();
+        let output = parser.parse_impl()?;
+        Ok((output, parser.finish_benchmark_counters()))
+    }
+
+    #[cfg(feature = "benchmarking")]
+    #[doc(hidden)]
+    pub fn parse_recovered_with_benchmark_counters(
+        self,
+    ) -> (RecoveredParse, ParserBenchmarkCounters) {
+        let mut parser = self.rebuild_with_benchmark_counters();
+        let output = parser.parse_recovered_impl();
+        (output, parser.finish_benchmark_counters())
+    }
+
     fn parse_command_list(&mut self) -> Result<Option<Command>> {
         self.tick()?;
         let first = match self.parse_pipeline()? {
