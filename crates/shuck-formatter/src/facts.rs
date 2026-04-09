@@ -1194,4 +1194,42 @@ mod tests {
         assert!(facts.stmt(&file.body[0]).preserve_verbatim());
         assert!(facts.stmt(&file.body[1]).preserve_verbatim());
     }
+
+    #[test]
+    fn grouped_condition_sequences_do_not_capture_later_file_comments() {
+        let source = "download() {\n  local url\n  url=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n  set -o pipefail\n  if ! (try_curl $url || try_wget $url); then\n    set +o pipefail\n    binary_error=\"Failed to download with curl and wget\"\n    return\n  fi\n  set +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2> /dev/null || uname -sm)\n";
+        let file = parse(source);
+        let options = ShellFormatOptions::default();
+        let resolved = options.resolve(source, Some(Path::new("test.sh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+
+        let function = match &file.body[0].command {
+            Command::Function(function) => function,
+            _ => panic!("expected function"),
+        };
+        let function_body = match &function.body.command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group function body"),
+        };
+        let if_command = match &function_body[3].command {
+            Command::Compound(CompoundCommand::If(command)) => command,
+            _ => panic!("expected if command"),
+        };
+        let condition_stmt = &if_command.condition[0];
+        let subshell = match &condition_stmt.command {
+            Command::Compound(CompoundCommand::Subshell(commands)) => commands,
+            _ => panic!("expected subshell condition"),
+        };
+
+        let sequence = facts.sequence(subshell, Some(stmt_span(condition_stmt).end.offset));
+        let attachment_span =
+            group_attachment_span(subshell.as_slice(), facts.source_map(), '(', ')')
+                .expect("expected subshell attachment span");
+        assert!(!sequence.has_comments());
+        assert!(facts.group_was_inline_in_source(subshell));
+        assert_eq!(
+            attachment_span.slice(source),
+            "(try_curl $url || try_wget $url)"
+        );
+    }
 }

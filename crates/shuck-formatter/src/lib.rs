@@ -802,6 +802,20 @@ mod tests {
     }
 
     #[test]
+    fn negated_subshell_conditions_do_not_capture_later_file_comments() {
+        let source = "download() {\n  local url\n  url=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n  set -o pipefail\n  if ! (try_curl $url || try_wget $url); then\n    set +o pipefail\n    binary_error=\"Failed to download with curl and wget\"\n    return\n  fi\n  set +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2> /dev/null || uname -sm)\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "download() {\n\tlocal url\n\turl=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n\tset -o pipefail\n\tif ! (try_curl $url || try_wget $url); then\n\t\tset +o pipefail\n\t\tbinary_error=\"Failed to download with curl and wget\"\n\t\treturn\n\tfi\n\tset +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2>/dev/null || uname -sm)\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn preserves_else_branch_comments_inside_the_branch() {
         let source = "if foo; then\n  bar\nelse\n  # branch comment\n  baz\nfi\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
@@ -873,6 +887,33 @@ mod tests {
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
 
         assert_eq!(formatted, FormattedSource::Unchanged);
+    }
+
+    #[test]
+    fn preserves_single_line_subshells_inside_case_bodies() {
+        let source = "build_package_pyston() {\n  build_package_copy\n  mkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n  local bin\n  shopt -s nullglob\n  for bin in \"bin/\"*; do\n    if [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n      case \"${bin##*/}\" in\n      \"pyston\"* )\n        ( cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\" )\n        ;;\n      esac\n    fi\n  done\n  shopt -u nullglob\n}\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "build_package_pyston() {\n\tbuild_package_copy\n\tmkdir -p \"${PREFIX_PATH}/bin\" \"${PREFIX_PATH}/lib\"\n\tlocal bin\n\tshopt -s nullglob\n\tfor bin in \"bin/\"*; do\n\t\tif [ -f \"${bin}\" ] && [ -x \"${bin}\" ] && [ ! -L \"${bin}\" ]; then\n\t\t\tcase \"${bin##*/}\" in\n\t\t\t\"pyston\"*)\n\t\t\t\t(cd \"${PREFIX_PATH}/bin\" && ln -fs \"${bin##*/}\" \"python\")\n\t\t\t\t;;\n\t\t\tesac\n\t\tfi\n\tdone\n\tshopt -u nullglob\n}\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn preserves_inline_group_redirect_suffixes() {
+        let source = "build_package_activepython() {\n  local package_name=\"$1\"\n  { bash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n  } >&4 2>&1\n}\n";
+        let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
+
+        assert_eq!(
+            formatted,
+            FormattedSource::Formatted(
+                "build_package_activepython() {\n\tlocal package_name=\"$1\"\n\t{\n\t\tbash \"install.sh\" --install-dir \"${PREFIX_PATH}\"\n\t} >&4 2>&1\n}\n".to_string()
+            )
+        );
     }
 
     #[test]

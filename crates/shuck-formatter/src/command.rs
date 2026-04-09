@@ -2064,15 +2064,11 @@ fn group_verbatim_span(commands: &[Stmt], source: &str, open: char, close: char)
     if !source[wrapper_prefix_start..inner.start.offset].contains('#') {
         return inner;
     }
-    let Some(close_offset) = source[inner.end.offset..].find(close) else {
+    let Some(close_offset) = find_group_close_offset(source, inner.end.offset, close) else {
         return inner;
     };
 
-    span_for_offsets(
-        source,
-        open_offset,
-        inner.end.offset + close_offset + close.len_utf8(),
-    )
+    span_for_offsets(source, open_offset, close_offset + close.len_utf8())
 }
 
 fn format_group_with_upper_bound(
@@ -2117,7 +2113,8 @@ pub(crate) fn group_open_suffix<'a>(
     let suffix_start = open_offset + open.len_utf8();
     let suffix = source.get(suffix_start..line_end)?;
     suffix
-        .contains('#')
+        .trim_start_matches(char::is_whitespace)
+        .starts_with('#')
         .then(|| (source_map.span_for_offsets(suffix_start, line_end), suffix))
 }
 
@@ -2129,14 +2126,38 @@ pub(crate) fn group_attachment_span(
 ) -> Option<Span> {
     let source = source_map.source();
     let first = commands.first()?;
-    let last = commands.last()?;
     let open_offset = source[..stmt_span(first).start.offset].rfind(open)?;
-    let last_end = stmt_span(last).end.offset;
-    let end = source[last_end..]
-        .find(close)
-        .map(|offset| last_end + offset + close.len_utf8())
-        .unwrap_or(last_end);
+    let sequence_end = commands
+        .last()
+        .map(|_| {
+            commands
+                .iter()
+                .map(stmt_span)
+                .reduce(|left, right| left.merge(right))
+        })
+        .flatten()
+        .map(|span| span.end.offset)
+        .unwrap_or(0);
+    let end = find_group_close_offset(source, sequence_end, close)
+        .map(|offset| offset + close.len_utf8())
+        .unwrap_or(sequence_end);
     Some(source_map.span_for_offsets(open_offset, end))
+}
+
+fn find_group_close_offset(source: &str, sequence_end: usize, close: char) -> Option<usize> {
+    let close_len = close.len_utf8();
+    let capped_end = sequence_end.min(source.len());
+    if capped_end >= close_len
+        && source
+            .get(capped_end - close_len..capped_end)
+            .is_some_and(|slice| slice.chars().next() == Some(close))
+    {
+        return Some(capped_end - close_len);
+    }
+
+    source[capped_end..]
+        .find(close)
+        .map(|offset| capped_end + offset)
 }
 
 pub(crate) fn group_was_inline_in_source(
