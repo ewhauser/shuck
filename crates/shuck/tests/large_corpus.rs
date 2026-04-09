@@ -774,56 +774,6 @@ fn large_corpus_conforms_with_shellcheck() {
     );
 }
 
-#[test]
-#[ignore = "requires the large corpus; run `make test-large-corpus`"]
-fn large_corpus_zsh_fixtures_parse() {
-    let cfg = match resolve_large_corpus_config() {
-        Some(cfg) => cfg,
-        None => {
-            eprintln!("large corpus test skipped (set {LARGE_CORPUS_ENV}=1 to enable)");
-            return;
-        }
-    };
-
-    let fixtures = load_fixtures(&cfg);
-    if fixtures.is_empty() {
-        panic!(
-            "no fixtures found in {}",
-            cfg.corpus_dir.join("scripts").display()
-        );
-    }
-
-    let zsh_fixtures: Vec<_> = fixtures
-        .iter()
-        .filter(|fixture| fixture_selected_for_large_corpus_zsh_parse(fixture))
-        .collect();
-    if zsh_fixtures.is_empty() {
-        eprintln!("large corpus zsh parse skipped (no zsh fixtures found for this shard/sample)");
-        return;
-    }
-
-    let failure_collection = collect_fixture_failures(&zsh_fixtures, cfg.keep_going, |fixture| {
-        evaluate_fixture_zsh_parse(fixture, cfg.shuck_timeout)
-    });
-    let timeout_cap_note = if failure_collection.timeout_cap_reached {
-        format!(
-            "; stopped after reaching timeout cap of {} fixture timeouts",
-            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-        )
-    } else {
-        String::new()
-    };
-
-    assert!(
-        failure_collection.blocking_failures() == 0,
-        "large corpus zsh parse had {} blocking issue(s) across {} fixture(s){}:\n\n{}",
-        failure_collection.blocking_failures(),
-        zsh_fixtures.len(),
-        timeout_cap_note,
-        format_large_corpus_report(&failure_collection)
-    );
-}
-
 fn collect_fixture_failures<F>(
     fixtures: &[&LargeCorpusFixture],
     keep_going: bool,
@@ -1123,33 +1073,6 @@ fn evaluate_fixture_compatibility(
                 ),
             });
         }
-    }
-
-    evaluation
-}
-
-fn evaluate_fixture_zsh_parse(
-    fixture: &LargeCorpusFixture,
-    shuck_timeout: Duration,
-) -> FixtureEvaluation {
-    let mut evaluation = FixtureEvaluation::default();
-    let parse_result =
-        match parse_fixture_for_effective_large_corpus_shell_with_timeout(fixture, shuck_timeout) {
-            Ok(result) => result,
-            Err(err) => {
-                evaluation.harness_failure = Some(FixtureFailure {
-                    kind: fixture_failure_kind_for_message(&err, "shuck"),
-                    message: format_fixture_failure(&fixture.path, &[err]),
-                });
-                return evaluation;
-            }
-        };
-
-    if let Err(err) = parse_result {
-        evaluation.harness_failure = Some(FixtureFailure {
-            kind: FixtureFailureKind::Other,
-            message: format_fixture_failure(&fixture.path, &[format!("shuck parse error: {err}")]),
-        });
     }
 
     evaluation
@@ -1628,6 +1551,7 @@ fn fixture_supported_for_large_corpus(
 ) -> bool {
     if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
+        || path_is_patch_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -1639,25 +1563,10 @@ fn fixture_supported_for_large_corpus(
     )
 }
 
-fn fixture_selected_for_large_corpus_zsh_parse(fixture: &LargeCorpusFixture) -> bool {
-    if path_is_sample_file(&fixture.path)
-        || path_is_fish_file(&fixture.path)
-        || fixture_is_repo_git_entry(fixture)
-    {
-        return false;
-    }
-
-    effective_large_corpus_shell(fixture) == "zsh"
-}
-
 fn shell_supported_for_large_corpus(
     shell: &str,
     shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
 ) -> bool {
-    if shell == "zsh" {
-        return false;
-    }
-
     shellcheck_supported_shells
         .map(|supported| supported.contains_key(shell))
         .unwrap_or(true)
@@ -1689,6 +1598,16 @@ fn path_is_fish_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
+}
+
+fn path_is_patch_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case("patch")
+                || ext.eq_ignore_ascii_case("diff")
+                || ext.eq_ignore_ascii_case("dpatch")
+        })
 }
 
 fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
@@ -1907,7 +1826,7 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
         }
 
         let path = entry.path().to_path_buf();
-        if path_is_sample_file(&path) || path_is_fish_file(&path) {
+        if path_is_sample_file(&path) || path_is_fish_file(&path) || path_is_patch_file(&path) {
             continue;
         }
         let cache_rel_path = path
@@ -2171,23 +2090,6 @@ fn run_shuck_with_timeout(
             Some(source_path_resolver.as_ref()
                 as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)),
         )
-    })
-}
-
-fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
-    fixture: &LargeCorpusFixture,
-    timeout: Duration,
-) -> Result<Result<(), String>, String> {
-    let fixture = fixture.clone();
-    run_with_timeout("shuck", timeout, move || {
-        let source =
-            fs::read_to_string(&fixture.path).map_err(|err| format!("read error: {err}"))?;
-        let shell = effective_large_corpus_shell(&fixture);
-        let parse_dialect = parser_dialect_for_large_corpus_shell(shell);
-        shuck_parser::parser::Parser::with_dialect(&source, parse_dialect)
-            .parse()
-            .map(|_| ())
-            .map_err(|err| err.to_string())
     })
 }
 
@@ -2915,16 +2817,16 @@ mod tests {
     }
 
     #[test]
-    fn zsh_is_not_supported_for_large_corpus_even_if_shellcheck_supports_it() {
+    fn zsh_is_supported_for_large_corpus_when_shellcheck_supports_it() {
         let supported = HashMap::from([("sh", ()), ("bash", ()), ("zsh", ())]);
 
-        assert!(!shell_supported_for_large_corpus("zsh", Some(&supported)));
+        assert!(shell_supported_for_large_corpus("zsh", Some(&supported)));
         assert!(shell_supported_for_large_corpus("sh", Some(&supported)));
         assert!(shell_supported_for_large_corpus("bash", Some(&supported)));
     }
 
     #[test]
-    fn zsh_paths_are_skipped_even_when_resolved_shell_is_sh() {
+    fn zsh_paths_use_effective_zsh_shell() {
         let fixture = LargeCorpusFixture {
             path: PathBuf::from("example.zsh"),
             cache_rel_path: PathBuf::from("example.zsh"),
@@ -2933,20 +2835,9 @@ mod tests {
         };
 
         assert!(fixture_looks_like_zsh(&fixture));
-        assert!(!fixture_supported_for_large_corpus(&fixture, None));
-    }
-
-    #[test]
-    fn zsh_shebangs_are_selected_for_large_corpus_zsh_parse() {
-        let fixture = LargeCorpusFixture {
-            path: PathBuf::from("bin/plugin"),
-            cache_rel_path: PathBuf::from("bin/plugin"),
-            shell: "zsh".into(),
-            source_hash: String::new(),
-        };
-
         assert_eq!(effective_large_corpus_shell(&fixture), "zsh");
-        assert!(fixture_selected_for_large_corpus_zsh_parse(&fixture));
+        // Supported when no shellcheck filter is applied
+        assert!(fixture_supported_for_large_corpus(&fixture, None));
     }
 
     #[test]
@@ -2959,7 +2850,6 @@ mod tests {
         };
 
         assert_eq!(effective_large_corpus_shell(&fixture), "zsh");
-        assert!(fixture_selected_for_large_corpus_zsh_parse(&fixture));
     }
 
     #[test]

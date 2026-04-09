@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 83 |
-| Scheduled (Tranches 1-3) | 18 |
-| Remaining | 217 |
+| Implemented | 116 |
+| Scheduled (Tranches 1-2) | 18 |
+| Remaining | 184 |
 | **Total** | **318** |
 
 ## Difficulty Legend

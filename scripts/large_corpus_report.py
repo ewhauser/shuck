@@ -26,10 +26,6 @@ MAIN_FAILURE_RE = re.compile(
     r"across (?P<fixtures>\d+) fixture\(s\)"
     r"(?: \((?P<skipped>\d+) skipped unsupported shells\))?"
 )
-ZSH_FAILURE_RE = re.compile(
-    r"large corpus zsh parse had (?P<blocking>\d+) blocking issue\(s\) "
-    r"across (?P<fixtures>\d+) fixture\(s\)"
-)
 PROGRESS_RE = re.compile(r"large corpus: processed (?P<done>\d+)/(?P<total>\d+) fixtures")
 WORKER_PANIC_RE = re.compile(
     r"thread '<unnamed>' .*? panicked at (?P<location>[^\n]+):\n(?P<message>[^\n]+)",
@@ -108,21 +104,6 @@ def require_main_harness_section(text: str, start_at: int = 0) -> str | None:
         return None
     start += len("Harness Failures:\n")
     end_marker = "\ntest large_corpus_conforms_with_shellcheck ... FAILED"
-    end = text.find(end_marker, start)
-    if end == -1:
-        return None
-    return text[start:end]
-
-
-def optional_zsh_harness_section(text: str) -> str | None:
-    zsh_match = ZSH_FAILURE_RE.search(text)
-    if not zsh_match:
-        return None
-    start = text.find("Harness Failures:\n", zsh_match.start())
-    if start == -1:
-        return None
-    start += len("Harness Failures:\n")
-    end_marker = "\ntest large_corpus_zsh_fixtures_parse ... FAILED"
     end = text.find(end_marker, start)
     if end == -1:
         return None
@@ -296,9 +277,6 @@ def render_html(
     reviewed_divergences: int,
     corpus_noise: int,
     main_harness_failures: int,
-    zsh_blocking: int,
-    zsh_fixture_entries: int,
-    zsh_harness_failures: int,
     top_five_share: float,
     worker_panic_info: tuple[str, str] | None,
     rule_summaries: list[RuleSummary],
@@ -743,11 +721,6 @@ def render_html(
           <p class="value">{format_number(main_blocking)}</p>
           <p class="note">Across {format_number(main_fixture_entries)} fixture entries, with {format_number(unsupported_shells)} unsupported shells skipped.</p>
         </article>
-        <article class="card warn">
-          <p class="kicker">Zsh parse blockers</p>
-          <p class="value">{format_number(zsh_blocking)}</p>
-          <p class="note">Across {format_number(zsh_fixture_entries)} fixture entries and {format_number(zsh_harness_failures)} zsh harness failures.</p>
-        </article>
       </div>
     </section>
 
@@ -820,12 +793,9 @@ def main() -> int:
     main_harness_section = require_main_harness_section(
         text, start_at=text.find("Implementation Diffs:\n")
     )
-    zsh_harness_section = optional_zsh_harness_section(text)
-
     main_failure_match = MAIN_FAILURE_RE.search(text)
     if not main_failure_match:
         raise SystemExit("could not find the main compatibility summary in the log")
-    zsh_failure_match = ZSH_FAILURE_RE.search(text)
 
     rule_summaries = parse_rule_summaries(implementation_section, repo_root)
     implementation_mismatches = sum(summary.mismatches for summary in rule_summaries)
@@ -853,9 +823,6 @@ def main() -> int:
         reviewed_divergences=count_diagnostic_records(reviewed_section),
         corpus_noise=count_fixture_entries(corpus_noise_section),
         main_harness_failures=count_fixture_entries(main_harness_section),
-        zsh_blocking=int(zsh_failure_match.group("blocking")) if zsh_failure_match else 0,
-        zsh_fixture_entries=int(zsh_failure_match.group("fixtures")) if zsh_failure_match else 0,
-        zsh_harness_failures=count_fixture_entries(zsh_harness_section),
         top_five_share=top_rule_share(rule_summaries),
         worker_panic_info=worker_panic(text),
         rule_summaries=rule_summaries,
