@@ -1,7 +1,8 @@
 ## compare_shells: zsh bash mksh
 
 # Extracted from the full large-corpus zsh parse harness on 2026-04-07.
-# These snippets currently reproduce known zsh parser gaps in shuck.
+# These snippets cover previously failing zsh parser surfaces in shuck.
+# Every case in this fixture is now promoted to parse_ok in zsh mode.
 
 #### ohmyzsh__ohmyzsh__lib__cli.zsh
 
@@ -55,7 +56,7 @@ esac
 #### ohmyzsh__ohmyzsh__lib__functions.zsh
 
 # source: ohmyzsh__ohmyzsh__lib__functions.zsh
-# parser gap: parse error at line 29, column 17: expected command
+# regression surface: parse error at line 29, column 17: expected command
 
   # define the open command
   case "$OSTYPE" in
@@ -137,7 +138,7 @@ esac
 #### ohmyzsh__ohmyzsh__lib__theme-and-appearance.zsh
 
 # source: ohmyzsh__ohmyzsh__lib__theme-and-appearance.zsh
-# parser gap: parse error at line 63, column 20: expected command
+# regression surface: parse error at line 63, column 20: expected command
 
 # Find the option for using colors in ls, depending on the version
 case "$OSTYPE" in
@@ -175,7 +176,7 @@ esac
 #### ohmyzsh__ohmyzsh__plugins__autoenv__autoenv.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__autoenv__autoenv.plugin.zsh
-# parser gap: parse error at line 25, column 11: expected 'do'
+# regression surface: parse error at line 25, column 11: expected 'do'
 
   # Locate autoenv installation
   if [[ -z $autoenv_dir ]]; then
@@ -233,14 +234,14 @@ function battery_pct_prompt() {
 #### ohmyzsh__ohmyzsh__plugins__cabal__cabal.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__cabal__cabal.plugin.zsh
-# parser gap: parse error at line 93, column 64: expected command
+# regression surface: parse error at line 93, column 64: expected command
 
 command -v cab >/dev/null 2>&1 && { compdef _cab_commands cab }
 
 #### ohmyzsh__ohmyzsh__plugins__chruby__chruby.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__chruby__chruby.plugin.zsh
-# parser gap: parse error at line 90, column 1: expected command
+# regression surface: parse error at line 90, column 1: expected command
 
 # Simple definition completer for ruby-build
 if command ruby-build &> /dev/null; then
@@ -251,7 +252,7 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__cloudfoundry__cloudfoundry.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__cloudfoundry__cloudfoundry.plugin.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 alias cfdm="cf domains"
 alias cfsp="cf spaces"
@@ -263,7 +264,7 @@ function cfhu() { unset CF_HOME }
 #### ohmyzsh__ohmyzsh__plugins__colored-man-pages__colored-man-pages.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__colored-man-pages__colored-man-pages.plugin.zsh
-# parser gap: parse error at line 32, column 9: expected 'do'
+# regression surface: parse error at line 32, column 9: expected 'do'
 
   # Convert associative array to plain array of NAME=VALUE items.
   local k v
@@ -274,7 +275,7 @@ function cfhu() { unset CF_HOME }
 #### ohmyzsh__ohmyzsh__plugins__command-not-found__command-not-found.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__command-not-found__command-not-found.plugin.zsh
-# parser gap: commented parenthesized zsh for header
+# regression surface: commented parenthesized zsh for header
 
 for file (
   # Arch Linux. Must have pkgfile installed: https://wiki.archlinux.org/title/Zsh#pkgfile_"command_not_found"_handler
@@ -314,7 +315,7 @@ _dash() {
 #### ohmyzsh__ohmyzsh__plugins__debian__debian.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__debian__debian.plugin.zsh
-# parser gap: parse error at line 162, column 72: expected 'do'
+# regression surface: parse error at line 162, column 72: expected 'do'
 
     for p in ${(f)"$(aptitude search -F "%p" --disable-columns \~i)"}; {
         cmd="${cmd} ${p}"
@@ -341,7 +342,7 @@ esac
 #### ohmyzsh__ohmyzsh__plugins__gcloud__gcloud.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__gcloud__gcloud.plugin.zsh
-# parser gap: parse error at line 40, column 17: expected 'do'
+# regression surface: parse error at line 40, column 17: expected 'do'
 
   # Look for completion file in different paths
   for comp_file (
@@ -358,7 +359,7 @@ esac
 #### ohmyzsh__ohmyzsh__plugins__genpass__genpass-apple
 
 # source: ohmyzsh__ohmyzsh__plugins__genpass__genpass-apple
-# parser gap: parse error at line 34, column 5: expected command
+# regression surface: parse error at line 34, column 5: expected command
 
   # Sets REPLY to a uniformly distributed random number in [1, $1].
   # Requires: $1 <= 256.
@@ -402,7 +403,7 @@ esac
 #### ohmyzsh__ohmyzsh__plugins__git-extras__git-extras.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__git-extras__git-extras.plugin.zsh
-# parser gap: parse error at line 418, column 70: expected command
+# regression surface: parse error at line 418, column 70: expected command
 
 # ------------------------------------------------------------------------------
 # Description
@@ -826,7 +827,7 @@ zstyle ':completion:*:*:git:*' user-commands $existing_user_commands \
 #### ohmyzsh__ohmyzsh__plugins__git__git.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__git__git.plugin.zsh
-# parser gap: multi-target parenthesized zsh for header
+# regression surface: multi-target parenthesized zsh for header
 
 # Logic for adding warnings on deprecated aliases or functions
 local old_name new_name
@@ -840,7 +841,7 @@ done
 #### ohmyzsh__ohmyzsh__plugins__globalias__globalias.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__globalias__globalias.plugin.zsh
-# parser gap: parse error at line 6, column 35: expected ']]' to close conditional expression
+# regression surface: parse error at line 6, column 35: expected ']]' to close conditional expression
 
 globalias() {
    # Get last word to the left of the cursor:
@@ -879,7 +880,7 @@ function music itunes() {
 #### ohmyzsh__ohmyzsh__plugins__pj__pj.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__pj__pj.plugin.zsh
-# parser gap: parse error at line 15, column 15: expected 'do'
+# regression surface: parse error at line 15, column 15: expected 'do'
 
   for basedir ($PROJECT_PATHS); do
     if [[ -d "$basedir/$project" ]]; then
@@ -925,7 +926,7 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__scd__scd
 
 # source: ohmyzsh__ohmyzsh__plugins__scd__scd
-# parser gap: parse error at line 102, column 19: expected command
+# regression surface: parse error at line 102, column 19: expected command
 
 # load scd-ignore patterns if available
 if [[ -s $SCD_IGNORE ]]; then
@@ -946,7 +947,7 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__scd__scd.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__scd__scd.plugin.zsh
-# parser gap: parse error at line 11, column 1: expected command
+# regression surface: parse error at line 11, column 1: expected command
 
 # extracted ## If the scd function exists, define a change-directory-hook function
 # extracted ## to record visited directories in the scd index.
@@ -959,7 +960,7 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__screen__screen.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__screen__screen.plugin.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
   # Unset title() function defined in lib/termsupport.zsh to prevent
   # overwriting our screen titles
@@ -968,7 +969,7 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__shrink-path__shrink-path.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__shrink-path__shrink-path.plugin.zsh
-# parser gap: parse error at line 151, column 46: expected 'do'
+# regression surface: parse error at line 151, column 46: expected 'do'
 
         if (( named )) {
                 for part in ${(k)nameddirs}; {
@@ -999,7 +1000,7 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__term_tab__term_tab.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__term_tab__term_tab.plugin.zsh
-# parser gap: parse error at line 30, column 56: expected command
+# regression surface: parse error at line 30, column 56: expected command
 
   case $OSTYPE in
     solaris*) dirs=( ${(M)${${(f)"$(pgrep -U $UID -x zsh|xargs pwdx)"}:#$$:*}%%/*} ) ;;
@@ -1027,7 +1028,7 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__virtualenvwrapper__virtualenvwrapper.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__virtualenvwrapper__virtualenvwrapper.plugin.zsh
-# parser gap: parse error at line 1, column 10: expected function name
+# regression surface: parse error at line 1, column 10: expected function name
 
 function {
     # search in these locations for the init script:
@@ -1083,7 +1084,7 @@ function {
 #### ohmyzsh__ohmyzsh__plugins__xcode__xcode.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__xcode__xcode.plugin.zsh
-# parser gap: parse error at line 140, column 15: expected 'do'
+# regression surface: parse error at line 140, column 15: expected 'do'
 
 # Print the active version, using xcselv's notion of versions
 function _omz_xcode_print_active_version {
@@ -1106,7 +1107,7 @@ function _omz_xcode_print_active_version {
 #### ohmyzsh__ohmyzsh__plugins__z__z.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__z__z.plugin.zsh
-# parser gap: parse error at line 1022, column 38: expected 'done'
+# regression surface: parse error at line 1022, column 38: expected 'done'
 
 # extracted ################################################################################
 # Zsh-z - jump around with Zsh - A native Zsh version of z without awk, sort,
@@ -2134,7 +2135,7 @@ zsh-z_plugin_unload() {
 #### ohmyzsh__ohmyzsh__tools__changelog.sh
 
 # source: ohmyzsh__ohmyzsh__tools__changelog.sh
-# parser gap: parse error at line 267, column 12: expected 'do'
+# regression surface: parse error at line 267, column 12: expected 'do'
 
   # Remove commits that were reverted
   local hash rhash
@@ -2150,7 +2151,7 @@ zsh-z_plugin_unload() {
 #### ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh
 
 # source: ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh
-# parser gap: parse error at line 221, column 108: expected command
+# regression surface: parse error at line 221, column 108: expected command
 
     # If in reminder mode or user has typed input, show reminder and exit
     if [[ "$update_mode" = reminder ]] || { [[ "$update_mode" != background-alpha ]] && has_typed_input }; then
@@ -2287,7 +2288,7 @@ done
 #### romkatv__powerlevel10k__config__p10k-classic.zsh
 
 # source: romkatv__powerlevel10k__config__p10k-classic.zsh
-# parser gap: parse error at line 442, column 5: syntax error: empty elif clause
+# regression surface: parse error at line 442, column 5: syntax error: empty elif clause
 
     if (( VCS_STATUS_COMMITS_AHEAD || VCS_STATUS_COMMITS_BEHIND )); then
       # ⇣42 if behind the remote.
@@ -2303,7 +2304,7 @@ done
 #### romkatv__powerlevel10k__config__p10k-lean-8colors.zsh
 
 # source: romkatv__powerlevel10k__config__p10k-lean-8colors.zsh
-# parser gap: parse error at line 433, column 5: syntax error: empty elif clause
+# regression surface: parse error at line 433, column 5: syntax error: empty elif clause
 
     if (( VCS_STATUS_COMMITS_AHEAD || VCS_STATUS_COMMITS_BEHIND )); then
       # ⇣42 if behind the remote.
@@ -2319,7 +2320,7 @@ done
 #### romkatv__powerlevel10k__config__p10k-lean.zsh
 
 # source: romkatv__powerlevel10k__config__p10k-lean.zsh
-# parser gap: parse error at line 433, column 5: syntax error: empty elif clause
+# regression surface: parse error at line 433, column 5: syntax error: empty elif clause
 
     if (( VCS_STATUS_COMMITS_AHEAD || VCS_STATUS_COMMITS_BEHIND )); then
       # ⇣42 if behind the remote.
@@ -2335,7 +2336,7 @@ done
 #### romkatv__powerlevel10k__config__p10k-rainbow.zsh
 
 # source: romkatv__powerlevel10k__config__p10k-rainbow.zsh
-# parser gap: parse error at line 443, column 5: syntax error: empty elif clause
+# regression surface: parse error at line 443, column 5: syntax error: empty elif clause
 
     if (( VCS_STATUS_COMMITS_AHEAD || VCS_STATUS_COMMITS_BEHIND )); then
       # ⇣42 if behind the remote.
@@ -2351,7 +2352,7 @@ done
 #### romkatv__powerlevel10k__gitstatus__gitstatus.plugin.zsh
 
 # source: romkatv__powerlevel10k__gitstatus__gitstatus.plugin.zsh
-# parser gap: parse error at line 162, column 41: expected ']]' to close conditional expression
+# regression surface: parse error at line 162, column 41: expected ']]' to close conditional expression
 
   local opt dir callback OPTARG
   local -i no_diff OPTIND
@@ -2399,7 +2400,7 @@ esac
 #### romkatv__powerlevel10k__internal__configure.zsh
 
 # source: romkatv__powerlevel10k__internal__configure.zsh
-# parser gap: parse error at line 84, column 2: expected command
+# regression surface: parse error at line 84, column 2: expected command
 
 # Fewer than 47 columns will probably work. Haven't tried it.
 typeset -gr __p9k_wizard_columns=47
@@ -2613,7 +2614,7 @@ esac
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__main-highlighter.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__main-highlighter.zsh
-# parser gap: parse error at line 102, column 9: expected 'do'
+# regression surface: parse error at line 102, column 9: expected 'do'
 
 _zsh_highlight_main_add_many_region_highlights() {
   for 1 2 3; do
@@ -2624,7 +2625,7 @@ _zsh_highlight_main_add_many_region_highlights() {
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-loop.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-loop.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 function b() {} # beware of ALIAS_FUNC_DEF
 alias a=b b=c c=b
@@ -2632,7 +2633,7 @@ alias a=b b=c c=b
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-nested-precommand.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-nested-precommand.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 alias a=b b=sudo
 sudo(){}
@@ -2640,7 +2641,7 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument1.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument1.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 # See also param-precommand-option-argument1.zsh
 alias sudo_u='sudo -u'
@@ -2649,7 +2650,7 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument2.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument2.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 alias sudo_b='sudo -b'
 alias sudo_b_u='sudo_b -u'
@@ -2658,7 +2659,7 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument3.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument3.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 # See also param-precommand-option-argument3.zsh
 alias sudo_u='sudo -u'
@@ -2667,7 +2668,7 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument4.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias-precommand-option-argument4.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 alias sudo_b='sudo -b'
 alias sudo_b_u='sudo_b -u'
@@ -2676,7 +2677,7 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__alias.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 alias alias1="ls"
 alias -s alias2="echo"
@@ -2685,7 +2686,7 @@ function alias1() {} # to check that it's highlighted as an alias, not as a func
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__array-cmdsep1.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__array-cmdsep1.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 BUFFER=$'a=( foo | bar )'
 bar(){}
@@ -2693,7 +2694,7 @@ bar(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__cmdpos-elision-partial.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__cmdpos-elision-partial.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 sudo(){}
 BUFFER=$'$x -u phy1729 ls'
@@ -2701,7 +2702,7 @@ BUFFER=$'$x -u phy1729 ls'
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__commmand-parameter.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__commmand-parameter.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 local x=/usr/bin/env
 local y=sudo
@@ -2711,7 +2712,7 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__off-by-one.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__off-by-one.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 alias a=:
 f() {}
@@ -2719,7 +2720,7 @@ f() {}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__opt-shwordsplit1.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__opt-shwordsplit1.zsh
-# parser gap: parse error at line 40, column 2: expected command
+# regression surface: parse error at line 40, column 2: expected command
 
 #!/usr/bin/env zsh
 # -------------------------------------------------------------------------------------------------
@@ -2765,7 +2766,7 @@ expected_region_highlight=(
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__param-precommand-option-argument1.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__param-precommand-option-argument1.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 # See also alias-precommand-option-argument1.zsh
 local -a sudo_u; sudo_u=(sudo -u)
@@ -2774,7 +2775,7 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__param-precommand-option-argument3.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__param-precommand-option-argument3.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 # See also alias-precommand-option-argument3.zsh
 local -a sudo_u; sudo_u=(sudo -u)
@@ -2783,14 +2784,14 @@ sudo(){}
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__precommand-unknown-option.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__precommand-unknown-option.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 sudo(){}
 
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__precommand4.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__precommand4.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 doas(){}
 BUFFER=$'doas -nu phy1729 ls'
@@ -2798,42 +2799,42 @@ BUFFER=$'doas -nu phy1729 ls'
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-command.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-command.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 sudo(){}
 
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-comment.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-comment.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 sudo(){}
 
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 sudo(){}
 
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection2.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection2.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 sudo(){}
 
 #### zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection3.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__main__test-data__sudo-redirection3.zsh
-# parser gap: parse error: expected compound command for function body
+# regression surface: parse error: expected compound command for function body
 
 sudo(){}
 
 #### zsh-users__zsh-syntax-highlighting__highlighters__pattern__pattern-highlighter.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__pattern__pattern-highlighter.zsh
-# parser gap: parse error: unexpected end of input in [[ ]]
+# regression surface: parse error: unexpected end of input in [[ ]]
 
 _zsh_highlight_pattern_highlighter_loop()
 {
@@ -2850,7 +2851,7 @@ _zsh_highlight_pattern_highlighter_loop()
 #### zsh-users__zsh-syntax-highlighting__highlighters__root__root-highlighter.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__highlighters__root__root-highlighter.zsh
-# parser gap: parse error at line 44, column 2: expected command
+# regression surface: parse error at line 44, column 2: expected command
 
 # root highlighting function.
 _zsh_highlight_highlighter_root_paint()
@@ -2861,7 +2862,7 @@ _zsh_highlight_highlighter_root_paint()
 #### zsh-users__zsh-syntax-highlighting__tests__generate.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__tests__generate.zsh
-# parser gap: parse error at line 62, column 71: expected command
+# regression surface: parse error at line 62, column 71: expected command
 
 # Copyright block
 year="`LC_ALL=C date +%Y`"
@@ -2902,7 +2903,7 @@ done
 #### zsh-users__zsh-syntax-highlighting__tests__test-highlighting.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__tests__test-highlighting.zsh
-# parser gap: parse error at line 135, column 55: expected command
+# regression surface: parse error at line 135, column 55: expected command
 
     # WARNING: The remainder of this anonymous function will run with the test's options in effect
     if { ! . "$srcdir"/"$ARG" } || (( $#fail_test )); then
@@ -2916,7 +2917,7 @@ done
 #### zsh-users__zsh-syntax-highlighting__tests__test-perfs.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__tests__test-perfs.zsh
-# parser gap: parse error at line 103, column 7: expected command
+# regression surface: parse error at line 103, column 7: expected command
 
 #!/usr/bin/env zsh
 # -------------------------------------------------------------------------------------------------
@@ -3025,7 +3026,7 @@ exit 0
 #### zsh-users__zsh-syntax-highlighting__tests__test-zprof.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__tests__test-zprof.zsh
-# parser gap: parse error at line 78, column 9: expected command
+# regression surface: parse error at line 78, column 9: expected command
 
 #!/usr/bin/env zsh
 # -------------------------------------------------------------------------------------------------
