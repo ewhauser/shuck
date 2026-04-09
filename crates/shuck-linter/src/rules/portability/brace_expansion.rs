@@ -50,8 +50,7 @@ mod tests {
 #!/bin/sh
 echo prefix{a,b}suffix file{1..3}.txt
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::BraceExpansion));
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceExpansion));
 
         assert_eq!(
             diagnostics
@@ -72,8 +71,7 @@ case \"$value\" in
 esac
 echo \"${name/{a,b}/x}\"
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::BraceExpansion));
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceExpansion));
 
         assert!(diagnostics.is_empty());
     }

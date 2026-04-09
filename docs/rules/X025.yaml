@@ -7,8 +7,8 @@ shellcheck_code: SC3060
 shells:
   - sh
   - dash
-description: The script performs global substitution in a parameter with a bash-only expansion form.
-rationale: Use a different transformation path, or switch to bash for this substitution syntax.
+description: The script performs parameter replacement with a bash-only expansion form.
+rationale: Use a different transformation path, or switch to bash for this replacement syntax.
 source:
   shell_checks_rule: rules/SH-033.yaml
   shell_checks_example: examples/033.sh

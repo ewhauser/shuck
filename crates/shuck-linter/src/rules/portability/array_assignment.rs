@@ -69,7 +69,10 @@ fn array_assignment_span(assignment: &Assignment, source: &str) -> Option<Span> 
     match &assignment.value {
         AssignmentValue::Compound(_) => {
             let text = assignment.span.slice(source);
-            let value_offset = text.find("+=").map(|idx| idx + 2).or_else(|| text.find('=').map(|idx| idx + 1))?;
+            let value_offset = text
+                .find("+=")
+                .map(|idx| idx + 2)
+                .or_else(|| text.find('=').map(|idx| idx + 1))?;
             let value_start = assignment.span.start.advanced_by(&text[..value_offset]);
             Some(Span::from_positions(value_start, assignment.span.end))
         }
