@@ -1,4 +1,5 @@
 pub mod ampersand_redirection;
+pub mod ampersand_redirect_in_sh;
 pub mod brace_fd_redirection;
 pub mod conditional_portability;
 pub mod csh_syntax_in_sh;
@@ -75,6 +76,7 @@ mod tests {
     #[test_case(Rule::RegexMatchInSh, Path::new("X059.sh"))]
     #[test_case(Rule::VTestInSh, Path::new("X060.sh"))]
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]
+    #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]
