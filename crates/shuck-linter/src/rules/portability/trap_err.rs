@@ -22,16 +22,37 @@ pub fn trap_err(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("trap"))
-        .flat_map(|fact| {
-            fact.body_args().iter().skip(1).filter_map(|word| {
-                static_word_text(word, checker.source())
-                    .is_some_and(|text| text == "ERR")
-                    .then_some(word.span)
-            })
-        })
+        .flat_map(|fact| trap_err_signal_spans(fact.body_args(), checker.source()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || TrapErr);
+}
+
+fn trap_err_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_ast::Span> {
+    let signal_words = match args.first().and_then(|word| static_word_text(word, source)) {
+        Some(first) if matches!(first.as_str(), "-p" | "-l") => &args[1..],
+        Some(first) if first == "--" => {
+            if args.len() <= 2 {
+                return Vec::new();
+            }
+            &args[2..]
+        }
+        _ => {
+            if args.len() <= 1 {
+                return Vec::new();
+            }
+            &args[1..]
+        }
+    };
+
+    signal_words
+        .iter()
+        .filter_map(|word| {
+            static_word_text(word, source)
+                .is_some_and(|text| text == "ERR")
+                .then_some(word.span)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -79,6 +100,19 @@ trap ERR
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_err_action_after_double_dash() {
+        let source = "\
+#!/bin/sh
+trap -- ERR EXIT
+trap -- 'echo hi' ERR
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ERR");
     }
 
     #[test]

@@ -34,19 +34,20 @@ echo $((10#123))
 echo $((10#${foo}))
 echo ${foo:10#1:2}
 : > \"$((10#1))\"
+echo ${foo:-$((10#1))}
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
         );
 
-        assert_eq!(diagnostics.len(), 4);
+        assert_eq!(diagnostics.len(), 5);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["10#123", "10#", "10#1", "10#1"]
+            vec!["10#123", "10#", "10#1", "10#1", "10#1"]
         );
     }
 
@@ -55,6 +56,21 @@ echo ${foo:10#1:2}
         let source = "\
 #!/bin/bash
 echo $((10#123))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_parameter_trim_operators_in_sh() {
+        let source = "\
+#!/bin/sh
+: \"${progname:=\"${0##*/}\"}\"
+echo ${foo:-${1##*/}}
 ";
         let diagnostics = test_snippet(
             source,
