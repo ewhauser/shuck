@@ -183,6 +183,7 @@ declare_rules! {
     ("X053", Category::Portability, Severity::Warning, ZshAssignmentToZero),
     ("X056", Category::Portability, Severity::Warning, CStyleForInSh),
     ("X057", Category::Portability, Severity::Warning, LegacyArithmeticInSh),
+    ("X062", Category::Portability, Severity::Warning, CStyleForArithmeticInSh),
     ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
     ("X078", Category::Portability, Severity::Warning, ZshArraySubscriptInCase),
     ("X079", Category::Portability, Severity::Warning, ZshParameterIndexFlag),
@@ -337,6 +338,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-260" => Some(Rule::ZshAssignmentToZero),
         "SH-263" => Some(Rule::CStyleForInSh),
         "SH-264" => Some(Rule::LegacyArithmeticInSh),
+        "SH-269" => Some(Rule::CStyleForArithmeticInSh),
         "SH-286" => Some(Rule::ZshParameterFlag),
         "SH-299" => Some(Rule::ZshArraySubscriptInCase),
         "SH-303" => Some(Rule::ZshParameterIndexFlag),
@@ -532,6 +534,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-263"), Some(Rule::CStyleForInSh));
         assert_eq!(code_to_rule("X057"), Some(Rule::LegacyArithmeticInSh));
         assert_eq!(code_to_rule("SH-264"), Some(Rule::LegacyArithmeticInSh));
+        assert_eq!(code_to_rule("X062"), Some(Rule::CStyleForArithmeticInSh));
+        assert_eq!(code_to_rule("SH-269"), Some(Rule::CStyleForArithmeticInSh));
         assert_eq!(code_to_rule("X076"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("SH-286"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("X078"), Some(Rule::ZshArraySubscriptInCase));

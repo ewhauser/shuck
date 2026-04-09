@@ -3075,6 +3075,7 @@ mod tests {
         assert_eq!(index.get("X015").map(String::as_str), Some("SC3039"));
         assert_eq!(index.get("X056").map(String::as_str), Some("SC3005"));
         assert_eq!(index.get("X057").map(String::as_str), Some("SC3007"));
+        assert_eq!(index.get("X062").map(String::as_str), Some("SC3018"));
         assert_eq!(index.get("X016"), None);
         assert_eq!(index.get("X052"), None);
         assert_eq!(index.get("X080").map(String::as_str), Some("SC3051"));

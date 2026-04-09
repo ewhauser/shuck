@@ -1,6 +1,6 @@
 comparison_target_notes:
   - current_shellcheck_code: "SC3018"
-    reason: "The nix-provided ShellCheck in this workspace reports standalone `(( ))` arithmetic commands as SC3006, while SC3018 is used for operator-specific arithmetic warnings such as `++`."
+    reason: "The nix-provided ShellCheck in this workspace reports standalone `(( ))` arithmetic commands as SC3006, while SC3018 is used for C-style `for ((...))` arithmetic operator warnings such as `++`."
 
 reviewed_divergences:
   - side: shuck-only
