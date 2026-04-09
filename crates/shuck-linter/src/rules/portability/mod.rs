@@ -1,3 +1,4 @@
+pub mod csh_syntax_in_sh;
 pub mod conditional_portability;
 pub mod declare_command;
 pub mod function_keyword;
@@ -39,6 +40,7 @@ mod tests {
     #[test_case(Rule::ZshFlagExpansion, Path::new("X043.sh"))]
     #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
     #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
+    #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
     #[test_case(Rule::ArraySubscriptTest, Path::new("X040.sh"))]
