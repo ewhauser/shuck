@@ -1314,4 +1314,24 @@ mod tests {
             "{\n  cat <<EOF\npayload\nEOF\n}"
         );
     }
+
+    #[test]
+    fn brace_group_attachment_span_reaches_wrapper_close_after_line_continuation() {
+        let source = "{ echo ok; \\\n}\n# outside\nprintf '%s\\n' done\n";
+        let file = parse(source);
+        let options = ShellFormatOptions::default();
+        let resolved = options.resolve(source, Some(Path::new("test.sh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+
+        let brace_group = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+        let attachment_span =
+            group_attachment_span(brace_group.as_slice(), facts.source_map(), '{', '}')
+                .expect("expected brace group attachment span");
+
+        assert!(!facts.group_was_inline_in_source(brace_group));
+        assert_eq!(attachment_span.slice(source), "{ echo ok; \\\n}");
+    }
 }
