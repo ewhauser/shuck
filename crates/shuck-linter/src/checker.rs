@@ -238,6 +238,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EscapedUnderscore) {
             rules::style::escaped_underscore::escaped_underscore(self);
         }
+        if self.is_rule_enabled(Rule::LiteralBackslash) {
+            rules::style::literal_backslash::literal_backslash(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
             rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
         }
