@@ -1,0 +1,40 @@
+comparison_target_notes:
+  - current_shellcheck_code: "SC3069"
+    reason: "The nix-provided ShellCheck in this workspace reports C-style `for ((...))` arithmetic operator findings as SC3018, while SC3069 is not the compatibility target for this oracle build."
+
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
+    line: 72
+    end_line: 72
+    column: 8
+    end_column: 10
+    reason: "This SC3018 site is the `I++` operator inside a standalone arithmetic command, not an arithmetic-for header. X062 intentionally stays scoped to update operators in `for ((...))` headers."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
+    line: 77
+    end_line: 77
+    column: 8
+    end_column: 10
+    reason: "This SC3018 site is the `I++` operator inside a standalone arithmetic command, not an arithmetic-for header. X062 intentionally stays scoped to update operators in `for ((...))` headers."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
+    line: 87
+    end_line: 87
+    column: 9
+    end_column: 11
+    reason: "This SC3018 site is the `I++` operator inside a standalone arithmetic command, not an arithmetic-for header. X062 intentionally stays scoped to update operators in `for ((...))` headers."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_massage.sh"
+    line: 329
+    end_line: 329
+    column: 9
+    end_column: 11
+    reason: "This SC3018 site is the `c++` operator in a standalone arithmetic command guarded with `|| :`, not an arithmetic-for header. That behavior is outside X062's rule definition."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_massage.sh"
+    line: 369
+    end_line: 369
+    column: 9
+    end_column: 11
+    reason: "This SC3018 site is the `c++` operator in a standalone arithmetic command guarded with `|| :`, not an arithmetic-for header. That behavior is outside X062's rule definition."

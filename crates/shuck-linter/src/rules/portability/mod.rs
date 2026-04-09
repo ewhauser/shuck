@@ -1,19 +1,26 @@
 pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
+pub mod bash_case_fallthrough;
 pub mod brace_fd_redirection;
+pub mod c_style_for_arithmetic_in_sh;
+pub mod c_style_for_in_sh;
 pub mod conditional_portability;
+pub mod coproc;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
+pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
+pub mod select_loop;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
+pub mod standalone_arithmetic;
 pub mod zsh_always_block;
 pub mod zsh_array_subscript_in_case;
 pub mod zsh_assignment_to_zero;
@@ -49,6 +56,10 @@ mod tests {
     #[test_case(Rule::TestEqualityOperator, Path::new("X002.sh"))]
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
+    #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
+    #[test_case(Rule::StandaloneArithmetic, Path::new("X008.sh"))]
+    #[test_case(Rule::SelectLoop, Path::new("X009.sh"))]
+    #[test_case(Rule::Coproc, Path::new("X014.sh"))]
     #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
@@ -66,6 +77,9 @@ mod tests {
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
+    #[test_case(Rule::CStyleForInSh, Path::new("X056.sh"))]
+    #[test_case(Rule::LegacyArithmeticInSh, Path::new("X057.sh"))]
+    #[test_case(Rule::CStyleForArithmeticInSh, Path::new("X062.sh"))]
     #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
     #[test_case(Rule::ZshParameterIndexFlag, Path::new("X079.sh"))]

@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 100
+---
+X014 `coproc` is not portable in `sh` scripts
+ --> <source>:3:1
+  |
+3 | coproc cat
+  |

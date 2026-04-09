@@ -235,6 +235,24 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FunctionKeyword) {
             rules::portability::function_keyword::function_keyword(self);
         }
+        if self.is_rule_enabled(Rule::BashCaseFallthrough) {
+            rules::portability::bash_case_fallthrough::bash_case_fallthrough(self);
+        }
+        if self.is_rule_enabled(Rule::StandaloneArithmetic) {
+            rules::portability::standalone_arithmetic::standalone_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::SelectLoop) {
+            rules::portability::select_loop::select_loop(self);
+        }
+        if self.is_rule_enabled(Rule::Coproc) {
+            rules::portability::coproc::coproc(self);
+        }
+        if self.is_rule_enabled(Rule::CStyleForInSh) {
+            rules::portability::c_style_for_in_sh::c_style_for_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::CStyleForArithmeticInSh) {
+            rules::portability::c_style_for_arithmetic_in_sh::c_style_for_arithmetic_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::LetCommand) {
             rules::portability::let_command::let_command(self);
         }
@@ -393,6 +411,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
             rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::LegacyArithmeticInSh) {
+            rules::portability::legacy_arithmetic_in_sh::legacy_arithmetic_in_sh(self);
         }
         if self.is_rule_enabled(Rule::SingleQuoteBackslash) {
             rules::style::single_quote_backslash::single_quote_backslash(self);

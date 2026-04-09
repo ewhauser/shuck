@@ -1964,12 +1964,13 @@ impl<'a> Parser<'a> {
                 self.skip_newlines()?;
             }
 
-            let terminator = self.parse_case_terminator();
+            let (terminator, terminator_span) = self.parse_case_terminator();
             let body_span = Span::from_positions(body_start, self.current_span.start);
             cases.push(CaseItem {
                 patterns,
                 body: Self::lower_commands_to_stmt_seq(commands, body_span),
                 terminator,
+                terminator_span,
             });
             self.skip_newlines()?;
         }
@@ -2457,25 +2458,29 @@ impl<'a> Parser<'a> {
 
     /// Parse case terminator: `;;` (break), `;&` (fallthrough),
     /// `;;&` / `;|` (continue matching)
-    fn parse_case_terminator(&mut self) -> CaseTerminator {
+    fn parse_case_terminator(&mut self) -> (CaseTerminator, Option<Span>) {
         match self.current_token_kind {
             Some(TokenKind::SemiAmp) => {
+                let span = self.current_span;
                 self.advance();
-                CaseTerminator::FallThrough
+                (CaseTerminator::FallThrough, Some(span))
             }
             Some(TokenKind::SemiPipe) => {
+                let span = self.current_span;
                 self.advance();
-                CaseTerminator::ContinueMatching
+                (CaseTerminator::ContinueMatching, Some(span))
             }
             Some(TokenKind::DoubleSemiAmp) => {
+                let span = self.current_span;
                 self.advance();
-                CaseTerminator::Continue
+                (CaseTerminator::Continue, Some(span))
             }
             Some(TokenKind::DoubleSemicolon) => {
+                let span = self.current_span;
                 self.advance();
-                CaseTerminator::Break
+                (CaseTerminator::Break, Some(span))
             }
-            _ => CaseTerminator::Break,
+            _ => (CaseTerminator::Break, None),
         }
     }
 

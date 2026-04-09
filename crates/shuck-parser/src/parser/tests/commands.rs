@@ -1763,6 +1763,31 @@ fn test_zsh_case_preserves_semipipe_terminator() {
         command.cases[0].terminator,
         CaseTerminator::ContinueMatching
     );
+    assert_eq!(command.cases[0].terminator_span.unwrap().slice(input), ";|");
+}
+
+#[test]
+fn test_case_preserves_bash_fallthrough_terminator_spans() {
+    let input = concat!(
+        "case $mode in\n",
+        "  start) printf '%s\\n' start ;&\n",
+        "  stop) printf '%s\\n' stop ;;&\n",
+        "esac\n",
+    );
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(command.cases[0].terminator, CaseTerminator::FallThrough);
+    assert_eq!(command.cases[0].terminator_span.unwrap().slice(input), ";&");
+    assert_eq!(command.cases[1].terminator, CaseTerminator::Continue);
+    assert_eq!(
+        command.cases[1].terminator_span.unwrap().slice(input),
+        ";;&"
+    );
 }
 
 #[test]

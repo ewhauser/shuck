@@ -13,9 +13,10 @@ mod surface;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem,
-    Assignment, AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand,
-    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
+    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
+    ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, Assignment, AssignmentValue, BinaryCommand,
+    BinaryOp, BourneParameterExpansion, BuiltinCommand, CaseItem, CaseTerminator, Command,
+    CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
     ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
     SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
@@ -28,9 +29,9 @@ use std::borrow::Cow;
 
 use self::{
     command_flow::{
-        build_for_header_facts, build_list_facts, build_pipeline_facts, build_select_header_facts,
-        build_single_test_subshell_spans, build_subshell_test_group_spans,
-        build_substitution_facts,
+        build_case_item_facts, build_for_header_facts, build_list_facts, build_pipeline_facts,
+        build_select_header_facts, build_single_test_subshell_spans,
+        build_subshell_test_group_spans, build_substitution_facts,
     },
     presence::build_presence_tested_names,
     surface::{build_subscript_index_reference_spans, build_surface_fragment_facts},
@@ -807,6 +808,30 @@ impl<'a> SelectHeaderFact<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct CaseItemFact<'a> {
+    item: &'a CaseItem,
+    command_id: CommandId,
+}
+
+impl<'a> CaseItemFact<'a> {
+    pub fn item(&self) -> &'a CaseItem {
+        self.item
+    }
+
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
+    }
+
+    pub fn terminator(&self) -> CaseTerminator {
+        self.item.terminator
+    }
+
+    pub fn terminator_span(&self) -> Option<Span> {
+        self.item.terminator_span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct FunctionHeaderFact<'a> {
     function: &'a FunctionDef,
 }
@@ -1221,6 +1246,10 @@ impl<'a> CommandFact<'a> {
         command_span(self.visit.command)
     }
 
+    pub fn span_in_source(&self, source: &str) -> Span {
+        trim_trailing_whitespace_span(self.span(), source)
+    }
+
     pub fn redirects(&self) -> &'a [Redirect] {
         self.visit.redirects
     }
@@ -1317,6 +1346,7 @@ pub struct LinterFacts<'a> {
     function_headers: Vec<FunctionHeaderFact<'a>>,
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
+    case_items: Vec<CaseItemFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     single_test_subshell_spans: Vec<Span>,
@@ -1330,6 +1360,7 @@ pub struct LinterFacts<'a> {
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
     positional_parameter_operator_spans: Vec<Span>,
     double_paren_grouping_spans: Vec<Span>,
+    arithmetic_for_update_operator_spans: Vec<Span>,
     unicode_smart_quote_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
@@ -1438,6 +1469,10 @@ impl<'a> LinterFacts<'a> {
         &self.select_headers
     }
 
+    pub fn case_items(&self) -> &[CaseItemFact<'a>] {
+        &self.case_items
+    }
+
     pub fn pipelines(&self) -> &[PipelineFact<'a>] {
         &self.pipelines
     }
@@ -1488,6 +1523,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn double_paren_grouping_spans(&self) -> &[Span] {
         &self.double_paren_grouping_spans
+    }
+
+    pub fn arithmetic_for_update_operator_spans(&self) -> &[Span] {
+        &self.arithmetic_for_update_operator_spans
     }
 
     pub fn unicode_smart_quote_spans(&self) -> &[Span] {
@@ -1609,6 +1648,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
+        let case_items = build_case_item_facts(&commands);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span);
         let single_test_subshell_spans =
@@ -1621,6 +1661,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let surface_fragments =
             build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
+        let arithmetic_for_update_operator_spans =
+            build_arithmetic_for_update_operator_spans(&commands, self.source);
         let subscript_index_reference_spans = build_subscript_index_reference_spans(
             self._semantic,
             &surface_fragments.subscript_spans,
@@ -1643,6 +1685,7 @@ impl<'a> LinterFactsBuilder<'a> {
             function_headers,
             for_headers,
             select_headers,
+            case_items,
             pipelines,
             lists,
             single_test_subshell_spans,
@@ -1657,6 +1700,7 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameter_operator_spans: surface_fragments
                 .positional_parameter_operator_spans,
             double_paren_grouping_spans,
+            arithmetic_for_update_operator_spans,
             unicode_smart_quote_spans: surface_fragments.unicode_smart_quote_spans,
             pattern_literal_spans,
             pattern_charclass_spans,
@@ -1716,6 +1760,127 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
             _ => None,
         })
         .collect()
+}
+
+fn build_arithmetic_for_update_operator_spans(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in commands {
+        let Command::Compound(CompoundCommand::ArithmeticFor(command)) = fact.command() else {
+            continue;
+        };
+
+        collect_arithmetic_update_operator_spans(command.init_ast.as_ref(), source, &mut spans);
+        collect_arithmetic_update_operator_spans(
+            command.condition_ast.as_ref(),
+            source,
+            &mut spans,
+        );
+        collect_arithmetic_update_operator_spans(command.step_ast.as_ref(), source, &mut spans);
+    }
+
+    spans
+}
+
+fn collect_arithmetic_update_operator_spans(
+    expression: Option<&ArithmeticExprNode>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(expression) = expression else {
+        return;
+    };
+
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) | ArithmeticExpr::ShellWord(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => {
+            collect_arithmetic_update_operator_spans(Some(index), source, spans);
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+        }
+        ArithmeticExpr::Unary { op, expr } => {
+            if matches!(
+                op,
+                ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
+            ) {
+                spans.push(find_operator_span(
+                    expression.span,
+                    source,
+                    match op {
+                        ArithmeticUnaryOp::PreIncrement => "++",
+                        ArithmeticUnaryOp::PreDecrement => "--",
+                        ArithmeticUnaryOp::Plus
+                        | ArithmeticUnaryOp::Minus
+                        | ArithmeticUnaryOp::LogicalNot
+                        | ArithmeticUnaryOp::BitwiseNot => unreachable!(),
+                    },
+                    true,
+                ));
+            }
+            collect_arithmetic_update_operator_spans(Some(expr), source, spans);
+        }
+        ArithmeticExpr::Postfix { expr, op } => {
+            spans.push(find_operator_span(
+                expression.span,
+                source,
+                match op {
+                    ArithmeticPostfixOp::Increment => "++",
+                    ArithmeticPostfixOp::Decrement => "--",
+                },
+                false,
+            ));
+            collect_arithmetic_update_operator_spans(Some(expr), source, spans);
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_update_operator_spans(Some(left), source, spans);
+            collect_arithmetic_update_operator_spans(Some(right), source, spans);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_update_operator_spans(Some(condition), source, spans);
+            collect_arithmetic_update_operator_spans(Some(then_expr), source, spans);
+            collect_arithmetic_update_operator_spans(Some(else_expr), source, spans);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_arithmetic_lvalue_update_operator_spans(target, source, spans);
+            collect_arithmetic_update_operator_spans(Some(value), source, spans);
+        }
+    }
+}
+
+fn collect_arithmetic_lvalue_update_operator_spans(
+    target: &ArithmeticLvalue,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => {
+            collect_arithmetic_update_operator_spans(Some(index), source, spans);
+        }
+    }
+}
+
+fn find_operator_span(expression_span: Span, source: &str, operator: &str, first: bool) -> Span {
+    let expression = expression_span.slice(source);
+    let offset = if first {
+        expression
+            .find(operator)
+            .expect("expected prefix update operator in arithmetic expression")
+    } else {
+        expression
+            .rfind(operator)
+            .expect("expected postfix update operator in arithmetic expression")
+    };
+    let start = expression_span.start.advanced_by(&expression[..offset]);
+    Span::from_positions(start, start.advanced_by(operator))
 }
 
 fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
