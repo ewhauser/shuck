@@ -180,6 +180,12 @@ declare_rules! {
     ("S023", Category::Style, Severity::Warning, EscapedUnderscore),
     ("S024", Category::Style, Severity::Warning, SingleQuoteBackslash),
     ("S025", Category::Style, Severity::Warning, LiteralBackslash),
+    (
+        "S026",
+        Category::Style,
+        Severity::Warning,
+        NeedlessBackslashUnderscore
+    ),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -194,6 +200,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-088" => Some(Rule::LiteralBackslash),
+        "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),

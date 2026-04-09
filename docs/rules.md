@@ -299,7 +299,7 @@ facts or word facts for single-quoted strings.
 - [x] **L** S023 (SC1001) `escaped-underscore` — needless backslash in plain word
 - [x] **L** S024 (SC1003) `single-quote-backslash` — literal backslash in quoted string
 - [x] **L** S025 (SC1004) `literal-backslash` — backslash before normal letter is literal
-- [ ] **L** S026 (SC1012) `needless-backslash-underscore` — backslash before normal char in word
+- [x] **L** S026 (SC1012) `needless-backslash-underscore` — backslash before normal char in word
 - [ ] **L** S027 (SC1002) `escaped-underscore` — backslash before `_` is unnecessary
 - [ ] **L** S039 (SC2267) `literal-backslash-in-single-quotes` — backslash in single quotes is literal
 - [ ] **L** S040 (SC2268) `backslash-before-command` — backslash before command to bypass aliases
