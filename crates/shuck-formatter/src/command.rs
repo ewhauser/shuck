@@ -2129,13 +2129,12 @@ pub(crate) fn group_attachment_span(
     let open_offset = source[..stmt_span(first).start.offset].rfind(open)?;
     let sequence_end = commands
         .last()
-        .map(|_| {
+        .and_then(|_| {
             commands
                 .iter()
                 .map(stmt_span)
                 .reduce(|left, right| left.merge(right))
         })
-        .flatten()
         .map(|span| span.end.offset)
         .unwrap_or(0);
     let end = find_group_close_offset(source, sequence_end, close)
@@ -2150,7 +2149,7 @@ fn find_group_close_offset(source: &str, sequence_end: usize, close: char) -> Op
     if capped_end >= close_len
         && source
             .get(capped_end - close_len..capped_end)
-            .is_some_and(|slice| slice.chars().next() == Some(close))
+            .is_some_and(|slice| slice.starts_with(close))
     {
         return Some(capped_end - close_len);
     }

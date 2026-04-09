@@ -181,6 +181,8 @@ mod tests {
     use super::{Parser, parse_fixture_with_benchmark_counters};
     use super::{TEST_FILES, benchmark_cases, parse_fixture, resources_dir};
     use serde::Deserialize;
+    #[cfg(feature = "parser-benchmarking")]
+    use shuck_parser::parser::Parser;
     use shuck_formatter::{FormattedSource, ShellFormatOptions, format_file_ast, format_source};
     use shuck_indexer::Indexer;
     use shuck_linter::{
