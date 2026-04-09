@@ -1,5 +1,8 @@
 pub mod arithmetic_redirection_target;
+pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
+pub mod bare_closing_brace;
+pub mod bare_slash_marker;
 pub mod broken_test_end;
 pub mod broken_test_parse;
 pub mod c_prototype_fragment;
@@ -8,11 +11,15 @@ pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
+pub mod double_paren_grouping;
 pub mod dynamic_source_path;
 pub mod else_if;
+pub mod else_without_then;
+pub mod empty_function_body;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+pub mod if_missing_then;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
@@ -20,22 +27,30 @@ pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
 pub mod missing_fi;
+pub mod missing_semicolon_before_brace;
+pub mod nested_parameter_expansion;
+pub mod non_absolute_shebang;
 pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
 pub mod pipe_to_kill;
+pub mod positional_param_as_operator;
 pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
+pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod single_quoted_literal;
+pub mod status_capture_after_branch_test;
 pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
 pub mod syntax;
+pub mod template_brace_in_command;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
 pub mod unchecked_directory_change;
 pub mod undefined_variable;
+pub mod unicode_quote_in_string;
 pub mod unreachable_after_exit;
 pub mod untracked_source_file;
 pub mod unused_assignment;
@@ -84,10 +99,25 @@ mod tests {
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]
     #[test_case(Rule::ArithmeticRedirectionTarget, Path::new("C050.sh"))]
+    #[test_case(Rule::BareSlashMarker, Path::new("C054.sh"))]
     #[test_case(Rule::PatternWithVariable, Path::new("C055.sh"))]
+    #[test_case(Rule::StatusCaptureAfterBranchTest, Path::new("C056.sh"))]
     #[test_case(Rule::SubstWithRedirect, Path::new("C057.sh"))]
     #[test_case(Rule::SubstWithRedirectErr, Path::new("C058.sh"))]
+    #[test_case(Rule::RedirectToCommandName, Path::new("C059.sh"))]
+    #[test_case(Rule::NonAbsoluteShebang, Path::new("C060.sh"))]
+    #[test_case(Rule::TemplateBraceInCommand, Path::new("C061.sh"))]
+    #[test_case(Rule::NestedParameterExpansion, Path::new("C062.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]
+    #[test_case(Rule::IfMissingThen, Path::new("C064.sh"))]
+    #[test_case(Rule::ElseWithoutThen, Path::new("C065.sh"))]
+    #[test_case(Rule::MissingSemicolonBeforeBrace, Path::new("C066.sh"))]
+    #[test_case(Rule::EmptyFunctionBody, Path::new("C067.sh"))]
+    #[test_case(Rule::BareClosingBrace, Path::new("C068.sh"))]
+    #[test_case(Rule::BackslashBeforeClosingBacktick, Path::new("C069.sh"))]
+    #[test_case(Rule::PositionalParamAsOperator, Path::new("C070.sh"))]
+    #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
+    #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

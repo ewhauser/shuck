@@ -123,10 +123,25 @@ declare_rules! {
     ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
     ("C050", Category::Correctness, Severity::Warning, ArithmeticRedirectionTarget),
+    ("C054", Category::Correctness, Severity::Warning, BareSlashMarker),
     ("C055", Category::Correctness, Severity::Warning, PatternWithVariable),
+    ("C056", Category::Correctness, Severity::Warning, StatusCaptureAfterBranchTest),
     ("C057", Category::Correctness, Severity::Warning, SubstWithRedirect),
     ("C058", Category::Correctness, Severity::Warning, SubstWithRedirectErr),
+    ("C059", Category::Correctness, Severity::Warning, RedirectToCommandName),
+    ("C060", Category::Correctness, Severity::Warning, NonAbsoluteShebang),
+    ("C061", Category::Correctness, Severity::Warning, TemplateBraceInCommand),
+    ("C062", Category::Correctness, Severity::Warning, NestedParameterExpansion),
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
+    ("C064", Category::Correctness, Severity::Warning, IfMissingThen),
+    ("C065", Category::Correctness, Severity::Warning, ElseWithoutThen),
+    ("C066", Category::Correctness, Severity::Warning, MissingSemicolonBeforeBrace),
+    ("C067", Category::Correctness, Severity::Warning, EmptyFunctionBody),
+    ("C068", Category::Correctness, Severity::Warning, BareClosingBrace),
+    ("C069", Category::Correctness, Severity::Warning, BackslashBeforeClosingBacktick),
+    ("C070", Category::Correctness, Severity::Warning, PositionalParamAsOperator),
+    ("C071", Category::Correctness, Severity::Warning, DoubleParenGrouping),
+    ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
@@ -187,10 +202,25 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-141" => Some(Rule::InvalidExitStatus),
         "SH-142" => Some(Rule::CasePatternVar),
         "SH-144" => Some(Rule::ArithmeticRedirectionTarget),
+        "SH-148" => Some(Rule::BareSlashMarker),
         "SH-152" => Some(Rule::PatternWithVariable),
+        "SH-155" => Some(Rule::StatusCaptureAfterBranchTest),
         "SH-159" => Some(Rule::SubstWithRedirect),
         "SH-160" => Some(Rule::SubstWithRedirectErr),
+        "SH-165" => Some(Rule::RedirectToCommandName),
+        "SH-166" => Some(Rule::NonAbsoluteShebang),
+        "SH-167" => Some(Rule::TemplateBraceInCommand),
+        "SH-169" => Some(Rule::NestedParameterExpansion),
         "SH-171" => Some(Rule::OverwrittenFunction),
+        "SH-175" => Some(Rule::IfMissingThen),
+        "SH-176" => Some(Rule::ElseWithoutThen),
+        "SH-177" => Some(Rule::MissingSemicolonBeforeBrace),
+        "SH-178" => Some(Rule::EmptyFunctionBody),
+        "SH-179" => Some(Rule::BareClosingBrace),
+        "SH-186" => Some(Rule::BackslashBeforeClosingBacktick),
+        "SH-187" => Some(Rule::PositionalParamAsOperator),
+        "SH-188" => Some(Rule::DoubleParenGrouping),
+        "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         _ => None,
     })
@@ -276,10 +306,37 @@ mod tests {
             code_to_rule("SH-144"),
             Some(Rule::ArithmeticRedirectionTarget)
         );
+        assert_eq!(code_to_rule("SH-148"), Some(Rule::BareSlashMarker));
         assert_eq!(code_to_rule("SH-152"), Some(Rule::PatternWithVariable));
+        assert_eq!(
+            code_to_rule("SH-155"),
+            Some(Rule::StatusCaptureAfterBranchTest)
+        );
         assert_eq!(code_to_rule("SH-159"), Some(Rule::SubstWithRedirect));
         assert_eq!(code_to_rule("SH-160"), Some(Rule::SubstWithRedirectErr));
+        assert_eq!(code_to_rule("SH-165"), Some(Rule::RedirectToCommandName));
+        assert_eq!(code_to_rule("SH-166"), Some(Rule::NonAbsoluteShebang));
+        assert_eq!(code_to_rule("SH-167"), Some(Rule::TemplateBraceInCommand));
+        assert_eq!(code_to_rule("SH-169"), Some(Rule::NestedParameterExpansion));
         assert_eq!(code_to_rule("SH-171"), Some(Rule::OverwrittenFunction));
+        assert_eq!(code_to_rule("SH-175"), Some(Rule::IfMissingThen));
+        assert_eq!(code_to_rule("SH-176"), Some(Rule::ElseWithoutThen));
+        assert_eq!(
+            code_to_rule("SH-177"),
+            Some(Rule::MissingSemicolonBeforeBrace)
+        );
+        assert_eq!(code_to_rule("SH-178"), Some(Rule::EmptyFunctionBody));
+        assert_eq!(code_to_rule("SH-179"), Some(Rule::BareClosingBrace));
+        assert_eq!(
+            code_to_rule("SH-186"),
+            Some(Rule::BackslashBeforeClosingBacktick)
+        );
+        assert_eq!(
+            code_to_rule("SH-187"),
+            Some(Rule::PositionalParamAsOperator)
+        );
+        assert_eq!(code_to_rule("SH-188"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));

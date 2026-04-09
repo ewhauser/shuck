@@ -17,11 +17,12 @@ use shuck_ast::{
     Assignment, AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand,
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, Name, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, Redirect, RedirectKind, SelectCommand, SimpleCommand, Span,
-    Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget,
-    ZshGlobSegment, ZshQualifiedGlob,
+    ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
+    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
+    WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
+use shuck_parser::parser::Parser;
 use shuck_semantic::SemanticModel;
 use std::borrow::Cow;
 
@@ -462,6 +463,17 @@ pub struct PositionalParameterFragmentFact {
 }
 
 impl PositionalParameterFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NestedParameterExpansionFragmentFact {
+    span: Span,
+}
+
+impl NestedParameterExpansionFragmentFact {
     pub fn span(&self) -> Span {
         self.span
     }
@@ -1200,11 +1212,17 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
+    non_absolute_shebang_span: Option<Span>,
+    condition_status_capture_spans: Vec<Span>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
     backtick_fragments: Vec<BacktickFragmentFact>,
     legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
+    positional_parameter_operator_spans: Vec<Span>,
+    double_paren_grouping_spans: Vec<Span>,
+    unicode_smart_quote_spans: Vec<Span>,
+    nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1309,6 +1327,14 @@ impl<'a> LinterFacts<'a> {
         &self.lists
     }
 
+    pub fn non_absolute_shebang_span(&self) -> Option<Span> {
+        self.non_absolute_shebang_span
+    }
+
+    pub fn condition_status_capture_spans(&self) -> &[Span] {
+        &self.condition_status_capture_spans
+    }
+
     pub fn single_quoted_fragments(&self) -> &[SingleQuotedFragmentFact] {
         &self.single_quoted_fragments
     }
@@ -1327,6 +1353,22 @@ impl<'a> LinterFacts<'a> {
 
     pub fn positional_parameter_fragments(&self) -> &[PositionalParameterFragmentFact] {
         &self.positional_parameter_fragments
+    }
+
+    pub fn positional_parameter_operator_spans(&self) -> &[Span] {
+        &self.positional_parameter_operator_spans
+    }
+
+    pub fn double_paren_grouping_spans(&self) -> &[Span] {
+        &self.double_paren_grouping_spans
+    }
+
+    pub fn unicode_smart_quote_spans(&self) -> &[Span] {
+        &self.unicode_smart_quote_spans
+    }
+
+    pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
+        &self.nested_parameter_expansion_fragments
     }
 }
 
@@ -1430,8 +1472,12 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span);
+        let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
+        let condition_status_capture_spans =
+            build_condition_status_capture_spans(&self.file.body, self.source);
         let surface_fragments =
             build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
+        let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
         let subscript_index_reference_spans = build_subscript_index_reference_spans(
             self._semantic,
             &surface_fragments.subscript_spans,
@@ -1454,13 +1500,678 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             pipelines,
             lists,
+            non_absolute_shebang_span,
+            condition_status_capture_spans,
             single_quoted_fragments: surface_fragments.single_quoted,
             open_double_quote_fragments: surface_fragments.open_double_quotes,
             backtick_fragments: surface_fragments.backticks,
             legacy_arithmetic_fragments: surface_fragments.legacy_arithmetic,
             positional_parameter_fragments: surface_fragments.positional_parameters,
+            positional_parameter_operator_spans: surface_fragments
+                .positional_parameter_operator_spans,
+            double_paren_grouping_spans,
+            unicode_smart_quote_spans: surface_fragments.unicode_smart_quote_spans,
+            nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
         }
     }
+}
+
+fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
+    let first_line = source.lines().next()?;
+    let shebang = first_line.strip_prefix("#!")?;
+    let interpreter = shebang.split_whitespace().next()?;
+
+    if interpreter.starts_with('/') || interpreter == "/usr/bin/env" {
+        return None;
+    }
+    if has_header_shellcheck_shell_directive(source) {
+        return None;
+    }
+
+    let line = first_line.trim_end_matches('\r');
+    let start = Position {
+        line: 1,
+        column: 1,
+        offset: 0,
+    };
+    let end = start.advanced_by(line);
+    Some(Span::from_positions(start, end))
+}
+
+fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Compound(CompoundCommand::Subshell(_)) => {
+                double_paren_grouping_anchor(fact.span(), source)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let body_start = if let Some(stripped) = text.strip_prefix("((") {
+        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
+    } else if text.starts_with('(')
+        && span.start.offset > 0
+        && source.as_bytes().get(span.start.offset - 1) == Some(&b'(')
+    {
+        let stripped = text.strip_prefix('(')?;
+        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
+    } else {
+        return None;
+    };
+
+    let body = &text[body_start..];
+    let has_grouping_operator =
+        body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+    if !has_grouping_operator {
+        return None;
+    }
+
+    let command_offset = body.find(|char: char| char == '_' || char.is_ascii_alphabetic())?;
+    let command_start = span.start.advanced_by(&text[..body_start + command_offset]);
+    let head = &body[command_offset..];
+    let first_char_len = head.chars().next()?.len_utf8();
+    let command_end = command_start.advanced_by(&head[..first_char_len]);
+    Some(Span::from_positions(command_start, command_end))
+}
+
+fn has_header_shellcheck_shell_directive(source: &str) -> bool {
+    for line in source.lines().skip(1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with("#!") {
+            continue;
+        }
+        if let Some(comment) = trimmed.strip_prefix('#') {
+            let body = comment.trim_start().to_ascii_lowercase();
+            if body.starts_with("shellcheck shell=") {
+                return true;
+            }
+            continue;
+        }
+        break;
+    }
+
+    false
+}
+
+fn build_condition_status_capture_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for visit in query::iter_commands(
+        commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    ) {
+        match visit.command {
+            Command::Compound(CompoundCommand::If(command)) => {
+                collect_condition_status_capture_from_body(
+                    &command.condition,
+                    &command.then_branch,
+                    source,
+                    &mut spans,
+                );
+
+                for (condition, branch) in &command.elif_branches {
+                    collect_condition_status_capture_from_body(
+                        condition, branch, source, &mut spans,
+                    );
+                }
+
+                if let Some(else_branch) = &command.else_branch {
+                    let fallback_condition = command
+                        .elif_branches
+                        .last()
+                        .map(|(condition, _)| condition)
+                        .unwrap_or(&command.condition);
+                    collect_condition_status_capture_from_body(
+                        fallback_condition,
+                        else_branch,
+                        source,
+                        &mut spans,
+                    );
+                }
+            }
+            Command::Compound(CompoundCommand::While(command)) => {
+                collect_condition_status_capture_from_body(
+                    &command.condition,
+                    &command.body,
+                    source,
+                    &mut spans,
+                );
+            }
+            Command::Compound(CompoundCommand::Until(command)) => {
+                collect_condition_status_capture_from_body(
+                    &command.condition,
+                    &command.body,
+                    source,
+                    &mut spans,
+                );
+            }
+            Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
+                if stmt_terminals_are_test_commands(&command.left, source) {
+                    collect_status_parameter_spans_in_stmt(&command.right, source, &mut spans);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn collect_condition_status_capture_from_body(
+    condition: &StmtSeq,
+    body: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if !condition_terminals_are_test_commands(condition, source) {
+        return;
+    }
+
+    let Some(first_stmt) = body.first() else {
+        return;
+    };
+
+    collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+}
+
+fn condition_terminals_are_test_commands(condition: &StmtSeq, source: &str) -> bool {
+    condition
+        .last()
+        .is_some_and(|stmt| stmt_terminals_are_test_commands(stmt, source))
+}
+
+fn stmt_terminals_are_test_commands(stmt: &Stmt, source: &str) -> bool {
+    if stmt.negated {
+        return false;
+    }
+
+    command_terminals_are_test_commands(&stmt.command, source)
+}
+
+fn command_terminals_are_test_commands(command: &Command, source: &str) -> bool {
+    match command {
+        Command::Simple(command) => matches!(
+            static_word_text(&command.name, source).as_deref(),
+            Some("[") | Some("test")
+        ),
+        Command::Compound(CompoundCommand::Conditional(_)) => true,
+        Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
+            stmt_terminals_are_test_commands(&command.left, source)
+                && stmt_terminals_are_test_commands(&command.right, source)
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn collect_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str, spans: &mut Vec<Span>) {
+    collect_status_parameter_spans_in_command(&stmt.command, source, spans);
+    for redirect in &stmt.redirects {
+        if let Some(word) = redirect.word_target() {
+            collect_status_parameter_spans_in_word(word, source, spans);
+        }
+    }
+}
+
+fn collect_status_parameter_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            collect_status_parameter_spans_in_assignments(&command.assignments, source, spans);
+            collect_status_parameter_spans_in_word(&command.name, source, spans);
+            for word in &command.args {
+                collect_status_parameter_spans_in_word(word, source, spans);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                collect_status_parameter_spans_in_assignments(&command.assignments, source, spans);
+                if let Some(word) = &command.depth {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                collect_status_parameter_spans_in_assignments(&command.assignments, source, spans);
+                if let Some(word) = &command.depth {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                collect_status_parameter_spans_in_assignments(&command.assignments, source, spans);
+                if let Some(word) = &command.code {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                collect_status_parameter_spans_in_assignments(&command.assignments, source, spans);
+                if let Some(word) = &command.code {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            collect_status_parameter_spans_in_assignments(&command.assignments, source, spans);
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_status_parameter_spans_in_word(word, source, spans);
+                    }
+                    DeclOperand::Name(reference) => {
+                        collect_status_parameter_spans_in_var_ref(reference, source, spans);
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_status_parameter_spans_in_assignment(assignment, source, spans);
+                    }
+                }
+            }
+        }
+        Command::Binary(command) => {
+            collect_status_parameter_spans_in_stmt(&command.left, source, spans);
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::While(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Until(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+                if let Some(first_stmt) = body.first() {
+                    collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(command) = &command.command {
+                    collect_status_parameter_spans_in_stmt(command, source, spans);
+                }
+            }
+            CompoundCommand::Conditional(command) => {
+                collect_status_parameter_spans_in_conditional_expr(
+                    &command.expression,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Coproc(command) => {
+                collect_status_parameter_spans_in_stmt(&command.body, source, spans);
+            }
+            CompoundCommand::Always(command) => {
+                if let Some(first_stmt) = command.body.first() {
+                    collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::For(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Case(_)
+            | CompoundCommand::Select(_)
+            | CompoundCommand::Arithmetic(_) => {}
+        },
+        Command::Function(_) => {}
+        Command::AnonymousFunction(command) => {
+            collect_status_parameter_spans_in_stmt(&command.body, source, spans);
+            for word in &command.args {
+                collect_status_parameter_spans_in_word(word, source, spans);
+            }
+        }
+    }
+}
+
+fn collect_status_parameter_spans_in_assignments(
+    assignments: &[Assignment],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for assignment in assignments {
+        collect_status_parameter_spans_in_assignment(assignment, source, spans);
+    }
+}
+
+fn collect_status_parameter_spans_in_assignment(
+    assignment: &Assignment,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_status_parameter_spans_in_var_ref(&assignment.target, source, spans);
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            collect_status_parameter_spans_in_word(word, source, spans)
+        }
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_status_parameter_spans_in_word(word, source, spans);
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        query::visit_subscript_words(Some(key), source, &mut |word| {
+                            collect_status_parameter_spans_in_word(word, source, spans);
+                        });
+                        collect_status_parameter_spans_in_word(value, source, spans);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_status_parameter_spans_in_var_ref(
+    reference: &VarRef,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if reference.name.as_str() == "?" {
+        spans.push(reference.span);
+    }
+
+    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_status_parameter_spans_in_word(word, source, spans);
+    });
+}
+
+fn collect_status_parameter_spans_in_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
+    for part in &word.parts {
+        collect_status_parameter_spans_in_word_part(part, source, spans);
+    }
+}
+
+fn collect_status_parameter_spans_in_word_part(
+    part: &WordPartNode,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &part.kind {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::ZshQualifiedGlob(_) => {}
+        WordPart::DoubleQuoted { parts, .. } => {
+            for nested_part in parts {
+                collect_status_parameter_spans_in_word_part(nested_part, source, spans);
+            }
+        }
+        WordPart::Variable(name) => {
+            if name.as_str() == "?" {
+                spans.push(part.span);
+            }
+        }
+        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
+            if let Some(first_stmt) = body.first() {
+                collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+            }
+        }
+        WordPart::ArithmeticExpansion {
+            expression,
+            expression_ast,
+            ..
+        } => {
+            if let Some(expression) = expression_ast {
+                query::visit_arithmetic_words(expression, &mut |word| {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                });
+            } else {
+                collect_status_parameter_spans_in_source_text(expression, source, spans);
+            }
+        }
+        WordPart::Parameter(parameter) => {
+            collect_status_parameter_spans_in_parameter_expansion(parameter, source, spans);
+        }
+        WordPart::ParameterExpansion {
+            reference, operand, ..
+        }
+        | WordPart::IndirectExpansion {
+            reference, operand, ..
+        } => {
+            if reference.name.as_str() == "?" {
+                spans.push(part.span);
+            }
+            collect_status_parameter_spans_in_var_ref(reference, source, spans);
+            if let Some(operand) = operand {
+                collect_status_parameter_spans_in_source_text(operand, source, spans);
+            }
+        }
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => {
+            if reference.name.as_str() == "?" {
+                spans.push(part.span);
+            }
+            collect_status_parameter_spans_in_var_ref(reference, source, spans);
+        }
+        WordPart::Substring {
+            reference,
+            offset,
+            offset_ast,
+            length,
+            length_ast,
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset,
+            offset_ast,
+            length,
+            length_ast,
+        } => {
+            if reference.name.as_str() == "?" {
+                spans.push(part.span);
+            }
+            collect_status_parameter_spans_in_var_ref(reference, source, spans);
+            if let Some(offset_ast) = offset_ast {
+                query::visit_arithmetic_words(offset_ast, &mut |word| {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                });
+            } else {
+                collect_status_parameter_spans_in_source_text(offset, source, spans);
+            }
+            match (length_ast.as_ref(), length.as_ref()) {
+                (Some(length_ast), _) => {
+                    query::visit_arithmetic_words(length_ast, &mut |word| {
+                        collect_status_parameter_spans_in_word(word, source, spans);
+                    });
+                }
+                (None, Some(length)) => {
+                    collect_status_parameter_spans_in_source_text(length, source, spans);
+                }
+                (None, None) => {}
+            }
+        }
+        WordPart::PrefixMatch { .. } => {}
+    }
+}
+
+fn collect_status_parameter_spans_in_parameter_expansion(
+    parameter: &shuck_ast::ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_status_parameter_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference, operand, ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference, operand, ..
+            } => {
+                collect_status_parameter_spans_in_var_ref(reference, source, spans);
+                if let Some(operand) = operand {
+                    collect_status_parameter_spans_in_source_text(operand, source, spans);
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+            } => {
+                collect_status_parameter_spans_in_var_ref(reference, source, spans);
+                if let Some(offset_ast) = offset_ast {
+                    query::visit_arithmetic_words(offset_ast, &mut |word| {
+                        collect_status_parameter_spans_in_word(word, source, spans);
+                    });
+                } else {
+                    collect_status_parameter_spans_in_source_text(offset, source, spans);
+                }
+
+                match (length_ast.as_ref(), length.as_ref()) {
+                    (Some(length_ast), _) => {
+                        query::visit_arithmetic_words(length_ast, &mut |word| {
+                            collect_status_parameter_spans_in_word(word, source, spans);
+                        });
+                    }
+                    (None, Some(length)) => {
+                        collect_status_parameter_spans_in_source_text(length, source, spans);
+                    }
+                    (None, None) => {}
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_status_parameter_spans_in_zsh_target(&syntax.target, source, spans);
+
+            if let Some(operation) = &syntax.operation {
+                match operation {
+                    shuck_ast::ZshExpansionOperation::PatternOperation { operand, .. }
+                    | shuck_ast::ZshExpansionOperation::Defaulting { operand, .. }
+                    | shuck_ast::ZshExpansionOperation::TrimOperation { operand, .. } => {
+                        collect_status_parameter_spans_in_source_text(operand, source, spans);
+                    }
+                    shuck_ast::ZshExpansionOperation::ReplacementOperation {
+                        pattern,
+                        replacement,
+                        ..
+                    } => {
+                        collect_status_parameter_spans_in_source_text(pattern, source, spans);
+                        if let Some(replacement) = replacement {
+                            collect_status_parameter_spans_in_source_text(
+                                replacement,
+                                source,
+                                spans,
+                            );
+                        }
+                    }
+                    shuck_ast::ZshExpansionOperation::Slice { offset, length } => {
+                        collect_status_parameter_spans_in_source_text(offset, source, spans);
+                        if let Some(length) = length {
+                            collect_status_parameter_spans_in_source_text(length, source, spans);
+                        }
+                    }
+                    shuck_ast::ZshExpansionOperation::Unknown(text) => {
+                        collect_status_parameter_spans_in_source_text(text, source, spans);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_status_parameter_spans_in_zsh_target(
+    target: &ZshExpansionTarget,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        ZshExpansionTarget::Reference(reference) => {
+            collect_status_parameter_spans_in_var_ref(reference, source, spans);
+        }
+        ZshExpansionTarget::Nested(parameter) => {
+            collect_status_parameter_spans_in_parameter_expansion(parameter, source, spans);
+        }
+        ZshExpansionTarget::Word(word) => {
+            collect_status_parameter_spans_in_word(word, source, spans);
+        }
+        ZshExpansionTarget::Empty => {}
+    }
+}
+
+fn collect_status_parameter_spans_in_conditional_expr(
+    expression: &ConditionalExpr,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match expression {
+        ConditionalExpr::Binary(expression) => {
+            collect_status_parameter_spans_in_conditional_expr(&expression.left, source, spans);
+            collect_status_parameter_spans_in_conditional_expr(&expression.right, source, spans);
+        }
+        ConditionalExpr::Unary(expression) => {
+            collect_status_parameter_spans_in_conditional_expr(&expression.expr, source, spans);
+        }
+        ConditionalExpr::Parenthesized(expression) => {
+            collect_status_parameter_spans_in_conditional_expr(&expression.expr, source, spans);
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_status_parameter_spans_in_word(word, source, spans);
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            for part in &pattern.parts {
+                if let PatternPart::Word(word) = &part.kind {
+                    collect_status_parameter_spans_in_word(word, source, spans);
+                }
+            }
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_status_parameter_spans_in_var_ref(reference, source, spans);
+        }
+    }
+}
+
+fn collect_status_parameter_spans_in_source_text(
+    text: &SourceText,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let snippet = text.slice(source);
+    if !snippet.contains("$?") {
+        return;
+    }
+    let word = Parser::parse_word_fragment(source, snippet, text.span());
+    collect_status_parameter_spans_in_word(&word, source, spans);
 }
 
 fn build_redirect_facts<'a>(redirects: &'a [Redirect], source: &str) -> Box<[RedirectFact<'a>]> {
@@ -3568,6 +4279,7 @@ echo \"prefix `date` suffix\"
 echo \"$[1 + 2]\"
 arr[$10]=1
 declare other[$10]=1
+echo \"$(( x $1 y ))\"
 PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
@@ -3610,6 +4322,11 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .collect::<Vec<_>>(),
                 vec![""]
             );
+            assert_eq!(facts.positional_parameter_operator_spans().len(), 1);
+            let operator_span = facts.positional_parameter_operator_spans()[0];
+            assert_eq!(operator_span.start.line, 6);
+            assert_eq!(operator_span.start.column, 7);
+            assert_eq!(operator_span.end, operator_span.start);
 
             let single_quoted = facts
                 .single_quoted_fragments()
@@ -3656,6 +4373,47 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 .expect("expected pipeline tail");
             assert_eq!(tail.static_utility_name(), Some("kill"));
             assert!(tail.static_utility_name_is("kill"));
+        });
+    }
+
+    #[test]
+    fn builds_double_paren_grouping_spans() {
+        let source = "\
+#!/bin/sh
+((ps aux | grep foo) || kill \"$pid\") 2>/dev/null
+(( i += 1 ))
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .double_paren_grouping_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["p"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_unicode_smart_quote_spans_for_unquoted_words() {
+        let source = "\
+#!/bin/sh
+echo “hello”
+echo \"hello “world”\"
+echo 'hello ‘world’'
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .unicode_smart_quote_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["“", "”"]
+            );
         });
     }
 

@@ -1202,7 +1202,7 @@ print hidden &!
     fn format_file_ast_matches_format_source_for_benchmark_corpus() {
         let options = ShellFormatOptions::default();
 
-        for file in TEST_FILES {
+        for file in TEST_FILES.iter() {
             let filename = std::format!("{}.bash", file.name);
             assert_source_and_ast_paths_match(file.source, Some(Path::new(&filename)), &options);
         }

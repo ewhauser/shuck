@@ -7,6 +7,9 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) backticks: Vec<BacktickFragmentFact>,
     pub(super) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
+    pub(super) positional_parameter_operator_spans: Vec<Span>,
+    pub(super) unicode_smart_quote_spans: Vec<Span>,
+    pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -308,6 +311,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) {
+        collect_unicode_smart_quote_spans_in_word_parts(
+            &word.parts,
+            self.source,
+            false,
+            &mut self.facts.unicode_smart_quote_spans,
+        );
         if context.collect_open_double_quotes && context.assignment_target.is_none() {
             self.collect_open_double_quote_fragments(word);
         }
@@ -387,6 +396,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::DoubleQuoted { parts, .. } => self.collect_word_parts(parts, context),
                 WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
                 WordPart::ArithmeticExpansion {
+                    expression,
                     syntax: ArithmeticExpansionSyntax::LegacyBracket,
                     expression_ast,
                     ..
@@ -394,13 +404,29 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     self.facts
                         .legacy_arithmetic
                         .push(LegacyArithmeticFragmentFact { span: part.span });
+                    collect_positional_parameter_operator_spans_in_arithmetic(
+                        part.span,
+                        expression,
+                        self.source,
+                        &mut self.facts.positional_parameter_operator_spans,
+                    );
                     if let Some(expression_ast) = expression_ast.as_ref() {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
                     }
                 }
-                WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                WordPart::ArithmeticExpansion {
+                    expression,
+                    expression_ast,
+                    ..
+                } => {
+                    collect_positional_parameter_operator_spans_in_arithmetic(
+                        part.span,
+                        expression,
+                        self.source,
+                        &mut self.facts.positional_parameter_operator_spans,
+                    );
                     if let Some(expression_ast) = expression_ast.as_ref() {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
@@ -420,6 +446,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::CommandSubstitution { body, .. }
                 | WordPart::ProcessSubstitution { body, .. } => self.collect_commands(body),
                 WordPart::Parameter(parameter) => {
+                    if is_nested_parameter_expansion(parameter, self.source) {
+                        self.facts
+                            .nested_parameter_expansions
+                            .push(NestedParameterExpansionFragmentFact { span: part.span });
+                    }
                     self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
                         operator,
@@ -428,6 +459,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     {
                         self.collect_parameter_operator_patterns(operator, context);
                     }
+                }
+                WordPart::Variable(name)
+                    if name.as_str() == "$"
+                        && contains_nested_parameter_marker(part.span.slice(self.source)) =>
+                {
+                    self.facts
+                        .nested_parameter_expansions
+                        .push(NestedParameterExpansionFragmentFact { span: part.span });
                 }
                 WordPart::ParameterExpansion { operator, .. } => {
                     if let WordPart::ParameterExpansion { reference, .. } = &part.kind {
@@ -619,6 +658,111 @@ pub(super) fn build_surface_fragment_facts<'a>(
     collector.finish()
 }
 
+fn collect_positional_parameter_operator_spans_in_arithmetic(
+    expansion_span: Span,
+    expression: &SourceText,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let text = expression.slice(source);
+    let mut should_report = false;
+    let mut state = ArithmeticScanState::default();
+    let mut chars = text.char_indices();
+
+    while let Some((index, char)) = chars.next() {
+        match state {
+            ArithmeticScanState::Normal => match char {
+                '\'' => state = ArithmeticScanState::SingleQuoted,
+                '"' => state = ArithmeticScanState::DoubleQuoted,
+                '\\' => {
+                    chars.next();
+                }
+                '$' => {
+                    let Some(token_end) = positional_parameter_token_end(text, index) else {
+                        continue;
+                    };
+
+                    let prev = text[..index].chars().rev().find(|ch| !ch.is_whitespace());
+                    let next = text[token_end..].chars().find(|ch| !ch.is_whitespace());
+
+                    if prev.is_some_and(is_left_operand_neighbor)
+                        || next.is_some_and(is_right_operand_neighbor)
+                    {
+                        should_report = true;
+                        break;
+                    }
+                }
+                _ => {}
+            },
+            ArithmeticScanState::SingleQuoted => {
+                if char == '\'' {
+                    state = ArithmeticScanState::Normal;
+                }
+            }
+            ArithmeticScanState::DoubleQuoted => match char {
+                '"' => state = ArithmeticScanState::Normal,
+                '\\' => {
+                    chars.next();
+                }
+                _ => {}
+            },
+        }
+    }
+
+    if should_report {
+        spans.push(Span::from_positions(
+            expansion_span.start,
+            expansion_span.start,
+        ));
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ArithmeticScanState {
+    #[default]
+    Normal,
+    SingleQuoted,
+    DoubleQuoted,
+}
+
+fn positional_parameter_token_end(text: &str, start: usize) -> Option<usize> {
+    let rest = text.get(start..)?;
+    if !rest.starts_with('$') {
+        return None;
+    }
+
+    let bytes = rest.as_bytes();
+    if bytes.get(1).is_some_and(u8::is_ascii_digit) {
+        let mut idx = 2usize;
+        while bytes.get(idx).is_some_and(u8::is_ascii_digit) {
+            idx += 1;
+        }
+        return Some(start + idx);
+    }
+
+    if bytes.get(1) == Some(&b'{') {
+        let mut idx = 2usize;
+        let mut saw_digit = false;
+        while bytes.get(idx).is_some_and(u8::is_ascii_digit) {
+            saw_digit = true;
+            idx += 1;
+        }
+        if saw_digit && bytes.get(idx) == Some(&b'}') {
+            return Some(start + idx + 1);
+        }
+    }
+
+    None
+}
+
+fn is_left_operand_neighbor(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | ')' | ']' | '}' | '"' | '\'')
+}
+
+fn is_right_operand_neighbor(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '(' | '[' | '{' | '"' | '\'')
+}
+
 pub(super) fn build_subscript_index_reference_spans(
     semantic: &SemanticModel,
     subscript_spans: &[Span],
@@ -721,6 +865,21 @@ fn opening_double_quote_span(span: Span, source: &str) -> Option<Span> {
     Some(Span::from_positions(start, start))
 }
 
+fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            matches!(syntax.target, ZshExpansionTarget::Nested(_))
+        }
+        ParameterExpansionSyntax::Bourne(_) => {
+            let body = parameter.raw_body.slice(source).trim_start();
+            contains_nested_parameter_marker(body)
+        }
+    }
+}
+
+fn contains_nested_parameter_marker(text: &str) -> bool {
+    text.starts_with("${${") || text.starts_with("${#${") || text.starts_with("${!${")
+}
 fn simple_command_variable_set_operand<'a>(
     command: &'a SimpleCommand,
     source: &str,
@@ -728,6 +887,37 @@ fn simple_command_variable_set_operand<'a>(
     let operands = simple_test_operands(command, source)?;
     (operands.len() == 2 && static_word_text(&operands[0], source).as_deref() == Some("-v"))
         .then(|| &operands[1])
+}
+
+fn collect_unicode_smart_quote_spans_in_word_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    quoted: bool,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) if !quoted => {
+                let literal = text.as_str(source, part.span);
+                for (offset, char) in literal.char_indices() {
+                    if !is_unicode_smart_quote(char) {
+                        continue;
+                    }
+                    let start = part.span.start.advanced_by(&literal[..offset]);
+                    let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
+                    spans.push(Span::from_positions(start, end));
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unicode_smart_quote_spans_in_word_parts(parts, source, true, spans)
+            }
+            _ => {}
+        }
+    }
+}
+
+fn is_unicode_smart_quote(char: char) -> bool {
+    matches!(char, '\u{2018}' | '\u{2019}' | '\u{201C}' | '\u{201D}')
 }
 
 #[cfg(test)]

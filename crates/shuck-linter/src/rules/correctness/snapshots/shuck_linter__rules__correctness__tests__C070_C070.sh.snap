@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 100
+---
+C070 positional parameter is used where an arithmetic operator is expected
+ --> <source>:3:7
+  |
+3 | echo "$(( x $1 y ))"
+  |

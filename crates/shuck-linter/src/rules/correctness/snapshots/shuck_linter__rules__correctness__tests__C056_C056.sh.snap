@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 78
+---
+C056 `$?` here refers to a condition result, not an earlier command
+ --> <source>:6:29
+  |
+6 | if [ "$x" = y ]; then saved=$?; fi
+  |
+
+C056 `$?` here refers to a condition result, not an earlier command
+ --> <source>:9:30
+  |
+9 | while [ "$x" = y ]; do again=$?; break; done
+  |
+
+C056 `$?` here refers to a condition result, not an earlier command
+  --> <source>:18:26
+   |
+18 | [[ "$x" = y ]] || return $?
+   |

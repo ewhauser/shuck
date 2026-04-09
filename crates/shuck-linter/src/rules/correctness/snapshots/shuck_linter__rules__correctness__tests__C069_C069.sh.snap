@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 98
+---
+C069 remove the escaped trailing space before closing backtick
+ --> <source>:3:29
+  |
+3 | ARCH=`uname -a | cut -f12 -d\ `
+  |

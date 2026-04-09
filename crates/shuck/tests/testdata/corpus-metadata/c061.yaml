@@ -1,0 +1,5 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__openssl__add-trusted-certificate"
+    line: 12
+    reason: "C061 is scoped to `{{...}}` template placeholders in command position. This ShellCheck hit is a different malformed command-name shape without template braces, so it stays reviewed narrowly."

@@ -24,6 +24,30 @@ impl ShellCheckCodeMap {
             .or_else(|| sc_code.strip_prefix("sc"))?
             .parse()
             .ok()?;
+        if number == 2262 {
+            return Some(Rule::TemplateBraceInCommand);
+        }
+        if number == 2261 {
+            return Some(Rule::NonAbsoluteShebang);
+        }
+        if number == 2260 {
+            return Some(Rule::RedirectToCommandName);
+        }
+        if number == 2253 {
+            return Some(Rule::StatusCaptureAfterBranchTest);
+        }
+        if number == 2281 {
+            return Some(Rule::BackslashBeforeClosingBacktick);
+        }
+        if number == 2282 {
+            return Some(Rule::PositionalParamAsOperator);
+        }
+        if number == 2283 {
+            return Some(Rule::DoubleParenGrouping);
+        }
+        if number == 2284 {
+            return Some(Rule::UnicodeQuoteInString);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -35,6 +59,7 @@ impl Default for ShellCheckCodeMap {
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (2009, Rule::DoubleParenGrouping),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
                 (1072, Rule::BrokenTestParse),
@@ -44,6 +69,9 @@ impl Default for ShellCheckCodeMap {
                 (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1101, Rule::BackslashBeforeClosingBacktick),
+                (1102, Rule::PositionalParamAsOperator),
+                (1110, Rule::UnicodeQuoteInString),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -74,13 +102,24 @@ impl Default for ShellCheckCodeMap {
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
                 (2154, Rule::UndefinedVariable),
+                (2239, Rule::NonAbsoluteShebang),
+                (2288, Rule::TemplateBraceInCommand),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
+                (2248, Rule::BareSlashMarker),
                 (2257, Rule::ArithmeticRedirectionTarget),
+                (2264, Rule::NestedParameterExpansion),
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
+                (2238, Rule::RedirectToCommandName),
                 (2266, Rule::OverwrittenFunction),
+                (2270, Rule::IfMissingThen),
+                (2271, Rule::ElseWithoutThen),
+                (2272, Rule::MissingSemicolonBeforeBrace),
+                (2273, Rule::EmptyFunctionBody),
+                (2274, Rule::BareClosingBrace),
+                (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
             ]),
         }
@@ -99,6 +138,7 @@ mod tests {
         assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
+        assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
@@ -108,6 +148,12 @@ mod tests {
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
+        assert_eq!(
+            map.resolve("SC1101"),
+            Some(Rule::BackslashBeforeClosingBacktick)
+        );
+        assert_eq!(map.resolve("SC1102"), Some(Rule::PositionalParamAsOperator));
+        assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -142,6 +188,15 @@ mod tests {
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
         assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
+        assert_eq!(map.resolve("SC2248"), Some(Rule::BareSlashMarker));
+        assert_eq!(
+            map.resolve("SC2253"),
+            Some(Rule::StatusCaptureAfterBranchTest)
+        );
+        assert_eq!(
+            map.resolve("SC2319"),
+            Some(Rule::StatusCaptureAfterBranchTest)
+        );
         assert_eq!(
             map.resolve("SC2257"),
             Some(Rule::ArithmeticRedirectionTarget)
@@ -149,6 +204,28 @@ mod tests {
         assert_eq!(map.resolve("SC2250"), Some(Rule::PatternWithVariable));
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
+        assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
+        assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
+        assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
+        assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
+        assert_eq!(map.resolve("SC2270"), Some(Rule::IfMissingThen));
+        assert_eq!(map.resolve("SC2271"), Some(Rule::ElseWithoutThen));
+        assert_eq!(
+            map.resolve("SC2272"),
+            Some(Rule::MissingSemicolonBeforeBrace)
+        );
+        assert_eq!(map.resolve("SC2273"), Some(Rule::EmptyFunctionBody));
+        assert_eq!(map.resolve("SC2274"), Some(Rule::BareClosingBrace));
+        assert_eq!(
+            map.resolve("SC2281"),
+            Some(Rule::BackslashBeforeClosingBacktick)
+        );
+        assert_eq!(map.resolve("SC2282"), Some(Rule::PositionalParamAsOperator));
+        assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
@@ -172,11 +249,15 @@ mod tests {
                 (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1101, Rule::BackslashBeforeClosingBacktick),
+                (1102, Rule::PositionalParamAsOperator),
+                (1110, Rule::UnicodeQuoteInString),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (2009, Rule::DoubleParenGrouping),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
                 (2016, Rule::SingleQuotedLiteral),
@@ -204,13 +285,24 @@ mod tests {
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
+                (2238, Rule::RedirectToCommandName),
+                (2239, Rule::NonAbsoluteShebang),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
+                (2248, Rule::BareSlashMarker),
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
                 (2257, Rule::ArithmeticRedirectionTarget),
+                (2264, Rule::NestedParameterExpansion),
                 (2266, Rule::OverwrittenFunction),
+                (2270, Rule::IfMissingThen),
+                (2271, Rule::ElseWithoutThen),
+                (2272, Rule::MissingSemicolonBeforeBrace),
+                (2273, Rule::EmptyFunctionBody),
+                (2274, Rule::BareClosingBrace),
+                (2288, Rule::TemplateBraceInCommand),
+                (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
             ]
         );

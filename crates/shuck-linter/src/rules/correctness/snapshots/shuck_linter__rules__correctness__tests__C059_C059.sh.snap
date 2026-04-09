@@ -1,0 +1,33 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 80
+---
+C059 redirection target matches a command name; use a distinct file path
+ --> <source>:3:17
+  |
+3 | cat input.txt > c99
+  |
+
+C059 redirection target matches a command name; use a distinct file path
+ --> <source>:4:18
+  |
+4 | cat input.txt >> grep
+  |
+
+C059 redirection target matches a command name; use a distinct file path
+ --> <source>:5:18
+  |
+5 | cat input.txt 2> sed
+  |
+
+C059 redirection target matches a command name; use a distinct file path
+ --> <source>:6:17
+  |
+6 | cat input.txt < awk
+  |
+
+C059 redirection target matches a command name; use a distinct file path
+ --> <source>:7:18
+  |
+7 | cat input.txt >| command
+  |

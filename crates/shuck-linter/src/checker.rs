@@ -206,6 +206,17 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CPrototypeFragment) {
             rules::correctness::c_prototype_fragment::c_prototype_fragment(self);
         }
+        if self.is_rule_enabled(Rule::BareSlashMarker) {
+            rules::correctness::bare_slash_marker::bare_slash_marker(self);
+        }
+        if self.is_rule_enabled(Rule::StatusCaptureAfterBranchTest) {
+            rules::correctness::status_capture_after_branch_test::status_capture_after_branch_test(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::TemplateBraceInCommand) {
+            rules::correctness::template_brace_in_command::template_brace_in_command(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {
@@ -275,6 +286,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SubstWithRedirectErr) {
             rules::correctness::subst_with_redirect_err::subst_with_redirect_err(self);
         }
+        if self.is_rule_enabled(Rule::RedirectToCommandName) {
+            rules::correctness::redirect_to_command_name::redirect_to_command_name(self);
+        }
     }
 
     fn check_surface_fragment_facts(&mut self) {
@@ -292,6 +306,23 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::PositionalTenBraces) {
             rules::correctness::positional_ten_braces::positional_ten_braces(self);
+        }
+        if self.is_rule_enabled(Rule::NestedParameterExpansion) {
+            rules::correctness::nested_parameter_expansion::nested_parameter_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::BackslashBeforeClosingBacktick) {
+            rules::correctness::backslash_before_closing_backtick::backslash_before_closing_backtick(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::PositionalParamAsOperator) {
+            rules::correctness::positional_param_as_operator::positional_param_as_operator(self);
+        }
+        if self.is_rule_enabled(Rule::DoubleParenGrouping) {
+            rules::correctness::double_paren_grouping::double_paren_grouping(self);
+        }
+        if self.is_rule_enabled(Rule::UnicodeQuoteInString) {
+            rules::correctness::unicode_quote_in_string::unicode_quote_in_string(self);
         }
     }
 
@@ -326,6 +357,26 @@ impl<'a> Checker<'a> {
     }
 
     fn check_flow(&mut self) {
+        if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
+            rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
+        }
+        if self.is_rule_enabled(Rule::IfMissingThen) {
+            rules::correctness::if_missing_then::if_missing_then(self);
+        }
+        if self.is_rule_enabled(Rule::ElseWithoutThen) {
+            rules::correctness::else_without_then::else_without_then(self);
+        }
+        if self.is_rule_enabled(Rule::MissingSemicolonBeforeBrace) {
+            rules::correctness::missing_semicolon_before_brace::missing_semicolon_before_brace(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::EmptyFunctionBody) {
+            rules::correctness::empty_function_body::empty_function_body(self);
+        }
+        if self.is_rule_enabled(Rule::BareClosingBrace) {
+            rules::correctness::bare_closing_brace::bare_closing_brace(self);
+        }
         if self.is_rule_enabled(Rule::UnreachableAfterExit) {
             rules::correctness::unreachable_after_exit::unreachable_after_exit(self);
         }
