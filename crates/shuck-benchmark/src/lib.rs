@@ -170,6 +170,8 @@ mod tests {
         LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
         parse_directives,
     };
+    #[cfg(feature = "parser-benchmarking")]
+    use shuck_parser::parser::Parser;
 
     #[derive(Debug, Deserialize)]
     struct Manifest {

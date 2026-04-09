@@ -70,7 +70,10 @@ echo ok &>>1
 echo ok 2 &>1
 echo ok &>01
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BadRedirectionFdOrder));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BadRedirectionFdOrder),
+        );
 
         assert_eq!(
             diagnostics
@@ -93,7 +96,10 @@ echo ok &>\"1\"
 echo ok &>-1
 echo ok &>+1
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BadRedirectionFdOrder));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BadRedirectionFdOrder),
+        );
 
         assert!(diagnostics.is_empty());
     }

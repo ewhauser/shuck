@@ -110,5 +110,4 @@ mod tests {
 
         assert!(diagnostics.is_empty());
     }
-
 }

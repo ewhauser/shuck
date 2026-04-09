@@ -3121,7 +3121,7 @@ mod tests {
             diagnostics: vec![
                 shellcheck_diagnostic(2034),
                 shellcheck_diagnostic(2086),
-                shellcheck_diagnostic(1072),
+                shellcheck_diagnostic(9999),
             ],
             parse_aborted: true,
         };

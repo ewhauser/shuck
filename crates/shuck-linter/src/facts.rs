@@ -3608,7 +3608,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .iter()
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
-                vec!["\""]
+                vec![""]
             );
 
             let single_quoted = facts

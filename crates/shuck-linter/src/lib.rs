@@ -242,6 +242,7 @@ pub fn lint_file_at_path_with_parse_diagnostics(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn lint_file_at_path_with_resolver_and_parse_diagnostics(
     file: &File,
     source: &str,

@@ -53,7 +53,11 @@ fn c_prototype_fragment_span(diagnostic: &ParseDiagnostic, source: &str) -> Opti
     let column = find_attached_background_ampersand_column(line_text)?;
     let line_start_offset = line_start_offset(source, line)?;
     let offset = line_start_offset + (column - 1);
-    let point = Position { line, column, offset };
+    let point = Position {
+        line,
+        column,
+        offset,
+    };
     Some(Span::from_positions(point, point))
 }
 

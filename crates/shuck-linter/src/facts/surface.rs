@@ -497,10 +497,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
-                        self.collect_word(
-                            &heredoc.body,
-                            context.without_open_double_quote_scan(),
-                        );
+                        self.collect_word(&heredoc.body, context.without_open_double_quote_scan());
                     }
                 }
             }
