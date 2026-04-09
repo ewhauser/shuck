@@ -15,9 +15,17 @@ fn configure_env_cache(cmd: &mut Command, root: &Path) {
 }
 
 fn configure_default_cache_env(cmd: &mut Command, root: &Path) {
+    let home = root.join("home");
+    let xdg_cache = root.join("xdg-cache");
+    let appdata = root.join("appdata");
+    let local_appdata = root.join("local-appdata");
+
     cmd.env_remove("SHUCK_CACHE_DIR");
-    cmd.env("HOME", root.join("home"));
-    cmd.env("XDG_CACHE_HOME", root.join("xdg-cache"));
+    cmd.env("HOME", &home);
+    cmd.env("USERPROFILE", &home);
+    cmd.env("XDG_CACHE_HOME", xdg_cache);
+    cmd.env("APPDATA", appdata);
+    cmd.env("LOCALAPPDATA", local_appdata);
 }
 
 #[test]
