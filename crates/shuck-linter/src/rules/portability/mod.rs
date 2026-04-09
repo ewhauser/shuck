@@ -1,5 +1,5 @@
-pub mod ampersand_redirection;
 pub mod ampersand_redirect_in_sh;
+pub mod ampersand_redirection;
 pub mod brace_fd_redirection;
 pub mod conditional_portability;
 pub mod csh_syntax_in_sh;

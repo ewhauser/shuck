@@ -54,6 +54,20 @@ fn test_function_body_command_with_heredoc_parses() {
 }
 
 #[test]
+fn test_named_fd_heredoc_redirect_keeps_fd_var_metadata() {
+    let input = "exec {docfd}<<EOF\nhello\nEOF\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let stmt = &script.body[0];
+    let command = expect_simple(stmt);
+    assert_eq!(command.name.render(input), "exec");
+    assert_eq!(stmt.redirects.len(), 1);
+    assert_eq!(stmt.redirects[0].kind, RedirectKind::HereDoc);
+    assert_eq!(stmt.redirects[0].fd_var.as_deref(), Some("docfd"));
+    assert_eq!(stmt.redirects[0].fd_var_span.unwrap().slice(input), "docfd");
+}
+
+#[test]
 fn test_dynamic_heredoc_delimiter_is_rejected() {
     let parser = Parser::new("cat <<\"$@\"\nbody\n$@\n");
     assert!(

@@ -24,11 +24,10 @@ pub fn ampersand_redirection(checker: &mut Checker) {
         .commands()
         .iter()
         .flat_map(|fact| fact.redirect_facts().iter())
-        .filter_map(|redirect| {
-            (redirect.redirect().kind == RedirectKind::OutputBoth).then(|| {
-                let span = redirect.redirect().span;
-                Span::from_positions(span.start, span.start.advanced_by("&>"))
-            })
+        .filter(|redirect| redirect.redirect().kind == RedirectKind::OutputBoth)
+        .map(|redirect| {
+            let span = redirect.redirect().span;
+            Span::from_positions(span.start, span.start.advanced_by("&>"))
         })
         .collect::<Vec<_>>();
 

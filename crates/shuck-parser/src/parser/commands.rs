@@ -4009,9 +4009,12 @@ impl<'a> Parser<'a> {
                 }
                 Some(kind) if Self::is_redirect_kind(kind) => {
                     if matches!(kind, TokenKind::HereDoc | TokenKind::HereDocStrip) {
+                        let (fd_var, fd_var_span) = self.pop_fd_var(&mut words);
                         self.parse_heredoc_redirect(
                             kind == TokenKind::HereDocStrip,
                             &mut redirects,
+                            fd_var,
+                            fd_var_span,
                         )?;
                         continue;
                     }

@@ -37,12 +37,13 @@ fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -
     }
 
     let analysis = redirect.analysis()?;
-    if !analysis.expansion.is_fixed_literal() || analysis.numeric_descriptor_target.is_some() {
+    if !analysis.expansion.is_fixed_literal() {
         return None;
     }
 
     let target = redirect_data.word_target()?;
-    if target.span.slice(source) == "-" {
+    let target_text = target.span.slice(source);
+    if target_text == "-" || target_text.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
 
@@ -67,14 +68,16 @@ mod tests {
         let source = "\
 #!/bin/sh
 echo test >& /dev/null
+echo test >&+1
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AmpersandRedirectInSh),
         );
 
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), ">&");
+        assert_eq!(diagnostics[1].span.slice(source), ">&");
     }
 
     #[test]

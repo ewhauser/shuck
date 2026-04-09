@@ -540,10 +540,14 @@ mod tests {
                 (3043, Rule::LocalVariableInSh),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
+                (3050, Rule::BraceFdRedirection),
                 (3051, Rule::SourceInsideFunctionInSh),
+                (3052, Rule::AmpersandRedirection),
                 (3062, Rule::OptionTestInSh),
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
+                (3070, Rule::AmpersandRedirectInSh),
+                (3073, Rule::PipeStderrInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
             ]
         );

@@ -1,4 +1,4 @@
-use shuck_ast::{RedirectKind, Span};
+use shuck_ast::Span;
 
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -24,13 +24,7 @@ pub fn brace_fd_redirection(checker: &mut Checker) {
         .commands()
         .iter()
         .flat_map(|fact| fact.redirect_facts().iter())
-        .filter_map(|redirect| {
-            let redirect = redirect.redirect();
-            (redirect.fd_var.is_some()
-                && !matches!(redirect.kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip))
-                .then(|| brace_fd_span(redirect))
-                .flatten()
-        })
+        .filter_map(|redirect| brace_fd_span(redirect.redirect()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || BraceFdRedirection);
@@ -50,14 +44,15 @@ mod tests {
         let source = "\
 #!/bin/sh
 exec {fd}>/dev/null
+exec {docfd}<<EOF
+hello
+EOF
 ";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::BraceFdRedirection),
-        );
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceFdRedirection));
 
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "fd");
+        assert_eq!(diagnostics[1].span.slice(source), "docfd");
     }
 
     #[test]
@@ -66,10 +61,7 @@ exec {fd}>/dev/null
 #!/bin/bash
 exec {fd}>/dev/null
 ";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::BraceFdRedirection),
-        );
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceFdRedirection));
 
         assert!(diagnostics.is_empty());
     }

@@ -829,9 +829,35 @@ pub(super) fn build_pipeline_facts<'a>(
                     .map(|stmt| build_pipeline_segment_fact(stmt, commands, command_ids_by_span))
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
+                operators: pipeline_operator_facts(command),
             })
         })
         .collect()
+}
+
+fn pipeline_operator_facts(command: &BinaryCommand) -> Box<[PipelineOperatorFact]> {
+    let mut operators = Vec::new();
+    collect_pipeline_operator_facts(command, &mut operators);
+    operators.into_boxed_slice()
+}
+
+fn collect_pipeline_operator_facts(command: &BinaryCommand, out: &mut Vec<PipelineOperatorFact>) {
+    if let Command::Binary(left) = &command.left.command
+        && matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+    {
+        collect_pipeline_operator_facts(left, out);
+    }
+
+    out.push(PipelineOperatorFact {
+        op: command.op,
+        span: command.op_span,
+    });
+
+    if let Command::Binary(right) = &command.right.command
+        && matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+    {
+        collect_pipeline_operator_facts(right, out);
+    }
 }
 
 fn build_pipeline_segment_fact<'a>(

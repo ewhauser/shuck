@@ -1,5 +1,3 @@
-use shuck_ast::BinaryOp;
-
 use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct PipeStderrInSh;
@@ -23,9 +21,9 @@ pub fn pipe_stderr_in_sh(checker: &mut Checker) {
         .facts()
         .pipelines()
         .iter()
-        .filter_map(|pipeline| {
-            (pipeline.command().op == BinaryOp::PipeAll).then(|| pipeline.command().op_span)
-        })
+        .flat_map(|pipeline| pipeline.operators().iter())
+        .filter(|operator| operator.op() == shuck_ast::BinaryOp::PipeAll)
+        .map(|operator| operator.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || PipeStderrInSh);
@@ -41,11 +39,15 @@ mod tests {
         let source = "\
 #!/bin/sh
 echo test |& grep -q foo
+echo first |& grep -q foo | cat
+echo left | grep -q foo |& cat
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PipeStderrInSh));
 
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(diagnostics[0].span.slice(source), "|&");
+        assert_eq!(diagnostics[1].span.slice(source), "|&");
+        assert_eq!(diagnostics[2].span.slice(source), "|&");
     }
 
     #[test]
