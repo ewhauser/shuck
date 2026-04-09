@@ -1,0 +1,22 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This startup script is intentionally zsh-specific and already depends on zsh path modifiers, associative arrays, and glob qualifiers, so the remaining X023 hits are zsh substring forms exposed only after the corpus path collapses the file to POSIX sh."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__luajit__build.sh"
+    reason: "This Termux build recipe is already using bash-only `[[ ... ]]` tests and double-colon substring slicing on commit hashes, so the remaining SC3057 hits come from the comparison path collapsing a bash-oriented recipe to POSIX sh more aggressively than Shuck's dialect resolution."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_gn.sh"
+    reason: "This remaining mismatch is a span-only delta on the same reviewed substring expansion embedded in generated header text."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_gn.sh"
+    reason: "This remaining mismatch is a span-only delta on the same reviewed substring expansion embedded in generated header text."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_start_build.sh"
+    reason: "This remaining mismatch is a span-only delta on the same reviewed substring expansion inside the build-helper version rewrite."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_start_build.sh"
+    reason: "This remaining mismatch is a span-only delta on the same reviewed substring expansion inside the build-helper version rewrite."

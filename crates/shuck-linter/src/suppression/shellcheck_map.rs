@@ -105,6 +105,7 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports array references as SC3054.
             // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
             (3054, Rule::ArrayReference),
+            (3057, Rule::SubstringExpansion),
             (2038, Rule::FindOutputToXargs),
             (2064, Rule::TrapStringExpansion),
             (2068, Rule::UnquotedArrayExpansion),
@@ -254,6 +255,7 @@ impl Default for ShellCheckCodeMap {
                 (3053, Rule::IndirectExpansion),
                 (3028, Rule::ArrayReference),
                 (3054, Rule::ArrayReference),
+                (3057, Rule::SubstringExpansion),
                 (2038, Rule::FindOutputToXargs),
                 (2064, Rule::TrapStringExpansion),
                 (2068, Rule::UnquotedArrayExpansion),
@@ -417,6 +419,7 @@ mod tests {
         assert_eq!(map.resolve("SC3030"), Some(Rule::ArrayAssignment));
         assert_eq!(map.resolve("SC3053"), Some(Rule::IndirectExpansion));
         assert_eq!(map.resolve("SC3054"), Some(Rule::ArrayReference));
+        assert_eq!(map.resolve("SC3057"), Some(Rule::SubstringExpansion));
         assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2064"), Some(Rule::TrapStringExpansion));
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
@@ -680,6 +683,7 @@ mod tests {
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
         assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
         assert!(comparison.contains(&(3054, Rule::ArrayReference)));
+        assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
         assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
         assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));

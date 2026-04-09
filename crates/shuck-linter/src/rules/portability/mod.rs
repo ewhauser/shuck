@@ -25,6 +25,7 @@ pub mod pipe_stderr_in_sh;
 pub mod process_substitution;
 pub mod select_loop;
 pub mod source_builtin_in_sh;
+pub mod substring_expansion;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
 pub mod standalone_arithmetic;
@@ -78,6 +79,7 @@ mod tests {
     #[test_case(Rule::IndirectExpansion, Path::new("X018.sh"))]
     #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
+    #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]

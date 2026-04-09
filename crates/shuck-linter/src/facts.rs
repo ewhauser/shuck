@@ -533,6 +533,17 @@ impl IndexedArrayReferenceFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SubstringExpansionFragmentFact {
+    span: Span,
+}
+
+impl SubstringExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordFactContext {
     Expansion(ExpansionContext),
@@ -1399,6 +1410,7 @@ pub struct LinterFacts<'a> {
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
+    substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1586,6 +1598,10 @@ impl<'a> LinterFacts<'a> {
     pub fn indexed_array_reference_fragments(&self) -> &[IndexedArrayReferenceFragmentFact] {
         &self.indexed_array_reference_fragments
     }
+
+    pub fn substring_expansion_fragments(&self) -> &[SubstringExpansionFragmentFact] {
+        &self.substring_expansion_fragments
+    }
 }
 
 struct LinterFactsBuilder<'a> {
@@ -1749,6 +1765,7 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
             indirect_expansion_fragments: surface_fragments.indirect_expansions,
             indexed_array_reference_fragments: surface_fragments.indexed_array_references,
+            substring_expansion_fragments: surface_fragments.substring_expansions,
         }
     }
 }
@@ -4856,6 +4873,11 @@ test -v '$name'
 printf '%s\n' $'tab\t'
 printf '%s\n' \"${!name}\" \"${!arr[*]}\"
 printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
+printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
+cat <<EOF
+Expected: '${expected_commit::7}'
+#define LAST_COMMIT_POSITION \"2311 ${GN_COMMIT:0:12}\"
+EOF
 printf '%s\\n' 123 | command kill -9
 echo \"#!/bin/bash
 if [[ \"$@\" =~ x ]]; then :; fi
@@ -4959,6 +4981,22 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${arr[0]}", "${arr[@]}", "${arr[*]}"]
+            );
+            assert_eq!(
+                facts
+                    .substring_expansion_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "${name:2}",
+                    "${1:1}",
+                    "${name::2}",
+                    "${@:1}",
+                    "${*:1:2}",
+                    "${expected_commit::7}",
+                    "${GN_COMMIT:0:12}",
+                ]
             );
 
             let jq = facts

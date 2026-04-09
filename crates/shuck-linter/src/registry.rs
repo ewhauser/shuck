@@ -172,6 +172,7 @@ declare_rules! {
     ("X018", Category::Portability, Severity::Warning, IndirectExpansion),
     ("X019", Category::Portability, Severity::Warning, ArrayReference),
     ("X020", Category::Portability, Severity::Warning, BraceFdRedirection),
+    ("X023", Category::Portability, Severity::Warning, SubstringExpansion),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
@@ -252,6 +253,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-018" => Some(Rule::ArrayAssignment),
         "SH-023" => Some(Rule::IndirectExpansion),
         "SH-024" => Some(Rule::ArrayReference),
+        "SH-031" => Some(Rule::SubstringExpansion),
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
@@ -562,5 +564,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-023"), Some(Rule::IndirectExpansion));
         assert_eq!(code_to_rule("X019"), Some(Rule::ArrayReference));
         assert_eq!(code_to_rule("SH-024"), Some(Rule::ArrayReference));
+        assert_eq!(code_to_rule("X023"), Some(Rule::SubstringExpansion));
+        assert_eq!(code_to_rule("SH-031"), Some(Rule::SubstringExpansion));
     }
 }

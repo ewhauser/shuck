@@ -12,6 +12,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
+    pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -85,6 +86,23 @@ impl<'a> SurfaceFragmentCollector<'a> {
         self.facts
             .indexed_array_references
             .push(IndexedArrayReferenceFragmentFact { span });
+    }
+
+    fn record_substring_expansion(&mut self, span: Span) {
+        let Some(span) = plain_substring_expansion_span(span, self.source) else {
+            return;
+        };
+        if self
+            .facts
+            .substring_expansions
+            .iter()
+            .any(|fragment| fragment.span() == span)
+        {
+            return;
+        }
+        self.facts
+            .substring_expansions
+            .push(SubstringExpansionFragmentFact { span });
     }
 
     fn collect_commands(&mut self, commands: &StmtSeq) {
@@ -466,6 +484,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     if parameter_has_array_reference(parameter) {
                         self.record_array_reference(part.span);
                     }
+                    if parameter_has_substring_expansion(parameter) {
+                        self.record_substring_expansion(parameter.span);
+                    }
                     self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
                         if matches!(
@@ -545,7 +566,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
                             array_keys: true,
                         });
                 }
-                WordPart::Substring { reference, .. } | WordPart::ArraySlice { reference, .. } => {
+                WordPart::Substring { reference, .. } => {
+                    self.record_substring_expansion(part.span);
+                    self.record_var_ref_subscript(reference);
+                }
+                WordPart::ArraySlice { reference, .. } => {
                     self.record_var_ref_subscript(reference);
                 }
                 WordPart::IndirectExpansion {
@@ -608,8 +633,31 @@ impl<'a> SurfaceFragmentCollector<'a> {
             return;
         }
 
+        self.collect_raw_substring_expansions_in_span(text.span());
         let word = Parser::parse_word_fragment(self.source, snippet, text.span());
         self.collect_word(&word, context.without_open_double_quote_scan());
+    }
+
+    fn collect_raw_substring_expansions_in_span(&mut self, span: Span) {
+        let snippet = span.slice(self.source);
+        let mut search_start = 0;
+
+        while let Some(relative_start) = snippet[search_start..].find("${") {
+            let start = search_start + relative_start;
+            let Some(relative_end) = snippet[start..].find('}') else {
+                break;
+            };
+            let end = start + relative_end + '}'.len_utf8();
+            let candidate = &snippet[start..end];
+            if is_plain_substring_expansion_text(candidate) {
+                let span = Span::from_positions(
+                    span.start.advanced_by(&snippet[..start]),
+                    span.start.advanced_by(&snippet[..end]),
+                );
+                self.record_substring_expansion(span);
+            }
+            search_start = end;
+        }
     }
 
     fn collect_zsh_qualified_glob(
@@ -631,6 +679,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
+                        self.collect_raw_substring_expansions_in_span(heredoc.body.span);
                         self.collect_word(&heredoc.body, context.without_open_double_quote_scan());
                     }
                 }
@@ -778,6 +827,29 @@ fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> b
     }
 }
 
+fn parameter_has_substring_expansion(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice { reference, .. }) => {
+            reference.subscript.is_none()
+        }
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Access { .. }
+            | BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::Operation { .. }
+            | BourneParameterExpansion::Transformation { .. }
+            | BourneParameterExpansion::PrefixMatch { .. },
+        ) => false,
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Nested(parameter) => parameter_has_substring_expansion(parameter),
+            ZshExpansionTarget::Reference(_)
+            | ZshExpansionTarget::Word(_)
+            | ZshExpansionTarget::Empty => false,
+        },
+    }
+}
+
 fn reference_has_array_subscript(reference: &VarRef) -> bool {
     reference.subscript.is_some()
 }
@@ -796,6 +868,48 @@ fn plain_array_reference_span(span: Span, source: &str) -> Option<Span> {
     }
 
     Some(span)
+}
+
+fn plain_substring_expansion_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let relative_start = text.find("${")?;
+    let start = span.start.advanced_by(&text[..relative_start]);
+    let after_start = &source[start.offset..];
+    let relative_end = after_start.find('}')?;
+    let end = start.advanced_by(&after_start[..relative_end + '}'.len_utf8()]);
+    let candidate = &after_start[..relative_end + '}'.len_utf8()];
+
+    is_plain_substring_expansion_text(candidate).then_some(Span::from_positions(start, end))
+}
+
+fn is_plain_substring_expansion_text(text: &str) -> bool {
+    let Some(inner) = text.strip_prefix("${").and_then(|text| text.strip_suffix('}')) else {
+        return false;
+    };
+    if inner.starts_with('#') || inner.starts_with('!') {
+        return false;
+    }
+
+    let Some(colon_index) = inner.find(':') else {
+        return false;
+    };
+    let name = &inner[..colon_index];
+    if name.is_empty() {
+        return false;
+    }
+    if name.contains('[') || name.contains(']') {
+        return false;
+    }
+
+    let suffix = &inner[colon_index + 1..];
+    if suffix.is_empty() {
+        return false;
+    }
+    if matches!(suffix.chars().next(), Some('-' | '=' | '+' | '?')) {
+        return false;
+    }
+
+    true
 }
 
 pub(super) fn build_surface_fragment_facts<'a>(
