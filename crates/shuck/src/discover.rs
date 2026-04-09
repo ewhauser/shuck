@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result, anyhow};
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use ignore::gitignore::GitignoreBuilder;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{DirEntry, ParallelVisitor, WalkBuilder, WalkState};
 
 use crate::config::{resolve_project_root_for_file, resolve_project_root_for_input};
@@ -22,6 +23,8 @@ pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
     "node_modules",
     "vendor",
 ];
+
+const SHEBANG_SNIFF_LIMIT_BYTES: u64 = 4096;
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ProjectRoot {
@@ -52,6 +55,7 @@ pub(crate) fn discover_files(
     options: &DiscoveryOptions,
 ) -> Result<Vec<DiscoveredFile>> {
     let exclude_matcher = ExcludeMatcher::new(&options.exclude_patterns)?;
+    let mut explicit_ignore_cache = ExplicitIgnoreCache::new(cwd);
 
     let resolved_inputs = if inputs.is_empty() {
         vec![cwd.to_path_buf()]
@@ -90,6 +94,7 @@ pub(crate) fn discover_files(
             cwd,
             &project_root,
             &exclude_matcher,
+            &mut explicit_ignore_cache,
             options,
             &mut files,
         )?;
@@ -103,6 +108,7 @@ fn collect_input(
     cwd: &Path,
     project_root: &ProjectRoot,
     exclude_matcher: &ExcludeMatcher,
+    explicit_ignore_cache: &mut ExplicitIgnoreCache,
     options: &DiscoveryOptions,
     files: &mut BTreeMap<PathBuf, DiscoveredFile>,
 ) -> Result<()> {
@@ -117,7 +123,7 @@ fn collect_input(
             if exclude_matcher.matches(input, cwd) {
                 return Ok(());
             }
-            if !is_allowed_by_gitignore(input, cwd, options.respect_gitignore)? {
+            if !is_allowed_by_gitignore(input, explicit_ignore_cache, options.respect_gitignore)? {
                 return Ok(());
             }
         }
@@ -238,11 +244,61 @@ fn is_ignored_directory(entry: &DirEntry, cache_root: Option<&Path>) -> bool {
             || path_matches_cache_root(entry.path(), cache_root))
 }
 
-fn is_allowed_by_gitignore(path: &Path, cwd: &Path, respect_gitignore: bool) -> Result<bool> {
-    if !respect_gitignore || !path.starts_with(cwd) {
+#[derive(Debug)]
+struct ExplicitIgnoreCache {
+    cwd: PathBuf,
+    matchers: BTreeMap<PathBuf, Gitignore>,
+}
+
+impl ExplicitIgnoreCache {
+    fn new(cwd: &Path) -> Self {
+        Self {
+            cwd: cwd.to_path_buf(),
+            matchers: BTreeMap::new(),
+        }
+    }
+
+    fn allows(&mut self, path: &Path) -> Result<bool> {
+        if !path.starts_with(&self.cwd) {
+            return Ok(true);
+        }
+
+        let directory = path.parent().unwrap_or(&self.cwd);
+        let key = explicit_ignore_cache_key(directory, &self.cwd);
+        if !self.matchers.contains_key(&key) {
+            let gitignore = build_gitignore_matcher(directory, &self.cwd)?;
+            self.matchers.insert(key.clone(), gitignore);
+        }
+
+        Ok(!self
+            .matchers
+            .get(&key)
+            .unwrap()
+            .matched_path_or_any_parents(path, false)
+            .is_ignore())
+    }
+}
+
+fn is_allowed_by_gitignore(
+    path: &Path,
+    cache: &mut ExplicitIgnoreCache,
+    respect_gitignore: bool,
+) -> Result<bool> {
+    if !respect_gitignore {
         return Ok(true);
     }
 
+    cache.allows(path)
+}
+
+fn explicit_ignore_cache_key(directory: &Path, cwd: &Path) -> PathBuf {
+    directory
+        .strip_prefix(cwd)
+        .map(normalize_path)
+        .unwrap_or_else(|_| normalize_path(directory))
+}
+
+fn build_gitignore_matcher(path: &Path, cwd: &Path) -> Result<Gitignore> {
     let mut builder = GitignoreBuilder::new(cwd);
     for dir in candidate_ignore_directories(path, cwd) {
         for name in [".ignore", ".gitignore"] {
@@ -255,10 +311,7 @@ fn is_allowed_by_gitignore(path: &Path, cwd: &Path, respect_gitignore: bool) -> 
         }
     }
 
-    let gitignore = builder.build()?;
-    Ok(!gitignore
-        .matched_path_or_any_parents(path, path.is_dir())
-        .is_ignore())
+    Ok(builder.build()?)
 }
 
 fn candidate_ignore_directories(path: &Path, cwd: &Path) -> Vec<PathBuf> {
@@ -476,8 +529,18 @@ pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
         return Ok(true);
     }
 
-    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    let bytes = read_shebang_prefix(path)?;
     Ok(infer_shebang_dialect(&bytes).is_some())
+}
+
+fn read_shebang_prefix(path: &Path) -> Result<Vec<u8>> {
+    let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut reader = BufReader::new(file).take(SHEBANG_SNIFF_LIMIT_BYTES);
+    let mut bytes = Vec::new();
+    reader
+        .read_until(b'\n', &mut bytes)
+        .with_context(|| format!("read {}", path.display()))?;
+    Ok(bytes)
 }
 
 fn infer_shebang_dialect(src: &[u8]) -> Option<&'static str> {
@@ -545,5 +608,57 @@ impl ExcludeMatcher {
         path.file_name()
             .map(|name| set.is_match(Path::new(name)))
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn detects_extensionless_bash_shebang() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("script");
+        fs::write(&script, "#!/bin/bash\necho ok\n").unwrap();
+
+        assert!(is_shell_script(&script).unwrap());
+    }
+
+    #[test]
+    fn detects_env_zsh_shebang() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("script");
+        fs::write(&script, "#!/usr/bin/env zsh\nprint ok\n").unwrap();
+
+        assert!(is_shell_script(&script).unwrap());
+    }
+
+    #[test]
+    fn ignores_large_extensionless_non_shell_file() {
+        let tempdir = tempdir().unwrap();
+        let file = tempdir.path().join("blob");
+        fs::write(&file, vec![b'x'; (SHEBANG_SNIFF_LIMIT_BYTES as usize) * 2]).unwrap();
+
+        assert!(!is_shell_script(&file).unwrap());
+    }
+
+    #[test]
+    fn reuses_explicit_ignore_matcher_for_files_in_same_directory() {
+        let tempdir = tempdir().unwrap();
+        let ignored_dir = tempdir.path().join("ignored");
+        fs::create_dir_all(&ignored_dir).unwrap();
+        fs::write(tempdir.path().join(".gitignore"), "ignored/\n").unwrap();
+
+        let first = ignored_dir.join("first.sh");
+        let second = ignored_dir.join("second.sh");
+        fs::write(&first, "#!/bin/bash\necho one\n").unwrap();
+        fs::write(&second, "#!/bin/bash\necho two\n").unwrap();
+
+        let mut cache = ExplicitIgnoreCache::new(tempdir.path());
+        assert!(!is_allowed_by_gitignore(&first, &mut cache, true).unwrap());
+        assert!(!is_allowed_by_gitignore(&second, &mut cache, true).unwrap());
+        assert_eq!(cache.matchers.len(), 1);
     }
 }
