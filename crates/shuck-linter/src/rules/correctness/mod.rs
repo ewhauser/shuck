@@ -12,6 +12,7 @@ pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
+pub mod linebreak_in_test;
 pub mod line_oriented_input;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
@@ -72,6 +73,7 @@ mod tests {
     #[test_case(Rule::BrokenTestParse, Path::new("C037.sh"))]
     #[test_case(Rule::ElseIf, Path::new("C038.sh"))]
     #[test_case(Rule::OpenDoubleQuote, Path::new("C039.sh"))]
+    #[test_case(Rule::LinebreakInTest, Path::new("C040.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]
