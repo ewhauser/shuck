@@ -247,6 +247,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LiteralBackslash) {
             rules::style::literal_backslash::literal_backslash(self);
         }
+        if self.is_rule_enabled(Rule::BackslashBeforeCommand) {
+            rules::style::backslash_before_command::backslash_before_command(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
             rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
         }

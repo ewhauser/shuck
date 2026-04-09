@@ -1,3 +1,4 @@
+pub mod backslash_before_command;
 pub mod echoed_command_substitution;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
@@ -41,6 +42,7 @@ mod tests {
     #[test_case(Rule::LiteralBackslash, Path::new("S025.sh"))]
     #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
+    #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

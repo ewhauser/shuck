@@ -253,6 +253,7 @@ mod tests {
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2268"), None);
         assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
@@ -385,6 +386,7 @@ mod tests {
             Rule::ArraySubscriptTest,
             Rule::ArraySubscriptCondition,
             Rule::ExtglobInTest,
+            Rule::BackslashBeforeCommand,
         ]);
 
         let unmapped: Vec<&str> = Rule::iter()
