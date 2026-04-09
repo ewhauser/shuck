@@ -45,6 +45,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
         with:
