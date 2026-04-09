@@ -158,6 +158,7 @@ impl Default for ShellCheckCodeMap {
             // Keep SC3042 as a suppression alias, but prefer the current code for comparisons.
             (3042, Rule::LetCommand),
             (3039, Rule::LetCommand),
+            (3047, Rule::TrapErr),
             (3046, Rule::SourceBuiltinInSh),
             (3050, Rule::BraceFdRedirection),
             (3052, Rule::AmpersandRedirection),
@@ -305,6 +306,7 @@ impl Default for ShellCheckCodeMap {
                 (3033, Rule::SelectLoop),
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
+                (3047, Rule::TrapErr),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
                 (3058, Rule::BashCaseFallthrough),

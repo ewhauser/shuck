@@ -30,6 +30,7 @@ pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
 pub mod standalone_arithmetic;
 pub mod substring_expansion;
+pub mod trap_err;
 pub mod uppercase_expansion;
 pub mod zsh_always_block;
 pub mod zsh_array_subscript_in_case;
@@ -78,6 +79,7 @@ mod tests {
     #[test_case(Rule::ArrayAssignment, Path::new("X013.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
+    #[test_case(Rule::TrapErr, Path::new("X017.sh"))]
     #[test_case(Rule::IndirectExpansion, Path::new("X018.sh"))]
     #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]

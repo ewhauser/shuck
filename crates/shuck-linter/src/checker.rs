@@ -277,6 +277,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ReplacementExpansion) {
             rules::portability::replacement_expansion::replacement_expansion(self);
         }
+        if self.is_rule_enabled(Rule::TrapErr) {
+            rules::portability::trap_err::trap_err(self);
+        }
         if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
             rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
         }

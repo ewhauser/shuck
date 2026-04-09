@@ -110,7 +110,7 @@ Detect bash-specific redirection and pipe operators in POSIX sh.
 
 Detect bash-specific set/trap options in POSIX sh.
 
-- [ ] **L** X017 (SC3047) `trap-err` — trapping ERR in sh
+- [x] **L** X017 (SC3047) `trap-err` — trapping ERR in sh
 - [ ] **L** X021 (SC3040) `pipefail-option` — `set -o pipefail` in sh
 - [ ] **L** X022 (SC3048) `wait-option` — wait flags in sh
 - [ ] **L** X032 (SC3025) `printf-q-format-in-sh` — `%q` printf conversion in sh
