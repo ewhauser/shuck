@@ -307,6 +307,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PositionalTenBraces) {
             rules::correctness::positional_ten_braces::positional_ten_braces(self);
         }
+        if self.is_rule_enabled(Rule::NestedParameterExpansion) {
+            rules::correctness::nested_parameter_expansion::nested_parameter_expansion(self);
+        }
     }
 
     fn check_test_and_conditional_facts(&mut self) {

@@ -7,6 +7,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) backticks: Vec<BacktickFragmentFact>,
     pub(super) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
+    pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -420,6 +421,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::CommandSubstitution { body, .. }
                 | WordPart::ProcessSubstitution { body, .. } => self.collect_commands(body),
                 WordPart::Parameter(parameter) => {
+                    if is_nested_parameter_expansion(parameter, self.source) {
+                        self.facts
+                            .nested_parameter_expansions
+                            .push(NestedParameterExpansionFragmentFact { span: part.span });
+                    }
                     self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
                         operator,
@@ -428,6 +434,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     {
                         self.collect_parameter_operator_patterns(operator, context);
                     }
+                }
+                WordPart::Variable(name)
+                    if name.as_str() == "$"
+                        && contains_nested_parameter_marker(part.span.slice(self.source)) =>
+                {
+                    self.facts
+                        .nested_parameter_expansions
+                        .push(NestedParameterExpansionFragmentFact { span: part.span });
                 }
                 WordPart::ParameterExpansion { operator, .. } => {
                     if let WordPart::ParameterExpansion { reference, .. } = &part.kind {
@@ -721,6 +735,21 @@ fn opening_double_quote_span(span: Span, source: &str) -> Option<Span> {
     Some(Span::from_positions(start, start))
 }
 
+fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            matches!(syntax.target, ZshExpansionTarget::Nested(_))
+        }
+        ParameterExpansionSyntax::Bourne(_) => {
+            let body = parameter.raw_body.slice(source).trim_start();
+            contains_nested_parameter_marker(body)
+        }
+    }
+}
+
+fn contains_nested_parameter_marker(text: &str) -> bool {
+    text.starts_with("${${") || text.starts_with("${#${") || text.starts_with("${!${")
+}
 fn simple_command_variable_set_operand<'a>(
     command: &'a SimpleCommand,
     source: &str,

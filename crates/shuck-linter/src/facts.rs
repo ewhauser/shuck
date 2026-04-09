@@ -468,6 +468,17 @@ impl PositionalParameterFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct NestedParameterExpansionFragmentFact {
+    span: Span,
+}
+
+impl NestedParameterExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordFactContext {
     Expansion(ExpansionContext),
@@ -1208,6 +1219,7 @@ pub struct LinterFacts<'a> {
     backtick_fragments: Vec<BacktickFragmentFact>,
     legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
+    nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1338,6 +1350,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn positional_parameter_fragments(&self) -> &[PositionalParameterFragmentFact] {
         &self.positional_parameter_fragments
+    }
+
+    pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
+        &self.nested_parameter_expansion_fragments
     }
 }
 
@@ -1475,6 +1491,7 @@ impl<'a> LinterFactsBuilder<'a> {
             backtick_fragments: surface_fragments.backticks,
             legacy_arithmetic_fragments: surface_fragments.legacy_arithmetic,
             positional_parameter_fragments: surface_fragments.positional_parameters,
+            nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
         }
     }
 }
