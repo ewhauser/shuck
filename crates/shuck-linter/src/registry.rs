@@ -90,6 +90,7 @@ macro_rules! declare_rules {
 declare_rules! {
     ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
     ("C002", Category::Correctness, Severity::Warning, DynamicSourcePath),
+    ("C003", Category::Correctness, Severity::Warning, UntrackedSourceFile),
     ("C005", Category::Correctness, Severity::Warning, SingleQuotedLiteral),
     ("C006", Category::Correctness, Severity::Error, UndefinedVariable),
     ("C007", Category::Correctness, Severity::Warning, FindOutputToXargs),
@@ -138,6 +139,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
         "SH-025" => Some(Rule::DynamicSourcePath),
+        "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -199,6 +201,7 @@ mod tests {
             Some(Rule::LegacyArithmeticExpansion)
         );
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
+        assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));
         assert_eq!(code_to_rule("SH-038"), Some(Rule::UnquotedArrayExpansion));

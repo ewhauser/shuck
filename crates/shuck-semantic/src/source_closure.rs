@@ -15,7 +15,8 @@ use shuck_parser::parser::Parser;
 use crate::{
     Binding, BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract,
     FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
-    SourcePathResolver, SourceRefKind, SpanKey, SyntheticRead, build_semantic_model_base,
+    SourcePathResolver, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
+    build_semantic_model_base,
 };
 
 #[derive(Debug, Clone)]
@@ -23,6 +24,8 @@ struct SourceClosureContracts {
     synthetic_reads: Vec<SyntheticRead>,
     imported_bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
     imported_functions: Vec<ImportedFunctionContractSite>,
+    source_ref_resolutions: Vec<SourceRefResolution>,
+    source_ref_explicitness: Vec<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +42,13 @@ pub(crate) fn collect_source_closure_contracts(
     source: &str,
     source_path: &Path,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> (Vec<SyntheticRead>, Vec<(ScopeId, Span, ProvidedBinding)>) {
+    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+) -> (
+    Vec<SyntheticRead>,
+    Vec<(ScopeId, Span, ProvidedBinding)>,
+    Vec<SourceRefResolution>,
+    Vec<bool>,
+) {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
     let contracts = collect_source_closure_contracts_with_cache(
@@ -50,8 +59,14 @@ pub(crate) fn collect_source_closure_contracts(
         &mut summaries,
         &mut active,
         source_path_resolver,
+        analyzed_paths,
     );
-    (contracts.synthetic_reads, contracts.imported_bindings)
+    (
+        contracts.synthetic_reads,
+        contracts.imported_bindings,
+        contracts.source_ref_resolutions,
+        contracts.source_ref_explicitness,
+    )
 }
 
 fn collect_source_closure_contracts_with_cache(
@@ -62,12 +77,15 @@ fn collect_source_closure_contracts_with_cache(
     summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    analyzed_paths: Option<&FxHashSet<PathBuf>>,
 ) -> SourceClosureContracts {
     let facts = collect_ast_facts(file, model, source);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
     let mut synthetic_reads = Vec::new();
     let mut imported_bindings = Vec::new();
     let mut imported_functions = Vec::new();
+    let mut source_ref_resolutions = Vec::new();
+    let mut source_ref_explicitness = Vec::new();
 
     for source_ref in model.source_refs() {
         let scope = model.scope_at(source_ref.span.start.offset);
@@ -78,13 +96,16 @@ fn collect_source_closure_contracts_with_cache(
             source_path,
         );
 
-        let contract = merge_contracts_for_candidates(
+        let (contract, resolved, explicit) = merge_contracts_for_candidates(
             source_path,
             candidates,
             summaries,
             active,
             source_path_resolver,
+            analyzed_paths,
         );
+        source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
+        source_ref_explicitness.push(explicit);
         for provided in contract.provided_bindings.iter().cloned() {
             imported_bindings.push((scope, source_ref.span, provided));
         }
@@ -129,12 +150,13 @@ fn collect_source_closure_contracts_with_cache(
         let Some(candidate) = local_helper_command_candidate(&call.name) else {
             continue;
         };
-        let contract = merge_contracts_for_candidates(
+        let (contract, _, _) = merge_contracts_for_candidates(
             source_path,
             [candidate],
             summaries,
             active,
             source_path_resolver,
+            analyzed_paths,
         );
         for name in contract.required_reads {
             synthetic_reads.push(SyntheticRead {
@@ -149,6 +171,8 @@ fn collect_source_closure_contracts_with_cache(
         synthetic_reads: dedup_synthetic_reads(synthetic_reads),
         imported_bindings: dedup_imported_bindings(imported_bindings),
         imported_functions,
+        source_ref_resolutions,
+        source_ref_explicitness,
     }
 }
 
@@ -158,10 +182,21 @@ fn merge_contracts_for_candidates(
     summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> FileContract {
+    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+) -> (FileContract, bool, bool) {
     let mut contracts = Vec::new();
+    let mut resolved = false;
+    let mut explicit = false;
     for candidate in candidates {
-        for resolved_path in resolve_helper_paths(source_path, &candidate, source_path_resolver) {
+        let resolved_paths = resolve_helper_paths(source_path, &candidate, source_path_resolver);
+        resolved |= !resolved_paths.is_empty();
+        explicit |= resolved_paths.iter().any(|path| {
+            analyzed_paths.is_some_and(|paths| {
+                paths.contains(path)
+                    || paths.contains(&fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
+            })
+        });
+        for resolved_path in resolved_paths {
             contracts.push(summarize_helper(
                 &resolved_path,
                 summaries,
@@ -170,7 +205,27 @@ fn merge_contracts_for_candidates(
             ));
         }
     }
-    FileContract::merge_candidate_contracts(&contracts)
+    (
+        FileContract::merge_candidate_contracts(&contracts),
+        resolved,
+        explicit,
+    )
+}
+
+fn classify_source_ref_resolution(kind: &SourceRefKind, resolved: bool) -> SourceRefResolution {
+    match kind {
+        SourceRefKind::DirectiveDevNull => SourceRefResolution::Resolved,
+        SourceRefKind::Literal(_)
+        | SourceRefKind::Directive(_)
+        | SourceRefKind::Dynamic
+        | SourceRefKind::SingleVariableStaticTail { .. } => {
+            if resolved {
+                SourceRefResolution::Resolved
+            } else {
+                SourceRefResolution::Unresolved
+            }
+        }
+    }
 }
 
 fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
@@ -1607,10 +1662,13 @@ fn summarize_helper_uncached(
         summaries,
         active,
         source_path_resolver,
+        None,
     );
     semantic.apply_source_contracts(
         collected.synthetic_reads.clone(),
         collected.imported_bindings.clone(),
+        collected.source_ref_resolutions.clone(),
+        collected.source_ref_explicitness.clone(),
     );
     let analysis = semantic.analysis();
 

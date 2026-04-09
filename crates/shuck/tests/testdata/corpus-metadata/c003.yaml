@@ -1,0 +1,33 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    labels:
+      - project-closure
+    reason: "These corpus fixtures build helper source paths from repo-local variables, helper roots, or test harness state that ShellCheck still treats as missing explicit inputs. Shuck keeps C003 generic and avoids baking repository-specific path conventions into its source resolver."
+  - side: shellcheck-only
+    labels:
+      - directive-handling
+    reason: "These fixtures rely on directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repo-specific directive heuristics."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 987
+    reason: "This distro probe sources an optional system release file outside the checked project tree. Shuck keeps the external dependency visible here, while ShellCheck stays silent in the corpus run."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__install_script__install_nvm_from_git"
+    line: 16
+    reason: "This test harness uses an escaped dot command to source a sibling installer script. Shuck still models that escaped builtin spelling as a sourced dependency, while ShellCheck leaves the harness line alone."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 115
+    reason: "This helper optionally sources a host-provided OS release file outside the analyzed project inputs. Shuck keeps that external dependency visible here, while ShellCheck stays silent in the corpus run."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__disabled-packages__tsmuxer__build.sh"
+    line: 16
+    reason: "This disabled package helper computes its sibling package path from a Termux repo root variable and sources it inside a subshell command substitution. We review that repo-specific path convention instead of teaching C003 another Termux-only resolver rule."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__disabled-packages__tsmuxergui__build.sh"
+    line: 19
+    reason: "This disabled package helper computes its sibling package path from a Termux repo root variable and sources it inside a subshell command substitution. We review that repo-specific path convention instead of teaching C003 another Termux-only resolver rule."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__m1n1__files__kernel.d__m1n1.post-install"
+    line: 12
+    reason: "This post-install hook only sources a host-side defaults file when a runtime root directory variable points at it. We review that deployment-specific path convention instead of widening C003 around installer-root heuristics."

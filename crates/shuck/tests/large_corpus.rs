@@ -2071,7 +2071,8 @@ fn run_shuck_with_parse_dialect(
     });
     let linter_settings = linter_settings
         .clone()
-        .with_shell(shuck_linter::ShellDialect::from_name(shell));
+        .with_shell(shuck_linter::ShellDialect::from_name(shell))
+        .with_analyzed_paths([fixture.path.clone()]);
     let diagnostics = shuck_linter::lint_file_at_path_with_resolver(
         &output.file,
         &source,

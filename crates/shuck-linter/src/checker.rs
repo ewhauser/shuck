@@ -176,6 +176,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DynamicSourcePath) {
             rules::correctness::dynamic_source_path::dynamic_source_path(self);
         }
+        if self.is_rule_enabled(Rule::UntrackedSourceFile) {
+            rules::correctness::untracked_source_file::untracked_source_file(self);
+        }
     }
 
     fn check_command_facts(&mut self) {

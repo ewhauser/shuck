@@ -25,7 +25,7 @@ pub use dataflow::{
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 pub use reference::{Reference, ReferenceId, ReferenceKind};
 pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
-pub use source_ref::{SourceRef, SourceRefKind};
+pub use source_ref::{SourceRef, SourceRefKind, SourceRefResolution};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, File, Name, Span};
@@ -557,14 +557,41 @@ impl SemanticModel {
         &mut self,
         synthetic_reads: Vec<SyntheticRead>,
         imported_bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
+        source_ref_resolutions: Vec<SourceRefResolution>,
+        source_ref_explicitness: Vec<bool>,
     ) {
-        if synthetic_reads.is_empty() && imported_bindings.is_empty() {
+        if synthetic_reads.is_empty()
+            && imported_bindings.is_empty()
+            && source_ref_resolutions.is_empty()
+            && source_ref_explicitness.is_empty()
+        {
             return;
         }
 
         let mut merged_reads = self.synthetic_reads.clone();
         merged_reads.extend(synthetic_reads);
         self.set_synthetic_reads(dedup_synthetic_reads(merged_reads));
+
+        if !source_ref_resolutions.is_empty() {
+            debug_assert_eq!(source_ref_resolutions.len(), self.source_refs.len());
+            for (source_ref, resolution) in self
+                .source_refs
+                .iter_mut()
+                .zip(source_ref_resolutions.into_iter())
+            {
+                source_ref.resolution = resolution;
+            }
+        }
+        if !source_ref_explicitness.is_empty() {
+            debug_assert_eq!(source_ref_explicitness.len(), self.source_refs.len());
+            for (source_ref, explicitly_provided) in self
+                .source_refs
+                .iter_mut()
+                .zip(source_ref_explicitness.into_iter())
+            {
+                source_ref.explicitly_provided = explicitly_provided;
+            }
+        }
 
         for (scope, span, binding) in imported_bindings {
             self.add_imported_binding(&binding, scope, span, Some(span));
@@ -907,6 +934,7 @@ pub fn build_with_observer_at_path_with_resolver(
             source_path,
             source_path_resolver,
             file_entry_contract: None,
+            analyzed_paths: None,
         },
     )
 }
@@ -923,14 +951,21 @@ fn build_semantic_model(
         model.apply_file_entry_contract(contract, file);
     }
     if let Some(source_path) = options.source_path {
-        let (synthetic_reads, imported_bindings) = source_closure::collect_source_closure_contracts(
-            &model,
-            file,
-            source,
-            source_path,
-            options.source_path_resolver,
+        let (synthetic_reads, imported_bindings, source_ref_resolutions, source_ref_explicitness) =
+            source_closure::collect_source_closure_contracts(
+                &model,
+                file,
+                source,
+                source_path,
+                options.source_path_resolver,
+                options.analyzed_paths,
+            );
+        model.apply_source_contracts(
+            synthetic_reads,
+            imported_bindings,
+            source_ref_resolutions,
+            source_ref_explicitness,
         );
-        model.apply_source_contracts(synthetic_reads, imported_bindings);
     }
     model
 }
@@ -1630,6 +1665,25 @@ source \"$x\"
             .unwrap();
         assert!(matches!(nameref.kind, BindingKind::Nameref));
         assert!(nameref.attributes.contains(BindingAttributes::NAMEREF));
+
+        assert_eq!(
+            model.source_refs()[0].kind,
+            SourceRefKind::Directive("lib.sh".to_string())
+        );
+        assert_eq!(
+            model.source_refs()[0].resolution,
+            SourceRefResolution::Unchecked
+        );
+    }
+
+    #[test]
+    fn source_directive_applies_across_contiguous_own_line_comments() {
+        let source = "\
+# shellcheck source=lib.sh
+# shellcheck disable=SC2154
+source \"$x\"
+";
+        let model = model(source);
 
         assert_eq!(
             model.source_refs()[0].kind,
@@ -3213,6 +3267,38 @@ flag=1
     }
 
     #[test]
+    fn missing_literal_source_is_marked_unresolved() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        fs::write(&main, "#!/bin/sh\n. ./missing.sh\n").unwrap();
+
+        let model = model_at_path(&main);
+
+        assert_eq!(model.source_refs().len(), 1);
+        assert_eq!(
+            model.source_refs()[0].resolution,
+            SourceRefResolution::Unresolved
+        );
+    }
+
+    #[test]
+    fn resolved_literal_source_is_marked_resolved() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(&main, "#!/bin/sh\n. ./helper.sh\n").unwrap();
+        fs::write(&helper, "echo helper\n").unwrap();
+
+        let model = model_at_path(&main);
+
+        assert_eq!(model.source_refs().len(), 1);
+        assert_eq!(
+            model.source_refs()[0].resolution,
+            SourceRefResolution::Resolved
+        );
+    }
+
+    #[test]
     fn source_path_resolver_can_use_single_variable_static_tails() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("tests/main.sh");
@@ -4239,6 +4325,10 @@ source \"$(dirname \"${BASH_SOURCE[0]}\")/missing-helper.bash\"
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
+        );
+        assert_eq!(
+            model.source_refs()[0].resolution,
+            SourceRefResolution::Resolved
         );
         let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);

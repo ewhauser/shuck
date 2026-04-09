@@ -35,7 +35,24 @@ pub fn test_path(
     let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/test/fixtures");
     let full_path = fixtures_dir.join(path);
     let source = fs::read_to_string(&full_path)?;
-    let diagnostics = test_snippet_at_path(&full_path, &source, settings);
+    let settings = if settings.analyzed_paths.is_some() {
+        settings.clone()
+    } else {
+        let analyzed_paths = full_path
+            .parent()
+            .into_iter()
+            .flat_map(|dir| fs::read_dir(dir).into_iter().flatten())
+            .flatten()
+            .filter_map(|entry| {
+                entry
+                    .file_type()
+                    .ok()
+                    .and_then(|kind| kind.is_file().then_some(entry.path()))
+            })
+            .collect::<Vec<_>>();
+        settings.clone().with_analyzed_paths(analyzed_paths)
+    };
+    let diagnostics = test_snippet_at_path(&full_path, &source, &settings);
     Ok((diagnostics, source))
 }
 

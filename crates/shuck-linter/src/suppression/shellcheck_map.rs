@@ -37,6 +37,7 @@ impl Default for ShellCheckCodeMap {
                 (2007, Rule::LegacyArithmeticExpansion),
                 (1037, Rule::PositionalTenBraces),
                 (1090, Rule::DynamicSourcePath),
+                (1091, Rule::UntrackedSourceFile),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
                 (2015, Rule::ChainedTestBranches),
@@ -89,6 +90,7 @@ mod tests {
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
+        assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
@@ -141,6 +143,7 @@ mod tests {
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
                 (1090, Rule::DynamicSourcePath),
+                (1091, Rule::UntrackedSourceFile),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
