@@ -2132,7 +2132,7 @@ pub(crate) fn group_attachment_span(
         .and_then(|_| {
             commands
                 .iter()
-                .map(stmt_span)
+                .map(|command| stmt_verbatim_span(command, source))
                 .reduce(|left, right| left.merge(right))
         })
         .map(|span| span.end.offset)
@@ -2174,6 +2174,10 @@ fn find_group_close_offset_after_sequence(
         let tail = &source[offset..];
         let ch = tail.chars().next()?;
         if ch.is_whitespace() {
+            offset += ch.len_utf8();
+            continue;
+        }
+        if ch == ';' {
             offset += ch.len_utf8();
             continue;
         }
@@ -2875,6 +2879,10 @@ mod tests {
     use crate::ShellFormatOptions;
     use shuck_parser::parser::{Parser, ShellDialect};
 
+    fn parse(source: &str) -> shuck_ast::File {
+        Parser::new(source).parse().unwrap().file
+    }
+
     #[test]
     fn parsed_standalone_assignment_renders_without_trailing_space() {
         let source = "x=1\n";
@@ -2896,5 +2904,33 @@ mod tests {
         assert!(stmt.redirects.is_empty());
         assert!(!command.name.parts.is_empty());
         assert!(command.name.render_syntax(source).is_empty());
+    }
+
+    #[test]
+    fn group_verbatim_span_keeps_wrapper_comments_with_semicolon_terminated_body() {
+        let source = "{ # note\n  echo ok; # inside\n}\n";
+        let file = parse(source);
+        let brace_group = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+
+        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+
+        assert_eq!(span.slice(source), "{ # note\n  echo ok; # inside\n}");
+    }
+
+    #[test]
+    fn group_verbatim_span_keeps_wrapper_comments_around_heredoc_bodies() {
+        let source = "{ # note\n  cat <<EOF\npayload\nEOF\n}\n";
+        let file = parse(source);
+        let brace_group = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+
+        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+
+        assert_eq!(span.slice(source), "{ # note\n  cat <<EOF\npayload\nEOF\n}");
     }
 }
