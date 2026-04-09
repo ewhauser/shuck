@@ -74,7 +74,8 @@ mod tests {
     #[test]
     fn reports_each_case_command_once() {
         let source = "#!/bin/sh\ncase $x in\n  a) : ;&\n  b) : ;;&\n  c) : ;;\nesac\n";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BashCaseFallthrough));
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::BashCaseFallthrough));
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
