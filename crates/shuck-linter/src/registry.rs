@@ -158,6 +158,7 @@ declare_rules! {
     ("X003", Category::Portability, Severity::Warning, LocalVariableInSh),
     ("X004", Category::Portability, Severity::Warning, FunctionKeyword),
     ("X005", Category::Portability, Severity::Warning, BashCaseFallthrough),
+    ("X008", Category::Portability, Severity::Warning, StandaloneArithmetic),
     ("X012", Category::Portability, Severity::Warning, AmpersandRedirection),
     ("X015", Category::Portability, Severity::Warning, LetCommand),
     ("X016", Category::Portability, Severity::Warning, DeclareCommand),
@@ -232,6 +233,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-008" => Some(Rule::LocalVariableInSh),
         "SH-009" => Some(Rule::FunctionKeyword),
         "SH-010" => Some(Rule::BashCaseFallthrough),
+        "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-020" => Some(Rule::LetCommand),
         "SH-021" => Some(Rule::DeclareCommand),
         "SH-080" => Some(Rule::SourceBuiltinInSh),
@@ -367,6 +369,7 @@ mod tests {
             Some(Rule::UnquotedCommandSubstitution)
         );
         assert_eq!(code_to_rule("SH-010"), Some(Rule::BashCaseFallthrough));
+        assert_eq!(code_to_rule("SH-013"), Some(Rule::StandaloneArithmetic));
         assert_eq!(code_to_rule("SH-034"), Some(Rule::LegacyBackticks));
         assert_eq!(
             code_to_rule("SH-035"),
@@ -490,6 +493,7 @@ mod tests {
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
         );
         assert_eq!(code_to_rule("X005"), Some(Rule::BashCaseFallthrough));
+        assert_eq!(code_to_rule("X008"), Some(Rule::StandaloneArithmetic));
         assert_eq!(code_to_rule("X036"), Some(Rule::ZshRedirPipe));
         assert_eq!(code_to_rule("SH-108"), Some(Rule::ZshRedirPipe));
         assert_eq!(code_to_rule("X038"), Some(Rule::ZshBraceIf));

@@ -90,7 +90,7 @@ related syntax in POSIX sh. Mostly surface-level AST node type checks.
 Detect bash-specific control flow constructs in POSIX sh.
 
 - [x] **L** X005 (SC3058) `bash-case-fallthrough` — `;&` / `;;&` in case
-- [ ] **L** X008 (SC3018) `standalone-arithmetic` — `(( ))` command in sh
+- [x] **L** X008 (SC3018) `standalone-arithmetic` — `(( ))` command in sh
 - [ ] **L** X009 (SC3033) `select-loop` — `select` loop in sh
 - [ ] **L** X014 (SC3007) `coproc` — `coproc` in sh
 - [ ] **L** X056 (SC3063) `c-style-for-in-sh` — `for ((...))` in sh

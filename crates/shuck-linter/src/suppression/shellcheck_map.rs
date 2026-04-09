@@ -107,6 +107,7 @@ impl Default for ShellCheckCodeMap {
             (2216, Rule::PipeToKill),
             (2233, Rule::SingleTestSubshell),
             (2235, Rule::SubshellTestGroup),
+            (3006, Rule::StandaloneArithmetic),
             // ShellCheck 0.11.0 reports `let` portability warnings as SC3039.
             // Keep SC3042 as a suppression alias, but prefer the current code for comparisons.
             (3042, Rule::LetCommand),
@@ -233,6 +234,8 @@ impl Default for ShellCheckCodeMap {
                 (2104, Rule::LoopControlOutsideLoop),
                 (2112, Rule::FunctionKeyword),
                 (2216, Rule::PipeToKill),
+                (3006, Rule::StandaloneArithmetic),
+                (3018, Rule::StandaloneArithmetic),
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
                 (3044, Rule::DeclareCommand),
@@ -378,6 +381,8 @@ mod tests {
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
+        assert_eq!(map.resolve("SC3006"), Some(Rule::StandaloneArithmetic));
+        assert_eq!(map.resolve("SC3018"), Some(Rule::StandaloneArithmetic));
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
@@ -547,6 +552,7 @@ mod tests {
                 (3015, Rule::RegexMatchInSh),
                 (3016, Rule::VTestInSh),
                 (3017, Rule::ATestInSh),
+                (3006, Rule::StandaloneArithmetic),
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
                 (3043, Rule::LocalVariableInSh),
@@ -597,6 +603,7 @@ mod tests {
             .comparison_mappings()
             .collect::<Vec<_>>();
 
+        assert!(comparison.contains(&(3006, Rule::StandaloneArithmetic)));
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));

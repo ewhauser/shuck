@@ -15,6 +15,7 @@ pub mod pipe_stderr_in_sh;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
+pub mod standalone_arithmetic;
 pub mod zsh_always_block;
 pub mod zsh_array_subscript_in_case;
 pub mod zsh_assignment_to_zero;
@@ -51,6 +52,7 @@ mod tests {
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
     #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
+    #[test_case(Rule::StandaloneArithmetic, Path::new("X008.sh"))]
     #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
