@@ -197,6 +197,7 @@ impl Default for ShellCheckCodeMap {
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
+            (2277, Rule::ExtglobInCasePattern),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2365, Rule::UnreachableAfterExit),
             (3010, Rule::DoubleBracketInSh),
@@ -337,6 +338,7 @@ impl Default for ShellCheckCodeMap {
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
+                (2277, Rule::ExtglobInCasePattern),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
                 (3010, Rule::DoubleBracketInSh),
@@ -522,6 +524,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2273"), Some(Rule::EmptyFunctionBody));
         assert_eq!(map.resolve("SC2274"), Some(Rule::BareClosingBrace));
+        assert_eq!(map.resolve("SC2277"), Some(Rule::ExtglobInCasePattern));
         assert_eq!(
             map.resolve("SC2281"),
             Some(Rule::BackslashBeforeClosingBacktick)
@@ -626,6 +629,7 @@ mod tests {
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
                 (2275, Rule::MultiVarForLoop),
+                (2277, Rule::ExtglobInCasePattern),
                 (2278, Rule::ZshPromptBracket),
                 (2279, Rule::CshSyntaxInSh),
                 (2288, Rule::TemplateBraceInCommand),

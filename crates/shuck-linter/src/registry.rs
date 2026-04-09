@@ -179,6 +179,7 @@ declare_rules! {
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
     ("X037", Category::Portability, Severity::Warning, ExtglobCase),
+    ("X048", Category::Portability, Severity::Warning, ExtglobInCasePattern),
     ("X036", Category::Portability, Severity::Warning, ZshRedirPipe),
     ("X038", Category::Portability, Severity::Warning, ZshBraceIf),
     ("X039", Category::Portability, Severity::Warning, ZshAlwaysBlock),
@@ -306,6 +307,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-109" => Some(Rule::BrokenTestEnd),
         "SH-110" => Some(Rule::BrokenTestParse),
         "SH-111" => Some(Rule::ExtglobCase),
+        "SH-182" => Some(Rule::ExtglobInCasePattern),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-115" => Some(Rule::LinebreakInTest),
@@ -466,6 +468,7 @@ mod tests {
         assert_eq!(code_to_rule("C037"), Some(Rule::BrokenTestParse));
         assert_eq!(code_to_rule("SH-110"), Some(Rule::BrokenTestParse));
         assert_eq!(code_to_rule("SH-111"), Some(Rule::ExtglobCase));
+        assert_eq!(code_to_rule("SH-182"), Some(Rule::ExtglobInCasePattern));
         assert_eq!(code_to_rule("C038"), Some(Rule::ElseIf));
         assert_eq!(code_to_rule("SH-112"), Some(Rule::ElseIf));
         assert_eq!(code_to_rule("C039"), Some(Rule::OpenDoubleQuote));

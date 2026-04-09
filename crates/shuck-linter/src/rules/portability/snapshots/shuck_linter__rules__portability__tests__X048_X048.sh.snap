@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X048 extended glob alternation in a case pattern is not portable to POSIX sh
+ --> <source>:3:7
+  |
+3 |   foo_(a|b)_*) echo match ;;
+  |
