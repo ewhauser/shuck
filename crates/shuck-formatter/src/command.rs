@@ -2172,6 +2172,10 @@ fn find_group_close_offset_after_sequence(
     let mut offset = sequence_end.min(source.len());
     while offset < source.len() {
         let tail = &source[offset..];
+        if tail.starts_with("\\\n") {
+            offset += "\\\n".len();
+            continue;
+        }
         let ch = tail.chars().next()?;
         if ch.is_whitespace() {
             offset += ch.len_utf8();
@@ -2932,5 +2936,19 @@ mod tests {
         let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
 
         assert_eq!(span.slice(source), "{ # note\n  cat <<EOF\npayload\nEOF\n}");
+    }
+
+    #[test]
+    fn group_verbatim_span_keeps_wrapper_comments_across_line_continuations() {
+        let source = "{ # note\n  echo ok; \\\n}\n";
+        let file = parse(source);
+        let brace_group = match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        };
+
+        let span = group_verbatim_span(brace_group.as_slice(), source, '{', '}');
+
+        assert_eq!(span.slice(source), "{ # note\n  echo ok; \\\n}");
     }
 }
