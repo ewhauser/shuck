@@ -7,6 +7,7 @@ pub mod constant_case_subject;
 pub mod constant_comparison_test;
 pub mod dynamic_source_path;
 pub mod empty_test;
+pub mod else_if;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod invalid_exit_status;
@@ -68,6 +69,7 @@ mod tests {
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]
     #[test_case(Rule::BrokenTestEnd, Path::new("C036.sh"))]
     #[test_case(Rule::BrokenTestParse, Path::new("C037.sh"))]
+    #[test_case(Rule::ElseIf, Path::new("C038.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]

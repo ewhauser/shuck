@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 82
+---
+C038 use `elif` instead of `else if`
+ --> <source>:4:1
+  |
+4 | else if true; then
+  |

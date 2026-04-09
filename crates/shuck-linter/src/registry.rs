@@ -113,6 +113,7 @@ declare_rules! {
     ("C035", Category::Correctness, Severity::Error, MissingFi),
     ("C036", Category::Correctness, Severity::Error, BrokenTestEnd),
     ("C037", Category::Correctness, Severity::Error, BrokenTestParse),
+    ("C038", Category::Correctness, Severity::Error, ElseIf),
     ("C046", Category::Correctness, Severity::Warning, PipeToKill),
     ("C047", Category::Correctness, Severity::Error, InvalidExitStatus),
     ("C048", Category::Correctness, Severity::Warning, CasePatternVar),
@@ -172,6 +173,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-106" => Some(Rule::MissingFi),
         "SH-109" => Some(Rule::BrokenTestEnd),
         "SH-110" => Some(Rule::BrokenTestParse),
+        "SH-112" => Some(Rule::ElseIf),
         "SH-141" => Some(Rule::InvalidExitStatus),
         "SH-142" => Some(Rule::CasePatternVar),
         "SH-144" => Some(Rule::ArithmeticRedirectionTarget),
@@ -246,6 +248,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-109"), Some(Rule::BrokenTestEnd));
         assert_eq!(code_to_rule("C037"), Some(Rule::BrokenTestParse));
         assert_eq!(code_to_rule("SH-110"), Some(Rule::BrokenTestParse));
+        assert_eq!(code_to_rule("C038"), Some(Rule::ElseIf));
+        assert_eq!(code_to_rule("SH-112"), Some(Rule::ElseIf));
         assert_eq!(code_to_rule("SH-141"), Some(Rule::InvalidExitStatus));
         assert_eq!(code_to_rule("SH-142"), Some(Rule::CasePatternVar));
         assert_eq!(
