@@ -33,7 +33,7 @@ esac
 #### ohmyzsh__ohmyzsh__lib__clipboard.zsh
 
 # source: ohmyzsh__ohmyzsh__lib__clipboard.zsh
-# parser gap: parse error at line 64, column 74: expected command
+# surface: compact function body with background-pipe redirect inside an if ladder
 
   if [[ "${OSTYPE}" == darwin* ]] && (( ${+commands[pbcopy]} )) && (( ${+commands[pbpaste]} )); then
     function clipcopy() { cat "${1:-/dev/stdin}" | pbcopy; }
@@ -50,6 +50,7 @@ esac
   elif [ -n "${DISPLAY:-}" ] && (( ${+commands[xsel]} )); then
     function clipcopy() { cat "${1:-/dev/stdin}" | xsel --clipboard --input; }
     function clippaste() { xsel --clipboard --output; }
+  fi
 
 #### ohmyzsh__ohmyzsh__lib__functions.zsh
 
@@ -290,9 +291,23 @@ done
 #### ohmyzsh__ohmyzsh__plugins__dash__dash.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__dash__dash.plugin.zsh
-# parser gap: parse error at line 84, column 2: expected command
+# surface: parameter-flag array capture and match cleanup inside _dash()
 
-  # special thanks to [arx] on #zsh for getting me sorted on this piece
+_dash() {
+  local -a enabled_docsets
+  enabled_docsets=("${(@f)$(defaults read com.kapeli.dashdoc docsets | tr -d '\n' | grep -oE '\{.*?\}' | grep -E 'isEnabled = 1;')}")
+
+  local docset keyword
+  for docset in "$enabled_docsets[@]"; do
+    keyword=''
+    if [[ "$docset" =~ "keyword = ([^;]*);" ]]; then
+      keyword="${match[1]//[\":]}"
+    fi
+    if [[ -n "$keyword" ]]; then
+      docsets+=($keyword)
+    fi
+  done
+
   compadd -qS: -- "$docsets[@]"
 }
 
@@ -360,7 +375,7 @@ esac
 #### ohmyzsh__ohmyzsh__plugins__genpass__genpass-xkcd
 
 # source: ohmyzsh__ohmyzsh__plugins__genpass__genpass-xkcd
-# parser gap: parse error at line 58, column 51: expected command after |
+# surface: nested repeat loops with zsh arithmetic char literals and redirect tail
 
 {
   local c
@@ -377,6 +392,12 @@ esac
         # Avoid bias towards words in the beginning of the list.
         (( rnd < 16#7FFFFFFF / $#words * $#words )) || continue
         print -rn -- -$words[rnd%$#words+1]
+        break
+      done
+    done
+    print
+  done
+} </dev/urandom
 
 #### ohmyzsh__ohmyzsh__plugins__git-extras__git-extras.plugin.zsh
 
@@ -1032,7 +1053,7 @@ function {
 #### ohmyzsh__ohmyzsh__plugins__wd__wd.sh
 
 # source: ohmyzsh__ohmyzsh__plugins__wd__wd.sh
-# parser gap: parse error at line 191, column 12: unexpected '(' after command word
+# surface: regex elif ladder with arithmetic subscript conditional
 
     if [[ $point =~ "^[\.]+$" ]]
     then
@@ -1055,6 +1076,9 @@ function {
             # use 'cat' below to ensure we respect $wd_config_file as a symlink
             command sort -o "${config_tmp}" "$wd_config_file" && command cat "${config_tmp}" >| "$wd_config_file" && command rm "${config_tmp}"
         fi
+    else
+        wd_exit_warn "Warp point '${point}' already exists. Use 'add --force' to overwrite."
+    fi
 
 #### ohmyzsh__ohmyzsh__plugins__xcode__xcode.plugin.zsh
 
@@ -2465,8 +2489,10 @@ function p9k_configure() {
 #### romkatv__powerlevel10k__internal__p10k.zsh
 
 # source: romkatv__powerlevel10k__internal__p10k.zsh
-# parser gap: parse error at line 231, column 3: expected command
+# surface: case arm followed by MATCH-driven replacement expressions
 
+  case $_p9k__cwd in
+    /*)
       local parent=/
       local parts=(${(s./.)_p9k__cwd})
     ;;
@@ -2478,12 +2504,11 @@ function p9k_configure() {
   fi
   _p9k__parent_mtimes_i=(${(@)${:-{1..$#parts}}/(#m)*/$MATCH:$_p9k__parent_mtimes[MATCH]})
   _p9k__parent_mtimes_s="$_p9k__parent_mtimes_i"
-}
 
 #### romkatv__powerlevel10k__internal__parser.zsh
 
 # source: romkatv__powerlevel10k__internal__parser.zsh
-# parser gap: parse error at line 182, column 14: unexpected '(' after command word
+# surface: arithmetic conditional with contextual zsh subscript inside a while loop
 
       while (( c-- > 0 )) || return; do
         token=$tokens[1]
@@ -2494,6 +2519,8 @@ function p9k_configure() {
           n=p$token
         elif (( e )); then
           break
+        fi
+      done
 
 #### romkatv__powerlevel10k__internal__wizard.zsh
 

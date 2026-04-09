@@ -607,6 +607,30 @@
     "expectation": "parse_ok",
     "reason": "regression minimization for zsh parameter word targets"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__lib__clipboard.zsh": {
+    "expectation": "parse_ok",
+    "reason": "compact function bodies with zsh background-pipe redirects now parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__dash__dash.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh parameter-flag array capture and match cleanup now parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__genpass__genpass-xkcd": {
+    "expectation": "parse_ok",
+    "reason": "nested repeat loops with zsh arithmetic char literals now parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__wd__wd.sh": {
+    "expectation": "parse_ok",
+    "reason": "regex elif ladders with arithmetic subscript conditionals now parse in this fixture"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__internal__p10k.zsh": {
+    "expectation": "parse_ok",
+    "reason": "MATCH-driven zsh replacement expressions now parse after their case arm"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__internal__parser.zsh": {
+    "expectation": "parse_ok",
+    "reason": "while loops with arithmetic conditionals and zsh contextual subscripts now parse in this fixture"
+  },
   "oils/zsh-large-corpus-regressions.test.sh": {
     "expectation": "skip",
     "reason": "zsh-only regression snippets are covered by the zsh-mode parser corpus test"
