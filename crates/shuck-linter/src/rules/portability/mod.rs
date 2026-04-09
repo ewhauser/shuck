@@ -47,3 +47,5 @@ mod tests {
         Ok(())
     }
 }
+
+pub mod zsh_redir_pipe;

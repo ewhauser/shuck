@@ -250,6 +250,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SourceInsideFunctionInSh) {
             rules::portability::source_inside_function_in_sh::source_inside_function_in_sh(self);
         }
+        if self.is_rule_enabled(Rule::ZshRedirPipe) {
+            rules::portability::zsh_redir_pipe::zsh_redir_pipe(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

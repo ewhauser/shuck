@@ -162,6 +162,7 @@ declare_rules! {
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
+    ("X036", Category::Portability, Severity::Warning, ZshRedirPipe),
     ("X040", Category::Portability, Severity::Warning, ArraySubscriptTest),
     ("X041", Category::Portability, Severity::Warning, ArraySubscriptCondition),
     ("X046", Category::Portability, Severity::Warning, ExtglobInTest),
@@ -292,6 +293,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-007" => Some(Rule::TestEqualityOperator),
         "SH-093" => Some(Rule::IfElifBashTest),
         "SH-101" => Some(Rule::ExtendedGlobInTest),
+        "SH-108" => Some(Rule::ZshRedirPipe),
         "SH-126" => Some(Rule::ArraySubscriptTest),
         "SH-127" => Some(Rule::ArraySubscriptCondition),
         "SH-174" => Some(Rule::ExtglobInTest),
@@ -450,5 +452,7 @@ mod tests {
             code_to_rule("SH-315"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
         );
+        assert_eq!(code_to_rule("X036"), Some(Rule::ZshRedirPipe));
+        assert_eq!(code_to_rule("SH-108"), Some(Rule::ZshRedirPipe));
     }
 }
