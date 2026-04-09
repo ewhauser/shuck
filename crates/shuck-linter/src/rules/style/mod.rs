@@ -6,6 +6,7 @@ pub mod legacy_backticks;
 pub mod loop_from_command_output;
 pub mod printf_format_variable;
 pub mod read_without_raw;
+pub mod single_quote_backslash;
 pub mod syntax;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
@@ -31,6 +32,7 @@ mod tests {
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
     #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
+    #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
