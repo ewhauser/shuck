@@ -197,6 +197,7 @@ impl Default for ShellCheckCodeMap {
                 (2278, Rule::ZshPromptBracket),
                 (2279, Rule::CshSyntaxInSh),
                 (2355, Rule::ZshAssignmentToZero),
+                (2359, Rule::ZshParameterFlag),
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -332,6 +333,7 @@ mod tests {
         assert_eq!(map.resolve("SC2278"), Some(Rule::ZshPromptBracket));
         assert_eq!(map.resolve("SC2279"), Some(Rule::CshSyntaxInSh));
         assert_eq!(map.resolve("SC2355"), Some(Rule::ZshAssignmentToZero));
+        assert_eq!(map.resolve("SC2359"), Some(Rule::ZshParameterFlag));
         assert_eq!(map.resolve("SC2371"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -457,6 +459,7 @@ mod tests {
                 (2278, Rule::ZshPromptBracket),
                 (2279, Rule::CshSyntaxInSh),
                 (2355, Rule::ZshAssignmentToZero),
+                (2359, Rule::ZshParameterFlag),
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2003, Rule::ExprArithmetic),

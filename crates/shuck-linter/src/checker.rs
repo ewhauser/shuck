@@ -310,6 +310,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ZshArraySubscriptInCase) {
             rules::portability::zsh_array_subscript_in_case::zsh_array_subscript_in_case(self);
         }
+        if self.is_rule_enabled(Rule::ZshParameterFlag) {
+            rules::portability::zsh_parameter_flag::zsh_parameter_flag(self);
+        }
         if self.is_rule_enabled(Rule::ZshParameterIndexFlag) {
             rules::portability::zsh_parameter_index_flag::zsh_parameter_index_flag(self);
         }
