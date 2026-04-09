@@ -412,14 +412,15 @@ fn parameter_prefers_raw_source(
     source: &str,
 ) -> bool {
     parameter.bourne().is_none_or(|syntax| match syntax {
-        BourneParameterExpansion::Operation { operator, .. } => match operator {
-            ParameterOp::ReplaceFirst { replacement, .. }
-            | ParameterOp::ReplaceAll { replacement, .. } => {
-                !replacement.slice(source).is_empty()
-                    || raw_source_slice(span, source).is_some_and(|raw| raw.ends_with("/}"))
-            }
-            _ => true,
-        },
+        BourneParameterExpansion::Operation {
+            operator:
+                ParameterOp::ReplaceFirst { replacement, .. }
+                | ParameterOp::ReplaceAll { replacement, .. },
+            ..
+        } => {
+            !replacement.slice(source).is_empty()
+                || raw_source_slice(span, source).is_some_and(|raw| raw.ends_with("/}"))
+        }
         BourneParameterExpansion::Slice {
             offset_ast,
             length_ast,
