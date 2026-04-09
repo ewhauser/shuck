@@ -307,6 +307,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ZshPromptBracket) {
             rules::portability::zsh_prompt_bracket::zsh_prompt_bracket(self);
         }
+        if self.is_rule_enabled(Rule::ZshArraySubscriptInCase) {
+            rules::portability::zsh_array_subscript_in_case::zsh_array_subscript_in_case(self);
+        }
         if self.is_rule_enabled(Rule::ZshNestedExpansion) {
             rules::portability::zsh_nested_expansion::zsh_nested_expansion(self);
         }

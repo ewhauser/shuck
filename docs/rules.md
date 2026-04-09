@@ -161,7 +161,7 @@ Detect zsh-only syntax in scripts targeting other shells.
 - [x] **L** X051 (SC2313) `zsh-nested-expansion` — zsh nested parameter expansion
 - [x] **L** X053 (SC2355) `zsh-assignment-to-zero` — assigning to `$0` (zsh idiom)
 - [ ] **L** X076 (SC2359) `zsh-parameter-flag` — zsh parameter flag in sh
-- [ ] **L** X078 (SC2371) `zsh-array-subscript-in-case` — zsh array subscript in case
+- [x] **L** X078 (SC2371) `zsh-array-subscript-in-case` — zsh array subscript in case
 - [ ] **L** X079 (SC2375) `zsh-parameter-index-flag` — zsh parameter index flag
 
 ### Test and Conditional Expressions
