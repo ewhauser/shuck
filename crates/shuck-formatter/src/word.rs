@@ -338,13 +338,13 @@ fn render_word_part(
             rendered.push('}');
         }
         WordPart::IndirectExpansion {
-            name,
+            reference,
             operator,
             operand,
             colon_variant,
         } => {
             rendered.push_str("${!");
-            rendered.push_str(name.as_ref());
+            push_var_ref(rendered, reference, source, options);
             if let Some(operator) = operator {
                 if *colon_variant {
                     rendered.push(':');
@@ -845,13 +845,13 @@ fn push_parameter_word(
             rendered.push('}');
         }
         BourneParameterExpansion::Indirect {
-            name,
+            reference,
             operator,
             operand,
             colon_variant,
         } => {
             rendered.push_str("${!");
-            rendered.push_str(name);
+            push_var_ref(rendered, reference, source, options);
             if let Some(operator) = operator {
                 if *colon_variant {
                     rendered.push(':');

@@ -527,6 +527,110 @@ fn test_parameter_forms_preserve_selector_kinds() {
 }
 
 #[test]
+fn test_braced_special_parameters_parse_as_parameter_accesses() {
+    let input = "echo ${#} ${$}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+
+    let hash = expect_array_access(&command.args[0]);
+    assert_eq!(hash.name.as_str(), "#");
+    assert_eq!(hash.name_span.slice(input), "#");
+
+    let pid = expect_array_access(&command.args[1]);
+    assert_eq!(pid.name.as_str(), "$");
+    assert_eq!(pid.name_span.slice(input), "$");
+}
+
+#[test]
+fn test_indirect_expansions_preserve_reference_structure() {
+    let input = "echo ${!tools[$target]} ${!var//$'\\n'/' '}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+
+    let (tools, operator, operand, colon_variant) =
+        expect_indirect_expansion_part(&command.args[0].parts[0].kind);
+    assert_eq!(tools.name.as_str(), "tools");
+    assert!(!colon_variant);
+    assert!(operator.is_none());
+    assert!(operand.is_none());
+    let subscript = expect_subscript(tools, input, "$target");
+    assert_eq!(subscript.syntax_text(input), "$target");
+
+    let (var, operator, operand, colon_variant) =
+        expect_indirect_expansion_part(&command.args[1].parts[0].kind);
+    assert_eq!(var.name.as_str(), "var");
+    assert!(!colon_variant);
+    assert!(operand.is_none());
+    match operator {
+        Some(ParameterOp::ReplaceAll {
+            pattern,
+            replacement,
+        }) => {
+            assert_eq!(pattern.render(input), "\n");
+            assert_eq!(replacement.slice(input), "' '");
+        }
+        other => panic!("expected replace-all indirect expansion, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_non_zsh_dialect_parses_zsh_modifier_forms_as_zsh_parameters() {
+    let input = "print ${(%):-%x} ${(f)mapfile[$WD_CONFIG]//$HOME/~}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert!(matches!(first.target, ZshExpansionTarget::Empty));
+    assert!(matches!(
+        first.operation,
+        Some(ZshExpansionOperation::Defaulting {
+            kind: ZshDefaultingOp::UseDefault,
+            ref operand,
+            colon_variant: true,
+        }) if operand.slice(input) == "%x"
+    ));
+
+    let second = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(second) = &second.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &second.target else {
+        panic!("expected zsh reference target");
+    };
+    assert_eq!(reference.name.as_str(), "mapfile");
+    let subscript = expect_subscript(reference, input, "$WD_CONFIG");
+    assert_eq!(subscript.syntax_text(input), "$WD_CONFIG");
+    assert!(matches!(
+        second.operation,
+        Some(ZshExpansionOperation::ReplacementOperation {
+            kind: ZshReplacementOp::ReplaceAll,
+            ref pattern,
+            replacement: Some(ref replacement),
+        }) if pattern.slice(input) == "$HOME" && replacement.slice(input) == "~"
+    ));
+}
+
+#[test]
+fn test_non_zsh_dialect_treats_dot_prefixed_parameter_forms_as_non_references() {
+    let input = "print ${.sh.file}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+    let parameter = expect_parameter(&command.args[0]);
+
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh-style fallback parameter syntax");
+    };
+    let ZshExpansionTarget::Word(word) = &parameter.target else {
+        panic!("expected non-reference word target");
+    };
+    assert_eq!(word.render(input), ".sh.file");
+    assert!(parameter.operation.is_none());
+}
+
+#[test]
 fn test_compound_array_assignment_preserves_mixed_element_kinds() {
     let input = "arr=(one [two]=2 [three]+=3 four)\n";
     let script = Parser::new(input).parse().unwrap().file;

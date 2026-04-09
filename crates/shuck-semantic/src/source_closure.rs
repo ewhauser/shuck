@@ -695,7 +695,10 @@ fn walk_word_parts(
             WordPart::ArrayAccess(reference) => {
                 walk_var_ref_subscript(reference, model, source, facts);
             }
-            WordPart::IndirectExpansion { operand, .. } => {
+            WordPart::IndirectExpansion {
+                reference, operand, ..
+            } => {
+                walk_var_ref_subscript(reference, model, source, facts);
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
                 }
@@ -725,7 +728,10 @@ fn walk_parameter_expansion(
             | BourneParameterExpansion::Transformation { reference, .. } => {
                 walk_var_ref_subscript(reference, model, source, facts);
             }
-            BourneParameterExpansion::Indirect { operand, .. } => {
+            BourneParameterExpansion::Indirect {
+                reference, operand, ..
+            } => {
+                walk_var_ref_subscript(reference, model, source, facts);
                 if let Some(operand) = operand {
                     walk_source_text(operand, model, source, facts);
                 }

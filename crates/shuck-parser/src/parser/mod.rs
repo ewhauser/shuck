@@ -2479,7 +2479,10 @@ impl<'a> Parser<'a> {
                     Self::rebase_arithmetic_expr(expr, base);
                 }
             }
-            WordPart::IndirectExpansion { operand, .. } => {
+            WordPart::IndirectExpansion {
+                reference, operand, ..
+            } => {
+                Self::rebase_var_ref(reference, base);
                 if let Some(operand) = operand {
                     operand.rebased(base);
                 }
@@ -2561,7 +2564,10 @@ impl<'a> Parser<'a> {
                 | BourneParameterExpansion::Transformation { reference, .. } => {
                     Self::rebase_var_ref(reference, base);
                 }
-                BourneParameterExpansion::Indirect { operand, .. } => {
+                BourneParameterExpansion::Indirect {
+                    reference, operand, ..
+                } => {
+                    Self::rebase_var_ref(reference, base);
                     if let Some(operand) = operand {
                         operand.rebased(base);
                     }
@@ -2961,12 +2967,12 @@ impl<'a> Parser<'a> {
                 length_ast,
             }),
             WordPart::IndirectExpansion {
-                name,
+                reference,
                 operator,
                 operand,
                 colon_variant,
             } => Some(BourneParameterExpansion::Indirect {
-                name,
+                reference,
                 operator,
                 operand,
                 colon_variant,
@@ -3222,6 +3228,7 @@ impl<'a> Parser<'a> {
             || raw_body.slice(self.input).starts_with(':')
             || raw_body.slice(self.input).starts_with('^')
             || raw_body.slice(self.input).starts_with('~')
+            || raw_body.slice(self.input).starts_with('.')
         {
             ParameterExpansionSyntax::Zsh(
                 self.parse_zsh_parameter_syntax(&raw_body, Position::new()),

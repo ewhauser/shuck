@@ -399,6 +399,39 @@ fn expect_prefix_match_part(part: &WordPart) -> (&Name, PrefixMatchKind) {
     }
 }
 
+fn expect_indirect_expansion_part(
+    part: &WordPart,
+) -> (&VarRef, Option<&ParameterOp>, Option<&SourceText>, bool) {
+    match part {
+        WordPart::IndirectExpansion {
+            reference,
+            operator,
+            operand,
+            colon_variant,
+        } => (
+            reference,
+            operator.as_ref(),
+            operand.as_ref(),
+            *colon_variant,
+        ),
+        WordPart::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indirect {
+                reference,
+                operator,
+                operand,
+                colon_variant,
+            }) => (
+                reference,
+                operator.as_ref(),
+                operand.as_ref(),
+                *colon_variant,
+            ),
+            _ => panic!("expected indirect expansion part, got {:?}", part),
+        },
+        _ => panic!("expected indirect expansion part, got {:?}", part),
+    }
+}
+
 fn expect_simple(stmt: &Stmt) -> &AstSimpleCommand {
     let AstCommand::Simple(command) = &stmt.command else {
         panic!("expected simple command");

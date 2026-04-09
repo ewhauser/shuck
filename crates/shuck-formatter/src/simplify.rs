@@ -1203,11 +1203,15 @@ fn rewrite_word_part_source_texts(
                 + length.as_mut().map_or(0, |length| visitor(length, source))
         }
         WordPart::IndirectExpansion {
-            operand, operator, ..
+            reference,
+            operand,
+            operator,
+            ..
         } => {
-            operand
-                .as_mut()
-                .map_or(0, |operand| visitor(operand, source))
+            rewrite_var_ref_source_texts(reference, source, visitor)
+                + operand
+                    .as_mut()
+                    .map_or(0, |operand| visitor(operand, source))
                 + operator.as_mut().map_or(0, |operator| {
                     rewrite_parameter_op_source_texts(operator, source, visitor)
                 })
@@ -1262,11 +1266,15 @@ fn rewrite_parameter_source_texts(
                 rewrite_var_ref_source_texts(reference, source, visitor)
             }
             BourneParameterExpansion::Indirect {
-                operator, operand, ..
+                reference,
+                operator,
+                operand,
+                ..
             } => {
-                operand
-                    .as_mut()
-                    .map_or(0, |operand| visitor(operand, source))
+                rewrite_var_ref_source_texts(reference, source, visitor)
+                    + operand
+                        .as_mut()
+                        .map_or(0, |operand| visitor(operand, source))
                     + operator.as_mut().map_or(0, |operator| {
                         rewrite_parameter_op_source_texts(operator, source, visitor)
                     })
@@ -1364,12 +1372,12 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
             format!("!{}", render_var_ref_syntax(reference, source))
         }
         BourneParameterExpansion::Indirect {
-            name,
+            reference,
             operator,
             operand,
             colon_variant,
         } => {
-            let mut rendered = format!("!{name}");
+            let mut rendered = format!("!{}", render_var_ref_syntax(reference, source));
             if let Some(operator) = operator {
                 if *colon_variant {
                     rendered.push(':');

@@ -39,9 +39,13 @@ pub fn undefined_variable(checker: &mut Checker) {
     });
 
     let mut reported_names = FxHashSet::default();
+    let mut suppressed_names = FxHashSet::default();
 
     for uninitialized in uninitialized_references {
         let reference = checker.semantic().reference(uninitialized.reference);
+        if reported_names.contains(&reference.name) || suppressed_names.contains(&reference.name) {
+            continue;
+        }
         if matches!(
             reference.kind,
             ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
@@ -49,9 +53,11 @@ pub fn undefined_variable(checker: &mut Checker) {
             continue;
         }
         if is_shell_special_parameter(reference.name.as_str()) {
+            suppressed_names.insert(reference.name.clone());
             continue;
         }
         if is_environment_style_name(reference.name.as_str()) {
+            suppressed_names.insert(reference.name.clone());
             continue;
         }
         if checker
@@ -59,16 +65,26 @@ pub fn undefined_variable(checker: &mut Checker) {
             .presence_tested_names()
             .contains(&reference.name)
         {
+            suppressed_names.insert(reference.name.clone());
             continue;
         }
-        if checker
+        let defining_bindings: Vec<_> = checker
             .semantic()
             .bindings_for(&reference.name)
             .iter()
-            .any(|binding_id| {
+            .copied()
+            .filter(|binding_id| {
                 is_sc2154_defining_binding(checker.semantic().binding(*binding_id).kind)
             })
+            .collect();
+        if !defining_bindings.is_empty()
+            && !defining_bindings.iter().all(|binding_id| {
+                let binding = checker.semantic().binding(*binding_id);
+                binding.span.start.line == reference.span.start.line
+                    && binding.span.start.offset < reference.span.start.offset
+            })
         {
+            suppressed_names.insert(reference.name.clone());
             continue;
         }
         if checker.facts().is_subscript_index_reference(reference.span) {

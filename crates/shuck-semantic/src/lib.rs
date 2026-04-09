@@ -3393,6 +3393,32 @@ EOF
     }
 
     #[test]
+    fn unquoted_heredoc_body_reports_live_uninitialized_reads() {
+        let source = "\
+archname=archive
+cat <<EOF > \"$archname\"
+#!/bin/sh
+ORIG_UMASK=`umask`
+if test \"$KEEP_UMASK\" = n; then
+    umask 077
+fi
+
+CRCsum=\"$CRCsum\"
+archdirname=\"$archdirname\"
+EOF
+";
+        let mut model = model(source);
+        let details = uninitialized_details(&mut model);
+
+        assert!(
+            details.iter().any(|(name, certainty)| name == "CRCsum"
+                && *certainty == UninitializedCertainty::Definite)
+        );
+        assert!(details.iter().any(|(name, certainty)| name == "archdirname"
+            && *certainty == UninitializedCertainty::Definite));
+    }
+
+    #[test]
     fn quoted_heredoc_source_text_does_not_keep_assignments_live() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.bash");

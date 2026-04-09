@@ -465,6 +465,35 @@ fn test_unquoted_heredoc_body_preserves_multiple_quoted_fragments() {
 }
 
 #[test]
+fn test_unquoted_heredoc_body_keeps_later_expansions_live_after_quoted_lines() {
+    let input = "\
+cat <<EOF > \"$archname\"
+#!/bin/sh
+ORIG_UMASK=`umask`
+if test \"$KEEP_UMASK\" = n; then
+    umask 077
+fi
+
+CRCsum=\"$CRCsum\"
+archdirname=\"$archdirname\"
+EOF
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let body = &redirect_heredoc(&script.body[0].redirects[0]).body;
+    let slices = top_level_part_slices(body, input);
+
+    assert!(
+        slices.contains(&"\"$CRCsum\""),
+        "expected heredoc body to keep $CRCsum inside a live fragment: {slices:?}"
+    );
+    assert!(
+        slices.contains(&"\"$archdirname\""),
+        "expected heredoc body to keep $archdirname inside a live fragment: {slices:?}"
+    );
+}
+
+#[test]
 fn test_unquoted_heredoc_body_leaves_unmatched_single_quote_literal() {
     let input = "cat <<EOF\n'$HOME\nEOF\n";
     let script = Parser::new(input).parse().unwrap().file;

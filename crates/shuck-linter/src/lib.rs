@@ -1436,10 +1436,70 @@ printf '%s %s\\n' \"${!name}\" \"$ref\"
 
     #[test]
     fn unresolved_indirect_expansion_carrier_is_still_reported() {
-        let diagnostics = lint_for_rule(
-            "\
+        let source = "\
 #!/bin/bash
 printf '%s\\n' \"${!foo}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("foo"));
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 16);
+    }
+
+    #[test]
+    fn unresolved_indirect_expansion_with_subscript_reports_carrier_only() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${!tools[$target]}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("tools"));
+        assert!(!diagnostics[0].message.contains("target"));
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 16);
+    }
+
+    #[test]
+    fn unresolved_indirect_replacement_reports_carrier_only() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${!var//$'\\n'/' '}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("var"));
+        assert!(!diagnostics[0].message.contains("!var//"));
+    }
+
+    #[test]
+    fn undefined_variable_anchors_parameter_operator_reports_to_carrier_name() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${missing%%/*}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("missing"));
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 16);
+    }
+
+    #[test]
+    fn undefined_variable_reports_self_referential_assignments() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+foo=\"$foo\"
 ",
             Rule::UndefinedVariable,
         );
@@ -1447,6 +1507,38 @@ printf '%s\\n' \"${!foo}\"
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
         assert!(diagnostics[0].message.contains("foo"));
+    }
+
+    #[test]
+    fn unquoted_heredoc_generated_shell_text_reports_c006() {
+        let diagnostics = lint_for_rule(
+            "\
+archname=archive
+cat <<EOF > \"$archname\"
+#!/bin/sh
+ORIG_UMASK=`umask`
+if test \"$KEEP_UMASK\" = n; then
+    umask 077
+fi
+
+CRCsum=\"$CRCsum\"
+archdirname=\"$archdirname\"
+EOF
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("CRCsum"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("archdirname"))
+        );
     }
 
     #[test]
@@ -1528,6 +1620,7 @@ printf '%s\\n' \"$guarded\"
 readonly declared
 export exported
 printf '%s %s %s\\n' \"$1\" \"$@\" \"$#\"
+printf '%s %s\\n' \"${#}\" \"${$}\"
 ",
             Rule::UndefinedVariable,
         );

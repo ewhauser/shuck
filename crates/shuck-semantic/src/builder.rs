@@ -1357,14 +1357,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                 );
             }
-            WordPart::IndirectExpansion { name, .. } => {
-                let id = self.add_reference(
-                    name,
+            WordPart::IndirectExpansion { reference, .. } => {
+                let id = self.visit_var_ref_reference(
+                    reference,
                     if matches!(kind, WordVisitKind::Conditional) {
                         ReferenceKind::ConditionalOperand
                     } else {
                         ReferenceKind::IndirectExpansion
                     },
+                    flow,
+                    nested_regions,
                     span,
                 );
                 self.indirect_expansion_refs.insert(id);
@@ -1474,14 +1476,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                 }
-                BourneParameterExpansion::Indirect { name, .. } => {
-                    let id = self.add_reference(
-                        name,
+                BourneParameterExpansion::Indirect { reference, .. } => {
+                    let id = self.visit_var_ref_reference(
+                        reference,
                         if matches!(kind, WordVisitKind::Conditional) {
                             ReferenceKind::ConditionalOperand
                         } else {
                             ReferenceKind::IndirectExpansion
                         },
+                        flow,
+                        nested_regions,
                         span,
                     );
                     self.indirect_expansion_refs.insert(id);

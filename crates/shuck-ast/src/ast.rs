@@ -1312,7 +1312,7 @@ pub enum BourneParameterExpansion {
         reference: VarRef,
     },
     Indirect {
-        name: Name,
+        reference: VarRef,
         operator: Option<ParameterOp>,
         operand: Option<SourceText>,
         colon_variant: bool,
@@ -2032,7 +2032,7 @@ pub enum WordPart {
     /// Indirect expansion `${!var}` - expands to value of variable named by var's value
     /// Optionally composed with an operator: `${!var:-default}`, `${!var:=val}`, etc.
     IndirectExpansion {
-        name: Name,
+        reference: VarRef,
         operator: Option<ParameterOp>,
         operand: Option<SourceText>,
         colon_variant: bool,
@@ -2472,11 +2472,13 @@ fn fmt_word_part_with_source_mode(
             }
         }
         WordPart::IndirectExpansion {
-            name,
+            reference,
             operator,
             operand,
             colon_variant,
         } => {
+            let mut reference_syntax = String::new();
+            fmt_var_ref_with_source(&mut reference_syntax, reference, source)?;
             if let Some(op) = operator {
                 let c = if *colon_variant { ":" } else { "" };
                 let op_char = match op {
@@ -2489,13 +2491,13 @@ fn fmt_word_part_with_source_mode(
                 write!(
                     f,
                     "${{!{}{}{}{}}}",
-                    name,
+                    reference_syntax,
                     c,
                     op_char,
                     display_source_text(operand.as_ref(), source)
                 )?
             } else {
-                write!(f, "${{!{}}}", name)?
+                write!(f, "${{!{}}}", reference_syntax)?
             }
         }
         WordPart::PrefixMatch { prefix, kind } => write!(f, "${{!{}{}}}", prefix, kind.as_char())?,
@@ -2602,8 +2604,15 @@ fn part_is_source_backed(part: &WordPart) -> bool {
             ..
         } => reference.is_source_backed() && index.is_source_backed(),
         WordPart::IndirectExpansion {
-            operand, operator, ..
-        } => operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed),
+            reference,
+            operand,
+            operator,
+            ..
+        } => {
+            reference.is_source_backed()
+                && operator.is_none()
+                && operand.as_ref().is_none_or(SourceText::is_source_backed)
+        }
         WordPart::CommandSubstitution { .. }
         | WordPart::Variable(_)
         | WordPart::PrefixMatch { .. }
@@ -3369,7 +3378,7 @@ mod tests {
     #[test]
     fn word_display_indirect_expansion() {
         let w = word(vec![WordPart::IndirectExpansion {
-            name: "ref".into(),
+            reference: scalar_ref("ref"),
             operator: None,
             operand: None,
             colon_variant: false,

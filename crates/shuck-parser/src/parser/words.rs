@@ -1337,9 +1337,14 @@ impl<'a> Parser<'a> {
                         && length.as_ref().is_none_or(SourceText::is_source_backed)
                 }
                 WordPart::IndirectExpansion {
-                    operator, operand, ..
+                    reference,
+                    operator,
+                    operand,
+                    ..
                 } => {
-                    operator.is_none() && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                    reference.is_source_backed()
+                        && operator.is_none()
+                        && operand.as_ref().is_none_or(SourceText::is_source_backed)
                 }
             }
     }
@@ -1562,13 +1567,13 @@ impl<'a> Parser<'a> {
                 out.push('}');
             }
             WordPart::IndirectExpansion {
-                name,
+                reference,
                 operator,
                 operand,
                 colon_variant,
             } => {
                 out.push_str("${!");
-                out.push_str(name.as_str());
+                self.push_var_ref_syntax(out, reference);
                 if let Some(operator) = operator {
                     self.push_parameter_operator_syntax(
                         out,
@@ -2843,12 +2848,10 @@ impl<'a> Parser<'a> {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                 let brace_body_start = cursor;
 
-                if self.dialect.features().zsh_parameter_modifiers
-                    && matches!(
-                        chars.peek(),
-                        Some(&'(') | Some(&':') | Some(&'^') | Some(&'~')
-                    )
-                {
+                if matches!(
+                    chars.peek(),
+                    Some(&'(') | Some(&':') | Some(&'^') | Some(&'~') | Some(&'.')
+                ) {
                     let raw_body = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                     let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);
                     Self::push_word_part(parts, parameter, part_start, cursor);
@@ -2857,6 +2860,18 @@ impl<'a> Parser<'a> {
                 }
 
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '#') {
+                    if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                        let part = self.parameter_word_part_from_legacy(
+                            WordPart::Variable("#".into()),
+                            part_start,
+                            cursor,
+                            source_backed,
+                        );
+                        Self::push_word_part(parts, part, part_start, cursor);
+                        current_start = cursor;
+                        continue;
+                    }
+
                     let var_name =
                         Self::read_word_while(&mut chars, &mut cursor, |c| c != '}' && c != '[');
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
@@ -2910,54 +2925,54 @@ impl<'a> Parser<'a> {
 
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '!') {
                     let var_name = Self::read_word_while(&mut chars, &mut cursor, |c| {
-                        !matches!(c, '}' | '[' | '*' | '@' | ':' | '-' | '=' | '+' | '?')
+                        !matches!(
+                            c,
+                            '}' | '['
+                                | '*'
+                                | '@'
+                                | ':'
+                                | '-'
+                                | '='
+                                | '+'
+                                | '?'
+                                | '#'
+                                | '%'
+                                | '/'
+                                | '^'
+                                | ','
+                        )
                     });
 
-                    if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
+                    let subscript = if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                         let (index, raw_index) =
                             self.read_array_index(&mut chars, &mut cursor, source_backed);
-                        Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                        let subscript = self.subscript_from_source_text(
+                        Some(self.subscript_from_source_text(
                             index,
                             raw_index,
                             SubscriptInterpretation::Contextual,
-                        );
-                        let reference = self.parameter_var_ref(
-                            part_start,
-                            "${!",
-                            &var_name,
-                            Some(subscript),
-                            cursor,
-                        );
-                        let part = if reference
-                            .subscript
-                            .as_ref()
-                            .and_then(Subscript::selector)
-                            .is_some()
-                        {
-                            WordPart::ArrayIndices(reference)
-                        } else {
-                            WordPart::Variable(
-                                format!(
-                                    "!{}[{}]",
-                                    var_name,
-                                    reference
-                                        .subscript
-                                        .as_ref()
-                                        .map(|subscript| subscript.syntax_text(self.input))
-                                        .unwrap_or_default()
-                                )
-                                .into(),
-                            )
-                        };
-                        Self::push_word_part(parts, part, part_start, cursor);
-                    } else if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                        ))
+                    } else {
+                        None
+                    };
+
+                    if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                        let reference =
+                            self.parameter_var_ref(part_start, "${!", &var_name, subscript, cursor);
                         let part = self.parameter_word_part_from_legacy(
-                            WordPart::IndirectExpansion {
-                                name: var_name.into(),
-                                operator: None,
-                                operand: None,
-                                colon_variant: false,
+                            if reference
+                                .subscript
+                                .as_ref()
+                                .and_then(Subscript::selector)
+                                .is_some()
+                            {
+                                WordPart::ArrayIndices(reference)
+                            } else {
+                                WordPart::IndirectExpansion {
+                                    reference,
+                                    operator: None,
+                                    operand: None,
+                                    colon_variant: false,
+                                }
                             },
                             part_start,
                             cursor,
@@ -2978,7 +2993,9 @@ impl<'a> Parser<'a> {
                                 self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                             let part = self.parameter_word_part_from_legacy(
                                 WordPart::IndirectExpansion {
-                                    name: var_name.into(),
+                                    reference: self.parameter_var_ref(
+                                        part_start, "${!", &var_name, subscript, cursor,
+                                    ),
                                     operator: Some(operator),
                                     operand: Some(operand),
                                     colon_variant: true,
@@ -2999,7 +3016,20 @@ impl<'a> Parser<'a> {
                             }
                             Self::push_word_part(
                                 parts,
-                                WordPart::Variable(format!("!{}{}", var_name, suffix).into()),
+                                WordPart::Variable(
+                                    format!(
+                                        "!{}{}{}",
+                                        var_name,
+                                        subscript
+                                            .as_ref()
+                                            .map(|subscript| {
+                                                format!("[{}]", subscript.syntax_text(self.input))
+                                            })
+                                            .unwrap_or_default(),
+                                        suffix
+                                    )
+                                    .into(),
+                                ),
                                 part_start,
                                 cursor,
                             );
@@ -3020,11 +3050,101 @@ impl<'a> Parser<'a> {
                         };
                         let part = self.parameter_word_part_from_legacy(
                             WordPart::IndirectExpansion {
-                                name: var_name.into(),
+                                reference: self.parameter_var_ref(
+                                    part_start, "${!", &var_name, subscript, cursor,
+                                ),
                                 operator: Some(operator),
                                 operand: Some(operand),
                                 colon_variant: false,
                             },
+                            part_start,
+                            cursor,
+                            source_backed,
+                        );
+                        Self::push_word_part(parts, part, part_start, cursor);
+                    } else if matches!(chars.peek(), Some(&'#') | Some(&'%') | Some(&'/')) {
+                        let reference =
+                            self.parameter_var_ref(part_start, "${!", &var_name, subscript, cursor);
+                        let part = match Self::next_word_char_unwrap(&mut chars, &mut cursor) {
+                            '#' => {
+                                let longest =
+                                    Self::consume_word_char_if(&mut chars, &mut cursor, '#');
+                                let operand_text =
+                                    self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                                let pattern = self.pattern_from_source_text(&operand_text);
+                                let operator = if longest {
+                                    ParameterOp::RemovePrefixLong { pattern }
+                                } else {
+                                    ParameterOp::RemovePrefixShort { pattern }
+                                };
+                                WordPart::IndirectExpansion {
+                                    reference,
+                                    operator: Some(operator),
+                                    operand: None,
+                                    colon_variant: false,
+                                }
+                            }
+                            '%' => {
+                                let longest =
+                                    Self::consume_word_char_if(&mut chars, &mut cursor, '%');
+                                let operand_text =
+                                    self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                                let pattern = self.pattern_from_source_text(&operand_text);
+                                let operator = if longest {
+                                    ParameterOp::RemoveSuffixLong { pattern }
+                                } else {
+                                    ParameterOp::RemoveSuffixShort { pattern }
+                                };
+                                WordPart::IndirectExpansion {
+                                    reference,
+                                    operator: Some(operator),
+                                    operand: None,
+                                    colon_variant: false,
+                                }
+                            }
+                            '/' => {
+                                let replace_all =
+                                    Self::consume_word_char_if(&mut chars, &mut cursor, '/');
+                                let pattern_text = self.read_replacement_pattern(
+                                    &mut chars,
+                                    &mut cursor,
+                                    source_backed,
+                                );
+                                let pattern = self.pattern_from_source_text(&pattern_text);
+                                let replacement =
+                                    if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
+                                        self.read_source_text_while(
+                                            &mut chars,
+                                            &mut cursor,
+                                            |ch| ch != '}',
+                                            source_backed,
+                                        )
+                                    } else {
+                                        self.empty_source_text(cursor)
+                                    };
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                                let operator = if replace_all {
+                                    ParameterOp::ReplaceAll {
+                                        pattern,
+                                        replacement,
+                                    }
+                                } else {
+                                    ParameterOp::ReplaceFirst {
+                                        pattern,
+                                        replacement,
+                                    }
+                                };
+                                WordPart::IndirectExpansion {
+                                    reference,
+                                    operator: Some(operator),
+                                    operand: None,
+                                    colon_variant: false,
+                                }
+                            }
+                            _ => unreachable!(),
+                        };
+                        let part = self.parameter_word_part_from_legacy(
+                            part,
                             part_start,
                             cursor,
                             source_backed,
@@ -3051,7 +3171,20 @@ impl<'a> Parser<'a> {
                                 kind,
                             }
                         } else {
-                            WordPart::Variable(format!("!{}{}", var_name, suffix).into())
+                            WordPart::Variable(
+                                format!(
+                                    "!{}{}{}",
+                                    var_name,
+                                    subscript
+                                        .as_ref()
+                                        .map(|subscript| {
+                                            format!("[{}]", subscript.syntax_text(self.input))
+                                        })
+                                        .unwrap_or_default(),
+                                    suffix
+                                )
+                                .into(),
+                            )
                         };
                         let part = self.parameter_word_part_from_legacy(
                             part,
@@ -3072,7 +3205,7 @@ impl<'a> Parser<'a> {
 
                 if var_name.is_empty()
                     && let Some(&c) = chars.peek()
-                    && matches!(c, '@' | '*')
+                    && matches!(c, '@' | '*' | '#' | '?' | '-' | '$' | '!')
                 {
                     var_name.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
                 }
@@ -3675,6 +3808,31 @@ impl<'a> Parser<'a> {
     ) -> Word {
         let mut parts = Vec::new();
         self.decode_word_parts_into_with_quote_fragments(s, base, source_backed, true, &mut parts);
+        self.word_with_parts(parts, span)
+    }
+
+    pub(super) fn decode_heredoc_body_text(
+        &mut self,
+        s: &str,
+        span: Span,
+        source_backed: bool,
+    ) -> Word {
+        let mut parts = Vec::new();
+        let mut line_start = span.start;
+
+        for line in s.split_inclusive('\n') {
+            let line_end = line_start.advanced_by(line);
+            let line_span = Span::from_positions(line_start, line_end);
+            let line_word = self.decode_word_text_preserving_quotes_if_needed(
+                line,
+                line_span,
+                line_start,
+                source_backed,
+            );
+            parts.extend(line_word.parts);
+            line_start = line_end;
+        }
+
         self.word_with_parts(parts, span)
     }
 

@@ -71,12 +71,7 @@ impl<'a> Parser<'a> {
         let body = if quoted {
             Word::quoted_literal_with_span(content, content_span)
         } else {
-            self.decode_word_text_preserving_quotes_if_needed(
-                &content,
-                content_span,
-                content_span.start,
-                !strip_tabs,
-            )
+            self.decode_heredoc_body_text(&content, content_span, !strip_tabs)
         };
 
         redirects.push(Redirect {

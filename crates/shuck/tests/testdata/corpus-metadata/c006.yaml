@@ -1,0 +1,384 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This acme.sh helper uses directive-heavy project-local plumbing that ShellCheck leaves alone in the corpus run, so we review this file narrowly instead of teaching C006 a special helper contract."
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__dnsapi__dns_dnsservices.sh"
+    labels:
+      - directive-handling
+    reason: "This acme.sh helper uses directive-heavy project-local plumbing that ShellCheck leaves alone in the corpus run, so we review this file narrowly instead of teaching C006 a special helper contract."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_install_no_progress_bar"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This nvm test harness reads helper-produced line bookkeeping that ShellCheck does not compare as live state in the corpus run."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This oh-my-zsh helper relies on completion/runtime state provided by surrounding functions, so the remaining Shuck-side read is reviewed narrowly."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__wd___wd.sh"
+    labels:
+      - helper-library
+      - shell-collapse
+    reason: "This zsh completion helper uses a zsh-specific mapfile expansion shape inside a shell-collapse context, and ShellCheck stays quiet on the corpus fixture."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__bin__rvmsudo"
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__bin__rvmsudo"
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    labels:
+      - project-closure
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__contrib__ps1_functions"
+    reason: "This prompt helper still carries an isolated runtime-formatting C006 difference, and we keep it reviewed narrowly instead of broadening C006 around prompt text."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__cli"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__docs"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config_system"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__gemset"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__init"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__list"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    labels:
+      - project-closure
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install_patches"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__ree"
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__ruby"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__pkg"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__netbsd"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__rubygems"
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rubygems"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_trust"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__selector"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__support"
+    labels:
+      - project-closure
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__support"
+    labels:
+      - project-closure
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__utility_logging"
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__gemsets"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__help"
+    labels:
+      - project-closure
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    labels:
+      - project-closure
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    labels:
+      - project-closure
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__install"
+    labels:
+      - project-closure
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__list"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__maglev"
+    labels:
+      - project-closure
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__maglev"
+    labels:
+      - project-closure
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__notes"
+    labels:
+      - project-closure
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__rvm"
+    labels:
+      - project-closure
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__tsocks__04_getpeername.patch"
+    reason: "This patch fixture contains generated configure-style placeholders that ShellCheck does not compare as live shell variables in the corpus run."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__config.guess"
+    labels:
+      - directive-handling
+    reason: "This imported config.guess helper is directive-heavy, and ShellCheck stays quiet on this exact placeholder read in the corpus run."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__librewolf__build.sh"
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__librewolf__build.sh"
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__cmake.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__fetch.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__build-style__gem.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__gemspec.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__build-style__gemspec.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__go.sh"
+    labels:
+      - shell-collapse
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__build-style__go.sh"
+    labels:
+      - shell-collapse
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__haskell-stack.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__perl-module.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__python3-pep517.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__qmake.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__sip-build.sh"
+    labels:
+      - shell-collapse
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__build-style__sip-build.sh"
+    labels:
+      - shell-collapse
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__texmf.sh"
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__void-cross.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__chroot-style__ethereal.sh"
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__environment__setup__replace-interpreter.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__environment__setup__sourcepkg.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__hooks__post-install__04-create-xbps-metadata-scripts.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__hooks__post-install__04-create-xbps-metadata-scripts.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__hooks__post-install__15-qt-private-api.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__hooks__post-install__15-qt-private-api.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__hooks__pre-pkg__04-generate-runtime-deps.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__hooks__pre-pkg__99-pkglint.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__libexec__build.sh"
+    labels:
+      - project-closure
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__build_dependencies.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__bulk.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__pkgtarget.sh"
+    labels:
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__show.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__update_check.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__xbps-triggers__files__pycompile"
+    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."

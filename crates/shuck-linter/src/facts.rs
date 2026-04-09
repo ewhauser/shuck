@@ -1584,9 +1584,7 @@ fn collect_presence_tested_names_from_word_parts(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_presence_tested_names_from_word_parts(parts, names);
             }
-            WordPart::Variable(name)
-            | WordPart::IndirectExpansion { name, .. }
-            | WordPart::PrefixMatch { prefix: name, .. } => {
+            WordPart::Variable(name) | WordPart::PrefixMatch { prefix: name, .. } => {
                 names.insert(name.clone());
             }
             WordPart::ParameterExpansion { reference, .. }
@@ -1594,6 +1592,7 @@ fn collect_presence_tested_names_from_word_parts(
             | WordPart::ArrayLength(reference)
             | WordPart::ArrayAccess(reference)
             | WordPart::ArrayIndices(reference)
+            | WordPart::IndirectExpansion { reference, .. }
             | WordPart::Substring { reference, .. }
             | WordPart::ArraySlice { reference, .. }
             | WordPart::Transformation { reference, .. } => {
@@ -1621,13 +1620,13 @@ fn collect_presence_tested_names_from_parameter_expansion(
             BourneParameterExpansion::Access { reference }
             | BourneParameterExpansion::Length { reference }
             | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Indirect { reference, .. }
             | BourneParameterExpansion::Slice { reference, .. }
             | BourneParameterExpansion::Operation { reference, .. }
             | BourneParameterExpansion::Transformation { reference, .. } => {
                 names.insert(reference.name.clone());
             }
-            BourneParameterExpansion::Indirect { name, .. }
-            | BourneParameterExpansion::PrefixMatch { prefix: name, .. } => {
+            BourneParameterExpansion::PrefixMatch { prefix: name, .. } => {
                 names.insert(name.clone());
             }
         },
@@ -3731,13 +3730,21 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     self.record_var_ref_subscript(reference);
                 }
                 WordPart::IndirectExpansion {
+                    reference,
                     operator: Some(operator),
                     ..
-                } => self.collect_parameter_operator_patterns(operator, context),
-                WordPart::Literal(_)
-                | WordPart::Variable(_)
-                | WordPart::IndirectExpansion { operator: None, .. }
-                | WordPart::PrefixMatch { .. } => {}
+                } => {
+                    self.record_var_ref_subscript(reference);
+                    self.collect_parameter_operator_patterns(operator, context);
+                }
+                WordPart::IndirectExpansion {
+                    reference,
+                    operator: None,
+                    ..
+                } => {
+                    self.record_var_ref_subscript(reference);
+                }
+                WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
             }
         }
     }
@@ -3846,13 +3853,13 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 BourneParameterExpansion::Access { reference }
                 | BourneParameterExpansion::Length { reference }
                 | BourneParameterExpansion::Indices { reference }
+                | BourneParameterExpansion::Indirect { reference, .. }
                 | BourneParameterExpansion::Slice { reference, .. }
                 | BourneParameterExpansion::Operation { reference, .. }
                 | BourneParameterExpansion::Transformation { reference, .. } => {
                     self.record_var_ref_subscript(reference);
                 }
-                BourneParameterExpansion::Indirect { .. }
-                | BourneParameterExpansion::PrefixMatch { .. } => {}
+                BourneParameterExpansion::PrefixMatch { .. } => {}
             },
             ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
                 ZshExpansionTarget::Reference(reference) => {

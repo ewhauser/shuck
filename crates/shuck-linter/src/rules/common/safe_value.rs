@@ -114,15 +114,15 @@ impl<'a> SafeValueIndex<'a> {
                 operator,
             } => self.transformation_is_safe(reference, *operator, span, query),
             WordPart::IndirectExpansion {
-                name,
+                reference,
                 operator,
                 operand,
                 ..
             } => {
-                self.indirect_name_is_safe(name, span, query)
+                self.indirect_name_is_safe(reference, span, query)
                     && operator.as_ref().is_none_or(|operator| {
                         self.parameter_operator_is_safe(
-                            name,
+                            &reference.name,
                             operator,
                             operand.as_ref(),
                             span,
@@ -228,12 +228,20 @@ impl<'a> SafeValueIndex<'a> {
         self.name_is_safe(&reference.name, at, query)
     }
 
-    fn indirect_name_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
+    fn indirect_name_is_safe(
+        &mut self,
+        reference: &VarRef,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if query != SafeValueQuery::Quoted && reference.has_array_selector() {
+            return false;
+        }
         if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
             return false;
         }
 
-        let Some(binding) = self.semantic.visible_binding(name, at) else {
+        let Some(binding) = self.semantic.visible_binding(&reference.name, at) else {
             return false;
         };
         let targets = self.semantic.indirect_targets_for_binding(binding.id);
@@ -277,15 +285,15 @@ impl<'a> SafeValueIndex<'a> {
                 BourneParameterExpansion::Indices { .. }
                 | BourneParameterExpansion::PrefixMatch { .. } => query == SafeValueQuery::Quoted,
                 BourneParameterExpansion::Indirect {
-                    name,
+                    reference,
                     operator,
                     operand,
                     ..
                 } => {
-                    self.indirect_name_is_safe(name, at, query)
+                    self.indirect_name_is_safe(reference, at, query)
                         && operator.as_ref().is_none_or(|operator| {
                             self.parameter_operator_is_safe(
-                                name,
+                                &reference.name,
                                 operator,
                                 operand.as_ref(),
                                 at,
