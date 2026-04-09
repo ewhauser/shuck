@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 82
+---
+C060 shebang should use an absolute path or `/usr/bin/env`
+ --> <source>:1:1
+  |
+1 | #!@PREFIX@/bin/sh
+  |

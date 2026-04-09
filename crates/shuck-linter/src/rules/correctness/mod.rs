@@ -21,6 +21,7 @@ pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
 pub mod missing_fi;
+pub mod non_absolute_shebang;
 pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
@@ -93,6 +94,7 @@ mod tests {
     #[test_case(Rule::SubstWithRedirect, Path::new("C057.sh"))]
     #[test_case(Rule::SubstWithRedirectErr, Path::new("C058.sh"))]
     #[test_case(Rule::RedirectToCommandName, Path::new("C059.sh"))]
+    #[test_case(Rule::NonAbsoluteShebang, Path::new("C060.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {

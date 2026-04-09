@@ -17,9 +17,9 @@ use shuck_ast::{
     Assignment, AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand,
     Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, Name, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, Redirect, RedirectKind, SelectCommand, SimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
+    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
+    WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1201,6 +1201,7 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
+    non_absolute_shebang_span: Option<Span>,
     condition_status_capture_spans: Vec<Span>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
@@ -1309,6 +1310,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn lists(&self) -> &[ListFact<'a>] {
         &self.lists
+    }
+
+    pub fn non_absolute_shebang_span(&self) -> Option<Span> {
+        self.non_absolute_shebang_span
     }
 
     pub fn condition_status_capture_spans(&self) -> &[Span] {
@@ -1436,6 +1441,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span);
+        let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
         let surface_fragments =
@@ -1462,6 +1468,7 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             pipelines,
             lists,
+            non_absolute_shebang_span,
             condition_status_capture_spans,
             single_quoted_fragments: surface_fragments.single_quoted,
             open_double_quote_fragments: surface_fragments.open_double_quotes,
@@ -1470,6 +1477,47 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameter_fragments: surface_fragments.positional_parameters,
         }
     }
+}
+
+fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
+    let first_line = source.lines().next()?;
+    let shebang = first_line.strip_prefix("#!")?;
+    let interpreter = shebang.trim_start().split_whitespace().next()?;
+
+    if interpreter.starts_with('/') || interpreter == "/usr/bin/env" {
+        return None;
+    }
+    if has_header_shellcheck_shell_directive(source) {
+        return None;
+    }
+
+    let line = first_line.trim_end_matches('\r');
+    let start = Position {
+        line: 1,
+        column: 1,
+        offset: 0,
+    };
+    let end = start.advanced_by(line);
+    Some(Span::from_positions(start, end))
+}
+
+fn has_header_shellcheck_shell_directive(source: &str) -> bool {
+    for line in source.lines().skip(1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with("#!") {
+            continue;
+        }
+        if let Some(comment) = trimmed.strip_prefix('#') {
+            let body = comment.trim_start().to_ascii_lowercase();
+            if body.starts_with("shellcheck shell=") {
+                return true;
+            }
+            continue;
+        }
+        break;
+    }
+
+    false
 }
 
 fn build_condition_status_capture_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {

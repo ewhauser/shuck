@@ -24,6 +24,9 @@ impl ShellCheckCodeMap {
             .or_else(|| sc_code.strip_prefix("sc"))?
             .parse()
             .ok()?;
+        if number == 2261 {
+            return Some(Rule::NonAbsoluteShebang);
+        }
         if number == 2260 {
             return Some(Rule::RedirectToCommandName);
         }
@@ -80,6 +83,7 @@ impl Default for ShellCheckCodeMap {
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
                 (2154, Rule::UndefinedVariable),
+                (2239, Rule::NonAbsoluteShebang),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -168,7 +172,9 @@ mod tests {
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
@@ -225,6 +231,7 @@ mod tests {
                 (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
                 (2238, Rule::RedirectToCommandName),
+                (2239, Rule::NonAbsoluteShebang),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
