@@ -1519,7 +1519,7 @@ impl<'a> LinterFactsBuilder<'a> {
 fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
     let first_line = source.lines().next()?;
     let shebang = first_line.strip_prefix("#!")?;
-    let interpreter = shebang.trim_start().split_whitespace().next()?;
+    let interpreter = shebang.split_whitespace().next()?;
 
     if interpreter.starts_with('/') || interpreter == "/usr/bin/env" {
         return None;
@@ -1552,13 +1552,14 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
 
 fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
     let text = span.slice(source);
-    let body_start = if text.starts_with("((") {
-        2 + text[2..].find(|char: char| !char.is_whitespace())?
+    let body_start = if let Some(stripped) = text.strip_prefix("((") {
+        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
     } else if text.starts_with('(')
         && span.start.offset > 0
         && source.as_bytes().get(span.start.offset - 1) == Some(&b'(')
     {
-        1 + text[1..].find(|char: char| !char.is_whitespace())?
+        let stripped = text.strip_prefix('(')?;
+        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
     } else {
         return None;
     };
