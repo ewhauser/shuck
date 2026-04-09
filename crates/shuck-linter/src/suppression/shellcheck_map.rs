@@ -101,6 +101,7 @@ impl Default for ShellCheckCodeMap {
                 (2270, Rule::IfMissingThen),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
+                (2273, Rule::EmptyFunctionBody),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
             ]),
@@ -191,6 +192,7 @@ mod tests {
             map.resolve("SC2272"),
             Some(Rule::MissingSemicolonBeforeBrace)
         );
+        assert_eq!(map.resolve("SC2273"), Some(Rule::EmptyFunctionBody));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -261,6 +263,7 @@ mod tests {
                 (2270, Rule::IfMissingThen),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
+                (2273, Rule::EmptyFunctionBody),
                 (2288, Rule::TemplateBraceInCommand),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),

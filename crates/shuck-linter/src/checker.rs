@@ -357,6 +357,9 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::EmptyFunctionBody) {
+            rules::correctness::empty_function_body::empty_function_body(self);
+        }
         if self.is_rule_enabled(Rule::UnreachableAfterExit) {
             rules::correctness::unreachable_after_exit::unreachable_after_exit(self);
         }

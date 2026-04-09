@@ -12,6 +12,7 @@ pub mod constant_comparison_test;
 pub mod dynamic_source_path;
 pub mod else_if;
 pub mod else_without_then;
+pub mod empty_function_body;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
@@ -106,6 +107,7 @@ mod tests {
     #[test_case(Rule::IfMissingThen, Path::new("C064.sh"))]
     #[test_case(Rule::ElseWithoutThen, Path::new("C065.sh"))]
     #[test_case(Rule::MissingSemicolonBeforeBrace, Path::new("C066.sh"))]
+    #[test_case(Rule::EmptyFunctionBody, Path::new("C067.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
