@@ -200,6 +200,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::InvalidExitStatus) {
             rules::correctness::invalid_exit_status::invalid_exit_status(self);
         }
+        if self.is_rule_enabled(Rule::CStyleComment) {
+            rules::correctness::c_style_comment::c_style_comment(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

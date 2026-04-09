@@ -1,6 +1,7 @@
 pub mod arithmetic_redirection_target;
 pub mod broken_test_end;
 pub mod broken_test_parse;
+pub mod c_style_comment;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod constant_case_subject;
@@ -74,6 +75,7 @@ mod tests {
     #[test_case(Rule::ElseIf, Path::new("C038.sh"))]
     #[test_case(Rule::OpenDoubleQuote, Path::new("C039.sh"))]
     #[test_case(Rule::LinebreakInTest, Path::new("C040.sh"))]
+    #[test_case(Rule::CStyleComment, Path::new("C041.sh"))]
     #[test_case(Rule::PipeToKill, Path::new("C046.sh"))]
     #[test_case(Rule::InvalidExitStatus, Path::new("C047.sh"))]
     #[test_case(Rule::CasePatternVar, Path::new("C048.sh"))]
