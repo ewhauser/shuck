@@ -2229,7 +2229,11 @@ fn build_shellcheck_filter_codes(
     mapped_only: bool,
 ) -> Option<HashSet<u32>> {
     selected_rules
-        .map(|rules| build_selected_shellcheck_codes(&rules))
+        .map(|rules| {
+            validate_selected_rules_for_large_corpus(&rules)
+                .unwrap_or_else(|err| panic!("{LARGE_CORPUS_RULES_ENV}, {err}"));
+            build_selected_shellcheck_codes(&rules)
+        })
         .or_else(|| mapped_only.then(build_mapped_shellcheck_codes))
 }
 
@@ -2245,6 +2249,30 @@ fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> Ha
         .comparison_mappings()
         .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
         .collect()
+}
+
+fn validate_selected_rules_for_large_corpus(
+    selected_rules: &shuck_linter::RuleSet,
+) -> Result<(), String> {
+    let comparable_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
+        .comparison_mappings()
+        .map(|(_, rule)| rule)
+        .collect();
+    let mut missing_rules: Vec<_> = selected_rules
+        .iter()
+        .filter(|rule| !comparable_rules.contains(rule))
+        .map(shuck_linter::Rule::code)
+        .collect();
+    missing_rules.sort_unstable();
+
+    if missing_rules.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "selected rules lack large-corpus comparison mappings: {}",
+            missing_rules.join(", ")
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3079,6 +3107,24 @@ mod tests {
         let codes = build_shellcheck_filter_codes(Some(rules), true).unwrap();
 
         assert_eq!(codes, HashSet::from([2034]));
+    }
+
+    #[test]
+    fn selected_rule_filter_rejects_rules_without_compare_codes() {
+        let rules = parse_large_corpus_rule_set("X016,C001,X052").unwrap();
+        let err = validate_selected_rules_for_large_corpus(&rules).unwrap_err();
+
+        assert_eq!(
+            err,
+            "selected rules lack large-corpus comparison mappings: X016, X052"
+        );
+    }
+
+    #[test]
+    fn selected_rule_filter_accepts_rules_with_compare_codes() {
+        let rules = parse_large_corpus_rule_set("C001,X080").unwrap();
+
+        assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
     }
 
     #[test]
