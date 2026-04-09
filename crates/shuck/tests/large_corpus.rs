@@ -3272,10 +3272,25 @@ demo() {
 
     #[test]
     fn reviewed_divergence_classification_matches_label_qualified_record() {
-        let metadata = HashMap::from([("C002".to_string(), load_rule_corpus_metadata("C002"))]);
+        let metadata = HashMap::from([(
+            "C999".to_string(),
+            RuleCorpusMetadataDocument {
+                reviewed_divergences: vec![ReviewedDivergenceRecord {
+                    side: CompatibilitySide::ShuckOnly,
+                    path_suffix: None,
+                    line: None,
+                    end_line: None,
+                    column: None,
+                    end_column: None,
+                    labels: vec!["project-closure".into()],
+                    reason: "label-qualified reviewed divergence".into(),
+                }],
+                comparison_target_notes: Vec::new(),
+            },
+        )]);
         let matching = CompatibilityRecord {
             side: CompatibilitySide::ShuckOnly,
-            rule_code: Some("C002".into()),
+            rule_code: Some("C999".into()),
             shellcheck_code: "SC1090".into(),
             range: DiagnosticRange {
                 line: 20,
