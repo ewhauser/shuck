@@ -45,6 +45,7 @@ impl Default for ShellCheckCodeMap {
                 (1019, Rule::EmptyTest),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
+                (2035, Rule::LeadingGlobArgument),
                 (2044, Rule::FindOutputLoop),
                 (2045, Rule::LoopFromCommandOutput),
                 (2046, Rule::UnquotedCommandSubstitution),
@@ -98,6 +99,7 @@ mod tests {
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
+        assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
         assert_eq!(map.resolve("SC2045"), Some(Rule::LoopFromCommandOutput));
         assert_eq!(
@@ -154,6 +156,7 @@ mod tests {
                 (2016, Rule::SingleQuotedLiteral),
                 (2024, Rule::SudoRedirectionOrder),
                 (2034, Rule::UnusedAssignment),
+                (2035, Rule::LeadingGlobArgument),
                 (2038, Rule::FindOutputToXargs),
                 (2044, Rule::FindOutputLoop),
                 (2045, Rule::LoopFromCommandOutput),

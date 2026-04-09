@@ -8,6 +8,7 @@ pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod invalid_exit_status;
+pub mod leading_glob_argument;
 pub mod line_oriented_input;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
@@ -50,6 +51,7 @@ mod tests {
     #[test_case(Rule::QuotedBashRegex, Path::new("C009.sh"))]
     #[test_case(Rule::ChainedTestBranches, Path::new("C010.sh"))]
     #[test_case(Rule::LineOrientedInput, Path::new("C011.sh"))]
+    #[test_case(Rule::LeadingGlobArgument, Path::new("C012.sh"))]
     #[test_case(Rule::FindOutputLoop, Path::new("C013.sh"))]
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
     #[test_case(Rule::SudoRedirectionOrder, Path::new("C015.sh"))]

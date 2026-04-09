@@ -233,6 +233,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LineOrientedInput) {
             rules::correctness::line_oriented_input::line_oriented_input(self);
         }
+        if self.is_rule_enabled(Rule::LeadingGlobArgument) {
+            rules::correctness::leading_glob_argument::leading_glob_argument(self);
+        }
         if self.is_rule_enabled(Rule::FindOutputToXargs) {
             rules::correctness::find_output_to_xargs::find_output_to_xargs(self);
         }
