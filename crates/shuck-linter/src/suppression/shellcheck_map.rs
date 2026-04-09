@@ -198,6 +198,7 @@ impl Default for ShellCheckCodeMap {
                 (2279, Rule::CshSyntaxInSh),
                 (2355, Rule::ZshAssignmentToZero),
                 (2371, Rule::ZshArraySubscriptInCase),
+                (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
@@ -332,6 +333,7 @@ mod tests {
         assert_eq!(map.resolve("SC2279"), Some(Rule::CshSyntaxInSh));
         assert_eq!(map.resolve("SC2355"), Some(Rule::ZshAssignmentToZero));
         assert_eq!(map.resolve("SC2371"), Some(Rule::ZshArraySubscriptInCase));
+        assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
@@ -456,6 +458,7 @@ mod tests {
                 (2279, Rule::CshSyntaxInSh),
                 (2355, Rule::ZshAssignmentToZero),
                 (2371, Rule::ZshArraySubscriptInCase),
+                (2375, Rule::ZshParameterIndexFlag),
                 (2003, Rule::ExprArithmetic),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),

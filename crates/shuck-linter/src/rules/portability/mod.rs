@@ -16,6 +16,7 @@ pub mod zsh_array_subscript_in_case;
 pub mod zsh_assignment_to_zero;
 pub mod zsh_brace_if;
 pub mod zsh_nested_expansion;
+pub mod zsh_parameter_index_flag;
 pub mod zsh_prompt_bracket;
 
 #[cfg(test)]
@@ -47,6 +48,7 @@ mod tests {
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
+    #[test_case(Rule::ZshParameterIndexFlag, Path::new("X079.sh"))]
     #[test_case(Rule::ArraySubscriptTest, Path::new("X040.sh"))]
     #[test_case(Rule::ArraySubscriptCondition, Path::new("X041.sh"))]
     #[test_case(Rule::ExtglobInTest, Path::new("X046.sh"))]
