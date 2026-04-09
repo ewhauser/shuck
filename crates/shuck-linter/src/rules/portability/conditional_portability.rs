@@ -794,8 +794,10 @@ fn var_ref_subscript_span(reference: &VarRef) -> Option<Span> {
 
 fn word_extglob_span(word: &Word, source: &str) -> Option<Span> {
     word_extglob_span_from_parts(&word.parts, source).or_else(|| {
-        (!word.has_quoted_parts() && text_looks_like_extglob(word.span.slice(source)))
-            .then_some(word.span)
+        (!word.has_quoted_parts()
+            && word_has_only_literal_parts(&word.parts)
+            && text_looks_like_extglob(word.span.slice(source)))
+        .then_some(word.span)
     })
 }
 
@@ -828,6 +830,12 @@ fn word_extglob_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<
     }
 
     None
+}
+
+fn word_has_only_literal_parts(parts: &[WordPartNode]) -> bool {
+    parts
+        .iter()
+        .all(|part| matches!(part.kind, WordPart::Literal(_)))
 }
 
 fn text_has_variable_subscript(text: &str) -> bool {

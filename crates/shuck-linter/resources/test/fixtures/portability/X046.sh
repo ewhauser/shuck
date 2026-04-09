@@ -6,3 +6,5 @@
 [ "$x" = foo ]
 [ "$x" = @(foo|bar) ]
 [ "$x" = '@(foo|bar)' ]
+[ "$x" = $((a|b)) ]
+[ "$x" = $(printf '%s' '@(foo)') ]
