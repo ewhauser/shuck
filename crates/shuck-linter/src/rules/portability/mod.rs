@@ -9,6 +9,7 @@ pub mod csh_syntax_in_sh;
 pub mod declare_command;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
+pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
@@ -76,6 +77,7 @@ mod tests {
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
     #[test_case(Rule::CStyleForInSh, Path::new("X056.sh"))]
+    #[test_case(Rule::LegacyArithmeticInSh, Path::new("X057.sh"))]
     #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
     #[test_case(Rule::ZshParameterIndexFlag, Path::new("X079.sh"))]

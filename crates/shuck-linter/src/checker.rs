@@ -409,6 +409,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
             rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
         }
+        if self.is_rule_enabled(Rule::LegacyArithmeticInSh) {
+            rules::portability::legacy_arithmetic_in_sh::legacy_arithmetic_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::SingleQuoteBackslash) {
             rules::style::single_quote_backslash::single_quote_backslash(self);
         }

@@ -111,6 +111,9 @@ impl Default for ShellCheckCodeMap {
             (2233, Rule::SingleTestSubshell),
             (2235, Rule::SubshellTestGroup),
             (3006, Rule::StandaloneArithmetic),
+            // ShellCheck 0.11.0 reports legacy `$[...]` arithmetic portability warnings as SC3007.
+            // Keep SC3064 as a suppression alias, but prefer the current code for comparisons.
+            (3007, Rule::LegacyArithmeticInSh),
             (3008, Rule::SelectLoop),
             (3032, Rule::Coproc),
             // ShellCheck 0.11.0 reports `let` portability warnings as SC3039.
@@ -241,9 +244,11 @@ impl Default for ShellCheckCodeMap {
                 (2216, Rule::PipeToKill),
                 (3005, Rule::CStyleForInSh),
                 (3006, Rule::StandaloneArithmetic),
+                (3007, Rule::LegacyArithmeticInSh),
                 (3008, Rule::SelectLoop),
                 (3018, Rule::StandaloneArithmetic),
                 (3032, Rule::Coproc),
+                (3033, Rule::SelectLoop),
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
                 (3044, Rule::DeclareCommand),
@@ -251,6 +256,7 @@ impl Default for ShellCheckCodeMap {
                 (3058, Rule::BashCaseFallthrough),
                 (2127, Rule::BashCaseFallthrough),
                 (3063, Rule::CStyleForInSh),
+                (3064, Rule::LegacyArithmeticInSh),
                 (2321, Rule::FunctionKeywordInSh),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
@@ -392,11 +398,12 @@ mod tests {
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC3005"), Some(Rule::CStyleForInSh));
         assert_eq!(map.resolve("SC3006"), Some(Rule::StandaloneArithmetic));
+        assert_eq!(map.resolve("SC3007"), Some(Rule::LegacyArithmeticInSh));
         assert_eq!(map.resolve("SC3008"), Some(Rule::SelectLoop));
         assert_eq!(map.resolve("SC3063"), Some(Rule::CStyleForInSh));
+        assert_eq!(map.resolve("SC3064"), Some(Rule::LegacyArithmeticInSh));
         assert_eq!(map.resolve("SC3018"), Some(Rule::StandaloneArithmetic));
         assert_eq!(map.resolve("SC3032"), Some(Rule::Coproc));
-        assert_eq!(map.resolve("SC3007"), Some(Rule::Coproc));
         assert_eq!(map.resolve("SC3033"), Some(Rule::SelectLoop));
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
@@ -515,6 +522,7 @@ mod tests {
                 (2104, Rule::LoopControlOutsideLoop),
                 (2112, Rule::FunctionKeyword),
                 (2126, Rule::GrepCountPipeline),
+                (2127, Rule::BashCaseFallthrough),
                 (2154, Rule::UndefinedVariable),
                 (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
@@ -525,7 +533,6 @@ mod tests {
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
-                (3005, Rule::CStyleForInSh),
                 (2233, Rule::SingleTestSubshell),
                 (2235, Rule::SubshellTestGroup),
                 (2238, Rule::RedirectToCommandName),
@@ -562,24 +569,31 @@ mod tests {
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+                (3005, Rule::CStyleForInSh),
+                (3006, Rule::StandaloneArithmetic),
+                (3007, Rule::LegacyArithmeticInSh),
+                (3008, Rule::SelectLoop),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),
                 (3014, Rule::TestEqualityOperator),
                 (3015, Rule::RegexMatchInSh),
                 (3016, Rule::VTestInSh),
                 (3017, Rule::ATestInSh),
-                (3006, Rule::StandaloneArithmetic),
+                (3018, Rule::StandaloneArithmetic),
+                (3032, Rule::Coproc),
+                (3033, Rule::SelectLoop),
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
                 (3043, Rule::LocalVariableInSh),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
-                (2127, Rule::BashCaseFallthrough),
                 (3050, Rule::BraceFdRedirection),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3052, Rule::AmpersandRedirection),
+                (3058, Rule::BashCaseFallthrough),
                 (3062, Rule::OptionTestInSh),
                 (3063, Rule::CStyleForInSh),
+                (3064, Rule::LegacyArithmeticInSh),
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
                 (3070, Rule::AmpersandRedirectInSh),
@@ -621,6 +635,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(comparison.contains(&(3006, Rule::StandaloneArithmetic)));
+        assert!(comparison.contains(&(3007, Rule::LegacyArithmeticInSh)));
         assert!(comparison.contains(&(3008, Rule::SelectLoop)));
         assert!(comparison.contains(&(3005, Rule::CStyleForInSh)));
         assert!(comparison.contains(&(3032, Rule::Coproc)));
@@ -638,5 +653,6 @@ mod tests {
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));
+        assert!(!comparison.contains(&(3064, Rule::LegacyArithmeticInSh)));
     }
 }
