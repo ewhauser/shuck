@@ -76,7 +76,7 @@ esac
 #### ohmyzsh__ohmyzsh__lib__git.zsh
 
 # source: ohmyzsh__ohmyzsh__lib__git.zsh
-# parser gap: parse error at line 148, column 76: expected command
+# surface: compact prompt helper functions after an or-list brace-group condition
 
 # Use async version if setting is enabled, or unset but zsh version is at least 5.0.6.
 # This avoids async prompt issues caused by previous zsh versions:
@@ -91,6 +91,13 @@ if zstyle -t ':omz:alpha:lib:git' async-prompt \
       echo -n "${_OMZ_ASYNC_OUTPUT[_omz_git_prompt_info]}"
     fi
   }
+
+  function git_prompt_status() {
+    if [[ -n "${_OMZ_ASYNC_OUTPUT[_omz_git_prompt_status]}" ]]; then
+      echo -n "${_OMZ_ASYNC_OUTPUT[_omz_git_prompt_status]}"
+    fi
+  }
+fi
 
 #### ohmyzsh__ohmyzsh__lib__prompt_info_functions.zsh
 
@@ -195,21 +202,32 @@ esac
 #### ohmyzsh__ohmyzsh__plugins__battery__battery.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__battery__battery.plugin.zsh
-# parser gap: parse error at line 137, column 39: syntax error: empty brace group
+# surface: empty compact helper function body between multiline helpers
 
-  }
-  function battery_pct_remaining() {
-    if ! battery_is_charging; then
-      battery_pct
+function battery_pct_remaining() {
+  if ! battery_is_charging; then
+    battery_pct
+  else
+    echo "External Power"
+  fi
+}
+function battery_time_remaining() { } # Not available on android
+function battery_pct_prompt() {
+  local battery_pct color
+  battery_pct=$(battery_pct_remaining)
+  if battery_is_charging; then
+    echo "∞"
+  else
+    if [[ $battery_pct -gt 50 ]]; then
+      color='green'
+    elif [[ $battery_pct -gt 20 ]]; then
+      color='yellow'
     else
-      echo "External Power"
+      color='red'
     fi
-  }
-  function battery_time_remaining() { } # Not available on android
-  function battery_pct_prompt() {
-    local battery_pct color
-    battery_pct=$(battery_pct_remaining)
-    if battery_is_charging; then
+    echo "%{$fg[$color]%}${battery_pct}%%%{$reset_color%}"
+  fi
+}
 
 #### ohmyzsh__ohmyzsh__plugins__cabal__cabal.plugin.zsh
 
@@ -290,15 +308,20 @@ done
 #### ohmyzsh__ohmyzsh__plugins__extract__extract.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__extract__extract.plugin.zsh
-# parser gap: parse error at line 52, column 94: expected command
+# surface: compact brace groups after && and || inside case arms
 
-    case "${file:l}" in
-      (*.tar.gz|*.tgz)
-        (( $+commands[pigz] )) && { tar -I pigz -xvf "$full_path" } || tar zxvf "$full_path" ;;
-      (*.tar.bz2|*.tbz|*.tbz2)
-        (( $+commands[pbzip2] )) && { tar -I pbzip2 -xvf "$full_path" } || tar xvjf "$full_path" ;;
-      (*.tar.xz|*.txz)
-        (( $+commands[pixz] )) && { tar -I pixz -xvf "$full_path" } || {
+case "${file:l}" in
+  (*.tar.gz|*.tgz)
+    (( $+commands[pigz] )) && { tar -I pigz -xvf "$full_path" } || tar zxvf "$full_path" ;;
+  (*.tar.bz2|*.tbz|*.tbz2)
+    (( $+commands[pbzip2] )) && { tar -I pbzip2 -xvf "$full_path" } || tar xvjf "$full_path" ;;
+  (*.tar.xz|*.txz)
+    (( $+commands[pixz] )) && { tar -I pixz -xvf "$full_path" } || {
+      tar --xz --help &> /dev/null \
+      && tar --xz -xvf "$full_path" \
+      || xzcat "$full_path" | tar xvf -
+    } ;;
+esac
 
 #### ohmyzsh__ohmyzsh__plugins__gcloud__gcloud.plugin.zsh
 
@@ -847,18 +870,18 @@ function music itunes() {
 #### ohmyzsh__ohmyzsh__plugins__rake-fast__rake-fast.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__rake-fast__rake-fast.plugin.zsh
-# parser gap: parse error at line 79, column 2: expected command
+# surface: compact trailing or-list brace group in helper predicate
 
-  echo "Generating .rake_tasks..." >&2
-  _rake_generate
-  cat .rake_tasks
+_rake_does_task_list_need_generating () {
+  _rake_tasks_missing || _rake_tasks_version_changed || _rakefile_has_changes || { _is_rails_app && _tasks_changed }
 }
 
 #### ohmyzsh__ohmyzsh__plugins__rbenv__rbenv.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__rbenv__rbenv.plugin.zsh
-# parser gap: parse error at line 66, column 1: expected command
+# surface: compact helper definitions clustered in an else branch
 
+if [[ $FOUND_RBENV -eq 1 ]]; then
   function rbenv_prompt_info() {
     local ruby=${$(current_ruby):gs/%/%%} gemset=${$(current_gemset):gs/%/%%}
     echo -n "${ZSH_THEME_RUBY_PROMPT_PREFIX}"
@@ -967,14 +990,18 @@ fi
 #### ohmyzsh__ohmyzsh__plugins__urltools__urltools.plugin.zsh
 
 # source: ohmyzsh__ohmyzsh__plugins__urltools__urltools.plugin.zsh
-# parser gap: parse error: expected compound command for function body
+# surface: compact helper definitions in an elif ladder
 
-    alias urldecode='python2 -c "import sys; del sys.path[0]; import urllib as ul; print ul.unquote_plus(sys.argv[1])"'
+if [[ $(whence python3) != "" && "x$URLTOOLS_METHOD" = "xpython" ]]; then
+    alias urlencode='python3 encode'
+    alias urldecode='python3 decode'
 elif [[ $(whence xxd) != "" && ( "x$URLTOOLS_METHOD" = "x" || "x$URLTOOLS_METHOD" = "xshell" ) ]]; then
     function urlencode() {echo $@ | tr -d "\n" | xxd -plain | sed "s/\(..\)/%\1/g"}
     function urldecode() {printf $(echo -n $@ | sed 's/\\/\\\\/g;s/\(%\)\([0-9a-fA-F][0-9a-fA-F]\)/\\x\2/g')"\n"}
 elif [[ $(whence ruby) != "" && ( "x$URLTOOLS_METHOD" = "x" || "x$URLTOOLS_METHOD" = "xruby" ) ]]; then
-    alias urlencode='ruby -r cgi -e "puts CGI.escape(ARGV[0])"'
+    alias urlencode='ruby encode'
+    alias urldecode='ruby decode'
+fi
 
 #### ohmyzsh__ohmyzsh__plugins__virtualenvwrapper__virtualenvwrapper.plugin.zsh
 
@@ -2471,9 +2498,13 @@ function p9k_configure() {
 #### romkatv__powerlevel10k__internal__wizard.zsh
 
 # source: romkatv__powerlevel10k__internal__wizard.zsh
-# parser gap: parse error: expected compound command for function body
+# surface: nested empty compact function override near function exit
 
-    print -P ""
+function quit() {
+  consume_input
+  if [[ $1 == '-c' ]]; then
+    print -Pr -- ''
+    read -s
   fi
   function quit() {}
   stty echo 2>/dev/null
@@ -3051,11 +3082,23 @@ run_test
 #### zsh-users__zsh-syntax-highlighting__zsh-syntax-highlighting.zsh
 
 # source: zsh-users__zsh-syntax-highlighting__zsh-syntax-highlighting.zsh
-# parser gap: parse error: expected compound command for function body
+# surface: compact empty helper function before zle hook registration
 
+if is-at-least 5.9 && _zsh_highlight__function_callable_p add-zle-hook-widget
+then
+  _zsh_highlight__zle-line-pre-redraw() {
     true && _zsh_highlight "$@"
   }
   _zsh_highlight_bind_widgets(){}
   if [[ -o zle ]]; then
     add-zle-hook-widget zle-line-pre-redraw _zsh_highlight__zle-line-pre-redraw
     add-zle-hook-widget zle-line-finish _zsh_highlight__zle-line-finish
+  fi
+else
+  _zsh_highlight_bind_widgets() {
+    zmodload zsh/zleparameter 2>/dev/null || {
+      print -r -- >&2 failed
+      return 1
+    }
+  }
+fi

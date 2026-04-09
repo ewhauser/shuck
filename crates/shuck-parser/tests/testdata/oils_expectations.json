@@ -451,6 +451,38 @@
     "expectation": "parse_ok",
     "reason": "zsh wrapped wildcard case patterns now parse in zsh mode"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__lib__git.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported in conditions and helper blocks"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__battery__battery.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported in nested branches and helper blocks"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__extract__extract.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported in conditions and helper blocks"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__rake-fast__rake-fast.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact brace bodies after && and || are supported in conditions and helper blocks"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__rbenv__rbenv.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported in nested branches and helper blocks"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__urltools__urltools.plugin.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported in nested branches and helper blocks"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::romkatv__powerlevel10k__internal__wizard.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported in nested branches and helper blocks"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::zsh-users__zsh-syntax-highlighting__zsh-syntax-highlighting.zsh": {
+    "expectation": "parse_ok",
+    "reason": "zsh compact function brace bodies are supported in nested branches and helper blocks"
+  },
   "oils/zsh-large-corpus-regressions.test.sh::ohmyzsh__ohmyzsh__plugins__autoenv__autoenv.plugin.zsh": {
     "expectation": "parse_ok",
     "reason": "zsh parenthesized for headers now parse in zsh mode"

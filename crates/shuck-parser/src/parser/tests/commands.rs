@@ -2194,6 +2194,355 @@ fn test_parse_zsh_conditional_group_with_arithmetic_subexpression() {
 }
 
 #[test]
+fn test_parse_zsh_compact_helper_cluster_with_empty_middle_function() {
+    let input = concat!(
+        "function battery_pct_remaining() {\n",
+        "  if ! battery_is_charging; then\n",
+        "    battery_pct\n",
+        "  else\n",
+        "    echo External\n",
+        "  fi\n",
+        "}\n",
+        "function battery_time_remaining() { }\n",
+        "function battery_pct_prompt() {\n",
+        "  local battery_pct color\n",
+        "  battery_pct=$(battery_pct_remaining)\n",
+        "  print -- $battery_pct\n",
+        "}\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    assert_eq!(script.body.len(), 3);
+    let middle = expect_function(&script.body[1]);
+    let (compound, redirects) = expect_compound(middle.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group compact function body");
+    };
+    assert!(redirects.is_empty());
+    assert!(body.is_empty());
+}
+
+#[test]
+fn test_parse_zsh_compact_helper_functions_in_rbenv_fallback_branch() {
+    let input = concat!(
+        "if [[ $FOUND_RBENV -eq 1 ]]; then\n",
+        "  function rbenv_prompt_info() {\n",
+        "    print -- supported\n",
+        "  }\n",
+        "else\n",
+        "  alias rubies='ruby -v'\n",
+        "  function gemsets() { echo not-supported }\n",
+        "  function current_ruby() { echo not-supported }\n",
+        "  function current_gemset() { echo not-supported }\n",
+        "  function gems() { echo not-supported }\n",
+        "  function rbenv_prompt_info() {\n",
+        "    print -- fallback\n",
+        "  }\n",
+        "fi\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert!(redirects.is_empty());
+    let else_branch = command
+        .else_branch
+        .as_ref()
+        .expect("expected fallback else branch");
+    assert_eq!(else_branch.len(), 6);
+    assert_eq!(expect_simple(&else_branch[0]).name.render(input), "alias");
+    assert!(
+        else_branch
+            .iter()
+            .skip(1)
+            .all(|stmt| matches!(stmt.command, AstCommand::Function(_)))
+    );
+}
+
+#[test]
+fn test_parse_zsh_compact_xxd_helper_functions_in_elif_ladder() {
+    let input = concat!(
+        "if [[ $(whence python3) != \"\" ]]; then\n",
+        "  alias urlencode='python3 encode'\n",
+        "  alias urldecode='python3 decode'\n",
+        "elif [[ $(whence xxd) != \"\" && ( \"x$URLTOOLS_METHOD\" = \"x\" || \"x$URLTOOLS_METHOD\" = \"xshell\" ) ]]; then\n",
+        "  function urlencode() {echo $@ | tr -d \"\\n\" | xxd -plain | sed \"s/\\(..\\)/%\\1/g\"}\n",
+        "  function urldecode() {printf $(echo -n $@ | sed 's/\\\\/\\\\\\\\/g;s/\\(%\\)\\([0-9a-fA-F][0-9a-fA-F]\\)/\\\\x\\2/g')\"\\n\"}\n",
+        "elif [[ $(whence ruby) != \"\" ]]; then\n",
+        "  alias urlencode='ruby encode'\n",
+        "  alias urldecode='ruby decode'\n",
+        "fi\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert_eq!(command.elif_branches.len(), 2);
+    let xxd_branch = &command.elif_branches[0].1;
+    assert_eq!(xxd_branch.len(), 2);
+    assert!(matches!(xxd_branch[0].command, AstCommand::Function(_)));
+    assert!(matches!(xxd_branch[1].command, AstCommand::Function(_)));
+}
+
+#[test]
+fn test_parse_zsh_if_with_or_brace_condition_then_compact_prompt_helpers() {
+    let input = concat!(
+        "if zstyle -t ':omz:alpha:lib:git' async-prompt \\\n",
+        "  || { is-at-least 5.0.6 && zstyle -T ':omz:alpha:lib:git' async-prompt }; then\n",
+        "  function git_prompt_info() {\n",
+        "    print -- info\n",
+        "  }\n",
+        "  function git_prompt_status() {\n",
+        "    print -- status\n",
+        "  }\n",
+        "fi\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.condition.len(), 1);
+    let condition = expect_binary(&command.condition[0]);
+    assert_eq!(condition.op, BinaryOp::Or);
+
+    let (group, group_redirects) = expect_compound(&condition.right);
+    let AstCompoundCommand::BraceGroup(body) = group else {
+        panic!("expected brace-group right-hand side");
+    };
+    assert!(group_redirects.is_empty());
+    assert_eq!(body.len(), 1);
+    assert_eq!(expect_binary(&body[0]).op, BinaryOp::And);
+
+    assert_eq!(command.then_branch.len(), 2);
+    assert!(matches!(
+        command.then_branch[0].command,
+        AstCommand::Function(_)
+    ));
+    assert!(matches!(
+        command.then_branch[1].command,
+        AstCommand::Function(_)
+    ));
+}
+
+#[test]
+fn test_parse_zsh_case_arm_with_multiline_or_brace_fallback_group() {
+    let input = concat!(
+        "case \"${file:l}\" in\n",
+        "  (*.tar.gz|*.tgz)\n",
+        "    (( $+commands[pigz] )) && { tar -I pigz -xvf \"$full_path\" } || tar zxvf \"$full_path\" ;;\n",
+        "  (*.tar.bz2|*.tbz|*.tbz2)\n",
+        "    (( $+commands[pbzip2] )) && { tar -I pbzip2 -xvf \"$full_path\" } || tar xvjf \"$full_path\" ;;\n",
+        "  (*.tar.xz|*.txz)\n",
+        "    (( $+commands[pixz] )) && { tar -I pixz -xvf \"$full_path\" } || {\n",
+        "      tar --xz --help &> /dev/null \\\n",
+        "      && tar --xz -xvf \"$full_path\" \\\n",
+        "      || xzcat \"$full_path\" | tar xvf -\n",
+        "    } ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.cases.len(), 3);
+
+    let fallback = expect_binary(&command.cases[2].body[0]);
+    assert_eq!(fallback.op, BinaryOp::Or);
+    let (group, group_redirects) = expect_compound(&fallback.right);
+    let AstCompoundCommand::BraceGroup(body) = group else {
+        panic!("expected multiline fallback brace group");
+    };
+    assert!(group_redirects.is_empty());
+    assert_eq!(body.len(), 1);
+    assert_eq!(expect_binary(&body[0]).op, BinaryOp::Or);
+}
+
+#[test]
+fn test_parse_zsh_helper_predicate_with_trailing_or_brace_group() {
+    let input = concat!(
+        "_rake_does_task_list_need_generating() {\n",
+        "  _rake_tasks_missing || _rake_tasks_version_changed || _rakefile_has_changes || { _is_rails_app && _tasks_changed }\n",
+        "}\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+
+    let outer = expect_binary(&body[0]);
+    assert_eq!(outer.op, BinaryOp::Or);
+    let (group, group_redirects) = expect_compound(&outer.right);
+    let AstCompoundCommand::BraceGroup(fallback_body) = group else {
+        panic!("expected trailing brace-group fallback");
+    };
+    assert!(group_redirects.is_empty());
+    assert_eq!(fallback_body.len(), 1);
+    assert_eq!(expect_binary(&fallback_body[0]).op, BinaryOp::And);
+}
+
+#[test]
+fn test_parse_zsh_nested_empty_compact_quit_override_in_function() {
+    let input = concat!(
+        "function quit() {\n",
+        "  consume_input\n",
+        "  if [[ $1 == '-c' ]]; then\n",
+        "    print -Pr -- ''\n",
+        "    read -s\n",
+        "  fi\n",
+        "  function quit() {}\n",
+        "  stty echo 2>/dev/null\n",
+        "  show_cursor\n",
+        "  exit 1\n",
+        "}\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+
+    let nested_stmt = body
+        .iter()
+        .find(|stmt| matches!(stmt.command, AstCommand::Function(_)))
+        .expect("expected nested quit override");
+    let nested = expect_function(nested_stmt);
+    let (nested_compound, nested_redirects) = expect_compound(nested.body.as_ref());
+    let AstCompoundCommand::BraceGroup(nested_body) = nested_compound else {
+        panic!("expected compact nested brace-group body");
+    };
+    assert!(nested_redirects.is_empty());
+    assert!(nested_body.is_empty());
+}
+
+#[test]
+fn test_parse_zsh_compact_bind_widgets_helper_before_hook_registration() {
+    let input = concat!(
+        "if is-at-least 5.9 && _zsh_highlight__function_callable_p add-zle-hook-widget\n",
+        "then\n",
+        "  _zsh_highlight__zle-line-pre-redraw() {\n",
+        "    true && _zsh_highlight \"$@\"\n",
+        "  }\n",
+        "  _zsh_highlight_bind_widgets(){}\n",
+        "  if [[ -o zle ]]; then\n",
+        "    add-zle-hook-widget zle-line-pre-redraw _zsh_highlight__zle-line-pre-redraw\n",
+        "    add-zle-hook-widget zle-line-finish _zsh_highlight__zle-line-finish\n",
+        "  fi\n",
+        "else\n",
+        "  _zsh_highlight_bind_widgets() {\n",
+        "    zmodload zsh/zleparameter 2>/dev/null || {\n",
+        "      print -r -- >&2 failed\n",
+        "      return 1\n",
+        "    }\n",
+        "  }\n",
+        "fi\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.then_branch.len(), 3);
+
+    let helper = expect_function(&command.then_branch[1]);
+    let (helper_compound, helper_redirects) = expect_compound(helper.body.as_ref());
+    let AstCompoundCommand::BraceGroup(helper_body) = helper_compound else {
+        panic!("expected compact helper body");
+    };
+    assert!(helper_redirects.is_empty());
+    assert!(helper_body.is_empty());
+    assert!(matches!(
+        command.then_branch[2].command,
+        AstCommand::Compound(AstCompoundCommand::If(_))
+    ));
+    assert!(command.else_branch.is_some());
+}
+
+#[test]
+fn test_parse_zsh_top_level_failure_blocks_after_or_lists() {
+    let input = concat!(
+        "_zsh_highlight_bind_widgets || {\n",
+        "  print -r -- >&2 failed-binding\n",
+        "  return 1\n",
+        "}\n",
+        "_zsh_highlight_load_highlighters \"$dir\" || {\n",
+        "  print -r -- >&2 failed-loading\n",
+        "  return 1\n",
+        "}\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    assert_eq!(script.body.len(), 2);
+    for stmt in script.body.iter() {
+        let command = expect_binary(stmt);
+        assert_eq!(command.op, BinaryOp::Or);
+
+        let (group, redirects) = expect_compound(&command.right);
+        let AstCompoundCommand::BraceGroup(body) = group else {
+            panic!("expected top-level failure brace group");
+        };
+        assert!(redirects.is_empty());
+        assert_eq!(body.len(), 2);
+        assert!(matches!(
+            body[1].command,
+            AstCommand::Builtin(AstBuiltinCommand::Return(_))
+        ));
+    }
+}
+
+#[test]
 fn test_parse_zsh_anonymous_function_after_and_list() {
     let input = "(( ${+ZSHZ_DEBUG} )) && () {\n  print ok\n}\n";
     Parser::with_dialect(input, ShellDialect::Zsh)
