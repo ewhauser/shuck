@@ -73,7 +73,7 @@ related syntax in POSIX sh. Mostly surface-level AST node type checks.
 - [x] **L** X010 (SC3009) `brace-expansion` — `{a,b}` expansion in sh
 - [x] **L** X011 (SC3011) `here-string` — `<<<` in sh
 - [x] **L** X013 (SC3030) `array-assignment` — array variable assignment in sh
-- [ ] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
+- [x] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
 - [ ] **L** X019 (SC3028) `array-reference` — indexed array reference in sh
 - [ ] **L** X023 (SC3057) `substring-expansion` — `${var:offset:len}` in sh
 - [ ] **L** X024 (SC3059) `uppercase-expansion` — `${var^^}` in sh

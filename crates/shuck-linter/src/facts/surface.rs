@@ -10,6 +10,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) positional_parameter_operator_spans: Vec<Span>,
     pub(super) unicode_smart_quote_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
+    pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -454,6 +455,22 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     }
                     self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
+                        if matches!(
+                            syntax,
+                            BourneParameterExpansion::Indirect { .. }
+                                | BourneParameterExpansion::PrefixMatch { .. }
+                                | BourneParameterExpansion::Indices { .. }
+                        ) {
+                            self.facts
+                                .indirect_expansions
+                                .push(IndirectExpansionFragmentFact {
+                                    span: part.span,
+                                    array_keys: matches!(
+                                        syntax,
+                                        BourneParameterExpansion::Indices { .. }
+                                    ),
+                                });
+                        }
                         match syntax {
                             BourneParameterExpansion::Operation {
                                 operator, operand, ..
@@ -498,9 +515,17 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::Length(reference)
                 | WordPart::ArrayAccess(reference)
                 | WordPart::ArrayLength(reference)
-                | WordPart::ArrayIndices(reference)
                 | WordPart::Transformation { reference, .. } => {
                     self.record_var_ref_subscript(reference);
+                }
+                WordPart::ArrayIndices(reference) => {
+                    self.record_var_ref_subscript(reference);
+                    self.facts
+                        .indirect_expansions
+                        .push(IndirectExpansionFragmentFact {
+                            span: part.span,
+                            array_keys: true,
+                        });
                 }
                 WordPart::Substring { reference, .. } | WordPart::ArraySlice { reference, .. } => {
                     self.record_var_ref_subscript(reference);
@@ -512,6 +537,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     ..
                 } => {
                     self.record_var_ref_subscript(reference);
+                    self.facts
+                        .indirect_expansions
+                        .push(IndirectExpansionFragmentFact {
+                            span: part.span,
+                            array_keys: false,
+                        });
                     self.collect_parameter_operator_patterns(operator, operand.as_ref(), context);
                 }
                 WordPart::IndirectExpansion {
@@ -520,8 +551,22 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     ..
                 } => {
                     self.record_var_ref_subscript(reference);
+                    self.facts
+                        .indirect_expansions
+                        .push(IndirectExpansionFragmentFact {
+                            span: part.span,
+                            array_keys: false,
+                        });
                 }
-                WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
+                WordPart::PrefixMatch { .. } => {
+                    self.facts
+                        .indirect_expansions
+                        .push(IndirectExpansionFragmentFact {
+                            span: part.span,
+                            array_keys: false,
+                        });
+                }
+                WordPart::Literal(_) | WordPart::Variable(_) => {}
             }
         }
     }

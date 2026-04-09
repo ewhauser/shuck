@@ -1,0 +1,27 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 104
+---
+X018 indirect expansion is not portable in `sh`
+ --> <source>:6:16
+  |
+6 | printf '%s\n' "${!name}"
+  |
+
+X018 indirect expansion is not portable in `sh`
+ --> <source>:9:16
+  |
+9 | printf '%s\n' "${!name:-fallback}"
+  |
+
+X018 indirect expansion is not portable in `sh`
+  --> <source>:12:16
+   |
+12 | printf '%s\n' "${!build_option_@}"
+   |
+
+X018 indirect expansion is not portable in `sh`
+  --> <source>:15:16
+   |
+15 | printf '%s\n' "${!arr[*]}"
+   |

@@ -506,6 +506,22 @@ impl NestedParameterExpansionFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct IndirectExpansionFragmentFact {
+    span: Span,
+    array_keys: bool,
+}
+
+impl IndirectExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn array_keys(&self) -> bool {
+        self.array_keys
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordFactContext {
     Expansion(ExpansionContext),
@@ -1370,6 +1386,7 @@ pub struct LinterFacts<'a> {
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
+    indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1549,6 +1566,10 @@ impl<'a> LinterFacts<'a> {
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
         &self.nested_parameter_expansion_fragments
     }
+
+    pub fn indirect_expansion_fragments(&self) -> &[IndirectExpansionFragmentFact] {
+        &self.indirect_expansion_fragments
+    }
 }
 
 struct LinterFactsBuilder<'a> {
@@ -1710,6 +1731,7 @@ impl<'a> LinterFactsBuilder<'a> {
             pattern_literal_spans,
             pattern_charclass_spans,
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
+            indirect_expansion_fragments: surface_fragments.indirect_expansions,
         }
     }
 }
@@ -4815,6 +4837,7 @@ PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
 printf '%s\n' $'tab\t'
+printf '%s\n' \"${!name}\" \"${!arr[*]}\"
 printf '%s\\n' 123 | command kill -9
 echo \"#!/bin/bash
 if [[ \"$@\" =~ x ]]; then :; fi
@@ -4899,6 +4922,14 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     text.starts_with("$'tab") && *dollar_quoted && !variable_set_operand
                 }
             ));
+            assert_eq!(
+                facts
+                    .indirect_expansion_fragments()
+                    .iter()
+                    .map(|fragment| (fragment.span().slice(source), fragment.array_keys()))
+                    .collect::<Vec<_>>(),
+                vec![("${!name}", false), ("${!arr[*]}", true)]
+            );
 
             let jq = facts
                 .structural_commands()

@@ -14,6 +14,7 @@ pub mod declare_command;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
 pub mod here_string;
+pub mod indirect_expansion;
 pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
@@ -73,6 +74,7 @@ mod tests {
     #[test_case(Rule::ArrayAssignment, Path::new("X013.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
+    #[test_case(Rule::IndirectExpansion, Path::new("X018.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
