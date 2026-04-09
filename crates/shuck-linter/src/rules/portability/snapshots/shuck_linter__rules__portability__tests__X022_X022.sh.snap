@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 98
+---
+X022 wait options are not portable in `sh` scripts
+ --> <source>:2:6
+  |
+2 | wait -n
+  |
+
+X022 wait options are not portable in `sh` scripts
+ --> <source>:3:6
+  |
+3 | wait -pn x
+  |
+
+X022 wait options are not portable in `sh` scripts
+ --> <source>:4:6
+  |
+4 | wait -f -n %1
+  |
+
+X022 wait options are not portable in `sh` scripts
+ --> <source>:4:9
+  |
+4 | wait -f -n %1
+  |
+
+X022 wait options are not portable in `sh` scripts
+ --> <source>:5:6
+  |
+5 | wait -x
+  |
+
+X022 wait options are not portable in `sh` scripts
+ --> <source>:6:6
+  |
+6 | wait -1
+  |

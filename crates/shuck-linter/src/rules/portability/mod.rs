@@ -32,6 +32,7 @@ pub mod sourced_with_args;
 pub mod standalone_arithmetic;
 pub mod substring_expansion;
 pub mod trap_err;
+pub mod wait_option;
 pub mod uppercase_expansion;
 pub mod zsh_always_block;
 pub mod zsh_array_subscript_in_case;
@@ -85,6 +86,7 @@ mod tests {
     #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
     #[test_case(Rule::PipefailOption, Path::new("X021.sh"))]
+    #[test_case(Rule::WaitOption, Path::new("X022.sh"))]
     #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
     #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]

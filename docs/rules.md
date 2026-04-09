@@ -112,7 +112,7 @@ Detect bash-specific set/trap options in POSIX sh.
 
 - [x] **L** X017 (SC3047) `trap-err` — trapping ERR in sh
 - [x] **L** X021 (SC3040) `pipefail-option` — `set -o pipefail` in sh
-- [ ] **L** X022 (SC3048) `wait-option` — wait flags in sh
+- [x] **L** X022 (SC3048) `wait-option` — wait flags in sh
 - [ ] **L** X032 (SC3025) `printf-q-format-in-sh` — `%q` printf conversion in sh
 - [ ] **L** X068 (SC3075) `errexit-trap-in-sh` — `set -E` in sh
 - [ ] **M** X069 (SC3076) `signal-name-in-trap` — symbolic signal names in trap

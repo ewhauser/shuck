@@ -1127,6 +1127,17 @@ pub struct XargsCommandFacts {
     pub uses_null_input: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct WaitCommandFacts<'a> {
+    option_words: Box<[&'a Word]>,
+}
+
+impl<'a> WaitCommandFacts<'a> {
+    pub fn option_words(&self) -> &[&'a Word] {
+        &self.option_words
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct GrepCommandFacts {
     pub uses_only_matching: bool,
@@ -1168,6 +1179,7 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     xargs: Option<XargsCommandFacts>,
+    wait: Option<WaitCommandFacts<'a>>,
     grep: Option<GrepCommandFacts>,
     set: Option<SetCommandFacts>,
     expr: Option<ExprCommandFacts>,
@@ -1194,6 +1206,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
         self.xargs.as_ref()
+    }
+
+    pub fn wait(&self) -> Option<&WaitCommandFacts<'a>> {
+        self.wait.as_ref()
     }
 
     pub fn grep(&self) -> Option<&GrepCommandFacts> {
@@ -1253,6 +1269,12 @@ impl<'a> CommandOptionFacts<'a> {
                                     && !arg.starts_with("--")
                                     && arg[1..].contains('0'))
                         }),
+                }),
+            wait: normalized
+                .effective_name_is("wait")
+                .then(|| {
+                    let wait_args = normalized.body_args().to_vec();
+                    parse_wait_command(&wait_args, source)
                 }),
             grep: normalized
                 .effective_name_is("grep")
@@ -3848,6 +3870,31 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     }
 }
 
+fn parse_wait_command<'a>(args: &[&'a Word], source: &str) -> WaitCommandFacts<'a> {
+    let mut option_words = Vec::new();
+
+    for word in args {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if text.starts_with('-') && text != "-" {
+            option_words.push(*word);
+            continue;
+        }
+
+        break;
+    }
+
+    WaitCommandFacts {
+        option_words: option_words.into_boxed_slice(),
+    }
+}
+
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
     if expr_uses_string_form(args, source) {
         return None;
@@ -4268,7 +4315,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\ngrep -o content file | wc -l\nexit foo\nset -eo pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eo pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -4324,6 +4371,20 @@ mod tests {
             .and_then(|fact| fact.options().xargs())
             .expect("expected xargs facts");
         assert!(xargs.uses_null_input);
+
+        let wait = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("wait") && fact.options().wait().is_some())
+            .and_then(|fact| fact.options().wait())
+            .expect("expected wait facts");
+        assert_eq!(
+            wait.option_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-n"]
+        );
 
         let set = facts
             .commands()
