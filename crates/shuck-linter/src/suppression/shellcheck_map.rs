@@ -48,6 +48,9 @@ impl ShellCheckCodeMap {
         if number == 2284 {
             return Some(Rule::UnicodeQuoteInString);
         }
+        if number == 2385 {
+            return Some(Rule::UnicodeSingleQuoteInSingleQuotes);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -56,6 +59,12 @@ impl Default for ShellCheckCodeMap {
     fn default() -> Self {
         Self {
             map: FxHashMap::from_iter([
+                (1001, Rule::EscapedUnderscore),
+                (1002, Rule::EscapedUnderscoreLiteral),
+                (1003, Rule::SingleQuoteBackslash),
+                (1004, Rule::LiteralBackslash),
+                (1012, Rule::NeedlessBackslashUnderscore),
+                (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
@@ -77,6 +86,7 @@ impl Default for ShellCheckCodeMap {
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
+                (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -159,6 +169,18 @@ mod tests {
         assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
+        assert_eq!(map.resolve("SC1001"), Some(Rule::EscapedUnderscore));
+        assert_eq!(map.resolve("SC1002"), Some(Rule::EscapedUnderscoreLiteral));
+        assert_eq!(map.resolve("SC1003"), Some(Rule::SingleQuoteBackslash));
+        assert_eq!(map.resolve("SC1004"), Some(Rule::LiteralBackslash));
+        assert_eq!(
+            map.resolve("SC1012"),
+            Some(Rule::NeedlessBackslashUnderscore)
+        );
+        assert_eq!(
+            map.resolve("SC2267"),
+            Some(Rule::LiteralBackslashInSingleQuotes)
+        );
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
@@ -173,6 +195,10 @@ mod tests {
         );
         assert_eq!(map.resolve("SC1102"), Some(Rule::PositionalParamAsOperator));
         assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(
+            map.resolve("SC2385"),
+            Some(Rule::UnicodeSingleQuoteInSingleQuotes)
+        );
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -224,6 +250,7 @@ mod tests {
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2268"), None);
         assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
@@ -258,6 +285,11 @@ mod tests {
         assert_eq!(
             mappings,
             vec![
+                (1001, Rule::EscapedUnderscore),
+                (1002, Rule::EscapedUnderscoreLiteral),
+                (1003, Rule::SingleQuoteBackslash),
+                (1004, Rule::LiteralBackslash),
+                (1012, Rule::NeedlessBackslashUnderscore),
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
@@ -320,6 +352,7 @@ mod tests {
                 (2259, Rule::SubshellTestGroup),
                 (2264, Rule::NestedParameterExpansion),
                 (2266, Rule::OverwrittenFunction),
+                (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2270, Rule::IfMissingThen),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
@@ -328,6 +361,7 @@ mod tests {
                 (2288, Rule::TemplateBraceInCommand),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
+                (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),
                 (3014, Rule::TestEqualityOperator),
@@ -352,6 +386,7 @@ mod tests {
             Rule::ArraySubscriptTest,
             Rule::ArraySubscriptCondition,
             Rule::ExtglobInTest,
+            Rule::BackslashBeforeCommand,
         ]);
 
         let unmapped: Vec<&str> = Rule::iter()

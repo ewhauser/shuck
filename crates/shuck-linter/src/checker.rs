@@ -235,6 +235,21 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedExpansion) {
             rules::style::unquoted_expansion::unquoted_expansion(self);
         }
+        if self.is_rule_enabled(Rule::EscapedUnderscore) {
+            rules::style::escaped_underscore::escaped_underscore(self);
+        }
+        if self.is_rule_enabled(Rule::EscapedUnderscoreLiteral) {
+            rules::style::escaped_underscore_literal::escaped_underscore_literal(self);
+        }
+        if self.is_rule_enabled(Rule::NeedlessBackslashUnderscore) {
+            rules::style::needless_backslash_underscore::needless_backslash_underscore(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralBackslash) {
+            rules::style::literal_backslash::literal_backslash(self);
+        }
+        if self.is_rule_enabled(Rule::BackslashBeforeCommand) {
+            rules::style::backslash_before_command::backslash_before_command(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
             rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
         }
@@ -310,6 +325,14 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
             rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
         }
+        if self.is_rule_enabled(Rule::SingleQuoteBackslash) {
+            rules::style::single_quote_backslash::single_quote_backslash(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralBackslashInSingleQuotes) {
+            rules::style::literal_backslash_in_single_quotes::literal_backslash_in_single_quotes(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
             rules::correctness::single_quoted_literal::single_quoted_literal(self);
         }
@@ -335,6 +358,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::UnicodeQuoteInString) {
             rules::correctness::unicode_quote_in_string::unicode_quote_in_string(self);
+        }
+        if self.is_rule_enabled(Rule::UnicodeSingleQuoteInSingleQuotes) {
+            rules::correctness::unicode_single_quote_in_single_quotes::unicode_single_quote_in_single_quotes(self);
         }
     }
 

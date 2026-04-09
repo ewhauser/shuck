@@ -51,6 +51,7 @@ pub mod truthy_literal_test;
 pub mod unchecked_directory_change;
 pub mod undefined_variable;
 pub mod unicode_quote_in_string;
+pub mod unicode_single_quote_in_single_quotes;
 pub mod unreachable_after_exit;
 pub mod untracked_source_file;
 pub mod unused_assignment;
@@ -119,6 +120,7 @@ mod tests {
     #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
+    #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

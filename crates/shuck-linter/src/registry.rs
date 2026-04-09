@@ -143,6 +143,12 @@ declare_rules! {
     ("C071", Category::Correctness, Severity::Warning, DoubleParenGrouping),
     ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
+    (
+        "C137",
+        Category::Correctness,
+        Severity::Warning,
+        UnicodeSingleQuoteInSingleQuotes
+    ),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
@@ -171,6 +177,23 @@ declare_rules! {
     ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
+    ("S023", Category::Style, Severity::Warning, EscapedUnderscore),
+    ("S024", Category::Style, Severity::Warning, SingleQuoteBackslash),
+    ("S025", Category::Style, Severity::Warning, LiteralBackslash),
+    (
+        "S026",
+        Category::Style,
+        Severity::Warning,
+        NeedlessBackslashUnderscore
+    ),
+    ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
+    (
+        "S039",
+        Category::Style,
+        Severity::Warning,
+        LiteralBackslashInSingleQuotes
+    ),
+    ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -182,6 +205,13 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-005" => Some(Rule::UnquotedCommandSubstitution),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
+        "SH-082" => Some(Rule::EscapedUnderscore),
+        "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
+        "SH-087" => Some(Rule::SingleQuoteBackslash),
+        "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
+        "SH-173" => Some(Rule::BackslashBeforeCommand),
+        "SH-088" => Some(Rule::LiteralBackslash),
+        "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),
@@ -258,6 +288,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-280" => Some(Rule::OptionTestInSh),
         "SH-281" => Some(Rule::StickyBitTestInSh),
         "SH-282" => Some(Rule::OwnershipTestInSh),
+        "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
         _ => None,
     })
 }
@@ -292,7 +323,23 @@ mod tests {
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));
+        assert_eq!(code_to_rule("S023"), Some(Rule::EscapedUnderscore));
+        assert_eq!(code_to_rule("SH-082"), Some(Rule::EscapedUnderscore));
+        assert_eq!(code_to_rule("S027"), Some(Rule::EscapedUnderscoreLiteral));
+        assert_eq!(code_to_rule("SH-095"), Some(Rule::EscapedUnderscoreLiteral));
+        assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
+        assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
+        assert_eq!(
+            code_to_rule("S039"),
+            Some(Rule::LiteralBackslashInSingleQuotes)
+        );
+        assert_eq!(
+            code_to_rule("SH-172"),
+            Some(Rule::LiteralBackslashInSingleQuotes)
+        );
+        assert_eq!(code_to_rule("S040"), Some(Rule::BackslashBeforeCommand));
+        assert_eq!(code_to_rule("SH-173"), Some(Rule::BackslashBeforeCommand));
         assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));
@@ -381,5 +428,13 @@ mod tests {
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(
+            code_to_rule("C137"),
+            Some(Rule::UnicodeSingleQuoteInSingleQuotes)
+        );
+        assert_eq!(
+            code_to_rule("SH-315"),
+            Some(Rule::UnicodeSingleQuoteInSingleQuotes)
+        );
     }
 }
