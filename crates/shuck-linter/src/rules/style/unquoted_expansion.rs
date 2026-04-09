@@ -19,7 +19,12 @@ impl Violation for UnquotedExpansion {
 
 pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
-    let mut safe_values = SafeValueIndex::build(checker.semantic(), checker.facts(), source);
+    let mut safe_values = SafeValueIndex::build(
+        checker.semantic(),
+        checker.semantic_analysis(),
+        checker.facts(),
+        source,
+    );
 
     let mut spans = Vec::new();
     for fact in checker.facts().word_facts() {

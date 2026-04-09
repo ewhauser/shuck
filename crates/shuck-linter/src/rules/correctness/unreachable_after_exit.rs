@@ -13,9 +13,14 @@ impl Violation for UnreachableAfterExit {
 }
 
 pub fn unreachable_after_exit(checker: &mut Checker) {
-    for dead_code in checker.semantic().dead_code() {
-        for span in &dead_code.unreachable {
-            checker.report(UnreachableAfterExit, *span);
-        }
+    let unreachable_spans = checker
+        .semantic_analysis()
+        .dead_code()
+        .iter()
+        .flat_map(|dead_code| dead_code.unreachable.iter().copied())
+        .collect::<Vec<_>>();
+
+    for span in unreachable_spans {
+        checker.report(UnreachableAfterExit, span);
     }
 }

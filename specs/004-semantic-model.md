@@ -6,7 +6,7 @@ Proposed
 
 ## Summary
 
-A new `shuck-semantic` library crate that builds a semantic model from a parsed shell script, enabling lint rules to query variable definitions and uses, function declarations and calls, scoping boundaries, declaration builtin classification, and source/import resolution. The model is built by a single evaluation-order traversal that also records the lazy CFG input, with function bodies deferred until their enclosing scope has finished executing. The design is modeled after ruff's `ruff_python_semantic` crate, adapted for shell-specific scoping rules (subshells, command substitutions, `local`/`export`/`declare` builtins, pipeline isolation).
+A new `shuck-semantic` library crate that builds a semantic model from a parsed shell script, enabling lint rules to query variable definitions and uses, function declarations and calls, scoping boundaries, declaration builtin classification, and source/import resolution. The model is built by a single evaluation-order traversal that also records the post-build inputs needed for lazy CFG/dataflow derivations, with function bodies deferred until their enclosing scope has finished executing. The design is modeled after ruff's `ruff_python_semantic` crate, adapted for shell-specific scoping rules (subshells, command substitutions, `local`/`export`/`declare` builtins, pipeline isolation).
 
 The semantic model is the bridge between low-level positional indexing (`shuck-indexer`) and high-level rule execution. It answers questions like "is this variable defined before this use?", "what scope does this assignment belong to?", "is this function called before it's overwritten?", and "what does this `source` command import?".
 
@@ -51,7 +51,7 @@ The crate does **not** depend on `serde` — it is a pure in-memory model. It do
 
 #### SemanticModel
 
-The top-level query interface, constructed once per file and shared immutably across all rules.
+The immutable semantic IR, constructed once per file and shared across all rules.
 
 ```rust
 pub struct SemanticModel {
@@ -87,12 +87,22 @@ pub struct SemanticModel {
 
     /// Statement flow context for each command.
     flow_context: FxHashMap<Span, FlowContext>,
+}
+```
 
-    /// Control flow graph (built on demand for dataflow rules).
-    cfg: Option<ControlFlowGraph>,
+#### SemanticAnalysis
 
-    /// Dataflow analysis results (built on demand).
-    dataflow: Option<DataflowResult>,
+Exact CFG/dataflow queries live on a separate analysis handle so the semantic IR stays immutable and callers do not need `&mut SemanticModel` just to ask for lazy derived results.
+
+```rust
+pub struct SemanticAnalysis<'a> {
+    model: &'a SemanticModel,
+    cfg: OnceLock<ControlFlowGraph>,
+    dataflow: OnceLock<DataflowResult>,
+    unused_assignments: OnceLock<Vec<BindingId>>,
+    uninitialized_references: OnceLock<Vec<UninitializedReference>>,
+    dead_code: OnceLock<Vec<DeadCode>>,
+    overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
 }
 ```
 
@@ -676,26 +686,32 @@ impl SemanticModel {
 
 ```rust
 impl SemanticModel {
+    /// Create a reusable exact-analysis handle for this model.
+    pub fn analysis(&self) -> SemanticAnalysis<'_>;
+}
+
+impl SemanticAnalysis<'_> {
     /// The control flow graph. Built on first access.
-    pub fn cfg(&mut self) -> &ControlFlowGraph;
+    pub fn cfg(&self) -> &ControlFlowGraph;
 
     /// Dataflow analysis results. Built on first access (triggers CFG build).
-    pub fn dataflow(&mut self) -> &DataflowResult;
+    pub fn dataflow(&self) -> &DataflowResult;
 
-    /// All unused assignments (precise, dataflow-based).
-    /// Falls back to the conservative "zero references" heuristic
-    /// if dataflow has not been computed.
+    /// All unused assignments (precise when needed, heuristic when exact work
+    /// can be skipped without changing the answer).
     pub fn unused_assignments(&self) -> &[BindingId];
 
-    /// All unresolved references (precise when dataflow is available,
-    /// scope-chain-based otherwise).
-    pub fn unresolved_references(&self) -> &[ReferenceId];
+    /// All uninitialized references.
+    pub fn uninitialized_references(&self) -> &[UninitializedReference];
 
     /// Whether a block is reachable from the CFG entry.
-    pub fn is_reachable(&mut self, span: &Span) -> bool;
+    pub fn is_reachable(&self, span: &Span) -> bool;
 
     /// Dead code spans with their causes.
-    pub fn dead_code(&mut self) -> &[DeadCode];
+    pub fn dead_code(&self) -> &[DeadCode];
+
+    /// Function redefinitions that are real overwrites under CFG reachability.
+    pub fn overwritten_functions(&self) -> &[OverwrittenFunction];
 }
 ```
 

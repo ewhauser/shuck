@@ -4,7 +4,7 @@ use shuck_ast::{
     RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::BindingId;
-use shuck_semantic::{BindingAttributes, BindingKind, SemanticModel};
+use shuck_semantic::{BindingAttributes, BindingKind, SemanticAnalysis, SemanticModel};
 
 use crate::{FactSpan, LinterFacts};
 
@@ -68,8 +68,13 @@ pub struct SafeValueIndex<'a> {
 }
 
 impl<'a> SafeValueIndex<'a> {
-    pub fn build(semantic: &'a SemanticModel, facts: &'a LinterFacts<'a>, source: &'a str) -> Self {
-        let maybe_uninitialized_refs = semantic
+    pub fn build(
+        semantic: &'a SemanticModel,
+        analysis: &'a SemanticAnalysis<'a>,
+        facts: &'a LinterFacts<'a>,
+        source: &'a str,
+    ) -> Self {
+        let maybe_uninitialized_refs = analysis
             .uninitialized_references()
             .iter()
             .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
@@ -175,11 +180,11 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn name_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
-        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
-            return false;
-        }
         if safe_special_parameter(name) {
             return true;
+        }
+        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
+            return false;
         }
 
         let Some(binding) = self.semantic.visible_binding(name, at) else {
@@ -471,9 +476,10 @@ mod tests {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
             panic!("expected simple command");
@@ -491,9 +497,10 @@ mod tests {
             .unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Zsh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
             panic!("expected simple command");
@@ -511,9 +518,10 @@ mod tests {
             .unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Zsh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-        let mut safe_values = SafeValueIndex::build(&semantic, &facts, source);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
             panic!("expected simple command");

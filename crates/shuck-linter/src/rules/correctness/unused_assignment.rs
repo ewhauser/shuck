@@ -17,7 +17,9 @@ impl Violation for UnusedAssignment {
 }
 
 pub fn unused_assignment(checker: &mut Checker) {
-    for &binding_id in checker.semantic().unused_assignments() {
+    let unused_bindings = checker.semantic_analysis().unused_assignments().to_vec();
+
+    for binding_id in unused_bindings {
         let binding = checker.semantic().binding(binding_id);
 
         if binding.name.as_str() == "_" {

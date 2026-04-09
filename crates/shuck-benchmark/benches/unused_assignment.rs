@@ -27,10 +27,10 @@ fn bench_unused_assignment(c: &mut Criterion) {
                         .map(|file| build_semantic(file.source))
                         .collect::<Vec<_>>()
                 },
-                |mut models| {
+                |models| {
                     let unused_count: usize = models
-                        .iter_mut()
-                        .map(|model| model.precompute_unused_assignments().len())
+                        .iter()
+                        .map(|model| model.analysis().unused_assignments().len())
                         .sum();
                     black_box(unused_count);
                 },
@@ -56,10 +56,10 @@ fn bench_uninitialized_reference(c: &mut Criterion) {
                         .map(|file| build_semantic(file.source))
                         .collect::<Vec<_>>()
                 },
-                |mut models| {
+                |models| {
                     let reference_count: usize = models
-                        .iter_mut()
-                        .map(|model| model.precompute_uninitialized_references().len())
+                        .iter()
+                        .map(|model| model.analysis().uninitialized_references().len())
                         .sum();
                     black_box(reference_count);
                 },
@@ -85,10 +85,10 @@ fn bench_dead_code(c: &mut Criterion) {
                         .map(|file| build_semantic(file.source))
                         .collect::<Vec<_>>()
                 },
-                |mut models| {
+                |models| {
                     let dead_code_count: usize = models
-                        .iter_mut()
-                        .map(|model| model.precompute_dead_code().len())
+                        .iter()
+                        .map(|model| model.analysis().dead_code().len())
                         .sum();
                     black_box(dead_code_count);
                 },

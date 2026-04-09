@@ -1,12 +1,13 @@
 use rustc_hash::FxHashSet;
 use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
-use shuck_semantic::SemanticModel;
+use shuck_semantic::{SemanticAnalysis, SemanticModel};
 
 use crate::{Diagnostic, FileContext, LinterFacts, Rule, RuleSet, ShellDialect, Violation, rules};
 
 pub struct Checker<'a> {
     semantic: &'a SemanticModel,
+    semantic_analysis: SemanticAnalysis<'a>,
     indexer: &'a Indexer,
     file: &'a File,
     source: &'a str,
@@ -47,6 +48,7 @@ impl<'a> Checker<'a> {
     ) -> Self {
         Self {
             semantic,
+            semantic_analysis: semantic.analysis(),
             indexer,
             file,
             source,
@@ -61,6 +63,10 @@ impl<'a> Checker<'a> {
 
     pub fn semantic(&self) -> &'a SemanticModel {
         self.semantic
+    }
+
+    pub fn semantic_analysis(&self) -> &SemanticAnalysis<'a> {
+        &self.semantic_analysis
     }
 
     pub fn indexer(&self) -> &'a Indexer {

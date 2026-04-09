@@ -31,6 +31,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, File, Name, Span};
 use shuck_indexer::Indexer;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
@@ -220,17 +221,18 @@ pub struct SemanticModel {
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
-    // These analyses are computed lazily and invalidated when
-    // `set_synthetic_reads` changes the dataflow inputs. That resettable cache
-    // behavior is why the public accessors currently take `&mut self` instead
-    // of using a one-shot shared cell. If we need parallel shared analysis
-    // later, this is the seam to revisit with an interior-mutable cache.
-    cfg: Option<ControlFlowGraph>,
-    dataflow: Option<DataflowResult>,
-    precise_unused_assignments: Option<Vec<BindingId>>,
-    precise_uninitialized_references: Option<Vec<UninitializedReference>>,
-    precise_dead_code: Option<Vec<DeadCode>>,
     heuristic_unused_assignments: Vec<BindingId>,
+}
+
+#[derive(Debug)]
+pub struct SemanticAnalysis<'model> {
+    model: &'model SemanticModel,
+    cfg: OnceLock<ControlFlowGraph>,
+    dataflow: OnceLock<DataflowResult>,
+    unused_assignments: OnceLock<Vec<BindingId>>,
+    uninitialized_references: OnceLock<Vec<UninitializedReference>>,
+    dead_code: OnceLock<Vec<DeadCode>>,
+    overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
 }
 
 impl SemanticModel {
@@ -280,13 +282,12 @@ impl SemanticModel {
             recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
             command_references: built.command_references,
-            cfg: None,
-            dataflow: None,
-            precise_unused_assignments: None,
-            precise_uninitialized_references: None,
-            precise_dead_code: None,
             heuristic_unused_assignments: built.heuristic_unused_assignments,
         }
+    }
+
+    pub fn analysis(&self) -> SemanticAnalysis<'_> {
+        SemanticAnalysis::new(self)
     }
 
     pub fn scopes(&self) -> &[Scope] {
@@ -379,22 +380,6 @@ impl SemanticModel {
         self.ancestor_scopes(scope)
             .skip(1)
             .any(|scope| self.scopes[scope.index()].bindings.contains_key(name))
-    }
-
-    pub fn unused_assignments(&self) -> &[BindingId] {
-        self.dataflow
-            .as_ref()
-            .map(DataflowResult::unused_assignment_ids)
-            .or(self.precise_unused_assignments.as_deref())
-            .unwrap_or(&self.heuristic_unused_assignments)
-    }
-
-    pub fn uninitialized_references(&self) -> &[UninitializedReference] {
-        self.dataflow
-            .as_ref()
-            .map(|dataflow| dataflow.uninitialized_references.as_slice())
-            .or(self.precise_uninitialized_references.as_deref())
-            .unwrap_or(&[])
     }
 
     fn needs_precise_unused_assignments(&self) -> bool {
@@ -584,7 +569,6 @@ impl SemanticModel {
         for (scope, span, binding) in imported_bindings {
             self.add_imported_binding(&binding, scope, span, Some(span));
         }
-        self.invalidate_analyses();
         self.resolve_unresolved_references();
         self.call_graph = build_call_graph(
             &self.scopes,
@@ -638,32 +622,171 @@ impl SemanticModel {
         &self.call_graph
     }
 
-    pub fn precompute_overwritten_functions(&self) -> Vec<OverwrittenFunction> {
-        if self.functions.is_empty() {
+    pub fn declarations(&self) -> &[Declaration] {
+        &self.declarations
+    }
+
+    pub fn source_refs(&self) -> &[SourceRef] {
+        &self.source_refs
+    }
+
+    pub(crate) fn bash_runtime_vars_enabled(&self) -> bool {
+        self.runtime.bash_enabled()
+    }
+
+    pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {
+        self.synthetic_reads = synthetic_reads;
+    }
+
+    fn set_entry_bindings(&mut self, entry_bindings: Vec<BindingId>) {
+        self.entry_bindings = entry_bindings;
+    }
+
+    fn dataflow_context<'a>(&'a self, cfg: &'a ControlFlowGraph) -> DataflowContext<'a> {
+        DataflowContext {
+            cfg,
+            runtime: &self.runtime,
+            scopes: &self.scopes,
+            bindings: &self.bindings,
+            references: &self.references,
+            predefined_runtime_refs: &self.predefined_runtime_refs,
+            guarded_parameter_refs: &self.guarded_parameter_refs,
+            resolved: &self.resolved,
+            call_sites: &self.call_sites,
+            indirect_targets_by_reference: &self.indirect_targets_by_reference,
+            synthetic_reads: &self.synthetic_reads,
+            entry_bindings: &self.entry_bindings,
+        }
+    }
+}
+
+impl<'model> SemanticAnalysis<'model> {
+    fn new(model: &'model SemanticModel) -> Self {
+        Self {
+            model,
+            cfg: OnceLock::new(),
+            dataflow: OnceLock::new(),
+            unused_assignments: OnceLock::new(),
+            uninitialized_references: OnceLock::new(),
+            dead_code: OnceLock::new(),
+            overwritten_functions: OnceLock::new(),
+        }
+    }
+
+    pub fn cfg(&self) -> &ControlFlowGraph {
+        self.cfg.get_or_init(|| {
+            build_control_flow_graph(
+                &self.model.recorded_program,
+                &self.model.command_bindings,
+                &self.model.command_references,
+            )
+        })
+    }
+
+    #[allow(dead_code)]
+    fn dataflow(&self) -> &DataflowResult {
+        self.dataflow.get_or_init(|| {
+            let cfg = self.cfg();
+            let context = self.model.dataflow_context(cfg);
+            dataflow::analyze(&context)
+        })
+    }
+
+    pub fn unused_assignments(&self) -> &[BindingId] {
+        if !self.model.needs_precise_unused_assignments() {
+            return &self.model.heuristic_unused_assignments;
+        }
+
+        self.unused_assignments
+            .get_or_init(|| {
+                let cfg = self.cfg();
+                if self
+                    .model
+                    .can_use_heuristic_unused_assignments_with_linear_cfg(cfg)
+                {
+                    return self.model.heuristic_unused_assignments.clone();
+                }
+                let context = self.model.dataflow_context(cfg);
+                dataflow::analyze_unused_assignments(&context)
+            })
+            .as_slice()
+    }
+
+    pub fn uninitialized_references(&self) -> &[UninitializedReference] {
+        self.uninitialized_references
+            .get_or_init(|| {
+                let cfg = self.cfg();
+                let context = self.model.dataflow_context(cfg);
+                dataflow::analyze_uninitialized_references(&context)
+            })
+            .as_slice()
+    }
+
+    pub fn dead_code(&self) -> &[DeadCode] {
+        self.dead_code
+            .get_or_init(|| dataflow::analyze_dead_code(self.cfg()))
+            .as_slice()
+    }
+
+    pub fn is_reachable(&self, span: &Span) -> bool {
+        let cfg = self.cfg();
+        cfg.block_ids_for_span(*span)
+            .iter()
+            .all(|block| !cfg.unreachable().contains(block))
+    }
+
+    pub fn overwritten_functions(&self) -> &[OverwrittenFunction] {
+        self.overwritten_functions
+            .get_or_init(|| self.compute_overwritten_functions())
+            .as_slice()
+    }
+
+    pub(crate) fn summarize_scope_provided_bindings(&self, scope: ScopeId) -> Vec<ProvidedBinding> {
+        dataflow::summarize_scope_provided_bindings(
+            self.cfg(),
+            &self.model.scopes,
+            &self.model.bindings,
+            &self.model.entry_bindings,
+            scope,
+        )
+    }
+
+    pub(crate) fn summarize_scope_provided_functions(
+        &self,
+        scope: ScopeId,
+    ) -> Vec<ProvidedBinding> {
+        dataflow::summarize_scope_provided_functions(
+            self.cfg(),
+            &self.model.scopes,
+            &self.model.bindings,
+            &self.model.entry_bindings,
+            scope,
+        )
+    }
+
+    fn compute_overwritten_functions(&self) -> Vec<OverwrittenFunction> {
+        if self.model.functions.is_empty() {
             return Vec::new();
         }
 
-        let cfg = build_control_flow_graph(
-            &self.recorded_program,
-            &self.command_bindings,
-            &self.command_references,
-        );
+        let cfg = self.cfg();
         let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-        let binding_blocks = build_binding_block_index(cfg.blocks(), self.bindings.len());
-        let mut reachability = ReachabilityCache::new(&cfg);
+        let binding_blocks = build_binding_block_index(cfg.blocks(), self.model.bindings.len());
+        let mut reachability = ReachabilityCache::new(cfg);
         let mut overwritten = Vec::new();
 
-        for (name, bindings) in &self.functions {
+        for (name, bindings) in &self.model.functions {
             let mut bindings_by_scope = FxHashMap::<ScopeId, Vec<BindingId>>::default();
             for &binding in bindings {
                 bindings_by_scope
-                    .entry(self.binding(binding).scope)
+                    .entry(self.model.binding(binding).scope)
                     .or_default()
                     .push(binding);
             }
 
             for scope_bindings in bindings_by_scope.values_mut() {
-                scope_bindings.sort_by_key(|binding| self.binding(*binding).span.start.offset);
+                scope_bindings
+                    .sort_by_key(|binding| self.model.binding(*binding).span.start.offset);
 
                 for pair in scope_bindings.windows(2) {
                     let first = pair[0];
@@ -683,8 +806,9 @@ impl SemanticModel {
                         continue;
                     }
 
-                    let first_called = self.call_sites_for(name).iter().any(|site| {
-                        self.visible_binding(name, site.span)
+                    let first_called = self.model.call_sites_for(name).iter().any(|site| {
+                        self.model
+                            .visible_binding(name, site.span)
                             .is_some_and(|binding| binding.id == first)
                             && {
                                 let site_blocks = cfg
@@ -719,189 +843,11 @@ impl SemanticModel {
 
         overwritten.sort_by_key(|overwritten| {
             (
-                self.binding(overwritten.first).span.start.offset,
-                self.binding(overwritten.second).span.start.offset,
+                self.model.binding(overwritten.first).span.start.offset,
+                self.model.binding(overwritten.second).span.start.offset,
             )
         });
         overwritten
-    }
-
-    pub fn declarations(&self) -> &[Declaration] {
-        &self.declarations
-    }
-
-    pub fn source_refs(&self) -> &[SourceRef] {
-        &self.source_refs
-    }
-
-    pub(crate) fn bash_runtime_vars_enabled(&self) -> bool {
-        self.runtime.bash_enabled()
-    }
-
-    pub(crate) fn summarize_scope_provided_bindings(
-        &mut self,
-        scope: ScopeId,
-    ) -> Vec<ProvidedBinding> {
-        let cfg = self.cfg().clone();
-        dataflow::summarize_scope_provided_bindings(
-            &cfg,
-            &self.scopes,
-            &self.bindings,
-            &self.entry_bindings,
-            scope,
-        )
-    }
-
-    pub(crate) fn summarize_scope_provided_functions(
-        &mut self,
-        scope: ScopeId,
-    ) -> Vec<ProvidedBinding> {
-        let cfg = self.cfg().clone();
-        dataflow::summarize_scope_provided_functions(
-            &cfg,
-            &self.scopes,
-            &self.bindings,
-            &self.entry_bindings,
-            scope,
-        )
-    }
-
-    pub fn cfg(&mut self) -> &ControlFlowGraph {
-        if self.cfg.is_none() {
-            self.cfg = Some(build_control_flow_graph(
-                &self.recorded_program,
-                &self.command_bindings,
-                &self.command_references,
-            ));
-        }
-        self.cfg.as_ref().unwrap()
-    }
-
-    #[allow(dead_code)]
-    fn dataflow(&mut self) -> &DataflowResult {
-        if self.dataflow.is_none() {
-            if self.cfg.is_none() {
-                self.cfg = Some(build_control_flow_graph(
-                    &self.recorded_program,
-                    &self.command_bindings,
-                    &self.command_references,
-                ));
-            }
-            let result = {
-                let cfg = self.cfg.as_ref().unwrap();
-                let context = self.dataflow_context(cfg);
-                dataflow::analyze(&context)
-            };
-            self.dataflow = Some(result);
-        }
-        self.dataflow.as_ref().unwrap()
-    }
-
-    pub fn precompute_unused_assignments(&mut self) -> &[BindingId] {
-        if self.precise_unused_assignments.is_none() {
-            if !self.needs_precise_unused_assignments() {
-                self.precise_unused_assignments = Some(self.heuristic_unused_assignments.clone());
-                return self.precise_unused_assignments.as_deref().unwrap();
-            }
-            if self.cfg.is_none() {
-                self.cfg = Some(build_control_flow_graph(
-                    &self.recorded_program,
-                    &self.command_bindings,
-                    &self.command_references,
-                ));
-            }
-            if self.can_use_heuristic_unused_assignments_with_linear_cfg(self.cfg.as_ref().unwrap())
-            {
-                self.precise_unused_assignments = Some(self.heuristic_unused_assignments.clone());
-                return self.precise_unused_assignments.as_deref().unwrap();
-            }
-            let cfg = self.cfg.as_ref().unwrap();
-            let context = self.dataflow_context(cfg);
-            self.precise_unused_assignments = Some(dataflow::analyze_unused_assignments(&context));
-        }
-        self.precise_unused_assignments.as_deref().unwrap()
-    }
-
-    pub fn precompute_uninitialized_references(&mut self) -> &[UninitializedReference] {
-        if self.precise_uninitialized_references.is_none() {
-            if self.cfg.is_none() {
-                self.cfg = Some(build_control_flow_graph(
-                    &self.recorded_program,
-                    &self.command_bindings,
-                    &self.command_references,
-                ));
-            }
-            let cfg = self.cfg.as_ref().unwrap();
-            let context = self.dataflow_context(cfg);
-            self.precise_uninitialized_references =
-                Some(dataflow::analyze_uninitialized_references(&context));
-        }
-        self.precise_uninitialized_references.as_deref().unwrap()
-    }
-
-    pub fn precompute_dead_code(&mut self) -> &[DeadCode] {
-        if self.precise_dead_code.is_none() {
-            if self.cfg.is_none() {
-                self.cfg = Some(build_control_flow_graph(
-                    &self.recorded_program,
-                    &self.command_bindings,
-                    &self.command_references,
-                ));
-            }
-            let cfg = self.cfg.as_ref().unwrap();
-            self.precise_dead_code = Some(dataflow::analyze_dead_code(cfg));
-        }
-        self.precise_dead_code.as_deref().unwrap()
-    }
-
-    pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {
-        self.synthetic_reads = synthetic_reads;
-        self.invalidate_analyses();
-    }
-
-    fn set_entry_bindings(&mut self, entry_bindings: Vec<BindingId>) {
-        self.entry_bindings = entry_bindings;
-        self.invalidate_analyses();
-    }
-
-    fn invalidate_analyses(&mut self) {
-        self.dataflow = None;
-        self.cfg = None;
-        self.precise_unused_assignments = None;
-        self.precise_uninitialized_references = None;
-        self.precise_dead_code = None;
-    }
-
-    fn dataflow_context<'a>(&'a self, cfg: &'a ControlFlowGraph) -> DataflowContext<'a> {
-        DataflowContext {
-            cfg,
-            runtime: &self.runtime,
-            scopes: &self.scopes,
-            bindings: &self.bindings,
-            references: &self.references,
-            predefined_runtime_refs: &self.predefined_runtime_refs,
-            guarded_parameter_refs: &self.guarded_parameter_refs,
-            resolved: &self.resolved,
-            call_sites: &self.call_sites,
-            indirect_targets_by_reference: &self.indirect_targets_by_reference,
-            synthetic_reads: &self.synthetic_reads,
-            entry_bindings: &self.entry_bindings,
-        }
-    }
-
-    pub fn is_reachable(&mut self, span: &Span) -> bool {
-        let cfg = self.cfg();
-        cfg.block_ids_for_span(*span)
-            .iter()
-            .all(|block| !cfg.unreachable().contains(block))
-    }
-
-    pub fn dead_code(&self) -> &[DeadCode] {
-        self.dataflow
-            .as_ref()
-            .map(|dataflow| dataflow.dead_code.as_slice())
-            .or(self.precise_dead_code.as_deref())
-            .unwrap_or(&[])
     }
 }
 
@@ -1228,9 +1174,9 @@ mod tests {
         )
     }
 
-    fn reportable_unused_names(model: &mut SemanticModel) -> Vec<Name> {
-        let _ = model.precompute_unused_assignments();
-        model
+    fn reportable_unused_names(model: &SemanticModel) -> Vec<Name> {
+        let analysis = model.analysis();
+        analysis
             .unused_assignments()
             .iter()
             .filter_map(|binding| {
@@ -1251,21 +1197,24 @@ mod tests {
             .collect()
     }
 
-    fn assert_unused_assignment_parity(model: &mut SemanticModel) {
-        let precise = model.precompute_unused_assignments().to_vec();
-        let exact = model.dataflow().unused_assignment_ids().to_vec();
+    fn assert_unused_assignment_parity(model: &SemanticModel) {
+        let analysis = model.analysis();
+        let precise = analysis.unused_assignments().to_vec();
+        let exact = analysis.dataflow().unused_assignment_ids().to_vec();
         assert_eq!(precise, exact);
     }
 
-    fn assert_uninitialized_reference_parity(model: &mut SemanticModel) {
-        let precise = model.precompute_uninitialized_references().to_vec();
-        let exact = model.dataflow().uninitialized_references.clone();
+    fn assert_uninitialized_reference_parity(model: &SemanticModel) {
+        let analysis = model.analysis();
+        let precise = analysis.uninitialized_references().to_vec();
+        let exact = analysis.dataflow().uninitialized_references.clone();
         assert_eq!(precise, exact);
     }
 
-    fn assert_dead_code_parity(model: &mut SemanticModel) {
-        let precise = model.precompute_dead_code().to_vec();
-        let exact = model.dataflow().dead_code.clone();
+    fn assert_dead_code_parity(model: &SemanticModel) {
+        let analysis = model.analysis();
+        let precise = analysis.dead_code().to_vec();
+        let exact = analysis.dataflow().dead_code.clone();
         assert_eq!(precise, exact);
     }
 
@@ -1283,9 +1232,10 @@ mod tests {
             .collect()
     }
 
-    fn uninitialized_names(model: &mut SemanticModel) -> Vec<String> {
-        let references = model
-            .precompute_uninitialized_references()
+    fn uninitialized_names(model: &SemanticModel) -> Vec<String> {
+        let analysis = model.analysis();
+        let references = analysis
+            .uninitialized_references()
             .iter()
             .map(|reference| reference.reference)
             .collect::<Vec<_>>();
@@ -1295,8 +1245,8 @@ mod tests {
             .collect()
     }
 
-    fn uninitialized_details(model: &mut SemanticModel) -> Vec<(String, UninitializedCertainty)> {
-        let references = model.precompute_uninitialized_references().to_vec();
+    fn uninitialized_details(model: &SemanticModel) -> Vec<(String, UninitializedCertainty)> {
+        let references = model.analysis().uninitialized_references().to_vec();
         references
             .iter()
             .map(|reference| {
@@ -1495,12 +1445,12 @@ mod tests {
     #[test]
     fn zsh_multi_name_function_lookup_works_through_any_alias() {
         let source = "flag=1\nfunction music itunes() { echo \"$flag\"; }\nitunes\n";
-        let mut model = model_with_dialect(source, ShellDialect::Zsh);
+        let model = model_with_dialect(source, ShellDialect::Zsh);
 
         assert_eq!(model.call_sites_for(&Name::from("itunes")).len(), 1);
         assert!(model.call_graph().reachable.contains(&Name::from("itunes")));
         assert!(
-            !reportable_unused_names(&mut model)
+            !reportable_unused_names(&model)
                 .into_iter()
                 .any(|name| name == "flag")
         );
@@ -1710,7 +1660,8 @@ f() { echo hi; }
 f() { echo again; }
 ";
         let model = model(source);
-        let overwritten = model.precompute_overwritten_functions();
+        let analysis = model.analysis();
+        let overwritten = analysis.overwritten_functions();
 
         assert_eq!(overwritten.len(), 1);
         assert_eq!(overwritten[0].name, "f");
@@ -1725,7 +1676,8 @@ f
 f() { echo again; }
 ";
         let model = model(source);
-        let overwritten = model.precompute_overwritten_functions();
+        let analysis = model.analysis();
+        let overwritten = analysis.overwritten_functions();
 
         assert_eq!(overwritten.len(), 1);
         assert!(overwritten[0].first_called);
@@ -1743,7 +1695,7 @@ helper
 ";
         let model = model(source);
 
-        assert!(model.precompute_overwritten_functions().is_empty());
+        assert!(model.analysis().overwritten_functions().is_empty());
     }
 
     #[test]
@@ -1762,7 +1714,7 @@ factory_two
 ";
         let model = model(source);
 
-        assert!(model.precompute_overwritten_functions().is_empty());
+        assert!(model.analysis().overwritten_functions().is_empty());
     }
 
     #[test]
@@ -1805,8 +1757,9 @@ done
     #[test]
     fn detects_overwritten_assignments_and_possible_uninitialized_reads() {
         let overwritten_source = "VAR=x\nVAR=y\necho $VAR\n";
-        let mut overwritten = model(overwritten_source);
-        let dataflow = overwritten.dataflow();
+        let overwritten = model(overwritten_source);
+        let overwritten_analysis = overwritten.analysis();
+        let dataflow = overwritten_analysis.dataflow();
         assert_eq!(dataflow.unused_assignments.len(), 1);
         assert!(matches!(
             dataflow.unused_assignments[0].reason,
@@ -1814,8 +1767,9 @@ done
         ));
 
         let partial_source = "if cond; then VAR=x; fi\necho $VAR\n";
-        let mut partial = model(partial_source);
-        let dataflow = partial.dataflow();
+        let partial = model(partial_source);
+        let partial_analysis = partial.analysis();
+        let dataflow = partial_analysis.dataflow();
         assert_eq!(dataflow.uninitialized_references.len(), 1);
         assert_eq!(
             dataflow.uninitialized_references[0].certainty,
@@ -1836,8 +1790,8 @@ done
         ];
 
         for source in cases {
-            let mut model = model(source);
-            assert_uninitialized_reference_parity(&mut model);
+            let model = model(source);
+            assert_uninitialized_reference_parity(&model);
         }
     }
 
@@ -1863,27 +1817,28 @@ f
         ];
 
         for source in cases {
-            let mut model = model(source);
-            assert_dead_code_parity(&mut model);
+            let model = model(source);
+            assert_dead_code_parity(&model);
         }
     }
 
     #[test]
     fn precompute_unused_assignments_skips_dataflow_for_linear_duplicate_assignments() {
-        let mut model = model(
+        let model = model(
             "\
 emoji[grinning]=1
 emoji[smile]=2
 ",
         );
+        let analysis = model.analysis();
 
-        let precise = model.precompute_unused_assignments().to_vec();
+        let precise = analysis.unused_assignments().to_vec();
 
-        assert!(model.cfg.is_some());
-        assert!(model.dataflow.is_none());
+        assert!(analysis.cfg.get().is_some());
+        assert!(analysis.dataflow.get().is_none());
         assert_eq!(binding_names(&model, &precise), vec!["emoji", "emoji"]);
 
-        let exact = model.dataflow().unused_assignment_ids().to_vec();
+        let exact = analysis.dataflow().unused_assignment_ids().to_vec();
         assert_eq!(precise, exact);
     }
 
@@ -1957,8 +1912,8 @@ f
         ];
 
         for source in cases {
-            let mut model = model(source);
-            assert_unused_assignment_parity(&mut model);
+            let model = model(source);
+            assert_unused_assignment_parity(&model);
         }
     }
 
@@ -1972,8 +1927,9 @@ else
 fi
 ${code_command} --version
 ";
-        let mut model = model(source);
-        let dataflow = model.dataflow();
+        let model = model(source);
+        let analysis = model.analysis();
+        let dataflow = analysis.dataflow();
 
         assert!(dataflow.unused_assignments.is_empty());
     }
@@ -1987,11 +1943,11 @@ else
   code_command=\"flatpak run com.visualstudio.code\"
 fi
 ";
-        let mut model = model(source);
+        let model = model(source);
         let all_bindings = model.bindings_for(&Name::from("code_command")).to_vec();
-        let binding_ids = model.dataflow().unused_assignment_ids().to_vec();
+        let binding_ids = model.analysis().dataflow().unused_assignment_ids().to_vec();
 
-        assert_eq!(model.dataflow().unused_assignments.len(), 2);
+        assert_eq!(model.analysis().dataflow().unused_assignments.len(), 2);
         assert_eq!(binding_ids, vec![all_bindings[1]]);
     }
 
@@ -2007,9 +1963,9 @@ else
   echo \"$VAR\"
 fi
 ";
-        let mut model = model(source);
+        let model = model(source);
         let all_bindings = model.bindings_for(&Name::from("VAR")).to_vec();
-        let binding_ids = model.dataflow().unused_assignment_ids().to_vec();
+        let binding_ids = model.analysis().dataflow().unused_assignment_ids().to_vec();
 
         assert_eq!(binding_ids, vec![all_bindings[0], all_bindings[1]]);
     }
@@ -2024,8 +1980,9 @@ else
 fi
 show_version() { ${code_command} --version; }
 ";
-        let mut model = model(source);
+        let model = model(source);
         let unused_bindings = model
+            .analysis()
             .dataflow()
             .unused_assignments
             .iter()
@@ -2051,8 +2008,9 @@ else
 fi
 download() { echo \"$jq_arch\"; }
 ";
-        let mut model = model(source);
+        let model = model(source);
         let unused_bindings = model
+            .analysis()
             .dataflow()
             .unused_assignments
             .iter()
@@ -2084,8 +2042,9 @@ download() {
   echo \"$core_arch\"
 }
 ";
-        let mut model = model(source);
+        let model = model(source);
         let unused_bindings = model
+            .analysis()
             .dataflow()
             .unused_assignments
             .iter()
@@ -2113,8 +2072,9 @@ main() {
 }
 main \"$@\"
 ";
-        let mut model = model(source);
+        let model = model(source);
         let unused_bindings = model
+            .analysis()
             .dataflow()
             .unused_assignments
             .iter()
@@ -2145,8 +2105,8 @@ install_readline() {
 }
 install_readline
 ";
-        let mut model = model(source);
-        let unused = reportable_unused_names(&mut model);
+        let model = model(source);
+        let unused = reportable_unused_names(&model);
 
         assert!(
             !unused.contains(&Name::from("archive_format")),
@@ -2173,9 +2133,9 @@ helper() {
 }
 main
 ";
-        let mut model = model(source);
+        let model = model(source);
 
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(
             !unused.contains(&Name::from("status")),
             "unused: {:?}",
@@ -2197,9 +2157,9 @@ helper() {
 }
 main
 ";
-        let mut model = model(source);
+        let model = model(source);
 
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(
             !unused.contains(&Name::from("errors")),
             "unused: {:?}",
@@ -2220,8 +2180,9 @@ check_status() {
 }
 check_status
 ";
-        let mut model = model(source);
+        let model = model(source);
         let unused_bindings = model
+            .analysis()
             .dataflow()
             .unused_assignments
             .iter()
@@ -2266,7 +2227,7 @@ check_status
     #[test]
     fn name_only_local_creates_a_binding_for_later_reads() {
         let source = "f() { local VAR; echo \"$VAR\"; }\n";
-        let mut model = model(source);
+        let model = model(source);
 
         let local_binding = model
             .bindings()
@@ -2293,7 +2254,8 @@ check_status
         let resolved = model.resolved_binding(reference.id).unwrap();
         assert_eq!(resolved.id, local_binding.id);
         let reference_id = reference.id;
-        let uninitialized = model.precompute_uninitialized_references();
+        let analysis = model.analysis();
+        let uninitialized = analysis.uninitialized_references();
         assert_eq!(uninitialized.len(), 1);
         assert_eq!(uninitialized[0].reference, reference_id);
         assert_eq!(uninitialized[0].certainty, UninitializedCertainty::Definite);
@@ -2366,8 +2328,8 @@ printf '%s\n' 'service safe ok yes' | while read UNIT EXPOSURE PREDICATE HAPPY; 
   printf '%s %s %s %s\n' \"$UNIT\" \"$EXPOSURE\" \"$PREDICATE\" \"$HAPPY\"
 done
 ";
-        let mut model = model(source);
-        let unused = reportable_unused_names(&mut model);
+        let model = model(source);
+        let unused = reportable_unused_names(&model);
 
         for name in ["UNIT", "EXPOSURE", "PREDICATE", "HAPPY"] {
             assert!(
@@ -2417,10 +2379,11 @@ web_server=apache
 args_var=\"${web_server}_args[@]\"
 printf '%s\\n' \"${!args_var}\"
 ";
-        let mut model = model(source);
-        model.dataflow();
+        let model = model(source);
+        model.analysis().dataflow();
 
         let unused = model
+            .analysis()
             .unused_assignments()
             .iter()
             .map(|binding| model.binding(*binding).name.as_str())
@@ -2462,10 +2425,11 @@ arr=(--first)
 arr+=(--second)
 printf '%s\\n' \"${arr[@]}\"
 ";
-        let mut model = model(source);
-        model.dataflow();
+        let model = model(source);
+        model.analysis().dataflow();
 
         let unused = model
+            .analysis()
             .unused_assignments()
             .iter()
             .map(|binding| model.binding(*binding).name.as_str())
@@ -2498,14 +2462,15 @@ f() {
 }
 f
 ";
-        let mut model = model(source);
-        model.dataflow();
+        let model = model(source);
+        model.analysis().dataflow();
 
         assert!(model.references().iter().any(|reference| {
             reference.name == "IFS" && matches!(reference.kind, ReferenceKind::ImplicitRead)
         }));
 
         let unused = model
+            .analysis()
             .unused_assignments()
             .iter()
             .map(|binding| model.binding(*binding).name.as_str())
@@ -2522,10 +2487,11 @@ IFS=$'\\n\\t'
 unused=1
 echo ok
 ";
-        let mut model = model(source);
-        model.dataflow();
+        let model = model(source);
+        model.analysis().dataflow();
 
         let unused = model
+            .analysis()
             .unused_assignments()
             .iter()
             .map(|binding| model.binding(*binding).name.as_str())
@@ -2546,10 +2512,11 @@ LC_TIME=C
 unused=1
 echo ok
 ";
-        let mut model = model(source);
-        model.dataflow();
+        let model = model(source);
+        model.analysis().dataflow();
 
         let unused = model
+            .analysis()
             .unused_assignments()
             .iter()
             .map(|binding| model.binding(*binding).name.as_str())
@@ -2571,17 +2538,18 @@ _pyenv() {
 }
 complete -F _pyenv pyenv
 ";
-        let mut model = model(source);
-        model.dataflow();
+        let model = model(source);
+        model.analysis().dataflow();
 
         let unused = model
+            .analysis()
             .unused_assignments()
             .iter()
             .map(|binding| model.binding(*binding).name.as_str())
             .collect::<Vec<_>>();
         assert!(!unused.contains(&"COMPREPLY"));
 
-        let uninitialized = uninitialized_names(&mut model);
+        let uninitialized = uninitialized_names(&model);
         assert!(!uninitialized.contains(&"COMP_WORDS".to_string()));
         assert!(!uninitialized.contains(&"COMP_CWORD".to_string()));
     }
@@ -2595,10 +2563,11 @@ unused_args=(--unused)
 args_var=apache_args[@]
 printf '%s\\n' \"${!args_var}\"
 ";
-        let mut model = model(source);
-        model.dataflow();
+        let model = model(source);
+        model.analysis().dataflow();
 
         let unused = model
+            .analysis()
             .unused_assignments()
             .iter()
             .map(|binding| model.binding(*binding).name.as_str())
@@ -2660,8 +2629,8 @@ f() {
 }
 f
 ";
-        let mut model = model(source);
-        assert!(uninitialized_names(&mut model).is_empty());
+        let model = model(source);
+        assert!(uninitialized_names(&model).is_empty());
     }
 
     #[test]
@@ -2673,9 +2642,9 @@ printf '%s\\n' \
   \"${missing_replace:+alt}\" \
   \"${missing_error:?missing}\"
 ";
-        let mut model = model(source);
+        let model = model(source);
         let unresolved = unresolved_names(&model);
-        let uninitialized = uninitialized_names(&mut model);
+        let uninitialized = uninitialized_names(&model);
 
         assert_names_present(
             &[
@@ -2703,8 +2672,8 @@ printf '%s\\n' \
 printf '%s\\n' \"${config_path:=/tmp/default}\"
 printf '%s\\n' \"$config_path\" \"$still_missing\"
 ";
-        let mut model = model(source);
-        let uninitialized = uninitialized_names(&mut model);
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
 
         assert_names_absent(&["config_path"], &uninitialized);
         assert_names_present(&["still_missing"], &uninitialized);
@@ -2723,8 +2692,9 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
     #[test]
     fn detects_dead_code_after_exit() {
         let source = "exit 0\necho dead\n";
-        let mut model = model(source);
-        let dead_code = model.precompute_dead_code();
+        let model = model(source);
+        let analysis = model.analysis();
+        let dead_code = analysis.dead_code();
         assert_eq!(dead_code.len(), 1);
         assert_eq!(
             dead_code[0].unreachable[0].slice(source).trim_end(),
@@ -2795,9 +2765,9 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
 
         for shebang in ["#!/bin/bash", "#!/bin/sh"] {
             let source = common_runtime_source(shebang);
-            let mut model = model(&source);
+            let model = model(&source);
             let unresolved = unresolved_names(&model);
-            let uninitialized = uninitialized_names(&mut model);
+            let uninitialized = uninitialized_names(&model);
 
             assert_names_absent(&names, &unresolved);
             assert_names_absent(&names, &uninitialized);
@@ -2807,7 +2777,7 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
     #[test]
     fn bash_runtime_vars_are_not_marked_uninitialized_in_bash_scripts() {
         let source = bash_runtime_source("#!/bin/bash");
-        let mut model = model(&source);
+        let model = model(&source);
         let names = [
             "LINENO",
             "FUNCNAME",
@@ -2824,7 +2794,7 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
         ];
 
         let unresolved = unresolved_names(&model);
-        let uninitialized = uninitialized_names(&mut model);
+        let uninitialized = uninitialized_names(&model);
 
         assert_names_absent(&names, &unresolved);
         assert_names_absent(&names, &uninitialized);
@@ -2833,7 +2803,7 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
     #[test]
     fn bash_runtime_vars_remain_unresolved_in_non_bash_scripts() {
         let source = bash_runtime_source("#!/bin/sh");
-        let mut model = model(&source);
+        let model = model(&source);
         let names = [
             "LINENO",
             "FUNCNAME",
@@ -2850,7 +2820,7 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
         ];
 
         let unresolved = unresolved_names(&model);
-        let uninitialized = uninitialized_names(&mut model);
+        let uninitialized = uninitialized_names(&model);
 
         assert_names_present(&names, &unresolved);
         assert_names_present(&names, &uninitialized);
@@ -2888,9 +2858,9 @@ show() { echo \"$flag\"; }
 flag=1
 show
 ";
-        let mut model = model(source);
+        let model = model(source);
 
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 
@@ -2910,14 +2880,14 @@ flag=1
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 
@@ -2946,14 +2916,14 @@ source \"${BASH_SOURCE[0]}__dep.bash\"
         .unwrap();
         fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 
@@ -2982,14 +2952,14 @@ source \"${BASH_SOURCE[00]}__dep.bash\"
         .unwrap();
         fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 
@@ -3018,14 +2988,14 @@ source \"${BASH_SOURCE[ 0 ]}__dep.bash\"
         .unwrap();
         fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 
@@ -3054,14 +3024,14 @@ source \"${BASH_SOURCE[1]}__dep.bash\"
         .unwrap();
         fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             !model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert_eq!(unused, vec!["flag"]);
     }
 
@@ -3090,14 +3060,14 @@ source \"$(dirname \"${BASH_SOURCE[0]}\")/helper.bash\"
         .unwrap();
         fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 
@@ -3118,7 +3088,7 @@ done
         .unwrap();
         fs::write(&helper, "printf '%s\\n' \"$queryip\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model
@@ -3128,7 +3098,7 @@ done
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(
             !unused.contains(&Name::from("queryip")),
             "unused: {:?}",
@@ -3152,9 +3122,9 @@ helper.sh
         .unwrap();
         fs::write(&helper, "printf '%s\\n' ok\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(
             unused.contains(&Name::from("unused")),
             "unused: {:?}",
@@ -3179,14 +3149,14 @@ load helper.sh
         .unwrap();
         fs::write(&helper, "echo \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 
@@ -3311,7 +3281,7 @@ printf '%s\\n' \"$flag\"
         .unwrap();
         fs::write(&helper, "flag=1\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         let imported = model
             .bindings()
@@ -3323,7 +3293,7 @@ printf '%s\\n' \"$flag\"
                 .attributes
                 .contains(BindingAttributes::IMPORTED_POSSIBLE)
         );
-        assert!(model.precompute_uninitialized_references().is_empty());
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -3350,7 +3320,7 @@ fi
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
         let imported_is_possible = model
             .bindings()
             .iter()
@@ -3361,7 +3331,7 @@ fi
                     .contains(BindingAttributes::IMPORTED_POSSIBLE)
             })
             .unwrap();
-        let details = uninitialized_details(&mut model);
+        let details = uninitialized_details(&model);
         assert!(imported_is_possible, "uninitialized: {:?}", details);
         assert_eq!(
             details,
@@ -3393,8 +3363,8 @@ use_flag() {
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
-        let unused = reportable_unused_names(&mut model);
+        let model = model_at_path(&main);
+        let unused = reportable_unused_names(&model);
         assert!(unused.contains(&Name::from("flag")), "unused: {:?}", unused);
     }
 
@@ -3406,8 +3376,8 @@ printf '%s\\n' \"$workdir\"
 END
 )\"
 ";
-        let mut model = model(source);
-        assert!(model.precompute_uninitialized_references().is_empty());
+        let model = model(source);
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -3418,8 +3388,8 @@ cat <<EOF
 \\${devtype} \\${devnum}
 EOF
 ";
-        let mut model = model(source);
-        assert!(model.precompute_uninitialized_references().is_empty());
+        let model = model(source);
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -3439,8 +3409,8 @@ END
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
-        let unused = reportable_unused_names(&mut model);
+        let model = model_at_path(&main);
+        let unused = reportable_unused_names(&model);
         assert!(
             unused.contains(&Name::from("outdir")),
             "unused: {:?}",
@@ -3474,11 +3444,11 @@ END
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
         assert!(
-            model.precompute_uninitialized_references().is_empty(),
+            model.analysis().uninitialized_references().is_empty(),
             "uninitialized: {:?}",
-            model.precompute_uninitialized_references()
+            model.analysis().uninitialized_references()
         );
     }
 
@@ -3508,11 +3478,11 @@ END
         )
         .unwrap();
 
-        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        let model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
         assert!(
-            model.precompute_uninitialized_references().is_empty(),
+            model.analysis().uninitialized_references().is_empty(),
             "uninitialized: {:?}",
-            model.precompute_uninitialized_references()
+            model.analysis().uninitialized_references()
         );
     }
 
@@ -3547,11 +3517,11 @@ END
         )
         .unwrap();
 
-        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        let model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
         assert!(
-            model.precompute_uninitialized_references().is_empty(),
+            model.analysis().uninitialized_references().is_empty(),
             "uninitialized: {:?}",
-            model.precompute_uninitialized_references()
+            model.analysis().uninitialized_references()
         );
     }
 
@@ -3592,8 +3562,8 @@ eval \"$build\"
         .unwrap();
         fs::write(&helper, "libgit2_version=1.0\n").unwrap();
 
-        let mut model = model_at_path(&main);
-        let references = model.precompute_uninitialized_references().to_vec();
+        let model = model_at_path(&main);
+        let references = model.analysis().uninitialized_references().to_vec();
         let names = references
             .iter()
             .map(|reference| model.reference(reference.reference).name.clone())
@@ -3630,11 +3600,11 @@ EOF
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
         assert!(
-            model.precompute_uninitialized_references().is_empty(),
+            model.analysis().uninitialized_references().is_empty(),
             "uninitialized: {:?}",
-            model.precompute_uninitialized_references()
+            model.analysis().uninitialized_references()
         );
     }
 
@@ -3667,11 +3637,11 @@ END
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
         assert!(
-            model.precompute_uninitialized_references().is_empty(),
+            model.analysis().uninitialized_references().is_empty(),
             "uninitialized: {:?}",
-            model.precompute_uninitialized_references()
+            model.analysis().uninitialized_references()
         );
     }
 
@@ -3696,11 +3666,11 @@ cat <<- EOF > ./postinst
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
         assert!(
-            model.precompute_uninitialized_references().is_empty(),
+            model.analysis().uninitialized_references().is_empty(),
             "uninitialized: {:?}",
-            model.precompute_uninitialized_references()
+            model.analysis().uninitialized_references()
         );
     }
 
@@ -3727,8 +3697,8 @@ cat <<- EOF > ./postinst
         )
         .unwrap();
 
-        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
-        let references = model.precompute_uninitialized_references().to_vec();
+        let model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        let references = model.analysis().uninitialized_references().to_vec();
         let names = references
             .iter()
             .map(|reference| model.reference(reference.reference).name.clone())
@@ -3775,8 +3745,8 @@ termux_step_create_debscripts() {
         )
         .unwrap();
 
-        let mut model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
-        let references = model.precompute_uninitialized_references().to_vec();
+        let model = model_at_path_with_parse_dialect(&main, ShellDialect::Posix);
+        let references = model.analysis().uninitialized_references().to_vec();
         let names = references
             .iter()
             .map(|reference| model.reference(reference.reference).name.clone())
@@ -3814,8 +3784,8 @@ use_flag() {
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
-        let unused = reportable_unused_names(&mut model);
+        let model = model_at_path(&main);
+        let unused = reportable_unused_names(&model);
         assert!(
             !unused.contains(&Name::from("flag")),
             "unused: {:?}",
@@ -3848,8 +3818,8 @@ set_flag() {
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
-        assert!(model.precompute_uninitialized_references().is_empty());
+        let model = model_at_path(&main);
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -3879,9 +3849,9 @@ set_flag() {
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
         assert_eq!(
-            uninitialized_details(&mut model),
+            uninitialized_details(&model),
             vec![("flag".to_owned(), UninitializedCertainty::Possible)]
         );
     }
@@ -3913,8 +3883,8 @@ set_flag() {
         )
         .unwrap();
 
-        let mut model = model_at_path(&main);
-        assert!(model.precompute_uninitialized_references().is_empty());
+        let model = model_at_path(&main);
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -3933,7 +3903,7 @@ printf '%s\\n' \"$flag\"
         .unwrap();
         fs::write(&helper, "flag=1\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model
@@ -3942,7 +3912,7 @@ printf '%s\\n' \"$flag\"
                 .all(|binding| !(binding.name == "flag" && binding.kind == BindingKind::Imported))
         );
         assert_eq!(
-            uninitialized_details(&mut model),
+            uninitialized_details(&model),
             vec![("flag".to_owned(), UninitializedCertainty::Definite)]
         );
     }
@@ -3963,7 +3933,7 @@ printf '%s\\n' \"$flag\"
         .unwrap();
         fs::write(&helper, "flag=1\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
         let reference = model
             .references()
             .iter()
@@ -3972,7 +3942,7 @@ printf '%s\\n' \"$flag\"
 
         assert!(model.resolved_binding(reference.id).is_none());
         assert_eq!(
-            uninitialized_details(&mut model),
+            uninitialized_details(&model),
             vec![("flag".to_owned(), UninitializedCertainty::Definite)]
         );
     }
@@ -3982,7 +3952,7 @@ printf '%s\\n' \"$flag\"
         let source = "printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$wrksrc\"\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let mut model = SemanticModel::build_with_options(
+        let model = SemanticModel::build_with_options(
             &output.file,
             source,
             &indexer,
@@ -4022,7 +3992,7 @@ printf '%s\\n' \"$flag\"
             assert_eq!(binding.kind, BindingKind::Imported);
             assert_eq!(binding.name, name);
         }
-        assert!(model.precompute_uninitialized_references().is_empty());
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -4034,7 +4004,7 @@ build() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let mut model = SemanticModel::build_with_options(
+        let model = SemanticModel::build_with_options(
             &output.file,
             source,
             &indexer,
@@ -4076,7 +4046,7 @@ build() {
             assert_eq!(binding.kind, BindingKind::Imported);
             assert_eq!(binding.name, name);
         }
-        assert!(model.precompute_uninitialized_references().is_empty());
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -4094,7 +4064,7 @@ hook() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let mut model = SemanticModel::build_with_options(
+        let model = SemanticModel::build_with_options(
             &output.file,
             source,
             &indexer,
@@ -4139,7 +4109,7 @@ hook() {
             assert_eq!(binding.kind, BindingKind::Imported);
             assert_eq!(binding.name, name);
         }
-        assert!(model.precompute_uninitialized_references().is_empty());
+        assert!(model.analysis().uninitialized_references().is_empty());
     }
 
     #[test]
@@ -4160,7 +4130,7 @@ printf '%s\\n' \"$flag\"
         fs::write(&a, ". ./b.sh\n").unwrap();
         fs::write(&b, ". ./a.sh\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model
@@ -4169,7 +4139,7 @@ printf '%s\\n' \"$flag\"
                 .all(|binding| !(binding.name == "flag" && binding.kind == BindingKind::Imported))
         );
         assert_eq!(
-            uninitialized_details(&mut model),
+            uninitialized_details(&model),
             vec![("flag".to_owned(), UninitializedCertainty::Definite)]
         );
     }
@@ -4200,14 +4170,14 @@ source \"$(dirname \"${SELF:-$0}\")/helper.bash\"
         .unwrap();
         fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             !model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.contains(&Name::from("flag")), "unused: {:?}", unused);
     }
 
@@ -4237,14 +4207,14 @@ source \"$(dirname \"${BASH_SOURCE[0]}\")/missing-helper.bash\"
         .unwrap();
         fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
 
-        let mut model = model_at_path(&main);
+        let model = model_at_path(&main);
 
         assert!(
             model.synthetic_reads.iter().any(|read| read.name == "flag"),
             "synthetic reads: {:?}",
             model.synthetic_reads
         );
-        let unused = reportable_unused_names(&mut model);
+        let unused = reportable_unused_names(&model);
         assert!(unused.is_empty(), "unused: {:?}", unused);
     }
 

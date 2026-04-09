@@ -55,6 +55,7 @@ pub struct DataflowResult {
 }
 
 impl DataflowResult {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn unused_assignment_ids(&self) -> &[BindingId] {
         &self.unused_assignment_ids
     }

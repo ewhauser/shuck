@@ -22,8 +22,10 @@ impl Violation for OverwrittenFunction {
 
 pub fn overwritten_function(checker: &mut Checker) {
     let overwritten = checker
-        .semantic()
-        .precompute_overwritten_functions()
+        .semantic_analysis()
+        .overwritten_functions()
+        .iter()
+        .cloned()
         .into_iter()
         .filter(|overwritten| !overwritten.first_called)
         .filter(|overwritten| !should_suppress_overwrite(checker, overwritten))

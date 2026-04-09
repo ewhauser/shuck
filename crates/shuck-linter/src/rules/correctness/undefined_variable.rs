@@ -29,7 +29,10 @@ impl Violation for UndefinedVariable {
 }
 
 pub fn undefined_variable(checker: &mut Checker) {
-    let mut uninitialized_references = checker.semantic().uninitialized_references().to_vec();
+    let mut uninitialized_references = checker
+        .semantic_analysis()
+        .uninitialized_references()
+        .to_vec();
     uninitialized_references.sort_by_key(|uninitialized| {
         let reference = checker.semantic().reference(uninitialized.reference);
         (reference.span.start.offset, reference.span.end.offset)

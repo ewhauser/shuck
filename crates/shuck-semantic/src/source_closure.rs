@@ -1606,15 +1606,17 @@ fn summarize_helper_uncached(
         collected.synthetic_reads.clone(),
         collected.imported_bindings.clone(),
     );
+    let analysis = semantic.analysis();
 
     let mut contract =
-        summarize_scope_body_contract(&mut semantic, ScopeId(0), &collected.synthetic_reads);
-    let provided_functions = semantic.summarize_scope_provided_functions(ScopeId(0));
+        summarize_scope_body_contract(&semantic, &analysis, ScopeId(0), &collected.synthetic_reads);
+    let provided_functions = analysis.summarize_scope_provided_functions(ScopeId(0));
     for binding in &provided_functions {
         contract.add_provided_binding(binding.clone());
     }
     for function in build_scope_function_contracts(
-        &mut semantic,
+        &semantic,
+        &analysis,
         ScopeId(0),
         &collected.synthetic_reads,
         &collected.imported_functions,
@@ -1626,7 +1628,8 @@ fn summarize_helper_uncached(
 }
 
 fn summarize_scope_body_contract(
-    semantic: &mut SemanticModel,
+    semantic: &SemanticModel,
+    analysis: &crate::SemanticAnalysis<'_>,
     scope: ScopeId,
     synthetic_reads: &[SyntheticRead],
 ) -> FileContract {
@@ -1643,14 +1646,15 @@ fn summarize_scope_body_contract(
             contract.add_required_read(read.name.clone());
         }
     }
-    for binding in semantic.summarize_scope_provided_bindings(scope) {
+    for binding in analysis.summarize_scope_provided_bindings(scope) {
         contract.add_provided_binding(binding);
     }
     contract
 }
 
 fn build_scope_function_contracts(
-    semantic: &mut SemanticModel,
+    semantic: &SemanticModel,
+    analysis: &crate::SemanticAnalysis<'_>,
     scope: ScopeId,
     synthetic_reads: &[SyntheticRead],
     imported_functions: &[ImportedFunctionContractSite],
@@ -1678,7 +1682,7 @@ fn build_scope_function_contracts(
         let body_contract = local_contracts_by_scope
             .entry(function_scope)
             .or_insert_with(|| {
-                summarize_scope_body_contract(semantic, function_scope, synthetic_reads)
+                summarize_scope_body_contract(semantic, analysis, function_scope, synthetic_reads)
             })
             .clone();
         for name in names {

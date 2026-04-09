@@ -122,7 +122,7 @@ pub fn analyze_file_at_path_with_resolver(
         ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
 
     let mut observer = LintTraversalObserver::default();
-    let mut semantic = build_with_observer_with_options(
+    let semantic = build_with_observer_with_options(
         file,
         source,
         indexer,
@@ -133,15 +133,6 @@ pub fn analyze_file_at_path_with_resolver(
             file_entry_contract,
         },
     );
-    if settings.rules.contains(Rule::UnusedAssignment) {
-        let _ = semantic.precompute_unused_assignments();
-    }
-    if settings.rules.contains(Rule::UndefinedVariable) {
-        let _ = semantic.precompute_uninitialized_references();
-    }
-    if settings.rules.contains(Rule::UnreachableAfterExit) {
-        let _ = semantic.precompute_dead_code();
-    }
     let checker = Checker::new(
         file,
         source,
