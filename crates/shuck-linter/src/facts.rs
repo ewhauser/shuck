@@ -1219,6 +1219,7 @@ pub struct LinterFacts<'a> {
     backtick_fragments: Vec<BacktickFragmentFact>,
     legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
+    positional_parameter_operator_spans: Vec<Span>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
 }
 
@@ -1350,6 +1351,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn positional_parameter_fragments(&self) -> &[PositionalParameterFragmentFact] {
         &self.positional_parameter_fragments
+    }
+
+    pub fn positional_parameter_operator_spans(&self) -> &[Span] {
+        &self.positional_parameter_operator_spans
     }
 
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
@@ -1491,6 +1496,8 @@ impl<'a> LinterFactsBuilder<'a> {
             backtick_fragments: surface_fragments.backticks,
             legacy_arithmetic_fragments: surface_fragments.legacy_arithmetic,
             positional_parameter_fragments: surface_fragments.positional_parameters,
+            positional_parameter_operator_spans: surface_fragments
+                .positional_parameter_operator_spans,
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
         }
     }
@@ -4218,6 +4225,7 @@ echo \"prefix `date` suffix\"
 echo \"$[1 + 2]\"
 arr[$10]=1
 declare other[$10]=1
+echo \"$(( x $1 y ))\"
 PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
@@ -4260,6 +4268,11 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .collect::<Vec<_>>(),
                 vec![""]
             );
+            assert_eq!(facts.positional_parameter_operator_spans().len(), 1);
+            let operator_span = facts.positional_parameter_operator_spans()[0];
+            assert_eq!(operator_span.start.line, 6);
+            assert_eq!(operator_span.start.column, 7);
+            assert_eq!(operator_span.end, operator_span.start);
 
             let single_quoted = facts
                 .single_quoted_fragments()

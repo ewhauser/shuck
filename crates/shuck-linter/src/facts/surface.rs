@@ -7,6 +7,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) backticks: Vec<BacktickFragmentFact>,
     pub(super) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
+    pub(super) positional_parameter_operator_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
@@ -388,6 +389,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 WordPart::DoubleQuoted { parts, .. } => self.collect_word_parts(parts, context),
                 WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
                 WordPart::ArithmeticExpansion {
+                    expression,
                     syntax: ArithmeticExpansionSyntax::LegacyBracket,
                     expression_ast,
                     ..
@@ -395,13 +397,29 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     self.facts
                         .legacy_arithmetic
                         .push(LegacyArithmeticFragmentFact { span: part.span });
+                    collect_positional_parameter_operator_spans_in_arithmetic(
+                        part.span,
+                        expression,
+                        self.source,
+                        &mut self.facts.positional_parameter_operator_spans,
+                    );
                     if let Some(expression_ast) = expression_ast.as_ref() {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
                     }
                 }
-                WordPart::ArithmeticExpansion { expression_ast, .. } => {
+                WordPart::ArithmeticExpansion {
+                    expression,
+                    expression_ast,
+                    ..
+                } => {
+                    collect_positional_parameter_operator_spans_in_arithmetic(
+                        part.span,
+                        expression,
+                        self.source,
+                        &mut self.facts.positional_parameter_operator_spans,
+                    );
                     if let Some(expression_ast) = expression_ast.as_ref() {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
@@ -631,6 +649,111 @@ pub(super) fn build_surface_fragment_facts<'a>(
     let mut collector = SurfaceFragmentCollector::new(commands, command_ids_by_span, source);
     collector.collect_commands(&file.body);
     collector.finish()
+}
+
+fn collect_positional_parameter_operator_spans_in_arithmetic(
+    expansion_span: Span,
+    expression: &SourceText,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let text = expression.slice(source);
+    let mut should_report = false;
+    let mut state = ArithmeticScanState::default();
+    let mut chars = text.char_indices();
+
+    while let Some((index, char)) = chars.next() {
+        match state {
+            ArithmeticScanState::Normal => match char {
+                '\'' => state = ArithmeticScanState::SingleQuoted,
+                '"' => state = ArithmeticScanState::DoubleQuoted,
+                '\\' => {
+                    chars.next();
+                }
+                '$' => {
+                    let Some(token_end) = positional_parameter_token_end(text, index) else {
+                        continue;
+                    };
+
+                    let prev = text[..index].chars().rev().find(|ch| !ch.is_whitespace());
+                    let next = text[token_end..].chars().find(|ch| !ch.is_whitespace());
+
+                    if prev.is_some_and(is_left_operand_neighbor)
+                        || next.is_some_and(is_right_operand_neighbor)
+                    {
+                        should_report = true;
+                        break;
+                    }
+                }
+                _ => {}
+            },
+            ArithmeticScanState::SingleQuoted => {
+                if char == '\'' {
+                    state = ArithmeticScanState::Normal;
+                }
+            }
+            ArithmeticScanState::DoubleQuoted => match char {
+                '"' => state = ArithmeticScanState::Normal,
+                '\\' => {
+                    chars.next();
+                }
+                _ => {}
+            },
+        }
+    }
+
+    if should_report {
+        spans.push(Span::from_positions(
+            expansion_span.start,
+            expansion_span.start,
+        ));
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ArithmeticScanState {
+    #[default]
+    Normal,
+    SingleQuoted,
+    DoubleQuoted,
+}
+
+fn positional_parameter_token_end(text: &str, start: usize) -> Option<usize> {
+    let rest = text.get(start..)?;
+    if !rest.starts_with('$') {
+        return None;
+    }
+
+    let bytes = rest.as_bytes();
+    if bytes.get(1).is_some_and(u8::is_ascii_digit) {
+        let mut idx = 2usize;
+        while bytes.get(idx).is_some_and(u8::is_ascii_digit) {
+            idx += 1;
+        }
+        return Some(start + idx);
+    }
+
+    if bytes.get(1) == Some(&b'{') {
+        let mut idx = 2usize;
+        let mut saw_digit = false;
+        while bytes.get(idx).is_some_and(u8::is_ascii_digit) {
+            saw_digit = true;
+            idx += 1;
+        }
+        if saw_digit && bytes.get(idx) == Some(&b'}') {
+            return Some(start + idx + 1);
+        }
+    }
+
+    None
+}
+
+fn is_left_operand_neighbor(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | ')' | ']' | '}' | '"' | '\'')
+}
+
+fn is_right_operand_neighbor(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '(' | '[' | '{' | '"' | '\'')
 }
 
 pub(super) fn build_subscript_index_reference_spans(

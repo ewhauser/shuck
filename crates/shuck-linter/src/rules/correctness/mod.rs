@@ -33,6 +33,7 @@ pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
 pub mod pipe_to_kill;
+pub mod positional_param_as_operator;
 pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
 pub mod redirect_to_command_name;
@@ -112,6 +113,7 @@ mod tests {
     #[test_case(Rule::EmptyFunctionBody, Path::new("C067.sh"))]
     #[test_case(Rule::BareClosingBrace, Path::new("C068.sh"))]
     #[test_case(Rule::BackslashBeforeClosingBacktick, Path::new("C069.sh"))]
+    #[test_case(Rule::PositionalParamAsOperator, Path::new("C070.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

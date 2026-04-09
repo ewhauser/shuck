@@ -315,6 +315,9 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::PositionalParamAsOperator) {
+            rules::correctness::positional_param_as_operator::positional_param_as_operator(self);
+        }
     }
 
     fn check_test_and_conditional_facts(&mut self) {

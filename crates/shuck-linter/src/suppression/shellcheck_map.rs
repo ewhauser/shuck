@@ -39,6 +39,9 @@ impl ShellCheckCodeMap {
         if number == 2281 {
             return Some(Rule::BackslashBeforeClosingBacktick);
         }
+        if number == 2282 {
+            return Some(Rule::PositionalParamAsOperator);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -60,6 +63,7 @@ impl Default for ShellCheckCodeMap {
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
                 (1101, Rule::BackslashBeforeClosingBacktick),
+                (1102, Rule::PositionalParamAsOperator),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -139,6 +143,7 @@ mod tests {
             map.resolve("SC1101"),
             Some(Rule::BackslashBeforeClosingBacktick)
         );
+        assert_eq!(map.resolve("SC1102"), Some(Rule::PositionalParamAsOperator));
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -207,6 +212,7 @@ mod tests {
             map.resolve("SC2281"),
             Some(Rule::BackslashBeforeClosingBacktick)
         );
+        assert_eq!(map.resolve("SC2282"), Some(Rule::PositionalParamAsOperator));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -232,6 +238,7 @@ mod tests {
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
                 (1101, Rule::BackslashBeforeClosingBacktick),
+                (1102, Rule::PositionalParamAsOperator),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2005, Rule::EchoedCommandSubstitution),
