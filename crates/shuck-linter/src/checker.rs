@@ -247,6 +247,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::Coproc) {
             rules::portability::coproc::coproc(self);
         }
+        if self.is_rule_enabled(Rule::CStyleForInSh) {
+            rules::portability::c_style_for_in_sh::c_style_for_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::LetCommand) {
             rules::portability::let_command::let_command(self);
         }

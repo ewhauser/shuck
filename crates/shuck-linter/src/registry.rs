@@ -181,6 +181,7 @@ declare_rules! {
     ("X049", Category::Portability, Severity::Warning, ZshPromptBracket),
     ("X050", Category::Portability, Severity::Warning, CshSyntaxInSh),
     ("X053", Category::Portability, Severity::Warning, ZshAssignmentToZero),
+    ("X056", Category::Portability, Severity::Warning, CStyleForInSh),
     ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
     ("X078", Category::Portability, Severity::Warning, ZshArraySubscriptInCase),
     ("X079", Category::Portability, Severity::Warning, ZshParameterIndexFlag),
@@ -333,6 +334,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-184" => Some(Rule::CshSyntaxInSh),
         "SH-218" => Some(Rule::ZshNestedExpansion),
         "SH-260" => Some(Rule::ZshAssignmentToZero),
+        "SH-263" => Some(Rule::CStyleForInSh),
         "SH-286" => Some(Rule::ZshParameterFlag),
         "SH-299" => Some(Rule::ZshArraySubscriptInCase),
         "SH-303" => Some(Rule::ZshParameterIndexFlag),
@@ -524,6 +526,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-218"), Some(Rule::ZshNestedExpansion));
         assert_eq!(code_to_rule("X053"), Some(Rule::ZshAssignmentToZero));
         assert_eq!(code_to_rule("SH-260"), Some(Rule::ZshAssignmentToZero));
+        assert_eq!(code_to_rule("X056"), Some(Rule::CStyleForInSh));
+        assert_eq!(code_to_rule("SH-263"), Some(Rule::CStyleForInSh));
         assert_eq!(code_to_rule("X076"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("SH-286"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("X078"), Some(Rule::ZshArraySubscriptInCase));

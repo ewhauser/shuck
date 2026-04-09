@@ -2,6 +2,7 @@ pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
 pub mod bash_case_fallthrough;
 pub mod brace_fd_redirection;
+pub mod c_style_for_in_sh;
 pub mod conditional_portability;
 pub mod coproc;
 pub mod csh_syntax_in_sh;
@@ -74,6 +75,7 @@ mod tests {
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
+    #[test_case(Rule::CStyleForInSh, Path::new("X056.sh"))]
     #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
     #[test_case(Rule::ZshParameterIndexFlag, Path::new("X079.sh"))]
