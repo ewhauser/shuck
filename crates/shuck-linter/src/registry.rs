@@ -166,6 +166,7 @@ declare_rules! {
     ("X009", Category::Portability, Severity::Warning, SelectLoop),
     ("X014", Category::Portability, Severity::Warning, Coproc),
     ("X012", Category::Portability, Severity::Warning, AmpersandRedirection),
+    ("X013", Category::Portability, Severity::Warning, ArrayAssignment),
     ("X015", Category::Portability, Severity::Warning, LetCommand),
     ("X016", Category::Portability, Severity::Warning, DeclareCommand),
     ("X020", Category::Portability, Severity::Warning, BraceFdRedirection),
@@ -246,6 +247,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-012" => Some(Rule::AnsiCQuoting),
         "SH-015" => Some(Rule::BraceExpansion),
         "SH-016" => Some(Rule::HereString),
+        "SH-018" => Some(Rule::ArrayAssignment),
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
@@ -550,5 +552,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-299"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(code_to_rule("X079"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(code_to_rule("SH-303"), Some(Rule::ZshParameterIndexFlag));
+        assert_eq!(code_to_rule("X013"), Some(Rule::ArrayAssignment));
+        assert_eq!(code_to_rule("SH-018"), Some(Rule::ArrayAssignment));
     }
 }

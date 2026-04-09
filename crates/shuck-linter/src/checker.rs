@@ -259,6 +259,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DeclareCommand) {
             rules::portability::declare_command::declare_command(self);
         }
+        if self.is_rule_enabled(Rule::ArrayAssignment) {
+            rules::portability::array_assignment::array_assignment(self);
+        }
         if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
             rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
         }

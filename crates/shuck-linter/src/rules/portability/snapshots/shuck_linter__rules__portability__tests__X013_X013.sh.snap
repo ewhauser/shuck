@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 102
+---
+X013 array assignment is not portable in `sh`
+ --> <source>:4:7
+  |
+4 | items=(one two)
+  |
+
+X013 array assignment is not portable in `sh`
+ --> <source>:7:16
+  |
+7 | export visible=(left right)
+  |
+
+X013 array assignment is not portable in `sh`
+  --> <source>:10:6
+   |
+10 | temp=(first second) printf '%s\n' ok
+   |
