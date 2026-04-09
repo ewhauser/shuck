@@ -538,16 +538,18 @@ impl ShellCheckCache {
             return Ok(cached);
         }
 
-        let run = run_shellcheck(&fixture.path, &fixture.shell, shellcheck_path, timeout)?;
+        let shell = effective_large_corpus_shell(fixture);
+        let run = run_shellcheck(&fixture.path, shell, shellcheck_path, timeout)?;
         self.write_cache(fixture, &run);
         Ok(run)
     }
 
     fn cache_path(&self, fixture: &LargeCorpusFixture) -> PathBuf {
+        let shell = effective_large_corpus_shell(fixture);
         let key_data = serde_json::json!({
             "schema": SHELLCHECK_CACHE_SCHEMA,
             "path": fixture.cache_rel_path_key(),
-            "shell": fixture.shell,
+            "shell": shell,
             "sourceHash": fixture.source_hash,
             "versionText": self.version_text,
         });
@@ -2065,12 +2067,14 @@ fn run_shuck(
     linter_settings: &shuck_linter::LinterSettings,
     source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
 ) -> ShuckRun {
+    let shell = effective_large_corpus_shell(fixture);
+    let parse_dialect = parser_dialect_for_large_corpus_shell(shell);
     run_shuck_with_parse_dialect(
         fixture,
         linter_settings,
         source_path_resolver,
-        shuck_parser::ShellDialect::Bash,
-        &fixture.shell,
+        parse_dialect,
+        shell,
     )
 }
 
