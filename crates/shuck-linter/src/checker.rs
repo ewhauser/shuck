@@ -209,6 +209,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BareSlashMarker) {
             rules::correctness::bare_slash_marker::bare_slash_marker(self);
         }
+        if self.is_rule_enabled(Rule::StatusCaptureAfterBranchTest) {
+            rules::correctness::status_capture_after_branch_test::status_capture_after_branch_test(
+                self,
+            );
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {

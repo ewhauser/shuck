@@ -29,6 +29,7 @@ pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
 pub mod script_scope_local;
 pub mod single_quoted_literal;
+pub mod status_capture_after_branch_test;
 pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
@@ -87,6 +88,7 @@ mod tests {
     #[test_case(Rule::ArithmeticRedirectionTarget, Path::new("C050.sh"))]
     #[test_case(Rule::BareSlashMarker, Path::new("C054.sh"))]
     #[test_case(Rule::PatternWithVariable, Path::new("C055.sh"))]
+    #[test_case(Rule::StatusCaptureAfterBranchTest, Path::new("C056.sh"))]
     #[test_case(Rule::SubstWithRedirect, Path::new("C057.sh"))]
     #[test_case(Rule::SubstWithRedirectErr, Path::new("C058.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]

@@ -1,0 +1,29 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 2078
+    reason: "This branch explicitly reads `$?` immediately after a failed condition gate. Shuck keeps this warning as a strict status-capture check, while ShellCheck is silent on this site in the corpus run."
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__deploy__zyxel_gs1900.sh"
+    line: 401
+    reason: "This branch explicitly reads `$?` immediately after a failed condition gate. Shuck keeps this warning as a strict status-capture check, while ShellCheck is silent on this site in the corpus run."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config"
+    line: 26
+    reason: "This guard uses `[[ ... ]] || return $?`, which reads the condition status directly. Shuck keeps that explicit status-capture warning, and this fixture-level ShellCheck comparison remains silent."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config_system"
+    line: 286
+    reason: "This guard uses `[[ ... ]] || return $?`, which reads the condition status directly. Shuck keeps that explicit status-capture warning, and this fixture-level ShellCheck comparison remains silent."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 11
+    reason: "This guard uses `[[ ... ]] || return $?`, which reads the condition status directly. Shuck keeps that explicit status-capture warning, and this fixture-level ShellCheck comparison remains silent."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__pkg"
+    line: 179
+    reason: "This guard uses `[[ ... ]] || return $?`, which reads the condition status directly. Shuck keeps that explicit status-capture warning, and this fixture-level ShellCheck comparison remains silent."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__gentoo_portage"
+    line: 9
+    reason: "This guard chain reads `$?` from the preceding condition branch through `|| return $?`. Shuck keeps that explicit status-capture warning, while ShellCheck is silent for this corpus location."

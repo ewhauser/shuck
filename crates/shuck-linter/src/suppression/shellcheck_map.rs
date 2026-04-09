@@ -24,6 +24,9 @@ impl ShellCheckCodeMap {
             .or_else(|| sc_code.strip_prefix("sc"))?
             .parse()
             .ok()?;
+        if number == 2253 {
+            return Some(Rule::StatusCaptureAfterBranchTest);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -82,6 +85,7 @@ impl Default for ShellCheckCodeMap {
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
                 (2266, Rule::OverwrittenFunction),
+                (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
             ]),
         }
@@ -144,6 +148,14 @@ mod tests {
         assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
         assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
         assert_eq!(map.resolve("SC2248"), Some(Rule::BareSlashMarker));
+        assert_eq!(
+            map.resolve("SC2253"),
+            Some(Rule::StatusCaptureAfterBranchTest)
+        );
+        assert_eq!(
+            map.resolve("SC2319"),
+            Some(Rule::StatusCaptureAfterBranchTest)
+        );
         assert_eq!(
             map.resolve("SC2257"),
             Some(Rule::ArithmeticRedirectionTarget)
@@ -214,6 +226,7 @@ mod tests {
                 (2256, Rule::SubstWithRedirectErr),
                 (2257, Rule::ArithmeticRedirectionTarget),
                 (2266, Rule::OverwrittenFunction),
+                (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
             ]
         );
