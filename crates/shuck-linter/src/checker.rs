@@ -283,6 +283,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SubstWithRedirectErr) {
             rules::correctness::subst_with_redirect_err::subst_with_redirect_err(self);
         }
+        if self.is_rule_enabled(Rule::RedirectToCommandName) {
+            rules::correctness::redirect_to_command_name::redirect_to_command_name(self);
+        }
     }
 
     fn check_surface_fragment_facts(&mut self) {

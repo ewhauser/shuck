@@ -27,6 +27,7 @@ pub mod pattern_with_variable;
 pub mod pipe_to_kill;
 pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
+pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod single_quoted_literal;
 pub mod status_capture_after_branch_test;
@@ -91,6 +92,7 @@ mod tests {
     #[test_case(Rule::StatusCaptureAfterBranchTest, Path::new("C056.sh"))]
     #[test_case(Rule::SubstWithRedirect, Path::new("C057.sh"))]
     #[test_case(Rule::SubstWithRedirectErr, Path::new("C058.sh"))]
+    #[test_case(Rule::RedirectToCommandName, Path::new("C059.sh"))]
     #[test_case(Rule::OverwrittenFunction, Path::new("C063.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {

@@ -128,6 +128,7 @@ declare_rules! {
     ("C056", Category::Correctness, Severity::Warning, StatusCaptureAfterBranchTest),
     ("C057", Category::Correctness, Severity::Warning, SubstWithRedirect),
     ("C058", Category::Correctness, Severity::Warning, SubstWithRedirectErr),
+    ("C059", Category::Correctness, Severity::Warning, RedirectToCommandName),
     ("C063", Category::Correctness, Severity::Warning, OverwrittenFunction),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
@@ -194,6 +195,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-155" => Some(Rule::StatusCaptureAfterBranchTest),
         "SH-159" => Some(Rule::SubstWithRedirect),
         "SH-160" => Some(Rule::SubstWithRedirectErr),
+        "SH-165" => Some(Rule::RedirectToCommandName),
         "SH-171" => Some(Rule::OverwrittenFunction),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         _ => None,
@@ -288,6 +290,7 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-159"), Some(Rule::SubstWithRedirect));
         assert_eq!(code_to_rule("SH-160"), Some(Rule::SubstWithRedirectErr));
+        assert_eq!(code_to_rule("SH-165"), Some(Rule::RedirectToCommandName));
         assert_eq!(code_to_rule("SH-171"), Some(Rule::OverwrittenFunction));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
