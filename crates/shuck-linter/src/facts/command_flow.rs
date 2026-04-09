@@ -908,6 +908,235 @@ pub(super) fn build_list_facts<'a>(
         .collect()
 }
 
+pub(super) fn build_single_test_subshell_spans<'a>(
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| single_test_subshell_span(fact, commands, command_ids_by_span, source))
+        .collect()
+}
+
+pub(super) fn build_subshell_test_group_spans<'a>(
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| subshell_test_group_span(fact, commands, command_ids_by_span, source))
+        .collect()
+}
+
+fn single_test_subshell_span<'a>(
+    fact: &CommandFact<'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Option<Span> {
+    let condition = match fact.command() {
+        Command::Compound(CompoundCommand::If(command)) => &command.condition,
+        Command::Compound(CompoundCommand::While(command)) => &command.condition,
+        Command::Compound(CompoundCommand::Until(command)) => &command.condition,
+        _ => return None,
+    };
+
+    let [stmt] = condition.as_slice() else {
+        return None;
+    };
+    if stmt.negated {
+        return None;
+    }
+
+    let condition_fact = command_fact_for_stmt(stmt, commands, command_ids_by_span)?;
+    let Command::Compound(CompoundCommand::Subshell(body)) = condition_fact.command() else {
+        return None;
+    };
+
+    let [body_stmt] = body.as_slice() else {
+        return None;
+    };
+    if body_stmt.negated {
+        return None;
+    }
+
+    let body_fact = command_fact_for_stmt(body_stmt, commands, command_ids_by_span)?;
+    if !is_test_like_command(body_fact) {
+        return None;
+    }
+
+    Some(subshell_anchor_span(stmt.span, source))
+}
+
+fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
+    fact.wrappers()
+        .iter()
+        .all(|wrapper| matches!(wrapper, WrapperKind::Command | WrapperKind::Builtin))
+        && (fact.effective_name_is("test")
+            || fact.effective_name_is("[")
+            || matches!(
+                fact.command(),
+                Command::Compound(CompoundCommand::Conditional(_))
+            ))
+}
+
+fn subshell_test_group_span<'a>(
+    fact: &CommandFact<'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Option<Span> {
+    let Command::Compound(CompoundCommand::Subshell(body)) = fact.command() else {
+        return None;
+    };
+
+    if !subshell_body_contains_grouped_tests(body, commands, command_ids_by_span) {
+        return None;
+    }
+
+    Some(subshell_anchor_span(fact.span(), source))
+}
+
+fn subshell_body_contains_grouped_tests<'a>(
+    body: &StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    subshell_body_analysis(body, commands, command_ids_by_span)
+        .is_some_and(|analysis| analysis.has_grouping && analysis.test_count > 0)
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct GroupedTestAnalysis {
+    test_count: usize,
+    has_grouping: bool,
+}
+
+fn subshell_stmt_analysis<'a>(
+    stmt: &Stmt,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<GroupedTestAnalysis> {
+    subshell_command_analysis(&stmt.command, commands, command_ids_by_span)
+}
+
+fn subshell_command_analysis<'a>(
+    command: &Command,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<GroupedTestAnalysis> {
+    match command {
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Compound(CompoundCommand::Conditional(_)) => {
+            if let Some(id) = command_id_for_command(command, command_ids_by_span) {
+                let fact = command_fact(commands, id);
+                if is_test_like_command(fact) {
+                    return Some(GroupedTestAnalysis {
+                        test_count: 1,
+                        has_grouping: false,
+                    });
+                }
+            }
+            None
+        }
+        Command::Compound(CompoundCommand::BraceGroup(body)) => {
+            let inner = subshell_body_analysis(body, commands, command_ids_by_span)?;
+            Some(GroupedTestAnalysis {
+                test_count: inner.test_count,
+                has_grouping: true,
+            })
+        }
+        Command::Compound(CompoundCommand::Subshell(body)) => {
+            let inner = subshell_body_analysis(body, commands, command_ids_by_span)?;
+            Some(GroupedTestAnalysis {
+                test_count: inner.test_count,
+                has_grouping: inner.has_grouping,
+            })
+        }
+        Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
+            let left = subshell_stmt_analysis(&binary.left, commands, command_ids_by_span)?;
+            let right = subshell_stmt_analysis(&binary.right, commands, command_ids_by_span)?;
+            Some(GroupedTestAnalysis {
+                test_count: left.test_count + right.test_count,
+                has_grouping: true,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn subshell_body_analysis<'a>(
+    body: &StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<GroupedTestAnalysis> {
+    let mut analysis = GroupedTestAnalysis::default();
+
+    if body.stmts.len() > 1 {
+        analysis.has_grouping = true;
+    }
+
+    for stmt in &body.stmts {
+        let stmt_analysis = subshell_stmt_analysis(stmt, commands, command_ids_by_span)?;
+        analysis.test_count += stmt_analysis.test_count;
+        analysis.has_grouping |= stmt_analysis.has_grouping;
+    }
+
+    Some(analysis)
+}
+
+fn subshell_anchor_span(span: Span, source: &str) -> Span {
+    let Some(open_paren_offset) = leading_open_paren_offset(source, span.start.offset) else {
+        return span;
+    };
+
+    let end_offset = trim_trailing_whitespace_offset(source, span.end.offset);
+    Span::from_positions(
+        position_at_offset(source, open_paren_offset),
+        position_at_offset(source, end_offset),
+    )
+}
+
+fn leading_open_paren_offset(source: &str, start_offset: usize) -> Option<usize> {
+    for (offset, ch) in source[..start_offset].char_indices().rev() {
+        if ch.is_whitespace() {
+            continue;
+        }
+
+        if ch == '(' {
+            return Some(offset);
+        }
+
+        return None;
+    }
+
+    None
+}
+
+fn position_at_offset(source: &str, target_offset: usize) -> Position {
+    source[..target_offset]
+        .chars()
+        .fold(Position::new(), |mut position, ch| {
+            position.advance(ch);
+            position
+        })
+}
+
+fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
+    for (offset, ch) in source[..end_offset].char_indices().rev() {
+        if ch.is_whitespace() {
+            continue;
+        }
+
+        return offset + ch.len_utf8();
+    }
+
+    end_offset
+}
+
 fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
     if let Command::Binary(left) = &command.left.command
         && matches!(left.op, BinaryOp::And | BinaryOp::Or)

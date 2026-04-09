@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/performance/mod.rs
+---
+P004 use braces to group these tests instead of a subshell
+ --> <source>:4:19
+  |
+4 | if [ -n "$a" ] && ( [ "$b" = jpeg ] || [ "$b" = jpg ] ); then echo ok; fi
+  |
+
+P004 use braces to group these tests instead of a subshell
+ --> <source>:5:6
+  |
+5 | if ! ( [ "$b" = jpeg ] || [ "$b" = jpg ] ); then echo ok; fi
+  |
+
+P004 use braces to group these tests instead of a subshell
+ --> <source>:6:1
+  |
+6 | ( { [ "$b" = jpeg ] || [ "$b" = jpg ]; } )
+  |
+
+P004 use braces to group these tests instead of a subshell
+ --> <source>:7:1
+  |
+7 | ( [ "$b" = jpeg ] ; [ "$b" = jpg ] )
+  |

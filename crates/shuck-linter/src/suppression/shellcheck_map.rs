@@ -59,7 +59,12 @@ impl Default for ShellCheckCodeMap {
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
+                (2003, Rule::ExprArithmetic),
+                (2126, Rule::GrepCountPipeline),
                 (2009, Rule::DoubleParenGrouping),
+                (2233, Rule::SingleTestSubshell),
+                (2235, Rule::SubshellTestGroup),
+                (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
                 (1072, Rule::BrokenTestParse),
@@ -138,7 +143,12 @@ mod tests {
         assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
+        assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
+        assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(map.resolve("SC2233"), Some(Rule::SingleTestSubshell));
+        assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
+        assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
@@ -254,6 +264,7 @@ mod tests {
                 (1110, Rule::UnicodeQuoteInString),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
+                (2003, Rule::ExprArithmetic),
                 (2005, Rule::EchoedCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
@@ -275,6 +286,7 @@ mod tests {
                 (2078, Rule::TruthyLiteralTest),
                 (2086, Rule::UnquotedExpansion),
                 (2104, Rule::LoopControlOutsideLoop),
+                (2126, Rule::GrepCountPipeline),
                 (2154, Rule::UndefinedVariable),
                 (2155, Rule::ExportCommandSubstitution),
                 (2157, Rule::ConstantComparisonTest),
@@ -285,6 +297,8 @@ mod tests {
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
                 (2216, Rule::PipeToKill),
+                (2233, Rule::SingleTestSubshell),
+                (2235, Rule::SubshellTestGroup),
                 (2238, Rule::RedirectToCommandName),
                 (2239, Rule::NonAbsoluteShebang),
                 (2241, Rule::InvalidExitStatus),
@@ -294,6 +308,7 @@ mod tests {
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
                 (2257, Rule::ArithmeticRedirectionTarget),
+                (2259, Rule::SubshellTestGroup),
                 (2264, Rule::NestedParameterExpansion),
                 (2266, Rule::OverwrittenFunction),
                 (2270, Rule::IfMissingThen),

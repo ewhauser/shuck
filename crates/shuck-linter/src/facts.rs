@@ -29,6 +29,7 @@ use std::borrow::Cow;
 use self::{
     command_flow::{
         build_for_header_facts, build_list_facts, build_pipeline_facts, build_select_header_facts,
+        build_single_test_subshell_spans, build_subshell_test_group_spans,
         build_substitution_facts,
     },
     presence::build_presence_tested_names,
@@ -962,8 +963,18 @@ pub struct XargsCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct GrepCommandFacts {
+    pub uses_only_matching: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ExprCommandFacts {
+    pub uses_arithmetic_operator: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -991,7 +1002,9 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     xargs: Option<XargsCommandFacts>,
+    grep: Option<GrepCommandFacts>,
     set: Option<SetCommandFacts>,
+    expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
 }
@@ -1017,8 +1030,16 @@ impl<'a> CommandOptionFacts<'a> {
         self.xargs.as_ref()
     }
 
+    pub fn grep(&self) -> Option<&GrepCommandFacts> {
+        self.grep.as_ref()
+    }
+
     pub fn set(&self) -> Option<&SetCommandFacts> {
         self.set.as_ref()
+    }
+
+    pub fn expr(&self) -> Option<&ExprCommandFacts> {
+        self.expr.as_ref()
     }
 
     pub fn exit(&self) -> Option<&ExitCommandFacts<'a>> {
@@ -1067,9 +1088,17 @@ impl<'a> CommandOptionFacts<'a> {
                                     && arg[1..].contains('0'))
                         }),
                 }),
+            grep: normalized
+                .effective_name_is("grep")
+                .then(|| parse_grep_command(normalized.body_args(), source))
+                .flatten(),
             set: normalized
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
+            expr: normalized
+                .effective_name_is("expr")
+                .then_some(())
+                .and_then(|_| parse_expr_command(normalized.body_args(), source)),
             exit: parse_exit_command(command, source),
             sudo_family: normalized.has_wrapper(WrapperKind::SudoFamily).then(|| {
                 SudoFamilyCommandFacts {
@@ -1212,6 +1241,8 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
+    single_test_subshell_spans: Vec<Span>,
+    subshell_test_group_spans: Vec<Span>,
     non_absolute_shebang_span: Option<Span>,
     condition_status_capture_spans: Vec<Span>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
@@ -1325,6 +1356,14 @@ impl<'a> LinterFacts<'a> {
 
     pub fn lists(&self) -> &[ListFact<'a>] {
         &self.lists
+    }
+
+    pub fn single_test_subshell_spans(&self) -> &[Span] {
+        &self.single_test_subshell_spans
+    }
+
+    pub fn subshell_test_group_spans(&self) -> &[Span] {
+        &self.subshell_test_group_spans
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
@@ -1472,6 +1511,10 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span);
+        let single_test_subshell_spans =
+            build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
+        let subshell_test_group_spans =
+            build_subshell_test_group_spans(&commands, &command_ids_by_span, self.source);
         let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
@@ -1500,6 +1543,8 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             pipelines,
             lists,
+            single_test_subshell_spans,
+            subshell_test_group_spans,
             non_absolute_shebang_span,
             condition_status_capture_spans,
             single_quoted_fragments: surface_fragments.single_quoted,
@@ -3119,6 +3164,76 @@ fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     )
 }
 
+fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> {
+    let mut index = 0usize;
+    let mut pending_dynamic_option_arg = false;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if word_starts_with_literal_dash(word, source) {
+                pending_dynamic_option_arg = true;
+                index += 1;
+                continue;
+            }
+
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        }
+
+        pending_dynamic_option_arg = false;
+        if text == "--only-matching" {
+            return Some(GrepCommandFacts {
+                uses_only_matching: true,
+            });
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        while let Some(flag) = chars.next() {
+            if flag == 'o' {
+                return Some(GrepCommandFacts {
+                    uses_only_matching: true,
+                });
+            }
+
+            if grep_option_takes_argument(flag) {
+                if chars.peek().is_none() {
+                    index += 1;
+                }
+                break;
+            }
+        }
+
+        index += 1;
+    }
+
+    Some(GrepCommandFacts {
+        uses_only_matching: false,
+    })
+}
+
+fn grep_option_takes_argument(flag: char) -> bool {
+    matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
+}
+
 fn option_takes_argument(flag: char) -> bool {
     matches!(flag, 'a' | 'd' | 'i' | 'n' | 'N' | 'p' | 't' | 'u')
 }
@@ -3238,6 +3353,29 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     }
 
     SetCommandFacts { errexit_change }
+}
+
+fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
+    if expr_uses_string_form(args, source) {
+        return None;
+    }
+
+    Some(ExprCommandFacts {
+        uses_arithmetic_operator: true,
+    })
+}
+
+fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
+    matches!(
+        args.first()
+            .and_then(|word| static_word_text(word, source))
+            .as_deref(),
+        Some("length" | "index" | "match" | "substr")
+    ) || args
+        .get(1)
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        .is_some_and(|text| matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "=="))
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {
@@ -3613,7 +3751,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\nexit foo\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\ngrep -o content file | wc -l\nexit foo\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -3669,6 +3807,14 @@ mod tests {
             .and_then(|fact| fact.options().xargs())
             .expect("expected xargs facts");
         assert!(xargs.uses_null_input);
+
+        let grep = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("grep"))
+            .and_then(|fact| fact.options().grep())
+            .expect("expected grep facts");
+        assert!(grep.uses_only_matching);
 
         let exit = facts
             .commands()

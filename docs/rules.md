@@ -415,7 +415,7 @@ injection.
 Rules about inefficient patterns that can be replaced with builtins or simpler
 constructs.
 
-- [ ] **L** P001 (SC2003) `expr-arithmetic` — expr for arithmetic when shell can do it
-- [ ] **L** P002 (SC2126) `grep-count-pipeline` — `grep | wc -l` instead of `grep -c`
-- [ ] **L** P003 (SC2233) `single-test-subshell` — lone test in subshell
-- [ ] **L** P004 (SC2259) `subshell-test-group` — grouped test in subshell instead of braces
+- [x] **L** P001 (SC2003) `expr-arithmetic` — expr for arithmetic when shell can do it
+- [x] **L** P002 (SC2126) `grep-count-pipeline` — `grep | wc -l` instead of `grep -c`
+- [x] **L** P003 (SC2233) `single-test-subshell` — lone test in subshell
+- [x] **L** P004 (SC2259) `subshell-test-group` — grouped test in subshell instead of braces
