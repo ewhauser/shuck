@@ -28,6 +28,19 @@ struct SourceClosureContracts {
     source_ref_explicitness: Vec<bool>,
 }
 
+type SourceClosureContractResult = (
+    Vec<SyntheticRead>,
+    Vec<(ScopeId, Span, ProvidedBinding)>,
+    Vec<SourceRefResolution>,
+    Vec<bool>,
+);
+
+#[derive(Clone, Copy)]
+struct SourceClosureLookupContext<'a> {
+    source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
+}
+
 #[derive(Debug, Clone)]
 struct ImportedFunctionContractSite {
     scope: ScopeId,
@@ -43,14 +56,13 @@ pub(crate) fn collect_source_closure_contracts(
     source_path: &Path,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
     analyzed_paths: Option<&FxHashSet<PathBuf>>,
-) -> (
-    Vec<SyntheticRead>,
-    Vec<(ScopeId, Span, ProvidedBinding)>,
-    Vec<SourceRefResolution>,
-    Vec<bool>,
-) {
+) -> SourceClosureContractResult {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
+    let context = SourceClosureLookupContext {
+        source_path_resolver,
+        analyzed_paths,
+    };
     let contracts = collect_source_closure_contracts_with_cache(
         model,
         file,
@@ -58,8 +70,7 @@ pub(crate) fn collect_source_closure_contracts(
         source_path,
         &mut summaries,
         &mut active,
-        source_path_resolver,
-        analyzed_paths,
+        context,
     );
     (
         contracts.synthetic_reads,
@@ -76,8 +87,7 @@ fn collect_source_closure_contracts_with_cache(
     source_path: &Path,
     summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+    context: SourceClosureLookupContext<'_>,
 ) -> SourceClosureContracts {
     let facts = collect_ast_facts(file, model, source);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
@@ -96,14 +106,8 @@ fn collect_source_closure_contracts_with_cache(
             source_path,
         );
 
-        let (contract, resolved, explicit) = merge_contracts_for_candidates(
-            source_path,
-            candidates,
-            summaries,
-            active,
-            source_path_resolver,
-            analyzed_paths,
-        );
+        let (contract, resolved, explicit) =
+            merge_contracts_for_candidates(source_path, candidates, summaries, active, context);
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
         for provided in contract.provided_bindings.iter().cloned() {
@@ -150,14 +154,8 @@ fn collect_source_closure_contracts_with_cache(
         let Some(candidate) = local_helper_command_candidate(&call.name) else {
             continue;
         };
-        let (contract, _, _) = merge_contracts_for_candidates(
-            source_path,
-            [candidate],
-            summaries,
-            active,
-            source_path_resolver,
-            analyzed_paths,
-        );
+        let (contract, _, _) =
+            merge_contracts_for_candidates(source_path, [candidate], summaries, active, context);
         for name in contract.required_reads {
             synthetic_reads.push(SyntheticRead {
                 scope: call.scope,
@@ -181,17 +179,17 @@ fn merge_contracts_for_candidates(
     candidates: impl IntoIterator<Item = String>,
     summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+    context: SourceClosureLookupContext<'_>,
 ) -> (FileContract, bool, bool) {
     let mut contracts = Vec::new();
     let mut resolved = false;
     let mut explicit = false;
     for candidate in candidates {
-        let resolved_paths = resolve_helper_paths(source_path, &candidate, source_path_resolver);
+        let resolved_paths =
+            resolve_helper_paths(source_path, &candidate, context.source_path_resolver);
         resolved |= !resolved_paths.is_empty();
         explicit |= resolved_paths.iter().any(|path| {
-            analyzed_paths.is_some_and(|paths| {
+            context.analyzed_paths.is_some_and(|paths| {
                 paths.contains(path)
                     || paths.contains(&fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
             })
@@ -201,7 +199,7 @@ fn merge_contracts_for_candidates(
                 &resolved_path,
                 summaries,
                 active,
-                source_path_resolver,
+                context.source_path_resolver,
             ));
         }
     }
@@ -1661,8 +1659,10 @@ fn summarize_helper_uncached(
         path,
         summaries,
         active,
-        source_path_resolver,
-        None,
+        SourceClosureLookupContext {
+            source_path_resolver,
+            analyzed_paths: None,
+        },
     );
     semantic.apply_source_contracts(
         collected.synthetic_reads.clone(),
