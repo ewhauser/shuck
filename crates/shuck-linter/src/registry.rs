@@ -162,8 +162,22 @@ declare_rules! {
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
+    ("X036", Category::Portability, Severity::Warning, ZshRedirPipe),
+    ("X038", Category::Portability, Severity::Warning, ZshBraceIf),
+    ("X039", Category::Portability, Severity::Warning, ZshAlwaysBlock),
     ("X040", Category::Portability, Severity::Warning, ArraySubscriptTest),
     ("X041", Category::Portability, Severity::Warning, ArraySubscriptCondition),
+    ("X042", Category::Portability, Severity::Warning, SourcedWithArgs),
+    ("X043", Category::Portability, Severity::Warning, ZshFlagExpansion),
+    ("X044", Category::Portability, Severity::Warning, NestedZshSubstitution),
+    ("X051", Category::Portability, Severity::Warning, ZshNestedExpansion),
+    ("X047", Category::Portability, Severity::Warning, MultiVarForLoop),
+    ("X049", Category::Portability, Severity::Warning, ZshPromptBracket),
+    ("X050", Category::Portability, Severity::Warning, CshSyntaxInSh),
+    ("X053", Category::Portability, Severity::Warning, ZshAssignmentToZero),
+    ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
+    ("X078", Category::Portability, Severity::Warning, ZshArraySubscriptInCase),
+    ("X079", Category::Portability, Severity::Warning, ZshParameterIndexFlag),
     ("X046", Category::Portability, Severity::Warning, ExtglobInTest),
     ("X052", Category::Portability, Severity::Warning, FunctionKeywordInSh),
     ("X058", Category::Portability, Severity::Warning, GreaterThanInDoubleBracket),
@@ -292,6 +306,20 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-007" => Some(Rule::TestEqualityOperator),
         "SH-093" => Some(Rule::IfElifBashTest),
         "SH-101" => Some(Rule::ExtendedGlobInTest),
+        "SH-108" => Some(Rule::ZshRedirPipe),
+        "SH-124" => Some(Rule::ZshBraceIf),
+        "SH-125" => Some(Rule::ZshAlwaysBlock),
+        "SH-140" => Some(Rule::SourcedWithArgs),
+        "SH-153" => Some(Rule::ZshFlagExpansion),
+        "SH-154" => Some(Rule::NestedZshSubstitution),
+        "SH-180" => Some(Rule::MultiVarForLoop),
+        "SH-183" => Some(Rule::ZshPromptBracket),
+        "SH-184" => Some(Rule::CshSyntaxInSh),
+        "SH-218" => Some(Rule::ZshNestedExpansion),
+        "SH-260" => Some(Rule::ZshAssignmentToZero),
+        "SH-286" => Some(Rule::ZshParameterFlag),
+        "SH-299" => Some(Rule::ZshArraySubscriptInCase),
+        "SH-303" => Some(Rule::ZshParameterIndexFlag),
         "SH-126" => Some(Rule::ArraySubscriptTest),
         "SH-127" => Some(Rule::ArraySubscriptCondition),
         "SH-174" => Some(Rule::ExtglobInTest),
@@ -450,5 +478,33 @@ mod tests {
             code_to_rule("SH-315"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
         );
+        assert_eq!(code_to_rule("X036"), Some(Rule::ZshRedirPipe));
+        assert_eq!(code_to_rule("SH-108"), Some(Rule::ZshRedirPipe));
+        assert_eq!(code_to_rule("X038"), Some(Rule::ZshBraceIf));
+        assert_eq!(code_to_rule("SH-124"), Some(Rule::ZshBraceIf));
+        assert_eq!(code_to_rule("X039"), Some(Rule::ZshAlwaysBlock));
+        assert_eq!(code_to_rule("SH-125"), Some(Rule::ZshAlwaysBlock));
+        assert_eq!(code_to_rule("X042"), Some(Rule::SourcedWithArgs));
+        assert_eq!(code_to_rule("SH-140"), Some(Rule::SourcedWithArgs));
+        assert_eq!(code_to_rule("X043"), Some(Rule::ZshFlagExpansion));
+        assert_eq!(code_to_rule("SH-153"), Some(Rule::ZshFlagExpansion));
+        assert_eq!(code_to_rule("X044"), Some(Rule::NestedZshSubstitution));
+        assert_eq!(code_to_rule("SH-154"), Some(Rule::NestedZshSubstitution));
+        assert_eq!(code_to_rule("X047"), Some(Rule::MultiVarForLoop));
+        assert_eq!(code_to_rule("SH-180"), Some(Rule::MultiVarForLoop));
+        assert_eq!(code_to_rule("X049"), Some(Rule::ZshPromptBracket));
+        assert_eq!(code_to_rule("SH-183"), Some(Rule::ZshPromptBracket));
+        assert_eq!(code_to_rule("X050"), Some(Rule::CshSyntaxInSh));
+        assert_eq!(code_to_rule("SH-184"), Some(Rule::CshSyntaxInSh));
+        assert_eq!(code_to_rule("X051"), Some(Rule::ZshNestedExpansion));
+        assert_eq!(code_to_rule("SH-218"), Some(Rule::ZshNestedExpansion));
+        assert_eq!(code_to_rule("X053"), Some(Rule::ZshAssignmentToZero));
+        assert_eq!(code_to_rule("SH-260"), Some(Rule::ZshAssignmentToZero));
+        assert_eq!(code_to_rule("X076"), Some(Rule::ZshParameterFlag));
+        assert_eq!(code_to_rule("SH-286"), Some(Rule::ZshParameterFlag));
+        assert_eq!(code_to_rule("X078"), Some(Rule::ZshArraySubscriptInCase));
+        assert_eq!(code_to_rule("SH-299"), Some(Rule::ZshArraySubscriptInCase));
+        assert_eq!(code_to_rule("X079"), Some(Rule::ZshParameterIndexFlag));
+        assert_eq!(code_to_rule("SH-303"), Some(Rule::ZshParameterIndexFlag));
     }
 }

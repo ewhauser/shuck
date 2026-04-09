@@ -254,6 +254,12 @@ pub fn lint_file_at_path_with_resolver_and_parse_diagnostics(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
     parse_diagnostics: &[shuck_parser::parser::ParseDiagnostic],
 ) -> Vec<Diagnostic> {
+    let shell = if settings.shell == ShellDialect::Unknown {
+        ShellDialect::infer(source, source_path)
+    } else {
+        settings.shell
+    };
+
     let mut diagnostics = analyze_file_at_path_with_resolver(
         file,
         source,
@@ -270,6 +276,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_diagnostics(
         source,
         parse_diagnostics,
         &settings.rules,
+        shell,
     ));
 
     for diagnostic in &mut diagnostics {

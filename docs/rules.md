@@ -149,20 +149,20 @@ Detect non-portable function definitions and variable operations.
 
 Detect zsh-only syntax in scripts targeting other shells.
 
-- [ ] **L** X036 (SC1070) `zsh-redir-pipe` — zsh-only redirection operator
-- [ ] **L** X038 (SC1129) `zsh-brace-if` — zsh-style conditional bracing
-- [ ] **L** X039 (SC1130) `zsh-always-block` — zsh `always` block
-- [ ] **L** X042 (SC2240) `sourced-with-args` — sourced file with extra args
-- [ ] **L** X043 (SC2251) `zsh-flag-expansion` — zsh-only parameter expansion form
-- [ ] **L** X044 (SC2252) `nested-zsh-substitution` — nested zsh-style expansion
-- [ ] **M** X047 (SC2275) `multi-var-for-loop` — for loop binds multiple variables
-- [ ] **L** X049 (SC2278) `zsh-prompt-bracket` — zsh prompt escape in sh
-- [ ] **L** X050 (SC2279) `csh-syntax-in-sh` — csh-style set assignment in sh
-- [ ] **L** X051 (SC2313) `zsh-nested-expansion` — zsh nested parameter expansion
-- [ ] **L** X053 (SC2355) `zsh-assignment-to-zero` — assigning to `$0` (zsh idiom)
-- [ ] **L** X076 (SC2359) `zsh-parameter-flag` — zsh parameter flag in sh
-- [ ] **L** X078 (SC2371) `zsh-array-subscript-in-case` — zsh array subscript in case
-- [ ] **L** X079 (SC2375) `zsh-parameter-index-flag` — zsh parameter index flag
+- [x] **L** X036 (SC1070) `zsh-redir-pipe` — zsh-only redirection operator
+- [x] **L** X038 (SC1129) `zsh-brace-if` — zsh-style conditional bracing
+- [x] **L** X039 (SC1130) `zsh-always-block` — zsh `always` block
+- [x] **L** X042 (SC2240) `sourced-with-args` — sourced file with extra args
+- [x] **L** X043 (SC2251) `zsh-flag-expansion` — zsh-only parameter expansion form
+- [x] **L** X044 (SC2252) `nested-zsh-substitution` — nested zsh-style expansion
+- [x] **M** X047 (SC2275) `multi-var-for-loop` — for loop binds multiple variables
+- [x] **L** X049 (SC2278) `zsh-prompt-bracket` — zsh prompt escape in sh
+- [x] **L** X050 (SC2279) `csh-syntax-in-sh` — csh-style set assignment in sh
+- [x] **L** X051 (SC2313) `zsh-nested-expansion` — zsh nested parameter expansion
+- [x] **L** X053 (SC2355) `zsh-assignment-to-zero` — assigning to `$0` (zsh idiom)
+- [x] **L** X076 (SC2359) `zsh-parameter-flag` — zsh parameter flag in sh
+- [x] **L** X078 (SC2371) `zsh-array-subscript-in-case` — zsh array subscript in case
+- [x] **L** X079 (SC2375) `zsh-parameter-index-flag` — zsh parameter index flag
 
 ### Test and Conditional Expressions
 

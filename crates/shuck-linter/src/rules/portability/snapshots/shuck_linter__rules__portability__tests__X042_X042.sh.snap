@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X042 sourced files do not accept extra arguments in POSIX sh
+ --> <source>:6:19
+  |
+6 | . "$dir"/setup.sh foo
+  |
+
+X042 sourced files do not accept extra arguments in POSIX sh
+ --> <source>:9:15
+  |
+9 | . ./helper.sh alpha beta
+  |

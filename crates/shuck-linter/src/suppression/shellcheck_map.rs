@@ -173,6 +173,7 @@ impl Default for ShellCheckCodeMap {
                 (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
+                (1070, Rule::ZshRedirPipe),
                 (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1075, Rule::ElseIf),
@@ -185,7 +186,20 @@ impl Default for ShellCheckCodeMap {
                 (1110, Rule::UnicodeQuoteInString),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (1127, Rule::CStyleComment),
+                (1129, Rule::ZshBraceIf),
+                (1130, Rule::ZshAlwaysBlock),
                 (1132, Rule::CPrototypeFragment),
+                (2240, Rule::SourcedWithArgs),
+                (2251, Rule::ZshFlagExpansion),
+                (2252, Rule::NestedZshSubstitution),
+                (2313, Rule::ZshNestedExpansion),
+                (2275, Rule::MultiVarForLoop),
+                (2278, Rule::ZshPromptBracket),
+                (2279, Rule::CshSyntaxInSh),
+                (2355, Rule::ZshAssignmentToZero),
+                (2359, Rule::ZshParameterFlag),
+                (2371, Rule::ZshArraySubscriptInCase),
+                (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
                 (2016, Rule::SingleQuotedLiteral),
                 (2013, Rule::LineOrientedInput),
@@ -289,6 +303,7 @@ mod tests {
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
+        assert_eq!(map.resolve("SC1070"), Some(Rule::ZshRedirPipe));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
         assert_eq!(map.resolve("SC1075"), Some(Rule::ElseIf));
@@ -306,8 +321,21 @@ mod tests {
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
         );
+        assert_eq!(map.resolve("SC1129"), Some(Rule::ZshBraceIf));
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
+        assert_eq!(map.resolve("SC1130"), Some(Rule::ZshAlwaysBlock));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
+        assert_eq!(map.resolve("SC2240"), Some(Rule::SourcedWithArgs));
+        assert_eq!(map.resolve("SC2251"), Some(Rule::ZshFlagExpansion));
+        assert_eq!(map.resolve("SC2252"), Some(Rule::NestedZshSubstitution));
+        assert_eq!(map.resolve("SC2313"), Some(Rule::ZshNestedExpansion));
+        assert_eq!(map.resolve("SC2275"), Some(Rule::MultiVarForLoop));
+        assert_eq!(map.resolve("SC2278"), Some(Rule::ZshPromptBracket));
+        assert_eq!(map.resolve("SC2279"), Some(Rule::CshSyntaxInSh));
+        assert_eq!(map.resolve("SC2355"), Some(Rule::ZshAssignmentToZero));
+        assert_eq!(map.resolve("SC2359"), Some(Rule::ZshParameterFlag));
+        assert_eq!(map.resolve("SC2371"), Some(Rule::ZshArraySubscriptInCase));
+        assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
@@ -408,6 +436,7 @@ mod tests {
                 (1019, Rule::EmptyTest),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
+                (1070, Rule::ZshRedirPipe),
                 (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1075, Rule::ElseIf),
@@ -419,6 +448,8 @@ mod tests {
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
                 (1127, Rule::CStyleComment),
+                (1129, Rule::ZshBraceIf),
+                (1130, Rule::ZshAlwaysBlock),
                 (1132, Rule::CPrototypeFragment),
                 (2003, Rule::ExprArithmetic),
                 (2005, Rule::EchoedCommandSubstitution),
@@ -458,10 +489,13 @@ mod tests {
                 (2235, Rule::SubshellTestGroup),
                 (2238, Rule::RedirectToCommandName),
                 (2239, Rule::NonAbsoluteShebang),
+                (2240, Rule::SourcedWithArgs),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
                 (2250, Rule::PatternWithVariable),
+                (2251, Rule::ZshFlagExpansion),
+                (2252, Rule::NestedZshSubstitution),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
                 (2257, Rule::ArithmeticRedirectionTarget),
@@ -474,10 +508,18 @@ mod tests {
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
+                (2275, Rule::MultiVarForLoop),
+                (2278, Rule::ZshPromptBracket),
+                (2279, Rule::CshSyntaxInSh),
                 (2288, Rule::TemplateBraceInCommand),
+                (2313, Rule::ZshNestedExpansion),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2321, Rule::FunctionKeywordInSh),
+                (2355, Rule::ZshAssignmentToZero),
+                (2359, Rule::ZshParameterFlag),
                 (2365, Rule::UnreachableAfterExit),
+                (2371, Rule::ZshArraySubscriptInCase),
+                (2375, Rule::ZshParameterIndexFlag),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),

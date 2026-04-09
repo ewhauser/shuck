@@ -250,6 +250,18 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SourceInsideFunctionInSh) {
             rules::portability::source_inside_function_in_sh::source_inside_function_in_sh(self);
         }
+        if self.is_rule_enabled(Rule::ZshRedirPipe) {
+            rules::portability::zsh_redir_pipe::zsh_redir_pipe(self);
+        }
+        if self.is_rule_enabled(Rule::SourcedWithArgs) {
+            rules::portability::sourced_with_args::sourced_with_args(self);
+        }
+        if self.is_rule_enabled(Rule::CshSyntaxInSh) {
+            rules::portability::csh_syntax_in_sh::csh_syntax_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ZshAssignmentToZero) {
+            rules::portability::zsh_assignment_to_zero::zsh_assignment_to_zero(self);
+        }
     }
 
     fn check_word_and_expansion_facts(&mut self) {
@@ -285,6 +297,30 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::PatternWithVariable) {
             rules::correctness::pattern_with_variable::pattern_with_variable(self);
+        }
+        if self.is_rule_enabled(Rule::ZshFlagExpansion) {
+            rules::portability::zsh_flag_expansion::zsh_flag_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::NestedZshSubstitution) {
+            rules::portability::nested_zsh_substitution::nested_zsh_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::ZshPromptBracket) {
+            rules::portability::zsh_prompt_bracket::zsh_prompt_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::ZshArraySubscriptInCase) {
+            rules::portability::zsh_array_subscript_in_case::zsh_array_subscript_in_case(self);
+        }
+        if self.is_rule_enabled(Rule::ZshParameterFlag) {
+            rules::portability::zsh_parameter_flag::zsh_parameter_flag(self);
+        }
+        if self.is_rule_enabled(Rule::ZshParameterIndexFlag) {
+            rules::portability::zsh_parameter_index_flag::zsh_parameter_index_flag(self);
+        }
+        if self.is_rule_enabled(Rule::ZshNestedExpansion) {
+            rules::portability::zsh_nested_expansion::zsh_nested_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::MultiVarForLoop) {
+            rules::portability::multi_var_for_loop::multi_var_for_loop(self);
         }
     }
 

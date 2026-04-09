@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X050 csh-style `set name = value` syntax is not portable to this shell
+ --> <source>:5:10
+  |
+5 | set path = ( /usr/bin )
+  |
+
+X050 csh-style `set name = value` syntax is not portable to this shell
+ --> <source>:8:9
+  |
+8 | set foo = bar
+  |

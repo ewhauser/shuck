@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X049 zsh prompt escape syntax is not portable to this shell
+ --> <source>:5:4
+  |
+5 | X="%{$fg_bold[blue]%}text"
+  |
+
+X049 zsh prompt escape syntax is not portable to this shell
+ --> <source>:8:6
+  |
+8 | PS1="%{$fg[red]%}red%{$reset_color%}"
+  |
+
+X049 zsh prompt escape syntax is not portable to this shell
+ --> <source>:8:21
+  |
+8 | PS1="%{$fg[red]%}red%{$reset_color%}"
+  |

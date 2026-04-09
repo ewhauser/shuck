@@ -1,0 +1,6 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__wd___wd.sh"
+    line: 22
+    end_line: 22
+    reason: "This helper is a zsh completion plugin (`#compdef`, `zmodload`, zsh arrays), so its modifier form is intentional and the generic `.sh` fallback dialect is not the right portability target for this fixture."

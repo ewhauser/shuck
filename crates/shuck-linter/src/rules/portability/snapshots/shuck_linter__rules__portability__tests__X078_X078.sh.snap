@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X078 zsh-style array subscripts in case subjects are not portable to this shell
+ --> <source>:5:13
+  |
+5 | case "$words[1]" in
+  |
+
+X078 zsh-style array subscripts in case subjects are not portable to this shell
+  --> <source>:10:11
+   |
+10 | case $line[1] in
+   |

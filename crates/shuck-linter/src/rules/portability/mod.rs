@@ -1,11 +1,36 @@
 pub mod conditional_portability;
+pub mod csh_syntax_in_sh;
 pub mod declare_command;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
+pub mod multi_var_for_loop;
+pub mod nested_zsh_substitution;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
+pub mod sourced_with_args;
+pub mod zsh_always_block;
+pub mod zsh_array_subscript_in_case;
+pub mod zsh_assignment_to_zero;
+pub mod zsh_brace_if;
+pub mod zsh_flag_expansion;
+pub mod zsh_nested_expansion;
+pub mod zsh_parameter_flag;
+pub mod zsh_parameter_index_flag;
+pub mod zsh_prompt_bracket;
+pub mod zsh_redir_pipe;
+
+pub(crate) fn targets_non_zsh_shell(shell: crate::ShellDialect) -> bool {
+    matches!(
+        shell,
+        crate::ShellDialect::Sh
+            | crate::ShellDialect::Bash
+            | crate::ShellDialect::Dash
+            | crate::ShellDialect::Ksh
+            | crate::ShellDialect::Mksh
+    )
+}
 
 #[cfg(test)]
 mod tests {
@@ -25,6 +50,19 @@ mod tests {
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]
+    #[test_case(Rule::ZshBraceIf, Path::new("X038.sh"))]
+    #[test_case(Rule::ZshAlwaysBlock, Path::new("X039.sh"))]
+    #[test_case(Rule::SourcedWithArgs, Path::new("X042.sh"))]
+    #[test_case(Rule::ZshFlagExpansion, Path::new("X043.sh"))]
+    #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
+    #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
+    #[test_case(Rule::ZshPromptBracket, Path::new("X049.sh"))]
+    #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
+    #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
+    #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
+    #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
+    #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
+    #[test_case(Rule::ZshParameterIndexFlag, Path::new("X079.sh"))]
     #[test_case(Rule::ArraySubscriptTest, Path::new("X040.sh"))]
     #[test_case(Rule::ArraySubscriptCondition, Path::new("X041.sh"))]
     #[test_case(Rule::ExtglobInTest, Path::new("X046.sh"))]
