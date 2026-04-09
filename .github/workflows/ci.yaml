@@ -39,6 +39,20 @@ jobs:
       - uses: DeterminateSystems/flakehub-cache-action@main
       - run: nix flake check
 
+  zizmor:
+    name: "zizmor"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
+      - name: "Check release workflow security hardening"
+        run: python3 scripts/check-release-security.py check
+
   cargo-fmt:
     name: "cargo fmt"
     runs-on: ubuntu-latest
