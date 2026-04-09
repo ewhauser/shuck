@@ -663,6 +663,26 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
+    fn reports_leading_grouped_case_patterns_in_posix_shells() {
+        let source = "#!/bin/sh\ncase x in\n  (a|b)*) : ;;\nesac\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobCase));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobCase);
+    }
+
+    #[test]
+    fn ignores_zsh_shells() {
+        let source = "#!/bin/zsh\ncase x in\n  (a|b)*) : ;;\nesac\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExtglobCase).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn sh_portability_rules_ignore_bash_shells() {
         let source = "\
 #!/bin/bash

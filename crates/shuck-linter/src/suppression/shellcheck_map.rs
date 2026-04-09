@@ -6,6 +6,7 @@ use crate::Rule;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCheckCodeMap {
     map: FxHashMap<u32, Rule>,
+    aliases: Vec<(u32, Rule)>,
     comparison: Vec<(u32, Rule)>,
 }
 
@@ -15,7 +16,10 @@ impl ShellCheckCodeMap {
     }
 
     pub fn mappings(&self) -> impl Iterator<Item = (u32, Rule)> + '_ {
-        self.map.iter().map(|(sc_code, rule)| (*sc_code, *rule))
+        self.map
+            .iter()
+            .map(|(sc_code, rule)| (*sc_code, *rule))
+            .chain(self.aliases.iter().copied())
     }
 
     /// Mappings that are stable enough to compare in the large corpus harness.
@@ -25,39 +29,58 @@ impl ShellCheckCodeMap {
 
     /// Look up a shellcheck code like `SC2086`.
     pub fn resolve(&self, sc_code: &str) -> Option<Rule> {
-        let number = sc_code
+        self.resolve_all(sc_code).into_iter().next()
+    }
+
+    /// Look up all shellcheck mappings for a code like `SC2086`.
+    pub fn resolve_all(&self, sc_code: &str) -> Vec<Rule> {
+        let Some(number) = sc_code
             .strip_prefix("SC")
-            .or_else(|| sc_code.strip_prefix("sc"))?
-            .parse()
-            .ok()?;
+            .or_else(|| sc_code.strip_prefix("sc"))
+            .and_then(|code| code.parse().ok())
+        else {
+            return Vec::new();
+        };
+
         if number == 2262 {
-            return Some(Rule::TemplateBraceInCommand);
+            return vec![Rule::TemplateBraceInCommand];
         }
         if number == 2261 {
-            return Some(Rule::NonAbsoluteShebang);
+            return vec![Rule::NonAbsoluteShebang];
         }
         if number == 2260 {
-            return Some(Rule::RedirectToCommandName);
+            return vec![Rule::RedirectToCommandName];
         }
         if number == 2253 {
-            return Some(Rule::StatusCaptureAfterBranchTest);
+            return vec![Rule::StatusCaptureAfterBranchTest];
         }
         if number == 2281 {
-            return Some(Rule::BackslashBeforeClosingBacktick);
+            return vec![Rule::BackslashBeforeClosingBacktick];
         }
         if number == 2282 {
-            return Some(Rule::PositionalParamAsOperator);
+            return vec![Rule::PositionalParamAsOperator];
         }
         if number == 2283 {
-            return Some(Rule::DoubleParenGrouping);
+            return vec![Rule::DoubleParenGrouping];
         }
         if number == 2284 {
-            return Some(Rule::UnicodeQuoteInString);
+            return vec![Rule::UnicodeQuoteInString];
         }
         if number == 2385 {
-            return Some(Rule::UnicodeSingleQuoteInSingleQuotes);
+            return vec![Rule::UnicodeSingleQuoteInSingleQuotes];
         }
-        self.map.get(&number).copied()
+        let mut resolved = self
+            .map
+            .get(&number)
+            .copied()
+            .into_iter()
+            .collect::<Vec<_>>();
+        resolved.extend(
+            self.aliases
+                .iter()
+                .filter_map(|(code, rule)| (*code == number).then_some(*rule)),
+        );
+        resolved
     }
 }
 
@@ -73,6 +96,7 @@ impl Default for ShellCheckCodeMap {
             (1047, Rule::MissingFi),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
+            (1075, Rule::ExtglobCase),
             (1075, Rule::ElseIf),
             (1078, Rule::OpenDoubleQuote),
             (1080, Rule::LinebreakInTest),
@@ -325,6 +349,7 @@ impl Default for ShellCheckCodeMap {
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
             ]),
+            aliases: vec![(1075, Rule::ExtglobCase)],
             comparison,
         }
     }
@@ -366,6 +391,10 @@ mod tests {
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
         assert_eq!(map.resolve("SC1075"), Some(Rule::ElseIf));
+        assert_eq!(
+            map.resolve_all("SC1075"),
+            vec![Rule::ElseIf, Rule::ExtglobCase]
+        );
         assert_eq!(map.resolve("SC1078"), Some(Rule::OpenDoubleQuote));
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
@@ -509,7 +538,7 @@ mod tests {
     #[test]
     fn exposes_all_mappings() {
         let mut mappings = ShellCheckCodeMap::default().mappings().collect::<Vec<_>>();
-        mappings.sort_unstable_by_key(|(sc_code, _)| *sc_code);
+        mappings.sort_unstable_by_key(|(sc_code, rule)| (*sc_code, rule.code()));
 
         assert_eq!(
             mappings,
@@ -526,6 +555,7 @@ mod tests {
                 (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1075, Rule::ElseIf),
+                (1075, Rule::ExtglobCase),
                 (1078, Rule::OpenDoubleQuote),
                 (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),

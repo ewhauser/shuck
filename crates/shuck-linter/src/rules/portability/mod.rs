@@ -87,6 +87,7 @@ mod tests {
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]
+    #[test_case(Rule::ExtglobCase, Path::new("X037.sh"))]
     #[test_case(Rule::ZshBraceIf, Path::new("X038.sh"))]
     #[test_case(Rule::ZshAlwaysBlock, Path::new("X039.sh"))]
     #[test_case(Rule::SourcedWithArgs, Path::new("X042.sh"))]

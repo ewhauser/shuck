@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X037 grouped case patterns are not portable to POSIX sh
+ --> <source>:3:3
+  |
+3 |   (a|b)*) : ;;
+  |
