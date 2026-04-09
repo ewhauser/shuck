@@ -1,5 +1,6 @@
 pub mod arithmetic_redirection_target;
 pub mod bad_redirection_fd_order;
+pub mod bare_closing_brace;
 pub mod bare_slash_marker;
 pub mod broken_test_end;
 pub mod broken_test_parse;
@@ -108,6 +109,7 @@ mod tests {
     #[test_case(Rule::ElseWithoutThen, Path::new("C065.sh"))]
     #[test_case(Rule::MissingSemicolonBeforeBrace, Path::new("C066.sh"))]
     #[test_case(Rule::EmptyFunctionBody, Path::new("C067.sh"))]
+    #[test_case(Rule::BareClosingBrace, Path::new("C068.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
