@@ -310,6 +310,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::NestedParameterExpansion) {
             rules::correctness::nested_parameter_expansion::nested_parameter_expansion(self);
         }
+        if self.is_rule_enabled(Rule::BackslashBeforeClosingBacktick) {
+            rules::correctness::backslash_before_closing_backtick::backslash_before_closing_backtick(
+                self,
+            );
+        }
     }
 
     fn check_test_and_conditional_facts(&mut self) {

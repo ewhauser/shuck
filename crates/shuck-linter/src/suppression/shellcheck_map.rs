@@ -36,6 +36,9 @@ impl ShellCheckCodeMap {
         if number == 2253 {
             return Some(Rule::StatusCaptureAfterBranchTest);
         }
+        if number == 2281 {
+            return Some(Rule::BackslashBeforeClosingBacktick);
+        }
         self.map.get(&number).copied()
     }
 }
@@ -56,6 +59,7 @@ impl Default for ShellCheckCodeMap {
                 (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1101, Rule::BackslashBeforeClosingBacktick),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2164, Rule::UncheckedDirectoryChange),
@@ -131,6 +135,10 @@ mod tests {
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
+        assert_eq!(
+            map.resolve("SC1101"),
+            Some(Rule::BackslashBeforeClosingBacktick)
+        );
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1132"), Some(Rule::CPrototypeFragment));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
@@ -195,6 +203,10 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2273"), Some(Rule::EmptyFunctionBody));
         assert_eq!(map.resolve("SC2274"), Some(Rule::BareClosingBrace));
+        assert_eq!(
+            map.resolve("SC2281"),
+            Some(Rule::BackslashBeforeClosingBacktick)
+        );
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -219,6 +231,7 @@ mod tests {
                 (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1101, Rule::BackslashBeforeClosingBacktick),
                 (1127, Rule::CStyleComment),
                 (1132, Rule::CPrototypeFragment),
                 (2005, Rule::EchoedCommandSubstitution),
