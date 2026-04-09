@@ -91,6 +91,18 @@ impl<'a> SourceMap<'a> {
     }
 
     #[must_use]
+    pub(crate) fn source_comment(&self, comment: Comment) -> Option<SourceComment<'a>> {
+        let start = usize::from(comment.range.start());
+        let end = usize::from(comment.range.end());
+        (start < end && end <= self.source.len()).then(|| SourceComment {
+            text: &self.source[start..end],
+            span: self.span_for_offsets(start, end),
+            line: self.line_number_for_offset(start),
+            inline: self.is_inline_comment(start),
+        })
+    }
+
+    #[must_use]
     pub fn contains_comment_between(&self, start: usize, end: usize) -> bool {
         contains_offset_in_range(&self.data.hash_offsets, start, end)
     }
@@ -210,6 +222,17 @@ impl<'a> SequenceCommentAttachment<'a> {
             || self.leading.iter().any(|comments| !comments.is_empty())
             || self.trailing.iter().any(|comments| !comments.is_empty())
     }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Vec<Vec<SourceComment<'a>>>,
+        Vec<Vec<SourceComment<'a>>>,
+        Vec<SourceComment<'a>>,
+        bool,
+    ) {
+        (self.leading, self.trailing, self.dangling, self.ambiguous)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -234,16 +257,7 @@ impl<'a> CommentAttachmentIndex<'a> {
         let source_map = SourceMap::new(source);
         let mut items = comments
             .iter()
-            .filter_map(|comment| {
-                let start = usize::from(comment.range.start());
-                let end = usize::from(comment.range.end());
-                (start < end && end <= source.len()).then(|| SourceComment {
-                    text: &source[start..end],
-                    span: source_map.span_for_offsets(start, end),
-                    line: source_map.line_number_for_offset(start),
-                    inline: source_map.is_inline_comment(start),
-                })
-            })
+            .filter_map(|comment| source_map.source_comment(*comment))
             .collect::<Vec<_>>();
         items.sort_by_key(|comment| comment.span.start.offset);
 
@@ -252,16 +266,6 @@ impl<'a> CommentAttachmentIndex<'a> {
             source_map,
             items: Arc::from(items.into_boxed_slice()),
             claimed,
-            next_unclaimed: 0,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn empty_from_source_map(source_map: SourceMap<'a>) -> Self {
-        Self {
-            source_map,
-            items: Arc::from([]),
-            claimed: Vec::new(),
             next_unclaimed: 0,
         }
     }
@@ -493,6 +497,21 @@ fn compute_sequence_attachment<'a>(
         attachment,
         claimed_indices,
     }
+}
+
+pub(crate) fn inspect_sequence_comments<'a>(
+    items: &[SourceComment<'a>],
+    child_spans: &[Span],
+    upper_bound: Option<usize>,
+) -> SequenceCommentAttachment<'a> {
+    compute_sequence_attachment(
+        items,
+        &vec![false; items.len()],
+        0,
+        child_spans,
+        upper_bound,
+    )
+    .attachment
 }
 
 fn collect_comment_run<'a>(

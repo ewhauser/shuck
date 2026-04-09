@@ -2,6 +2,7 @@ mod ast_format;
 mod command;
 mod comments;
 mod context;
+mod facts;
 mod generated;
 mod options;
 mod prelude;
@@ -19,7 +20,7 @@ use shuck_format::FormatResult;
 use shuck_parser::{Error as ParseError, parser::Parser};
 
 #[cfg(feature = "benchmarking")]
-use crate::ast_format::flatten_comments;
+use crate::facts::FormatterFacts;
 
 pub use crate::options::{ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions};
 pub use shuck_format::IndentStyle;
@@ -119,7 +120,7 @@ fn format_file(
         simplify::simplify_file(&mut file, source);
     }
 
-    let mut output = streaming::format_file_streaming(source, &mut file, resolved)?;
+    let mut output = streaming::format_file_streaming(source, &file, &resolved)?;
     ensure_single_trailing_newline(&mut output);
 
     if output == source {
@@ -132,9 +133,9 @@ fn format_file(
 #[cfg(feature = "benchmarking")]
 #[doc(hidden)]
 #[must_use]
-pub fn build_comment_index(source: &str, file: &File) -> usize {
-    let comments = flatten_comments(file);
-    comments::Comments::from_ast(source, &comments).len()
+pub fn build_formatter_facts(source: &str, file: &File) -> usize {
+    let resolved = ShellFormatOptions::default().resolve(source, None);
+    FormatterFacts::build(source, file, &resolved).len()
 }
 
 fn ensure_single_trailing_newline(output: &mut String) {

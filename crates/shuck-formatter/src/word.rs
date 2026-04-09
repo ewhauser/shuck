@@ -12,6 +12,7 @@ use shuck_format::{FormatResult, text, write};
 use crate::FormatNodeRule;
 use crate::command::stmt_seq_has_heredoc;
 use crate::comments::SourceMap;
+use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::prelude::ShellFormatter;
 use crate::streaming::format_stmt_sequence_streaming_to_buf;
@@ -46,17 +47,25 @@ pub(crate) fn render_word_syntax_to_buf(
     options: &ResolvedShellFormatOptions,
     rendered: &mut String,
 ) {
-    render_word_syntax_internal(word, source, options, None, rendered);
+    render_word_syntax_internal(word, source, options, None, None, rendered);
 }
 
-pub(crate) fn render_word_syntax_with_source_map_to_buf(
+pub(crate) fn render_word_syntax_with_facts_to_buf(
     word: &Word,
     source: &str,
     options: &ResolvedShellFormatOptions,
     source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
     rendered: &mut String,
 ) {
-    render_word_syntax_internal(word, source, options, Some(source_map), rendered);
+    render_word_syntax_internal(
+        word,
+        source,
+        options,
+        Some(source_map),
+        Some(facts),
+        rendered,
+    );
 }
 
 fn render_word_syntax_internal(
@@ -64,10 +73,11 @@ fn render_word_syntax_internal(
     source: &str,
     options: &ResolvedShellFormatOptions,
     source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
     rendered: &mut String,
 ) {
     if word_needs_special_rendering(word) {
-        render_word_parts(word.parts.as_slice(), source, options, source_map, rendered)
+        render_word_parts(word.parts.as_slice(), source, options, source_map, facts, rendered)
             .expect("writing into a String should not fail");
         return;
     }
@@ -131,10 +141,11 @@ fn render_word_parts(
     source: &str,
     options: &ResolvedShellFormatOptions,
     source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
     rendered: &mut String,
 ) -> Result<(), std::fmt::Error> {
     for part in parts {
-        render_word_part(rendered, &part.kind, part.span, source, options, source_map)?;
+        render_word_part(rendered, &part.kind, part.span, source, options, source_map, facts)?;
     }
     Ok(())
 }
@@ -146,6 +157,7 @@ fn render_word_part(
     source: &str,
     options: &ResolvedShellFormatOptions,
     source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
 ) -> Result<(), std::fmt::Error> {
     match part {
         WordPart::Literal(text) => rendered.push_str(text.as_str(source, span)),
@@ -168,7 +180,15 @@ fn render_word_part(
                         render_double_quoted_literal(rendered, text.as_str(source, part.span))
                     }
                     other => {
-                        render_word_part(rendered, other, part.span, source, options, source_map)?
+                        render_word_part(
+                            rendered,
+                            other,
+                            part.span,
+                            source,
+                            options,
+                            source_map,
+                            facts,
+                        )?
                     }
                 }
             }
@@ -190,14 +210,23 @@ fn render_word_part(
                     options,
                     raw.contains('\n'),
                     source_map,
+                    facts,
                 )
                 .is_some()
                 {
                 } else {
                     rendered.push_str(raw);
                 }
-            } else if render_command_substitution(rendered, body, source, options, true, source_map)
-                .is_some()
+            } else if render_command_substitution(
+                rendered,
+                body,
+                source,
+                options,
+                true,
+                source_map,
+                facts,
+            )
+            .is_some()
             {
             } else {
                 std::write!(rendered, "$({body:?})")?;
@@ -343,23 +372,27 @@ fn render_command_substitution(
     source: &str,
     options: &ResolvedShellFormatOptions,
     multiline: bool,
-    source_map: Option<&SourceMap<'_>>,
+    _source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
 ) -> Option<()> {
     if stmt_seq_has_heredoc(body) {
         return None;
     }
 
-    let owned_source_map;
-    let source_map = match source_map {
-        Some(source_map) => source_map,
+    let mut nested = String::new();
+    let owned_facts;
+    let facts = match facts {
+        Some(facts) => facts,
         None => {
-            owned_source_map = SourceMap::new(source);
-            &owned_source_map
+            let file = shuck_ast::File {
+                body: body.clone(),
+                span: body.span,
+            };
+            owned_facts = FormatterFacts::build(source, &file, options);
+            &owned_facts
         }
     };
-
-    let mut nested = String::new();
-    format_stmt_sequence_streaming_to_buf(source, body, options, source_map, &mut nested).ok()?;
+    format_stmt_sequence_streaming_to_buf(source, body, options, facts, &mut nested).ok()?;
 
     let trimmed = trim_trailing_line_endings(&nested);
     if trimmed.is_empty() {

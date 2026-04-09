@@ -13,36 +13,24 @@ use shuck_ast::{
 use shuck_format::{IndentStyle, LineEnding};
 
 use crate::Result;
-use crate::ast_format::flatten_comments;
 use crate::command::{
-    binary_operator, case_item_was_inline_in_source, case_terminator, command_format_span,
-    group_open_suffix, group_was_inline_in_source, has_heredoc, line_gap_break_count,
+    binary_operator, case_terminator, command_format_span, line_gap_break_count,
     multiline_compound_assignment_lines, render_assignment_head_to_buf, render_assignment_to_buf,
-    render_background_operator, render_var_ref_to_buf, rendered_stmt_end_line,
-    should_render_verbatim, slice_span, stmt_attachment_span, stmt_has_trailing_comment, stmt_span,
-    stmt_verbatim_span,
+    render_background_operator, render_var_ref_to_buf, slice_span, stmt_span, stmt_verbatim_span,
 };
-use crate::comments::{Comments, SourceComment, SourceMap};
+use crate::comments::{SourceComment, SourceMap};
+use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
-use crate::word::{render_pattern_syntax_to_buf, render_word_syntax_with_source_map_to_buf};
+use crate::word::{render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf};
 
 pub(crate) fn format_file_streaming(
     source: &str,
-    file: &mut File,
-    options: ResolvedShellFormatOptions,
+    file: &File,
+    options: &ResolvedShellFormatOptions,
 ) -> Result<String> {
-    let comments = flatten_comments(file);
-    let comments = Comments::from_ast(source, &comments);
-    let mut formatter = ShellStreamFormatter::new(source, options, comments);
+    let facts = FormatterFacts::build(source, file, options);
+    let mut formatter = ShellStreamFormatter::new(source, options, &facts);
     formatter.format_stmt_sequence(&file.body, None)?;
-
-    if !formatter.options().minify() {
-        let remaining = formatter.comments_mut().take_remaining();
-        if !file.body.is_empty() && !remaining.is_empty() {
-            formatter.newline();
-        }
-        formatter.emit_remaining_comments(&remaining);
-    }
 
     Ok(formatter.finish())
 }
@@ -51,15 +39,14 @@ pub(crate) fn format_stmt_sequence_streaming_to_buf(
     source: &str,
     statements: &StmtSeq,
     options: &ResolvedShellFormatOptions,
-    source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
     output: &mut String,
 ) -> Result<()> {
     let mut nested_output = mem::take(output);
     nested_output.clear();
 
-    let comments = Comments::empty_from_source_map(source_map.clone());
     let mut formatter =
-        ShellStreamFormatter::with_output_buffer(source, options.clone(), comments, nested_output);
+        ShellStreamFormatter::with_output_buffer(source, options, facts, nested_output);
     formatter.format_stmt_sequence(statements, None)?;
     *output = formatter.finish();
     Ok(())
@@ -78,11 +65,10 @@ struct BinaryListItem<'a> {
     stmt: &'a Stmt,
 }
 
-struct ShellStreamFormatter<'source> {
+struct ShellStreamFormatter<'source, 'facts> {
     source: &'source str,
     options: ResolvedShellFormatOptions,
-    comments: Comments<'source>,
-    source_map: SourceMap<'source>,
+    facts: &'facts FormatterFacts<'source>,
     output: String,
     scratch: String,
     indent_level: usize,
@@ -90,31 +76,30 @@ struct ShellStreamFormatter<'source> {
     pending_heredocs: Vec<PendingHeredoc>,
 }
 
-impl<'source> ShellStreamFormatter<'source> {
+impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn new(
         source: &'source str,
-        options: ResolvedShellFormatOptions,
-        comments: Comments<'source>,
+        options: &ResolvedShellFormatOptions,
+        facts: &'facts FormatterFacts<'source>,
     ) -> Self {
         Self::with_output_buffer(
             source,
             options,
-            comments,
+            facts,
             String::with_capacity(source.len()),
         )
     }
 
     fn with_output_buffer(
         source: &'source str,
-        options: ResolvedShellFormatOptions,
-        comments: Comments<'source>,
+        options: &ResolvedShellFormatOptions,
+        facts: &'facts FormatterFacts<'source>,
         output: String,
     ) -> Self {
         Self {
             source,
-            options,
-            source_map: comments.source_map().clone(),
-            comments,
+            options: options.clone(),
+            facts,
             output,
             scratch: String::new(),
             indent_level: 0,
@@ -136,16 +121,12 @@ impl<'source> ShellStreamFormatter<'source> {
         &self.options
     }
 
-    fn comments(&self) -> &Comments<'source> {
-        &self.comments
-    }
-
-    fn comments_mut(&mut self) -> &mut Comments<'source> {
-        &mut self.comments
+    fn facts(&self) -> &FormatterFacts<'source> {
+        self.facts
     }
 
     fn source_map(&self) -> &SourceMap<'source> {
-        &self.source_map
+        self.facts.source_map()
     }
 
     fn line_ending(&self) -> &'static str {
@@ -300,9 +281,20 @@ impl<'source> ShellStreamFormatter<'source> {
 
     fn write_word(&mut self, word: &Word) {
         let source_map = self.source_map().clone();
-        self.write_rendered(|scratch, source, options| {
-            render_word_syntax_with_source_map_to_buf(word, source, options, &source_map, scratch);
-        });
+        let mut scratch = self.take_scratch_buffer();
+        {
+            let facts = self.facts();
+            render_word_syntax_with_facts_to_buf(
+                word,
+                self.source(),
+                self.options(),
+                &source_map,
+                facts,
+                &mut scratch,
+            );
+        }
+        self.write_text(&scratch);
+        self.restore_scratch_buffer(scratch);
     }
 
     fn write_pattern(&mut self, pattern: &Pattern) {
@@ -348,15 +340,6 @@ impl<'source> ShellStreamFormatter<'source> {
         self.write_text(comment.text());
     }
 
-    fn emit_remaining_comments(&mut self, comments: &[SourceComment<'_>]) {
-        for (index, comment) in comments.iter().enumerate() {
-            if index > 0 {
-                self.newline();
-            }
-            self.write_comment(comment);
-        }
-    }
-
     fn emit_leading_comments(&mut self, comments: &[SourceComment<'_>], next_line: usize) {
         for (index, comment) in comments.iter().enumerate() {
             self.write_comment(comment);
@@ -390,44 +373,28 @@ impl<'source> ShellStreamFormatter<'source> {
         statements: &StmtSeq,
         upper_bound: Option<usize>,
     ) -> Result<()> {
-        if statements.is_empty() {
-            return Ok(());
-        }
-
         let source = self.source();
         let compact_layout = self.options().compact_layout();
         let minify = self.options().minify();
-        let attachment_spans = if minify {
-            None
-        } else {
-            let options = self.options();
-            let source_map = self.comments().source_map();
-            Some(
-                statements
-                    .iter()
-                    .map(|stmt| stmt_attachment_span(stmt, source, source_map, options))
-                    .collect::<Vec<_>>(),
-            )
-        };
-        let attachments = if minify {
-            None
-        } else {
-            Some(
-                self.comments_mut()
-                    .attach_sequence(attachment_spans.as_deref().unwrap_or(&[]), upper_bound),
-            )
-        };
+        let attachments = (!minify).then(|| self.facts().sequence(statements, upper_bound).clone());
         let compact = compact_layout
             && attachments
                 .as_ref()
-                .is_none_or(|attachment| !attachment.has_comments());
+                .is_none_or(|sequence| !sequence.has_comments());
+
+        if statements.is_empty() {
+            if let Some(attachment) = attachments.as_ref() {
+                self.emit_dangling_comments(attachment.dangling());
+            }
+            return Ok(());
+        }
 
         if attachments
             .as_ref()
             .is_some_and(|value| value.is_ambiguous())
             && let Some(span) = sequence_verbatim_span(statements, source)
         {
-            if let Some(attachment) = &attachments
+            if let Some(attachment) = attachments.as_ref()
                 && let Some(first) = statements.first()
             {
                 let leading = attachment
@@ -436,51 +403,35 @@ impl<'source> ShellStreamFormatter<'source> {
                     .copied()
                     .filter(|comment| comment.span().end.offset <= span.start.offset)
                     .collect::<Vec<_>>();
-                self.emit_leading_comments(&leading, stmt_verbatim_span(first, source).start.line);
+                self.emit_leading_comments(&leading, self.facts().stmt(first).render_span().start.line);
             }
-            self.comments_mut().claim_in_span(span);
             self.write_verbatim(span.slice(source));
-            if let Some(attachment) = &attachments {
+            if let Some(attachment) = attachments.as_ref() {
                 self.emit_dangling_comments(attachment.dangling());
             }
             return Ok(());
         }
 
         for (index, stmt) in statements.iter().enumerate() {
-            if let Some(attachment) = &attachments {
-                let next_line = attachment_spans
-                    .as_ref()
-                    .and_then(|spans| spans.get(index))
-                    .map(|span| span.start.line)
-                    .unwrap_or(stmt_span(stmt).start.line);
+            if let Some(attachment) = attachments.as_ref() {
+                let next_line = self.facts().stmt(stmt).attachment_span().start.line;
                 self.emit_leading_comments(attachment.leading_for(index), next_line);
             }
 
             self.format_stmt(stmt)?;
 
-            if let Some(attachment) = &attachments {
+            if let Some(attachment) = attachments.as_ref() {
                 self.emit_trailing_comments(attachment.trailing_for(index));
             }
 
             if index + 1 < statements.len() {
                 if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-                    if background_has_explicit_line_break(
-                        stmt,
-                        &statements[index + 1],
-                        self.source(),
-                        self.options(),
-                        self.source_map(),
-                        attachment_spans
-                            .as_ref()
-                            .and_then(|spans| spans.get(index + 1))
-                            .copied(),
-                    ) {
-                        let current_end = rendered_stmt_end_line(stmt, source, self.source_map());
+                    if self.facts().background_has_explicit_line_break(stmt) {
+                        let current_end = self.facts().stmt(stmt).rendered_end_line();
                         let next_start = attachments
                             .as_ref()
-                            .and_then(|attachment| attachment.leading_for(index + 1).first())
-                            .map(SourceComment::line)
-                            .unwrap_or(stmt_span(&statements[index + 1]).start.line);
+                            .map(|attachment| attachment.first_rendered_line_for(index + 1))
+                            .unwrap_or(self.facts().stmt(&statements[index + 1]).attachment_span().start.line);
                         self.write_line_breaks(line_gap_break_count(current_end, next_start));
                     } else {
                         self.write_space();
@@ -488,18 +439,17 @@ impl<'source> ShellStreamFormatter<'source> {
                 } else if compact {
                     self.write_text("; ");
                 } else {
-                    let current_end = rendered_stmt_end_line(stmt, source, self.source_map());
+                    let current_end = self.facts().stmt(stmt).rendered_end_line();
                     let next_start = attachments
                         .as_ref()
-                        .and_then(|attachment| attachment.leading_for(index + 1).first())
-                        .map(SourceComment::line)
-                        .unwrap_or(stmt_span(&statements[index + 1]).start.line);
+                        .map(|attachment| attachment.first_rendered_line_for(index + 1))
+                        .unwrap_or(self.facts().stmt(&statements[index + 1]).attachment_span().start.line);
                     self.write_line_breaks(line_gap_break_count(current_end, next_start));
                 }
             }
         }
 
-        if let Some(attachment) = &attachments {
+        if let Some(attachment) = attachments.as_ref() {
             self.emit_dangling_comments(attachment.dangling());
         }
         Ok(())
@@ -507,15 +457,9 @@ impl<'source> ShellStreamFormatter<'source> {
 
     fn format_stmt(&mut self, stmt: &Stmt) -> Result<()> {
         let source = self.source();
-        let render_verbatim = {
-            let source_map = self.source_map();
-            let options = self.options();
-            should_render_verbatim(stmt, source_map, options)
-        };
-        if render_verbatim {
-            let span = stmt_verbatim_span(stmt, source);
-            self.comments_mut().claim_in_span(span);
-            self.write_verbatim(span.slice(source));
+        let stmt_facts = self.facts().stmt(stmt);
+        if stmt_facts.preserve_verbatim() {
+            self.write_verbatim(stmt_facts.render_span().slice(source));
             return Ok(());
         }
 
@@ -600,13 +544,17 @@ impl<'source> ShellStreamFormatter<'source> {
         let source = self.source();
         let source_map = self.source_map().clone();
         let mut rendered_name = self.take_scratch_buffer();
-        render_word_syntax_with_source_map_to_buf(
-            &command.name,
-            source,
-            self.options(),
-            &source_map,
-            &mut rendered_name,
-        );
+        {
+            let facts = self.facts();
+            render_word_syntax_with_facts_to_buf(
+                &command.name,
+                source,
+                self.options(),
+                &source_map,
+                facts,
+                &mut rendered_name,
+            );
+        }
         if command.args.is_empty()
             && command.assignments.len() == 1
             && rendered_name.is_empty()
@@ -754,7 +702,7 @@ impl<'source> ShellStreamFormatter<'source> {
 
         let multiline = self.options().binary_next_line()
             && statements.len() > 1
-            && pipeline_has_explicit_line_break(pipeline, self.source());
+            && self.facts().pipeline_has_explicit_line_break(pipeline);
 
         for (index, stmt) in statements.iter().enumerate() {
             if index > 0 {
@@ -795,7 +743,9 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn format_list_item(&mut self, item: &BinaryListItem<'_>) -> Result<()> {
-        if list_item_has_explicit_line_break(item, self.source(), self.options(), self.source_map())
+        if self
+            .facts()
+            .list_item_has_explicit_line_break(item.operator_span)
         {
             self.write_text(list_item_multiline_separator(item.operator));
             self.newline();
@@ -1147,7 +1097,10 @@ impl<'source> ShellStreamFormatter<'source> {
             self.write_text("; ");
             self.write_text(case_terminator(item.terminator));
         } else {
-            if base_indent == 0 && item.body.len() == 1 && case_item_was_inline_in_source(item) {
+            if base_indent == 0
+                && item.body.len() == 1
+                && self.facts().case_item_was_inline_in_source(item)
+            {
                 self.write_space();
                 self.format_stmt(&item.body[0])?;
                 self.write_space();
@@ -1174,12 +1127,10 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn format_brace_group(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) -> Result<()> {
-        let should_inline = {
-            let source_map = self.source_map();
-            group_open_suffix(commands.as_slice(), source_map, '{').is_none()
-                && group_was_inline_in_source(commands.as_slice(), source_map, '{', '}')
-                && self.can_inline_group(commands)
-        };
+        let sequence_facts = self.facts().sequence(commands, upper_bound);
+        let should_inline = sequence_facts.group_open_suffix_span().is_none()
+            && self.facts().group_was_inline_in_source(commands)
+            && self.can_inline_group(commands);
         if should_inline {
             self.write_text("{ ");
             self.format_inline_stmts(commands)?;
@@ -1190,12 +1141,10 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn format_subshell(&mut self, commands: &StmtSeq, upper_bound: Option<usize>) -> Result<()> {
-        let should_inline = {
-            let source_map = self.source_map();
-            group_open_suffix(commands.as_slice(), source_map, '(').is_none()
-                && group_was_inline_in_source(commands.as_slice(), source_map, '(', ')')
-                && self.can_inline_group(commands)
-        };
+        let sequence_facts = self.facts().sequence(commands, upper_bound);
+        let should_inline = sequence_facts.group_open_suffix_span().is_none()
+            && self.facts().group_was_inline_in_source(commands)
+            && self.can_inline_group(commands);
         if should_inline {
             self.write_text("(");
             self.format_inline_stmts(commands)?;
@@ -1309,13 +1258,17 @@ impl<'source> ShellStreamFormatter<'source> {
         {
             let source_map = self.source_map().clone();
             let mut rendered_entry = self.take_scratch_buffer();
-            render_word_syntax_with_source_map_to_buf(
-                &function.header.entries[0].word,
-                self.source(),
-                self.options(),
-                &source_map,
-                &mut rendered_entry,
-            );
+            {
+                let facts = self.facts();
+                render_word_syntax_with_facts_to_buf(
+                    &function.header.entries[0].word,
+                    self.source(),
+                    self.options(),
+                    &source_map,
+                    facts,
+                    &mut rendered_entry,
+                );
+            }
             let classic_single_name = name.as_str() == rendered_entry;
             self.restore_scratch_buffer(rendered_entry);
 
@@ -1357,11 +1310,9 @@ impl<'source> ShellStreamFormatter<'source> {
                 terminator: None,
                 ..
             } if redirects.is_empty() => {
-                let should_inline = !self.options().function_next_line() && {
-                    let source_map = self.source_map();
-                    group_was_inline_in_source(commands.as_slice(), source_map, '{', '}')
-                        && self.can_inline_group(commands)
-                };
+                let should_inline = !self.options().function_next_line()
+                    && self.facts().group_was_inline_in_source(commands)
+                    && self.can_inline_group(commands);
                 if should_inline {
                     self.write_text("{ ");
                     self.format_inline_stmts(commands)?;
@@ -1378,11 +1329,9 @@ impl<'source> ShellStreamFormatter<'source> {
                 terminator: None,
                 ..
             } if redirects.is_empty() => {
-                let should_inline = !self.options().function_next_line() && {
-                    let source_map = self.source_map();
-                    group_was_inline_in_source(commands.as_slice(), source_map, '(', ')')
-                        && self.can_inline_group(commands)
-                };
+                let should_inline = !self.options().function_next_line()
+                    && self.facts().group_was_inline_in_source(commands)
+                    && self.can_inline_group(commands);
                 if should_inline {
                     self.write_text("(");
                     self.format_inline_stmts(commands)?;
@@ -1445,7 +1394,7 @@ impl<'source> ShellStreamFormatter<'source> {
         &mut self,
         open: &'static str,
         close: &'static str,
-        open_char: char,
+        _open_char: char,
         commands: &StmtSeq,
         leading_space: bool,
         upper_bound: Option<usize>,
@@ -1454,12 +1403,11 @@ impl<'source> ShellStreamFormatter<'source> {
             self.write_space();
         }
         self.write_text(open);
-        let open_suffix_span = {
-            let source_map = self.source_map();
-            group_open_suffix(commands.as_slice(), source_map, open_char).map(|(span, _)| span)
-        };
+        let open_suffix_span = self
+            .facts()
+            .sequence(commands, upper_bound)
+            .group_open_suffix_span();
         if let Some(span) = open_suffix_span {
-            self.comments_mut().claim_in_span(span);
             self.write_text(span.slice(self.source()));
         }
         self.format_body_with_upper_bound(commands, upper_bound)?;
@@ -1515,23 +1463,30 @@ impl<'source> ShellStreamFormatter<'source> {
 
         let mut target = self.take_scratch_buffer();
         let source_map = self.source_map().clone();
-        match (redirect.word_target(), redirect.heredoc()) {
-            (Some(word), None) => render_word_syntax_with_source_map_to_buf(
-                word,
-                source,
-                &options,
-                &source_map,
-                &mut target,
-            ),
-            (None, Some(heredoc)) => render_word_syntax_with_source_map_to_buf(
-                &heredoc.delimiter.raw,
-                source,
-                &options,
-                &source_map,
-                &mut target,
-            ),
-            (None, None) => {}
-            (Some(_), Some(_)) => unreachable!("redirect target cannot be both word and heredoc"),
+        {
+            let facts = self.facts();
+            match (redirect.word_target(), redirect.heredoc()) {
+                (Some(word), None) => render_word_syntax_with_facts_to_buf(
+                    word,
+                    source,
+                    &options,
+                    &source_map,
+                    facts,
+                    &mut target,
+                ),
+                (None, Some(heredoc)) => render_word_syntax_with_facts_to_buf(
+                    &heredoc.delimiter.raw,
+                    source,
+                    &options,
+                    &source_map,
+                    facts,
+                    &mut target,
+                ),
+                (None, None) => {}
+                (Some(_), Some(_)) => {
+                    unreachable!("redirect target cannot be both word and heredoc")
+                }
+            }
         }
         if needs_space_before_target(redirect.kind, &target, options.space_redirects()) {
             self.write_space();
@@ -1594,17 +1549,11 @@ impl<'source> ShellStreamFormatter<'source> {
             return false;
         }
 
-        let has_comments = {
-            let source = self.source();
-            let source_map = self.comments().source_map();
-            let options = self.options();
-            let span = stmt_attachment_span(command, source, source_map, options);
-            self.comments()
-                .inspect_sequence(&[span], Some(enclosing_span.end.offset))
-                .attachment
-                .has_comments()
-        };
-        if has_comments {
+        if self
+            .facts()
+            .sequence(commands, Some(enclosing_span.end.offset))
+            .has_comments()
+        {
             return false;
         }
 
@@ -1623,7 +1572,8 @@ impl<'source> ShellStreamFormatter<'source> {
     }
 
     fn can_inline_stmt(&self, stmt: &Stmt) -> bool {
-        if has_heredoc(stmt) || stmt_has_trailing_comment(stmt, self.source_map()) {
+        let stmt_facts = self.facts().stmt(stmt);
+        if stmt_facts.preserve_verbatim() || stmt_facts.has_trailing_comment() {
             return false;
         }
 
@@ -1745,31 +1695,6 @@ fn sequence_verbatim_span(statements: &StmtSeq, source: &str) -> Option<Span> {
         .reduce(|left, right| left.merge(right))
 }
 
-fn pipeline_has_explicit_line_break(pipeline: &BinaryCommand, source: &str) -> bool {
-    let mut statements = Vec::new();
-    let mut operators = Vec::new();
-    collect_pipeline(pipeline, &mut statements, &mut operators);
-
-    let mut previous_end = match statements.first() {
-        Some(stmt) => stmt_span(stmt).end.offset,
-        None => return false,
-    };
-
-    for stmt in statements.iter().skip(1) {
-        let next_start = stmt_span(stmt).start.offset;
-        let Some(between) = source.get(previous_end..next_start) else {
-            previous_end = stmt_span(stmt).end.offset;
-            continue;
-        };
-        if between.contains('\n') {
-            return true;
-        }
-        previous_end = stmt_span(stmt).end.offset;
-    }
-
-    false
-}
-
 fn collect_pipeline<'a>(
     command: &'a BinaryCommand,
     statements: &mut Vec<&'a Stmt>,
@@ -1841,20 +1766,6 @@ fn list_item_multiline_separator(operator: BinaryOp) -> &'static str {
     }
 }
 
-fn list_item_has_explicit_line_break(
-    item: &BinaryListItem<'_>,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: &SourceMap<'_>,
-) -> bool {
-    let command_start = stmt_attachment_span(item.stmt, source, source_map, options)
-        .start
-        .offset;
-    source
-        .get(item.operator_span.end.offset..command_start)
-        .is_some_and(|between| between.contains('\n'))
-}
-
 fn if_branch_upper_bound(command: &IfCommand, branch_index: usize, source: &str) -> usize {
     let current_branch_end = if branch_index == 0 {
         command.then_branch.span.end.offset
@@ -1888,24 +1799,4 @@ fn branch_keyword_offset(source: &str, start: usize, end: usize, keyword: &str) 
     source[start..end]
         .rfind(keyword)
         .map(|offset| start + offset)
-}
-
-fn background_has_explicit_line_break(
-    current: &Stmt,
-    next: &Stmt,
-    source: &str,
-    options: &ResolvedShellFormatOptions,
-    source_map: &SourceMap<'_>,
-    next_span: Option<Span>,
-) -> bool {
-    let Some(terminator_span) = current.terminator_span else {
-        return false;
-    };
-    let next_start = next_span
-        .unwrap_or_else(|| stmt_attachment_span(next, source, source_map, options))
-        .start
-        .offset;
-    source
-        .get(terminator_span.end.offset..next_start)
-        .is_some_and(|between| between.contains('\n'))
 }

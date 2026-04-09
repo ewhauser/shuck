@@ -3,7 +3,7 @@ use criterion::{
 };
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_formatter::{
-    FormattedSource, ShellFormatOptions, build_comment_index, format_file_ast, format_source,
+    FormattedSource, ShellFormatOptions, build_formatter_facts, format_file_ast, format_source,
 };
 
 configure_benchmark_allocator!();
@@ -26,8 +26,8 @@ fn format_file_ast_bytes(
     output_bytes(source, formatted)
 }
 
-fn comment_index_items(source: &str, parsed: &shuck_parser::parser::ParseOutput) -> usize {
-    black_box(build_comment_index(
+fn formatter_fact_items(source: &str, parsed: &shuck_parser::parser::ParseOutput) -> usize {
+    black_box(build_formatter_facts(
         black_box(source),
         black_box(&parsed.file),
     ))
@@ -88,7 +88,7 @@ fn bench_formatter(c: &mut Criterion) {
     }
     ast_group.finish();
 
-    let mut comments_group = c.benchmark_group("formatter_comments");
+    let mut comments_group = c.benchmark_group("formatter_facts");
     for case in benchmark_cases() {
         let parsed_files = case
             .files
@@ -107,7 +107,7 @@ fn bench_formatter(c: &mut Criterion) {
                         .files
                         .iter()
                         .zip(parsed_files.iter())
-                        .map(|(file, parsed)| comment_index_items(file.source, parsed))
+                        .map(|(file, parsed)| formatter_fact_items(file.source, parsed))
                         .sum();
                     black_box(comment_items);
                 });
