@@ -1084,6 +1084,7 @@ pub struct ReadCommandFacts {
 #[derive(Debug, Clone, Copy)]
 pub struct PrintfCommandFacts<'a> {
     pub format_word: Option<&'a Word>,
+    pub uses_q_format: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1128,13 +1129,13 @@ pub struct XargsCommandFacts {
 }
 
 #[derive(Debug, Clone)]
-pub struct WaitCommandFacts<'a> {
-    option_words: Box<[&'a Word]>,
+pub struct WaitCommandFacts {
+    option_spans: Box<[Span]>,
 }
 
-impl<'a> WaitCommandFacts<'a> {
-    pub fn option_words(&self) -> &[&'a Word] {
-        &self.option_words
+impl WaitCommandFacts {
+    pub fn option_spans(&self) -> &[Span] {
+        &self.option_spans
     }
 }
 
@@ -1179,7 +1180,7 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     xargs: Option<XargsCommandFacts>,
-    wait: Option<WaitCommandFacts<'a>>,
+    wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
     set: Option<SetCommandFacts>,
     expr: Option<ExprCommandFacts>,
@@ -1208,7 +1209,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.xargs.as_ref()
     }
 
-    pub fn wait(&self) -> Option<&WaitCommandFacts<'a>> {
+    pub fn wait(&self) -> Option<&WaitCommandFacts> {
         self.wait.as_ref()
     }
 
@@ -1241,8 +1242,13 @@ impl<'a> CommandOptionFacts<'a> {
                 }),
             printf: normalized
                 .effective_name_is("printf")
-                .then(|| PrintfCommandFacts {
-                    format_word: printf_format_word(normalized.body_args(), source),
+                .then(|| {
+                    let format_word = printf_format_word(normalized.body_args(), source);
+                    PrintfCommandFacts {
+                        uses_q_format: format_word
+                            .is_some_and(|word| printf_uses_q_format(word, source)),
+                        format_word,
+                    }
                 }),
             unset: normalized
                 .effective_name_is("unset")
@@ -1272,10 +1278,7 @@ impl<'a> CommandOptionFacts<'a> {
                 }),
             wait: normalized
                 .effective_name_is("wait")
-                .then(|| {
-                    let wait_args = normalized.body_args().to_vec();
-                    parse_wait_command(&wait_args, source)
-                }),
+                .then(|| parse_wait_command(normalized.body_args(), source)),
             grep: normalized
                 .effective_name_is("grep")
                 .then(|| parse_grep_command(normalized.body_args(), source))
@@ -3756,6 +3759,68 @@ fn printf_format_word<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
     args.get(index).copied()
 }
 
+fn printf_uses_q_format(word: &Word, source: &str) -> bool {
+    let Some(text) = static_word_text(word, source) else {
+        return false;
+    };
+
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            index += 1;
+            continue;
+        }
+
+        index += 1;
+        if index >= bytes.len() {
+            break;
+        }
+
+        if bytes[index] == b'%' {
+            index += 1;
+            continue;
+        }
+
+        while index < bytes.len() && matches!(bytes[index], b'-' | b'+' | b' ' | b'#' | b'0') {
+            index += 1;
+        }
+
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+
+        if index < bytes.len() && bytes[index] == b'.' {
+            index += 1;
+            if index < bytes.len() && bytes[index] == b'*' {
+                index += 1;
+            } else {
+                while index < bytes.len() && bytes[index].is_ascii_digit() {
+                    index += 1;
+                }
+            }
+        }
+
+        if index + 1 < bytes.len()
+            && ((bytes[index] == b'h' && bytes[index + 1] == b'h')
+                || (bytes[index] == b'l' && bytes[index + 1] == b'l'))
+        {
+            index += 2;
+        } else if index < bytes.len()
+            && matches!(bytes[index], b'h' | b'l' | b'j' | b'z' | b't' | b'L')
+        {
+            index += 1;
+        }
+
+        if index < bytes.len() && bytes[index] == b'q' {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts<'a> {
     let mut function_mode = false;
     let mut parsing_options = true;
@@ -3870,8 +3935,8 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     }
 }
 
-fn parse_wait_command<'a>(args: &[&'a Word], source: &str) -> WaitCommandFacts<'a> {
-    let mut option_words = Vec::new();
+fn parse_wait_command<'a>(args: &[&'a Word], source: &str) -> WaitCommandFacts {
+    let mut option_spans = Vec::new();
 
     for word in args {
         let Some(text) = static_word_text(word, source) else {
@@ -3883,7 +3948,7 @@ fn parse_wait_command<'a>(args: &[&'a Word], source: &str) -> WaitCommandFacts<'
         }
 
         if text.starts_with('-') && text != "-" {
-            option_words.push(*word);
+            option_spans.push(word.span);
             continue;
         }
 
@@ -3891,7 +3956,7 @@ fn parse_wait_command<'a>(args: &[&'a Word], source: &str) -> WaitCommandFacts<'
     }
 
     WaitCommandFacts {
-        option_words: option_words.into_boxed_slice(),
+        option_spans: option_spans.into_boxed_slice(),
     }
 }
 
@@ -4315,7 +4380,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eo pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nunset -f curl other\nfind . -print0 | xargs -0 rm\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eo pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -4344,6 +4409,21 @@ mod tests {
                 .and_then(|printf| printf.format_word)
                 .map(|word| word.span.slice(source)),
             Some("\"$fmt\"")
+        );
+        assert!(!printf.options().printf().is_some_and(|printf| printf.uses_q_format));
+
+        let q_printf = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("printf") && fact.options().printf().is_some_and(|printf| printf.uses_q_format))
+            .and_then(|fact| fact.options().printf())
+            .expect("expected q printf facts");
+        assert!(q_printf.uses_q_format);
+        assert_eq!(
+            q_printf
+                .format_word
+                .map(|word| word.span.slice(source)),
+            Some("'%q\\n'")
         );
 
         let unset = facts
@@ -4379,9 +4459,9 @@ mod tests {
             .and_then(|fact| fact.options().wait())
             .expect("expected wait facts");
         assert_eq!(
-            wait.option_words()
+            wait.option_spans()
                 .iter()
-                .map(|word| word.span.slice(source))
+                .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["-n"]
         );

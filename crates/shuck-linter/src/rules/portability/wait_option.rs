@@ -26,7 +26,7 @@ pub fn wait_option(checker: &mut Checker) {
             fact.options()
                 .wait()
                 .into_iter()
-                .flat_map(|wait| wait.option_words().iter().map(|word| word.span))
+                .flat_map(|wait| wait.option_spans().iter().copied())
         })
         .collect::<Vec<_>>();
 

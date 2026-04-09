@@ -26,6 +26,8 @@ pub mod pipefail_option;
 pub mod process_substitution;
 pub mod replacement_expansion;
 pub mod select_loop;
+pub mod printf_q_format_in_sh;
+pub mod select_loop;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
@@ -91,6 +93,7 @@ mod tests {
     #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
+    #[test_case(Rule::PrintfQFormatInSh, Path::new("X032.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]
     #[test_case(Rule::ExtglobCase, Path::new("X037.sh"))]

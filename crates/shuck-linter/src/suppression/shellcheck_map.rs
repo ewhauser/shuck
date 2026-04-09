@@ -685,6 +685,7 @@ mod tests {
             (3016, Rule::VTestInSh),
             (3017, Rule::ATestInSh),
             (3018, Rule::CStyleForArithmeticInSh),
+            (3025, Rule::PrintfQFormatInSh),
             (3028, Rule::ArrayReference),
             (3026, Rule::CaretNegationInBracket),
             (3030, Rule::ArrayAssignment),

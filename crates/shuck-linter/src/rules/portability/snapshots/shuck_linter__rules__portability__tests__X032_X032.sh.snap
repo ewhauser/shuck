@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 100
+---
+X032 printf `%q` is not portable in `sh` scripts
+ --> <source>:2:8
+  |
+2 | printf '%q\n' foo
+  |
+
+X032 printf `%q` is not portable in `sh` scripts
+ --> <source>:3:8
+  |
+3 | printf '%10q\n' foo
+  |

@@ -179,6 +179,7 @@ declare_rules! {
     ("X024", Category::Portability, Severity::Warning, CaseModificationExpansion),
     ("X025", Category::Portability, Severity::Warning, ReplacementExpansion),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
+    ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
     ("X037", Category::Portability, Severity::Warning, ExtglobCase),
@@ -274,6 +275,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-030" => Some(Rule::WaitOption),
         "SH-022" => Some(Rule::TrapErr),
         "SH-080" => Some(Rule::SourceBuiltinInSh),
+        "SH-081" => Some(Rule::PrintfQFormatInSh),
         "SH-226" => Some(Rule::FunctionKeywordInSh),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
         "SH-034" => Some(Rule::LegacyBackticks),
@@ -463,6 +465,7 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
         assert_eq!(code_to_rule("SH-060"), Some(Rule::SudoRedirectionOrder));
+        assert_eq!(code_to_rule("SH-081"), Some(Rule::PrintfQFormatInSh));
         assert_eq!(code_to_rule("SH-069"), Some(Rule::ConstantComparisonTest));
         assert_eq!(code_to_rule("SH-070"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(code_to_rule("SH-072"), Some(Rule::LiteralUnaryStringTest));
