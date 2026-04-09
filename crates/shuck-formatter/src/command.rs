@@ -1735,9 +1735,7 @@ pub(crate) fn render_source_text(text: &SourceText, source: &str) -> String {
 }
 
 pub(crate) fn render_source_text_to_buf(text: &SourceText, source: &str, rendered: &mut String) {
-    if text.is_source_backed() && text.span().end.offset > source.len() {
-        return;
-    } else {
+    if !text.is_source_backed() || text.span().end.offset <= source.len() {
         rendered.push_str(text.slice(source));
     }
 }

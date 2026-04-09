@@ -223,6 +223,7 @@ impl<'a> SequenceCommentAttachment<'a> {
             || self.trailing.iter().any(|comments| !comments.is_empty())
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn into_parts(
         self,
     ) -> (

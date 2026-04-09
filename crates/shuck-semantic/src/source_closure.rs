@@ -1385,9 +1385,7 @@ fn span_is_backslash_escaped(source: &str, part: &WordPart, span: Span) -> bool 
 
 fn expansion_start_offset(source: &str, part: &WordPart, span: Span) -> Option<usize> {
     let bytes = source.as_bytes();
-    let Some((line_start, line_end)) = line_bounds(source, span.start.line) else {
-        return None;
-    };
+    let (line_start, line_end) = line_bounds(source, span.start.line)?;
     let search_start = line_start
         .saturating_add(span.start.column.saturating_sub(1))
         .min(line_end);
