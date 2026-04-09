@@ -155,7 +155,7 @@ Detect zsh-only syntax in scripts targeting other shells.
 - [x] **L** X042 (SC2240) `sourced-with-args` — sourced file with extra args
 - [x] **L** X043 (SC2251) `zsh-flag-expansion` — zsh-only parameter expansion form
 - [x] **L** X044 (SC2252) `nested-zsh-substitution` — nested zsh-style expansion
-- [ ] **M** X047 (SC2275) `multi-var-for-loop` — for loop binds multiple variables
+- [x] **M** X047 (SC2275) `multi-var-for-loop` — for loop binds multiple variables
 - [ ] **L** X049 (SC2278) `zsh-prompt-bracket` — zsh prompt escape in sh
 - [ ] **L** X050 (SC2279) `csh-syntax-in-sh` — csh-style set assignment in sh
 - [x] **L** X051 (SC2313) `zsh-nested-expansion` — zsh nested parameter expansion

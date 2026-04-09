@@ -6,6 +6,7 @@ pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
+pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod sourced_with_args;
 pub mod zsh_flag_expansion;
@@ -36,6 +37,7 @@ mod tests {
     #[test_case(Rule::SourcedWithArgs, Path::new("X042.sh"))]
     #[test_case(Rule::ZshFlagExpansion, Path::new("X043.sh"))]
     #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
+    #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ArraySubscriptTest, Path::new("X040.sh"))]
     #[test_case(Rule::ArraySubscriptCondition, Path::new("X041.sh"))]

@@ -301,6 +301,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ZshNestedExpansion) {
             rules::portability::zsh_nested_expansion::zsh_nested_expansion(self);
         }
+        if self.is_rule_enabled(Rule::MultiVarForLoop) {
+            rules::portability::multi_var_for_loop::multi_var_for_loop(self);
+        }
     }
 
     fn check_loop_list_and_pipeline_facts(&mut self) {
