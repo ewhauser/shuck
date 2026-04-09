@@ -1,6 +1,27 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    pub(super) fn fd_var_gap_allows_attachment(gap: &str) -> bool {
+        if gap.is_empty() {
+            return true;
+        }
+
+        let mut remaining = gap;
+        while !remaining.is_empty() {
+            if let Some(stripped) = remaining.strip_prefix("\\\r\n") {
+                remaining = stripped;
+                continue;
+            }
+            if let Some(stripped) = remaining.strip_prefix("\\\n") {
+                remaining = stripped;
+                continue;
+            }
+            return false;
+        }
+
+        true
+    }
+
     pub(super) fn fd_var_from_text(text: &str, span: Span) -> Option<(Name, Span)> {
         if !text.starts_with('{') || !text.ends_with('}') || text.len() <= 2 {
             return None;
@@ -350,9 +371,18 @@ impl<'a> Parser<'a> {
         let mut redirects = Vec::new();
         let mut pending_fd_var = None;
         loop {
+            let current_end = self.current_span.end.offset;
+            let next_token = self
+                .peek_next()
+                .map(|token| (token.kind, token.span.start.offset));
+            let input_len = self.input.len();
             if pending_fd_var.is_none()
                 && let Some((fd_var, fd_var_span)) = self.current_fd_var()
-                && self.peek_next_kind().is_some_and(Self::is_redirect_kind)
+                && let Some((next_kind, next_start)) = next_token
+                && Self::is_redirect_kind(next_kind)
+                && current_end <= next_start
+                && next_start <= input_len
+                && Self::fd_var_gap_allows_attachment(&self.input[current_end..next_start])
             {
                 pending_fd_var = Some((fd_var, fd_var_span));
                 self.advance();
