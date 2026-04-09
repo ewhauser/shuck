@@ -1,5 +1,9 @@
 use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span};
 
+use crate::rules::common::expansion::ExpansionContext;
+use crate::rules::common::span::{
+    conditional_exactly_one_extglob_span, word_exactly_one_extglob_span,
+};
 use crate::{
     Checker, ConditionalNodeFact, Rule, ShellDialect, SimpleTestFact, SimpleTestSyntax, Violation,
     conditional_array_subscript_span, conditional_extglob_span, static_word_text,
@@ -10,6 +14,7 @@ pub struct DoubleBracketInSh;
 pub struct TestEqualityOperator;
 pub struct IfElifBashTest;
 pub struct ExtendedGlobInTest;
+pub struct ExtglobInSh;
 pub struct ArraySubscriptTest;
 pub struct ArraySubscriptCondition;
 pub struct ExtglobInTest;
@@ -58,6 +63,16 @@ impl Violation for ExtendedGlobInTest {
 
     fn message(&self) -> String {
         "extended glob patterns in `[[` matches are not portable to POSIX sh".to_owned()
+    }
+}
+
+impl Violation for ExtglobInSh {
+    fn rule() -> Rule {
+        Rule::ExtglobInSh
+    }
+
+    fn message(&self) -> String {
+        "extended glob syntax is not available in POSIX sh".to_owned()
     }
 }
 
@@ -252,6 +267,33 @@ pub fn extended_glob_in_test(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ExtendedGlobInTest);
+}
+
+pub fn extglob_in_sh(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let source = checker.source();
+    let mut spans = checker
+        .facts()
+        .word_facts()
+        .iter()
+        .filter(|fact| fact.expansion_context() != Some(ExpansionContext::CasePattern))
+        .filter_map(|fact| word_exactly_one_extglob_span(fact.word(), source))
+        .collect::<Vec<_>>();
+    spans.extend(
+        checker
+            .facts()
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.conditional())
+            .filter_map(|conditional| {
+                conditional_exactly_one_extglob_span(conditional.expression(), source)
+            }),
+    );
+
+    checker.report_all_dedup(spans, || ExtglobInSh);
 }
 
 pub fn array_subscript_test(checker: &mut Checker) {
@@ -663,23 +705,22 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
-    fn reports_leading_grouped_case_patterns_in_posix_shells() {
-        let source = "#!/bin/sh\ncase x in\n  (a|b)*) : ;;\nesac\n";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobCase));
+    fn reports_at_extglob_in_posix_shells() {
+        let source = "#!/bin/sh\necho @(foo|bar)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::ExtglobCase);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
     }
 
     #[test]
-    fn ignores_zsh_shells() {
-        let source = "#!/bin/zsh\ncase x in\n  (a|b)*) : ;;\nesac\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::ExtglobCase).with_shell(ShellDialect::Zsh),
-        );
+    fn reports_at_extglob_in_conditional_patterns_in_posix_shells() {
+        let source = "#!/bin/sh\n[[ $OSTYPE == *@(linux|freebsd)* ]] || exit 1\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "@(linux|freebsd)");
     }
 
     #[test]
@@ -700,6 +741,7 @@ fi
                 Rule::TestEqualityOperator,
                 Rule::IfElifBashTest,
                 Rule::ExtendedGlobInTest,
+                Rule::ExtglobInSh,
                 Rule::ArraySubscriptTest,
                 Rule::ArraySubscriptCondition,
                 Rule::ExtglobInTest,

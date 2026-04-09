@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X054 extended glob syntax is not available in POSIX sh
+ --> <source>:2:6
+  |
+2 | echo @(foo|bar)
+  |

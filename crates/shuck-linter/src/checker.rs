@@ -497,6 +497,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExtendedGlobInTest) {
             rules::portability::conditional_portability::extended_glob_in_test(self);
         }
+        if self.is_rule_enabled(Rule::ExtglobInSh) {
+            rules::portability::conditional_portability::extglob_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::ArraySubscriptTest) {
             rules::portability::conditional_portability::array_subscript_test(self);
         }

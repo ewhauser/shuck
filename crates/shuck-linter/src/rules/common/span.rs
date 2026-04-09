@@ -1,7 +1,7 @@
 use shuck_ast::{
     Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr, ParameterExpansion,
-    ParameterExpansionSyntax, Pattern, PatternPart, Redirect, Span, VarRef, Word, WordPart,
-    WordPartNode, ZshExpansionTarget,
+    ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Redirect, Span, VarRef,
+    Word, WordPart, WordPartNode, ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -265,6 +265,33 @@ pub fn word_extglob_span(word: &Word, source: &str) -> Option<Span> {
             && text_looks_like_extglob(word.span.slice(source)))
         .then_some(word.span)
     })
+}
+
+pub fn word_exactly_one_extglob_span(word: &Word, source: &str) -> Option<Span> {
+    word_exactly_one_extglob_span_from_parts(&word.parts, source).or_else(|| {
+        (!word.has_quoted_parts()
+            && word_has_only_literal_parts(&word.parts)
+            && text_looks_like_exactly_one_extglob(word.span.slice(source)))
+        .then_some(word.span)
+    })
+}
+
+pub fn conditional_exactly_one_extglob_span(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> Option<Span> {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            conditional_exactly_one_extglob_span(&expr.left, source)
+                .or_else(|| conditional_exactly_one_extglob_span(&expr.right, source))
+        }
+        ConditionalExpr::Unary(expr) => conditional_exactly_one_extglob_span(&expr.expr, source),
+        ConditionalExpr::Parenthesized(expr) => {
+            conditional_exactly_one_extglob_span(&expr.expr, source)
+        }
+        ConditionalExpr::Pattern(pattern) => pattern_exactly_one_extglob_span(pattern, source),
+        ConditionalExpr::Word(_) | ConditionalExpr::Regex(_) | ConditionalExpr::VarRef(_) => None,
+    }
 }
 
 fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
@@ -676,6 +703,76 @@ fn word_extglob_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<
     None
 }
 
+fn word_exactly_one_extglob_span_from_parts(
+    parts: &[WordPartNode],
+    source: &str,
+) -> Option<Span> {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) => {
+                if text_looks_like_exactly_one_extglob(part.span.slice(source)) {
+                    return Some(part.span);
+                }
+            }
+            WordPart::DoubleQuoted { .. } | WordPart::SingleQuoted { .. } => {}
+            WordPart::ZshQualifiedGlob(_)
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
+        }
+    }
+
+    None
+}
+
+fn pattern_exactly_one_extglob_span(pattern: &Pattern, source: &str) -> Option<Span> {
+    for part in &pattern.parts {
+        match &part.kind {
+            PatternPart::Group { kind, patterns } => {
+                if *kind == PatternGroupKind::ExactlyOne {
+                    return Some(part.span);
+                }
+
+                if let Some(span) = patterns
+                    .iter()
+                    .find_map(|pattern| pattern_exactly_one_extglob_span(pattern, source))
+                {
+                    return Some(span);
+                }
+            }
+            PatternPart::Word(word) => {
+                if let Some(span) = word_exactly_one_extglob_span(word, source) {
+                    return Some(span);
+                }
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+
+    None
+}
+
+fn word_has_only_literal_parts(parts: &[WordPartNode]) -> bool {
+    parts
+        .iter()
+        .all(|part| matches!(part.kind, WordPart::Literal(_)))
+}
+
 fn text_has_variable_subscript(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0usize;
@@ -736,6 +833,25 @@ fn text_looks_like_extglob(text: &str) -> bool {
 
     while index + 1 < bytes.len() {
         if !is_extglob_operator(bytes[index])
+            || bytes[index + 1] != b'('
+            || byte_is_backslash_escaped(bytes, index)
+        {
+            index += 1;
+            continue;
+        }
+
+        return matching_group_end(bytes, index + 1).is_some();
+    }
+
+    false
+}
+
+fn text_looks_like_exactly_one_extglob(text: &str) -> bool {
+    let bytes = text.as_bytes();
+
+    let mut index = 0usize;
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'@'
             || bytes[index + 1] != b'('
             || byte_is_backslash_escaped(bytes, index)
         {

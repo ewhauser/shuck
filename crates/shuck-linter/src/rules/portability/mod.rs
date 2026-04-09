@@ -99,6 +99,7 @@ mod tests {
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
+#[test_case(Rule::ExtglobInSh, Path::new("X054.sh"))]
     #[test_case(Rule::CStyleForInSh, Path::new("X056.sh"))]
     #[test_case(Rule::LegacyArithmeticInSh, Path::new("X057.sh"))]
     #[test_case(Rule::CStyleForArithmeticInSh, Path::new("X062.sh"))]

@@ -200,6 +200,7 @@ impl Default for ShellCheckCodeMap {
             (2277, Rule::ExtglobInCasePattern),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2365, Rule::UnreachableAfterExit),
+            (3002, Rule::ExtglobInSh),
             (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
             (3014, Rule::TestEqualityOperator),
@@ -242,6 +243,7 @@ impl Default for ShellCheckCodeMap {
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+                (3002, Rule::ExtglobInSh),
                 (1127, Rule::CStyleComment),
                 (1129, Rule::ZshBraceIf),
                 (1130, Rule::ZshAlwaysBlock),
@@ -351,7 +353,7 @@ impl Default for ShellCheckCodeMap {
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
             ]),
-            aliases: vec![(1075, Rule::ExtglobCase)],
+            aliases: vec![(1075, Rule::ExtglobCase), (3061, Rule::ExtglobInSh)],
             comparison,
         }
     }
@@ -397,6 +399,10 @@ mod tests {
             map.resolve_all("SC1075"),
             vec![Rule::ElseIf, Rule::ExtglobCase]
         );
+        assert_eq!(map.resolve("SC3002"), Some(Rule::ExtglobInSh));
+        assert_eq!(map.resolve("SC3061"), Some(Rule::ExtglobInSh));
+        assert_eq!(map.resolve_all("SC3002"), vec![Rule::ExtglobInSh]);
+        assert_eq!(map.resolve_all("SC3061"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve("SC1078"), Some(Rule::OpenDoubleQuote));
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
@@ -644,6 +650,7 @@ mod tests {
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (3001, Rule::ProcessSubstitution),
                 (3003, Rule::AnsiCQuoting),
+                (3002, Rule::ExtglobInSh),
                 (3005, Rule::CStyleForInSh),
                 (3006, Rule::StandaloneArithmetic),
                 (3007, Rule::LegacyArithmeticInSh),
@@ -675,6 +682,7 @@ mod tests {
                 (3058, Rule::BashCaseFallthrough),
                 (3059, Rule::CaseModificationExpansion),
                 (3060, Rule::ReplacementExpansion),
+                (3061, Rule::ExtglobInSh),
                 (3062, Rule::OptionTestInSh),
                 (3063, Rule::CStyleForInSh),
                 (3064, Rule::LegacyArithmeticInSh),
@@ -719,6 +727,7 @@ mod tests {
             .comparison_mappings()
             .collect::<Vec<_>>();
 
+        assert!(comparison.contains(&(3002, Rule::ExtglobInSh)));
         assert!(comparison.contains(&(3006, Rule::StandaloneArithmetic)));
         assert!(comparison.contains(&(3007, Rule::LegacyArithmeticInSh)));
         assert!(comparison.contains(&(3008, Rule::SelectLoop)));
