@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -124,6 +124,10 @@ bench-macro-single:
 bench-macro-format:
 	$(NIX_DEVELOP) ./scripts/benchmarks/setup.sh hyperfine shfmt
 	$(NIX_DEVELOP) ./scripts/benchmarks/run_formatter.sh
+	$(NIX_DEVELOP) ./scripts/benchmarks/summarize_formatter.sh
+
+bench-macro-format-summary:
+	$(NIX_DEVELOP) ./scripts/benchmarks/summarize_formatter.sh
 
 bench-macro-format-single:
 	test -n "$(BENCH_FILE)"

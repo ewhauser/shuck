@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use shuck_cache::{FileCacheKey, PackageCache};
-use shuck_formatter::{FormatError, FormattedSource, ShellFormatOptions, format_source};
+use shuck_formatter::{
+    FormatError, FormattedSource, ShellFormatOptions, format_source, source_is_formatted,
+};
 use similar::TextDiff;
 
 use crate::ExitStatus;
@@ -197,7 +199,37 @@ fn handle_pending_file(
 ) -> Result<()> {
     let PendingProjectFile { file, file_key } = pending;
     let source = fs::read_to_string(&file.absolute_path)?;
-    let (cached_result, cached_key) =
+    let (cached_result, cached_key) = if matches!(mode, FormatMode::Check) {
+        match source_is_formatted(&source, Some(&file.absolute_path), settings) {
+            Ok(true) => (Some(FormatCacheData::Unchanged), file_key.clone()),
+            Ok(false) => {
+                report.changed_files.push(file.display_path.clone());
+                (None, file_key.clone())
+            }
+            Err(FormatError::Parse {
+                message,
+                line,
+                column,
+            }) => {
+                report.errors.push(DisplayedFormatError {
+                    path: file.display_path.clone(),
+                    line,
+                    column,
+                    message: message.clone(),
+                });
+
+                (
+                    Some(FormatCacheData::ParseError(ParseCacheFailure {
+                        message,
+                        line,
+                        column,
+                    })),
+                    file_key.clone(),
+                )
+            }
+            Err(FormatError::Internal(message)) => return Err(anyhow!(message)),
+        }
+    } else {
         match format_source(&source, Some(&file.absolute_path), settings) {
             Ok(FormattedSource::Unchanged) => (Some(FormatCacheData::Unchanged), file_key.clone()),
             Ok(FormattedSource::Formatted(formatted)) => {
@@ -245,7 +277,8 @@ fn handle_pending_file(
                 )
             }
             Err(FormatError::Internal(message)) => return Err(anyhow!(message)),
-        };
+        }
+    };
 
     if let Some(cache) = cache.as_mut()
         && let Some(cached_result) = cached_result
@@ -392,5 +425,57 @@ mod tests {
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
         assert!(!tempdir.path().join(".shuck_cache").exists());
+    }
+
+    #[test]
+    fn check_mode_reports_changed_files_without_rewriting_them() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("script.sh");
+        let source = "#!/bin/bash\n echo ok\n";
+        fs::write(&script, source).unwrap();
+
+        let mut args = format_args(true);
+        args.check = true;
+
+        let report = run_format_with_cwd(
+            &args,
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Check,
+        )
+        .unwrap();
+
+        assert_eq!(report.exit_status(FormatMode::Check), ExitStatus::Failure);
+        assert_eq!(report.changed_files, vec![PathBuf::from("script.sh")]);
+        assert_eq!(fs::read_to_string(&script).unwrap(), source);
+    }
+
+    #[test]
+    fn check_mode_reuses_cache_for_already_formatted_files() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+
+        let mut args = format_args(false);
+        args.check = true;
+
+        let first = run_format_with_cwd(
+            &args,
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Check,
+        )
+        .unwrap();
+        let second = run_format_with_cwd(
+            &args,
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Check,
+        )
+        .unwrap();
+
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.cache_misses, 0);
     }
 }

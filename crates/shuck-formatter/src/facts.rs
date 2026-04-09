@@ -15,7 +15,7 @@ use crate::command::{
     stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_span,
     stmt_verbatim_span,
 };
-use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments};
+use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -256,11 +256,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     }
 
     fn build(mut self, file: &File) -> FormatterFacts<'source> {
-        self.source_comments = flatten_comments(file)
+        let mut source_comments = flatten_comments(file)
             .into_iter()
             .filter_map(|comment| self.source_map().source_comment(comment))
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect::<Vec<_>>();
+        source_comments.sort_by_key(|comment| comment.span().start.offset);
+        self.source_comments = source_comments.into_boxed_slice();
         self.visit_sequence(&file.body, None, None);
         self.facts
     }
@@ -297,31 +298,32 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             .or(upper_bound);
 
         let lower_bound = sequence_comment_lower_bound(sequence);
-        let filtered_comments = self
-            .source_comments
-            .iter()
-            .copied()
-            .filter(|comment| comment.span().start.offset >= lower_bound)
-            .filter(|comment| sequence_limit.is_none_or(|limit| comment.span().end.offset <= limit))
-            .filter(|comment| {
-                facts
-                    .group_open_suffix_span
-                    .is_none_or(|span| !span_contains_comment(span, *comment))
-            })
-            .collect::<Vec<_>>();
+        let comment_window = self.comment_window(lower_bound, sequence_limit);
 
         if sequence.is_empty() {
-            facts.dangling = filtered_comments;
+            facts.dangling = comment_window
+                .iter()
+                .copied()
+                .filter(|comment| {
+                    sequence_limit.is_none_or(|limit| comment.span().end.offset <= limit)
+                })
+                .filter(|comment| {
+                    facts
+                        .group_open_suffix_span
+                        .is_none_or(|span| !span_contains_comment(span, *comment))
+                })
+                .collect();
             facts.ambiguous = facts.dangling.iter().any(SourceComment::inline);
         } else {
             let child_spans = sequence
                 .iter()
                 .map(|stmt| self.facts.stmt(stmt).attachment_span())
                 .collect::<Vec<_>>();
-            let attachment = inspect_sequence_comments(
-                filtered_comments.as_slice(),
+            let attachment = inspect_sequence_comments_in_window(
+                comment_window,
                 &child_spans,
                 sequence_limit,
+                facts.group_open_suffix_span,
             );
             let (leading, trailing, dangling, ambiguous) = attachment.into_parts();
             facts.leading = leading;
@@ -359,6 +361,21 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
         }
 
         self.facts.sequence_facts.insert(key, facts);
+    }
+
+    fn comment_window(
+        &self,
+        lower_bound: usize,
+        upper_bound: Option<usize>,
+    ) -> &[SourceComment<'source>] {
+        let start_index = self
+            .source_comments
+            .partition_point(|comment| comment.span().start.offset < lower_bound);
+        let end_index = upper_bound.map_or(self.source_comments.len(), |limit| {
+            self.source_comments
+                .partition_point(|comment| comment.span().start.offset < limit)
+        });
+        &self.source_comments[start_index..end_index.max(start_index)]
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) {

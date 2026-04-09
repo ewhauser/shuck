@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use shuck_formatter::{FormatError, FormattedSource, format_source};
+use shuck_formatter::{FormatError, FormattedSource, format_source, source_is_formatted};
 
 use crate::ExitStatus;
 use crate::args::FormatCommand;
@@ -20,6 +20,23 @@ pub(crate) fn format_stdin(args: FormatCommand) -> Result<ExitStatus> {
     let project_root = stdin_project_root(path, &cwd)?;
     let options = resolve_project_format_settings(&project_root, args.format_settings_patch())?
         .to_shell_format_options();
+
+    if matches!(mode, FormatMode::Check) {
+        return match source_is_formatted(&source, path, &options) {
+            Ok(true) => Ok(ExitStatus::Success),
+            Ok(false) => Ok(ExitStatus::Failure),
+            Err(FormatError::Parse {
+                message,
+                line,
+                column,
+            }) => {
+                let mut stdout = io::stdout().lock();
+                write_parse_error_line(&mut stdout, &display_path, line, column, &message)?;
+                Ok(ExitStatus::Error)
+            }
+            Err(FormatError::Internal(message)) => Err(anyhow!(message)),
+        };
+    }
 
     match format_source(&source, path, &options) {
         Ok(FormattedSource::Unchanged) => {

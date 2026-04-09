@@ -289,10 +289,13 @@ impl<'a> CommentAttachmentIndex<'a> {
     ) -> SequenceCommentAnalysis<'a> {
         compute_sequence_attachment(
             &self.items,
-            &self.claimed,
+            Some(&self.claimed),
+            0,
             self.next_unclaimed,
             child_spans,
             upper_bound,
+            None,
+            true,
         )
     }
 
@@ -369,13 +372,16 @@ impl<'a> CommentAttachmentIndex<'a> {
 
 fn compute_sequence_attachment<'a>(
     items: &[SourceComment<'a>],
-    claimed: &[bool],
+    claimed: Option<&[bool]>,
+    base_index: usize,
     start_index: usize,
     child_spans: &[Span],
     upper_bound: Option<usize>,
+    skip_span: Option<Span>,
+    track_claimed_indices: bool,
 ) -> SequenceCommentAnalysis<'a> {
     let mut attachment = SequenceCommentAttachment::new(child_spans.len());
-    if child_spans.is_empty() {
+    if child_spans.is_empty() || start_index >= items.len() {
         return SequenceCommentAnalysis {
             attachment,
             claimed_indices: Vec::new(),
@@ -393,7 +399,7 @@ fn compute_sequence_attachment<'a>(
 
     let mut index = start_index;
     while index < items.len() {
-        if claimed[index] {
+        if comment_is_claimed(claimed, base_index, index) {
             index += 1;
             continue;
         }
@@ -405,6 +411,10 @@ fn compute_sequence_attachment<'a>(
             break;
         }
         if end > limit_end {
+            index += 1;
+            continue;
+        }
+        if skip_span.is_some_and(|span| span_contains_comment(span, comment)) {
             index += 1;
             continue;
         }
@@ -432,7 +442,11 @@ fn compute_sequence_attachment<'a>(
                 && child_spans[prev_idx].start.offset <= start
             {
                 attachment.trailing[prev_idx].push(comment);
-                claimed_indices.push(index);
+                record_claimed_index(
+                    &mut claimed_indices,
+                    track_claimed_indices,
+                    base_index + index,
+                );
                 index += 1;
                 continue;
             }
@@ -443,11 +457,19 @@ fn compute_sequence_attachment<'a>(
                         && child_spans[prev_idx].end.line == comment.line =>
                 {
                     attachment.trailing[prev_idx].push(comment);
-                    claimed_indices.push(index);
+                    record_claimed_index(
+                        &mut claimed_indices,
+                        track_claimed_indices,
+                        base_index + index,
+                    );
                 }
                 (Some(prev_idx), None) if child_spans[prev_idx].end.line == comment.line => {
                     attachment.trailing[prev_idx].push(comment);
-                    claimed_indices.push(index);
+                    record_claimed_index(
+                        &mut claimed_indices,
+                        track_claimed_indices,
+                        base_index + index,
+                    );
                 }
                 _ => attachment.ambiguous = true,
             }
@@ -456,37 +478,66 @@ fn compute_sequence_attachment<'a>(
         }
 
         if end <= first_child_start {
-            let run_end = collect_comment_run(items, claimed, index, limit_end, |comment| {
-                comment.span.end.offset <= first_child_start
-            });
-            for (run_index, item) in items.iter().enumerate().take(run_end).skip(index) {
-                attachment.leading[0].push(*item);
-                claimed_indices.push(run_index);
+            let run_end = advance_comment_run(
+                items,
+                claimed,
+                base_index,
+                index,
+                limit_end,
+                skip_span,
+                |candidate| candidate.span.end.offset <= first_child_start,
+            );
+            for run_index in index..run_end {
+                attachment.leading[0].push(items[run_index]);
+                record_claimed_index(
+                    &mut claimed_indices,
+                    track_claimed_indices,
+                    base_index + run_index,
+                );
             }
             index = run_end;
         } else if let Some(next_idx) = next {
-            let target_prev = prev;
-            let target_next = Some(next_idx);
-            let run_end = collect_comment_run(items, claimed, index, limit_end, |candidate| {
-                let (candidate_prev, candidate_next) = surrounding_children(
-                    child_spans,
-                    candidate.span.start.offset,
-                    candidate.span.end.offset,
+            let gap_start = prev
+                .map(|prev_idx| child_spans[prev_idx].end.offset)
+                .unwrap_or(0);
+            let gap_end = child_spans[next_idx].start.offset;
+            let run_end = advance_comment_run(
+                items,
+                claimed,
+                base_index,
+                index,
+                limit_end,
+                skip_span,
+                |candidate| {
+                    candidate.span.start.offset >= gap_start && candidate.span.end.offset <= gap_end
+                },
+            );
+            for run_index in index..run_end {
+                attachment.leading[next_idx].push(items[run_index]);
+                record_claimed_index(
+                    &mut claimed_indices,
+                    track_claimed_indices,
+                    base_index + run_index,
                 );
-                candidate_prev == target_prev && candidate_next == target_next
-            });
-            for (run_index, item) in items.iter().enumerate().take(run_end).skip(index) {
-                attachment.leading[next_idx].push(*item);
-                claimed_indices.push(run_index);
             }
             index = run_end;
         } else if start >= last_child_end {
-            let run_end = collect_comment_run(items, claimed, index, limit_end, |comment| {
-                comment.span.start.offset >= last_child_end
-            });
-            for (run_index, item) in items.iter().enumerate().take(run_end).skip(index) {
-                attachment.dangling.push(*item);
-                claimed_indices.push(run_index);
+            let run_end = advance_comment_run(
+                items,
+                claimed,
+                base_index,
+                index,
+                limit_end,
+                skip_span,
+                |candidate| candidate.span.start.offset >= last_child_end,
+            );
+            for run_index in index..run_end {
+                attachment.dangling.push(items[run_index]);
+                record_claimed_index(
+                    &mut claimed_indices,
+                    track_claimed_indices,
+                    base_index + run_index,
+                );
             }
             index = run_end;
         } else {
@@ -500,35 +551,46 @@ fn compute_sequence_attachment<'a>(
     }
 }
 
-pub(crate) fn inspect_sequence_comments<'a>(
+pub(crate) fn inspect_sequence_comments_in_window<'a>(
     items: &[SourceComment<'a>],
     child_spans: &[Span],
     upper_bound: Option<usize>,
+    skip_span: Option<Span>,
 ) -> SequenceCommentAttachment<'a> {
     compute_sequence_attachment(
         items,
-        &vec![false; items.len()],
+        None,
+        0,
         0,
         child_spans,
         upper_bound,
+        skip_span,
+        false,
     )
     .attachment
 }
 
-fn collect_comment_run<'a>(
+fn advance_comment_run<'a>(
     items: &[SourceComment<'a>],
-    claimed: &[bool],
+    claimed: Option<&[bool]>,
+    base_index: usize,
     start_index: usize,
     limit_end: usize,
+    skip_span: Option<Span>,
     belongs: impl Fn(SourceComment<'a>) -> bool,
 ) -> usize {
     let mut index = start_index;
     while index < items.len() {
-        if claimed[index] {
+        if comment_is_claimed(claimed, base_index, index) {
             break;
         }
         let comment = items[index];
-        if comment.inline || comment.span.end.offset > limit_end || !belongs(comment) {
+        if comment.span.start.offset >= limit_end
+            || comment.inline
+            || comment.span.end.offset > limit_end
+            || skip_span.is_some_and(|span| span_contains_comment(span, comment))
+            || !belongs(comment)
+        {
             break;
         }
         index += 1;
@@ -536,17 +598,21 @@ fn collect_comment_run<'a>(
     index
 }
 
-fn surrounding_children(
-    child_spans: &[Span],
-    start: usize,
-    end: usize,
-) -> (Option<usize>, Option<usize>) {
-    let cursor = child_spans.partition_point(|span| span.end.offset <= start);
-    let prev = cursor.checked_sub(1);
-    let next = child_spans
-        .get(cursor)
-        .and_then(|span| (span.start.offset >= end).then_some(cursor));
-    (prev, next)
+fn record_claimed_index(target: &mut Vec<usize>, track: bool, index: usize) {
+    if track {
+        target.push(index);
+    }
+}
+
+fn comment_is_claimed(claimed: Option<&[bool]>, base_index: usize, index: usize) -> bool {
+    claimed
+        .and_then(|flags| flags.get(base_index + index))
+        .copied()
+        .unwrap_or(false)
+}
+
+fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
+    span.start.offset <= comment.span.start.offset && comment.span.end.offset <= span.end.offset
 }
 
 fn line_starts(source: &str) -> Vec<usize> {

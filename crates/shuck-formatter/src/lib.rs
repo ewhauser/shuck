@@ -97,6 +97,21 @@ pub fn format_source(
     format_file_ast(source, parsed.file, path, options)
 }
 
+#[doc(hidden)]
+pub fn source_is_formatted(
+    source: &str,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<bool> {
+    let dialect = options.resolve(source, path).dialect();
+    let parsed = Parser::with_dialect(source, dialect)
+        .parse()
+        .map_err(map_parse_error)?;
+
+    let resolved = options.resolve(source, path);
+    check_file(source, parsed.file, resolved)
+}
+
 pub fn format_file_ast(
     source: &str,
     file: File,
@@ -128,6 +143,18 @@ fn format_file(
     } else {
         Ok(FormattedSource::Formatted(output))
     }
+}
+
+fn check_file(source: &str, mut file: File, resolved: ResolvedShellFormatOptions) -> Result<bool> {
+    if resolved.keep_padding() {
+        return Ok(true);
+    }
+
+    if resolved.simplify() || resolved.minify() {
+        simplify::simplify_file(&mut file, source);
+    }
+
+    streaming::format_file_streaming_matches_source(source, &file, &resolved)
 }
 
 #[cfg(feature = "benchmarking")]
@@ -189,6 +216,10 @@ mod tests {
         let from_source = format_source(source, path, options).unwrap();
         let from_ast = format_file_ast(source, parsed.file, path, options).unwrap();
         assert_eq!(from_source, from_ast);
+        assert_eq!(
+            source_is_formatted(source, path, options).unwrap(),
+            matches!(from_source, FormattedSource::Unchanged)
+        );
     }
 
     fn assert_idempotent(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
@@ -230,6 +261,14 @@ mod tests {
             formatted,
             FormattedSource::Formatted("#!/bin/bash\necho hi\n".to_string())
         );
+        assert!(
+            !source_is_formatted(
+                "#!/bin/bash\n echo   hi\n",
+                None,
+                &ShellFormatOptions::default()
+            )
+            .unwrap()
+        );
     }
 
     #[test]
@@ -240,6 +279,18 @@ mod tests {
         assert_eq!(
             formatted,
             FormattedSource::Formatted("echo hi # note\n".to_string())
+        );
+    }
+
+    #[test]
+    fn check_path_reports_already_formatted_sources() {
+        assert!(
+            source_is_formatted(
+                "echo hi\n",
+                Some(Path::new("script.sh")),
+                &ShellFormatOptions::default()
+            )
+            .unwrap()
         );
     }
 

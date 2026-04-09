@@ -15,13 +15,128 @@ use shuck_format::{IndentStyle, LineEnding};
 use crate::Result;
 use crate::command::{
     binary_operator, case_terminator, command_format_span, line_gap_break_count,
-    multiline_compound_assignment_lines, render_assignment_head_to_buf, render_assignment_to_buf,
-    render_background_operator, render_var_ref_to_buf, slice_span, stmt_span, stmt_verbatim_span,
+    multiline_compound_assignment_lines, render_assignment_head_to_buf,
+    render_assignment_with_facts_to_buf, render_background_operator, render_var_ref_to_buf,
+    slice_span, stmt_span, stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
 use crate::word::{render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf};
+
+enum StreamOutput<'source> {
+    Buffer(String),
+    Compare(CompareSink<'source>),
+}
+
+impl<'source> StreamOutput<'source> {
+    fn push_char(&mut self, ch: char) {
+        match self {
+            Self::Buffer(buffer) => buffer.push(ch),
+            Self::Compare(compare) => compare.push_char(ch),
+        }
+    }
+
+    fn push_str(&mut self, text: &str) {
+        match self {
+            Self::Buffer(buffer) => buffer.push_str(text),
+            Self::Compare(compare) => compare.push_str(text),
+        }
+    }
+
+    fn finish_into_string(self) -> String {
+        match self {
+            Self::Buffer(buffer) => buffer,
+            Self::Compare(_) => panic!("comparison formatter cannot yield a String"),
+        }
+    }
+
+    fn finish_matches_source(mut self) -> bool {
+        match &mut self {
+            Self::Buffer(_) => panic!("buffer formatter cannot compare against the source"),
+            Self::Compare(compare) => compare.finish(),
+        }
+    }
+}
+
+struct CompareSink<'source> {
+    source: &'source str,
+    matched_bytes: usize,
+    pending_tail: String,
+    mismatch: bool,
+}
+
+impl<'source> CompareSink<'source> {
+    fn new(source: &'source str) -> Self {
+        Self {
+            source,
+            matched_bytes: 0,
+            pending_tail: String::new(),
+            mismatch: false,
+        }
+    }
+
+    fn push_char(&mut self, ch: char) {
+        let mut encoded = [0; 4];
+        self.push_str(ch.encode_utf8(&mut encoded));
+    }
+
+    fn push_str(&mut self, text: &str) {
+        if self.mismatch || text.is_empty() {
+            return;
+        }
+
+        let prefix_end = text
+            .bytes()
+            .rposition(|byte| byte != b'\n' && byte != b'\r')
+            .map_or(0, |index| index + 1);
+
+        if !self.pending_tail.is_empty() && prefix_end > 0 {
+            let pending_tail = mem::take(&mut self.pending_tail);
+            self.compare_prefix(&pending_tail);
+            if self.mismatch {
+                return;
+            }
+        }
+
+        if prefix_end > 0 {
+            self.compare_prefix(&text[..prefix_end]);
+            if self.mismatch {
+                return;
+            }
+        }
+
+        if prefix_end < text.len() {
+            self.pending_tail.push_str(&text[prefix_end..]);
+        }
+    }
+
+    fn finish(&mut self) -> bool {
+        if self.mismatch {
+            return false;
+        }
+
+        crate::ensure_single_trailing_newline(&mut self.pending_tail);
+        let tail = mem::take(&mut self.pending_tail);
+        self.compare_prefix(&tail);
+
+        !self.mismatch && self.matched_bytes == self.source.len()
+    }
+
+    fn compare_prefix(&mut self, text: &str) {
+        if self.mismatch || text.is_empty() {
+            return;
+        }
+
+        let end = self.matched_bytes.saturating_add(text.len());
+        match self.source.as_bytes().get(self.matched_bytes..end) {
+            Some(candidate) if candidate == text.as_bytes() => {
+                self.matched_bytes = end;
+            }
+            _ => self.mismatch = true,
+        }
+    }
+}
 
 pub(crate) fn format_file_streaming(
     source: &str,
@@ -32,7 +147,19 @@ pub(crate) fn format_file_streaming(
     let mut formatter = ShellStreamFormatter::new(source, options, &facts);
     formatter.format_stmt_sequence(&file.body, None)?;
 
-    Ok(formatter.finish())
+    Ok(formatter.finish_into_string())
+}
+
+pub(crate) fn format_file_streaming_matches_source(
+    source: &str,
+    file: &File,
+    options: &ResolvedShellFormatOptions,
+) -> Result<bool> {
+    let facts = FormatterFacts::build(source, file, options);
+    let mut formatter = ShellStreamFormatter::new_compare(source, options, &facts);
+    formatter.format_stmt_sequence(&file.body, None)?;
+
+    Ok(formatter.finish_matches_source())
 }
 
 pub(crate) fn format_stmt_sequence_streaming_to_buf(
@@ -48,7 +175,7 @@ pub(crate) fn format_stmt_sequence_streaming_to_buf(
     let mut formatter =
         ShellStreamFormatter::with_output_buffer(source, options, facts, nested_output);
     formatter.format_stmt_sequence(statements, None)?;
-    *output = formatter.finish();
+    *output = formatter.finish_into_string();
     Ok(())
 }
 
@@ -69,7 +196,7 @@ struct ShellStreamFormatter<'source, 'facts> {
     source: &'source str,
     options: ResolvedShellFormatOptions,
     facts: &'facts FormatterFacts<'source>,
-    output: String,
+    output: StreamOutput<'source>,
     scratch: String,
     indent_level: usize,
     line_start: bool,
@@ -82,7 +209,25 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         options: &ResolvedShellFormatOptions,
         facts: &'facts FormatterFacts<'source>,
     ) -> Self {
-        Self::with_output_buffer(source, options, facts, String::with_capacity(source.len()))
+        Self::with_output(
+            source,
+            options,
+            facts,
+            StreamOutput::Buffer(String::with_capacity(source.len())),
+        )
+    }
+
+    fn new_compare(
+        source: &'source str,
+        options: &ResolvedShellFormatOptions,
+        facts: &'facts FormatterFacts<'source>,
+    ) -> Self {
+        Self::with_output(
+            source,
+            options,
+            facts,
+            StreamOutput::Compare(CompareSink::new(source)),
+        )
     }
 
     fn with_output_buffer(
@@ -90,6 +235,15 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         options: &ResolvedShellFormatOptions,
         facts: &'facts FormatterFacts<'source>,
         output: String,
+    ) -> Self {
+        Self::with_output(source, options, facts, StreamOutput::Buffer(output))
+    }
+
+    fn with_output(
+        source: &'source str,
+        options: &ResolvedShellFormatOptions,
+        facts: &'facts FormatterFacts<'source>,
+        output: StreamOutput<'source>,
     ) -> Self {
         Self {
             source,
@@ -103,9 +257,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
     }
 
-    fn finish(mut self) -> String {
+    fn finish_into_string(mut self) -> String {
         self.flush_pending_heredocs();
-        self.output
+        self.output.finish_into_string()
+    }
+
+    fn finish_matches_source(mut self) -> bool {
+        self.flush_pending_heredocs();
+        self.output.finish_matches_source()
+    }
+
+    fn push_output_char(&mut self, ch: char) {
+        self.output.push_char(ch);
+    }
+
+    fn push_output_str(&mut self, text: &str) {
+        self.output.push_str(text);
     }
 
     fn source(&self) -> &'source str {
@@ -176,12 +343,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         match self.options.indent_style() {
             IndentStyle::Tab => {
                 for _ in 0..levels {
-                    self.output.push('\t');
+                    self.push_output_char('\t');
                 }
             }
             IndentStyle::Space => {
                 for _ in 0..(levels * usize::from(self.options.indent_width())) {
-                    self.output.push(' ');
+                    self.push_output_char(' ');
                 }
             }
         }
@@ -203,12 +370,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             match remaining.find('\n') {
                 Some(index) => {
                     let end = index + 1;
-                    self.output.push_str(&remaining[..end]);
+                    self.push_output_str(&remaining[..end]);
                     self.line_start = true;
                     remaining = &remaining[end..];
                 }
                 None => {
-                    self.output.push_str(remaining);
+                    self.push_output_str(remaining);
                     self.line_start = false;
                     break;
                 }
@@ -220,7 +387,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if text.is_empty() {
             return;
         }
-        self.output.push_str(text);
+        self.push_output_str(text);
         self.line_start = text.ends_with('\n');
     }
 
@@ -232,12 +399,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         match self.options.indent_style() {
             IndentStyle::Tab => {
                 for _ in 0..self.indent_level {
-                    self.output.push('\t');
+                    self.push_output_char('\t');
                 }
             }
             IndentStyle::Space => {
                 for _ in 0..(self.indent_level * usize::from(self.options.indent_width())) {
-                    self.output.push(' ');
+                    self.push_output_char(' ');
                 }
             }
         }
@@ -249,13 +416,13 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         if self.line_start {
             return;
         }
-        self.output.push(' ');
+        self.push_output_char(' ');
     }
 
     fn flush_pending_heredocs(&mut self) {
         let pending = mem::take(&mut self.pending_heredocs);
         for heredoc in pending {
-            self.output.push_str(self.line_ending());
+            self.push_output_str(self.line_ending());
             self.line_start = true;
             self.write_verbatim(heredoc.body_span.slice(self.source));
             self.write_verbatim(&heredoc.delimiter);
@@ -264,7 +431,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
     fn newline(&mut self) {
         self.flush_pending_heredocs();
-        self.output.push_str(self.line_ending());
+        self.push_output_str(self.line_ending());
         self.line_start = true;
     }
 
@@ -305,9 +472,21 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     }
 
     fn write_assignment(&mut self, assignment: &Assignment) {
-        self.write_rendered(|scratch, source, options| {
-            render_assignment_to_buf(assignment, source, options, scratch);
-        });
+        let source_map = self.source_map().clone();
+        let mut scratch = self.take_scratch_buffer();
+        {
+            let facts = self.facts();
+            render_assignment_with_facts_to_buf(
+                assignment,
+                self.source(),
+                self.options(),
+                &source_map,
+                facts,
+                &mut scratch,
+            );
+        }
+        self.write_text(&scratch);
+        self.restore_scratch_buffer(scratch);
     }
 
     fn write_assignment_head(&mut self, assignment: &Assignment) {

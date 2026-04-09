@@ -14,8 +14,14 @@ use shuck_format::{
 };
 
 use crate::FormatNodeRule;
+use crate::comments::SourceMap;
+use crate::facts::FormatterFacts;
+use crate::options::ResolvedShellFormatOptions;
 use crate::prelude::{AsFormat, ShellFormatter};
-use crate::word::{render_pattern_syntax, render_word_syntax, render_word_syntax_to_buf};
+use crate::word::{
+    render_pattern_syntax, render_word_syntax, render_word_syntax_to_buf,
+    render_word_syntax_with_facts_to_buf,
+};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FormatCommand;
@@ -1526,11 +1532,42 @@ pub(crate) fn render_assignment_to_buf(
     options: &crate::options::ResolvedShellFormatOptions,
     rendered: &mut String,
 ) {
+    render_assignment_inner(assignment, source, options, None, None, rendered);
+}
+
+pub(crate) fn render_assignment_with_facts_to_buf(
+    assignment: &Assignment,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
+    rendered: &mut String,
+) {
+    render_assignment_inner(
+        assignment,
+        source,
+        options,
+        Some(source_map),
+        Some(facts),
+        rendered,
+    );
+}
+
+fn render_assignment_inner(
+    assignment: &Assignment,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
+    rendered: &mut String,
+) {
     let start = rendered.len();
     render_assignment_head_to_buf(assignment, source, rendered);
     match &assignment.value {
         AssignmentValue::Scalar(value) => {
-            render_word_syntax_to_buf(value, source, options, rendered);
+            render_word_syntax_with_optional_facts_to_buf(
+                value, source, options, source_map, facts, rendered,
+            );
         }
         AssignmentValue::Compound(array) => {
             rendered.push('(');
@@ -1538,7 +1575,7 @@ pub(crate) fn render_assignment_to_buf(
                 if index > 0 {
                     rendered.push(' ');
                 }
-                render_array_elem_to_buf(value, source, options, rendered);
+                render_array_elem_to_buf(value, source, options, source_map, facts, rendered);
             }
             rendered.push(')');
         }
@@ -1550,16 +1587,20 @@ fn render_array_elem_to_buf(
     element: &ArrayElem,
     source: &str,
     options: &crate::options::ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
     rendered: &mut String,
 ) {
     match element {
-        ArrayElem::Sequential(word) => render_word_syntax_to_buf(word, source, options, rendered),
-        ArrayElem::Keyed { key, value } => {
-            render_keyed_array_elem_to_buf(key, value, source, options, "=", rendered)
-        }
-        ArrayElem::KeyedAppend { key, value } => {
-            render_keyed_array_elem_to_buf(key, value, source, options, "+=", rendered)
-        }
+        ArrayElem::Sequential(word) => render_word_syntax_with_optional_facts_to_buf(
+            word, source, options, source_map, facts, rendered,
+        ),
+        ArrayElem::Keyed { key, value } => render_keyed_array_elem_to_buf(
+            key, value, source, options, source_map, facts, "=", rendered,
+        ),
+        ArrayElem::KeyedAppend { key, value } => render_keyed_array_elem_to_buf(
+            key, value, source, options, source_map, facts, "+=", rendered,
+        ),
     }
 }
 
@@ -1568,6 +1609,8 @@ fn render_keyed_array_elem_to_buf(
     value: &Word,
     source: &str,
     options: &crate::options::ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
     operator: &str,
     rendered: &mut String,
 ) {
@@ -1575,7 +1618,9 @@ fn render_keyed_array_elem_to_buf(
     render_subscript_to_buf(key, source, rendered);
     rendered.push(']');
     rendered.push_str(operator);
-    render_word_syntax_to_buf(value, source, options, rendered);
+    render_word_syntax_with_optional_facts_to_buf(
+        value, source, options, source_map, facts, rendered,
+    );
 }
 
 pub(crate) fn render_assignment_head(assignment: &Assignment, source: &str) -> String {
@@ -1599,6 +1644,22 @@ pub(crate) fn render_assignment_head_to_buf(
         rendered.push_str("+=");
     } else {
         rendered.push('=');
+    }
+}
+
+fn render_word_syntax_with_optional_facts_to_buf(
+    word: &Word,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    source_map: Option<&SourceMap<'_>>,
+    facts: Option<&FormatterFacts<'_>>,
+    rendered: &mut String,
+) {
+    match (source_map, facts) {
+        (Some(source_map), Some(facts)) => {
+            render_word_syntax_with_facts_to_buf(word, source, options, source_map, facts, rendered)
+        }
+        _ => render_word_syntax_to_buf(word, source, options, rendered),
     }
 }
 
