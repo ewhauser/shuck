@@ -14,6 +14,7 @@ Guide to find the open PR for the current branch and address its comments with g
 
 ## 2) Address all comments
 - Apply fixes for all review comments and threads
+- If the comment was pointing out a bug, always make sure to add a regression test because the tests didn't clearly catch the bug
 
 Notes:
 - If gh hits auth/rate issues mid-run, prompt the user to re-authenticate with `gh auth login`, then retry.
