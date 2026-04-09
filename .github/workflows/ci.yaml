@@ -137,7 +137,20 @@ jobs:
       - name: "Run large corpus tests"
         id: large-corpus
         continue-on-error: true
-        run: nix develop --command make NIX_DEVELOP= test-large-corpus
+        run: |
+          mkdir -p target/large-corpus-report
+          nix develop --command make NIX_DEVELOP= test-large-corpus 2>&1 | tee target/large-corpus-report/latest.log
+      - name: "Generate HTML report"
+        id: report
+        if: always() && steps.large-corpus.outcome != 'cancelled'
+        run: |
+          mkdir -p target/pages/reports/corpus
+          python3 scripts/large_corpus_report.py --log target/large-corpus-report/latest.log --output target/pages/reports/corpus/index.html
+      - name: "Upload report artifact"
+        if: always() && steps.report.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/pages
       - name: "Summarize large corpus result"
         if: always()
         run: |
@@ -146,3 +159,23 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "This job is non-blocking for now, so corpus mismatches do not fail CI." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  deploy-report:
+    name: "deploy corpus report"
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: large-corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: "Deploy to GitHub Pages"
+        id: deployment
+        uses: actions/deploy-pages@v4
