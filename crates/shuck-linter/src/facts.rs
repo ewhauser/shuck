@@ -1293,6 +1293,10 @@ impl<'a> CommandFact<'a> {
         self.normalized.body_name_word()
     }
 
+    pub fn body_word_span(&self) -> Option<Span> {
+        self.normalized.body_word_span()
+    }
+
     pub fn body_args(&self) -> &[&'a Word] {
         self.normalized.body_args()
     }

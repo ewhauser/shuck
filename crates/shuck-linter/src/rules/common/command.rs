@@ -52,6 +52,7 @@ pub struct NormalizedCommand<'a> {
     pub effective_name: Option<String>,
     pub wrappers: Vec<WrapperKind>,
     pub body_span: Span,
+    pub body_word_span: Option<Span>,
     pub body_words: Vec<&'a Word>,
     pub declaration: Option<NormalizedDeclaration<'a>>,
 }
@@ -75,6 +76,10 @@ impl<'a> NormalizedCommand<'a> {
         self.body_words.first().copied()
     }
 
+    pub fn body_word_span(&self) -> Option<Span> {
+        self.body_word_span
+    }
+
     pub fn body_args(&self) -> &[&'a Word] {
         self.body_words.split_first().map_or(&[], |(_, rest)| rest)
     }
@@ -91,6 +96,7 @@ pub(crate) fn normalize_command<'a>(command: &'a Command, source: &str) -> Norma
                 effective_name: Some(name),
                 wrappers: Vec::new(),
                 body_span: builtin_span(command),
+                body_word_span: None,
                 body_words: Vec::new(),
                 declaration: None,
             }
@@ -112,6 +118,7 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
         effective_name: literal_name.clone(),
         wrappers: Vec::new(),
         body_span: command.name.span,
+        body_word_span: Some(command.name.span),
         body_words: literal_name
             .as_ref()
             .map_or_else(Vec::new, |_| words.clone()),
@@ -133,6 +140,7 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
             } => {
                 normalized.effective_name = Some(effective_name);
                 normalized.body_span = words[body_index].span;
+                normalized.body_word_span = Some(words[body_index].span);
                 normalized.body_words = words[body_index..].to_vec();
                 break;
             }
@@ -141,11 +149,13 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
 
                 let Some(target_index) = target_index else {
                     normalized.effective_name = None;
+                    normalized.body_word_span = None;
                     normalized.body_words.clear();
                     break;
                 };
 
                 normalized.body_span = words[target_index].span;
+                normalized.body_word_span = Some(words[target_index].span);
                 normalized.body_words = words[target_index..].to_vec();
                 normalized.effective_name = static_word_text(words[target_index], source);
                 current_index = target_index;
@@ -177,6 +187,7 @@ fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> Normaliz
         effective_name: Some(raw_kind.clone()),
         wrappers: Vec::new(),
         body_span: command.variant_span,
+        body_word_span: None,
         body_words: Vec::new(),
         declaration: Some(NormalizedDeclaration {
             kind: declaration_kind(raw_kind),
@@ -235,6 +246,7 @@ fn empty_normalized_command<'a>(span: Span) -> NormalizedCommand<'a> {
         effective_name: None,
         wrappers: Vec::new(),
         body_span: span,
+        body_word_span: None,
         body_words: Vec::new(),
         declaration: None,
     }

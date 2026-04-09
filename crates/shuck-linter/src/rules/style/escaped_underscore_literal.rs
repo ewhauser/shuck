@@ -75,9 +75,9 @@ pub fn escaped_underscore_literal(checker: &mut Checker) {
                 .iter()
                 .filter_map(|command| {
                     command
-                        .body_name_word()
-                        .filter(|word| word.span.slice(source).contains('/'))
-                        .map(|word| needless_backslash_spans(word.span, source))
+                        .body_word_span()
+                        .filter(|span| span.slice(source).contains('/'))
+                        .map(|span| needless_backslash_spans(span, source))
                 })
                 .flatten(),
         )
@@ -283,5 +283,19 @@ base64 -d ${vkb64} > ${rootfs}/var/db/xbps/keys/60\\:ae\\:0c\\:d6\\:f0\\:95\\:17
         let diagnostics = test_posix_snippet_at_path(Path::new("/tmp/lxc-void"), source);
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_dynamic_path_like_command_names() {
+        let source = "\
+#!/bin/bash
+${bindir}/foo\\_bar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EscapedUnderscoreLiteral),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
     }
 }

@@ -104,9 +104,9 @@ pub fn needless_backslash_underscore(checker: &mut Checker) {
                 .iter()
                 .filter_map(|command| {
                     command
-                        .body_name_word()
-                        .filter(|word| word.span.slice(source).contains('/'))
-                        .map(|word| needless_backslash_spans(word.span, source))
+                        .body_word_span()
+                        .filter(|span| span.slice(source).contains('/'))
+                        .map(|span| needless_backslash_spans(span, source))
                 })
                 .flatten(),
         )
@@ -309,5 +309,19 @@ fi
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_dynamic_path_like_command_names() {
+        let source = "\
+#!/bin/bash
+${bindir}/foo\\nbar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NeedlessBackslashUnderscore),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
     }
 }
