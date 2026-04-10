@@ -3605,6 +3605,27 @@ impl<'a> Parser<'a> {
         Ok(self.function_header_entry_from_word(word))
     }
 
+    fn parse_function_keyword_header_entry(&mut self) -> Result<FunctionHeaderEntry> {
+        let word = self
+            .take_current_word_and_advance()
+            .or_else(|| self.take_current_function_keyword_name_and_advance())
+            .ok_or_else(|| self.error("expected function name"))?;
+        Ok(self.function_header_entry_from_word(word))
+    }
+
+    fn take_current_function_keyword_name_and_advance(&mut self) -> Option<Word> {
+        let text = match self.current_token_kind? {
+            TokenKind::DoubleLeftBracket => "[[",
+            TokenKind::DoubleRightBracket => "]]",
+            TokenKind::LeftBrace => "{",
+            TokenKind::RightBrace => "}",
+            _ => return None,
+        };
+        let word = Word::literal_with_span(text, self.current_span);
+        self.advance();
+        Some(word)
+    }
+
     fn function_header_entry_from_word(&self, word: Word) -> FunctionHeaderEntry {
         let static_name = self.literal_word_text(&word).map(Name::from);
         FunctionHeaderEntry { word, static_name }
@@ -3771,7 +3792,7 @@ impl<'a> Parser<'a> {
             }));
         }
 
-        let entry = self.parse_function_header_entry()?;
+        let entry = self.parse_function_keyword_header_entry()?;
         let saw_newline_after_name = self.skip_newlines_with_flag()?;
         let (trailing_parens_span, allow_bare_compound) = if self.at(TokenKind::LeftParen) {
             let parens_span = self.parse_function_parens_span()?;

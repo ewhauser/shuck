@@ -23,6 +23,7 @@ pub fn keyword_function_name(checker: &mut Checker) {
     }
 
     let shell = checker.shell();
+    let source = checker.source();
     let spans = checker
         .facts()
         .function_headers()
@@ -34,7 +35,11 @@ pub fn keyword_function_name(checker: &mut Checker) {
                 .entries
                 .iter()
                 .filter_map(move |entry| {
-                    let name = entry.static_name.as_ref()?.as_str();
+                    let name = entry
+                        .static_name
+                        .as_ref()
+                        .map(|name| name.as_str())
+                        .unwrap_or_else(|| entry.word.span.slice(source));
                     is_reserved_function_name(shell, name).then_some(entry.word.span)
                 })
         })
@@ -47,7 +52,10 @@ fn is_reserved_function_name(shell: ShellDialect, name: &str) -> bool {
     match shell {
         ShellDialect::Sh | ShellDialect::Dash => matches!(
             name,
-            "if" | "then"
+            "!" | "{"
+                | "}"
+                | "if"
+                | "then"
                 | "else"
                 | "elif"
                 | "fi"
@@ -63,7 +71,12 @@ fn is_reserved_function_name(shell: ShellDialect, name: &str) -> bool {
         ),
         ShellDialect::Bash | ShellDialect::Ksh => matches!(
             name,
-            "if" | "then"
+            "!" | "{"
+                | "}"
+                | "[["
+                | "]]"
+                | "if"
+                | "then"
                 | "else"
                 | "elif"
                 | "fi"
@@ -76,6 +89,7 @@ fn is_reserved_function_name(shell: ShellDialect, name: &str) -> bool {
                 | "while"
                 | "until"
                 | "time"
+                | "function"
                 | "select"
                 | "coproc"
         ),
@@ -102,6 +116,33 @@ function for { :; }
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::KeywordFunctionName);
+    }
+
+    #[test]
+    fn reports_bash_reserved_word_function_names() {
+        let source = "\
+#!/bin/bash
+function [[ { :; }
+function ]] { :; }
+function { { :; }
+function } { :; }
+function ! { :; }
+function function { :; }
+";
+        let diagnostics = test_snippet_at_path(
+            std::path::Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::KeywordFunctionName),
+        );
+
+        assert_eq!(diagnostics.len(), 6);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["[[", "]]", "{", "}", "!", "function"]
+        );
     }
 
     #[test]

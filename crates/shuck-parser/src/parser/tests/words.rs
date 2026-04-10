@@ -214,6 +214,26 @@ fn test_function_keyword_rejects_same_line_conditional_body() {
 }
 
 #[test]
+fn test_function_keyword_accepts_bash_reserved_name_tokens() {
+    let input = "\
+function [[ { :; }
+function ]] { :; }
+function { { :; }
+function } { :; }
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let names = script
+        .body
+        .iter()
+        .map(expect_function)
+        .map(|function| function.header.entries[0].word.span.slice(input))
+        .collect::<Vec<_>>();
+
+    assert_eq!(names, vec!["[[", "]]", "{", "}"]);
+}
+
+#[test]
 fn test_zsh_function_keyword_allows_empty_compact_brace_body() {
     let input = "function quit() {}\n";
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
