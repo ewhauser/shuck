@@ -38,6 +38,7 @@ node_modules/
 # Website
 website/.next/
 website/out/
+website/app/lib/rules-data.generated.json
 
 # WASM build artifacts
 *.wasm

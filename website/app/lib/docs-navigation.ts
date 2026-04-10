@@ -11,6 +11,17 @@ export const docsNavigation: NavItem[] = [
       { title: "Overview", href: "/docs/getting-started" },
     ],
   },
+  {
+    title: "Rules",
+    items: [
+      { title: "All Rules", href: "/docs/rules" },
+      { title: "Correctness (C)", href: "/docs/rules?category=Correctness" },
+      { title: "Style (S)", href: "/docs/rules?category=Style" },
+      { title: "Portability (X)", href: "/docs/rules?category=Portability" },
+      { title: "Performance (P)", href: "/docs/rules?category=Performance" },
+      { title: "Security (K)", href: "/docs/rules?category=Security" },
+    ],
+  },
 ];
 
 export function flattenNav(items: NavItem[]): NavItem[] {

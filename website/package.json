@@ -4,7 +4,9 @@
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "dev": "next dev",
+    "generate:rules": "tsx scripts/generate-rules.ts",
+    "prebuild": "pnpm generate:rules",
+    "dev": "pnpm generate:rules && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -30,6 +32,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4",
+    "typescript": "^5",
+    "yaml": "^2"
   }
 }
