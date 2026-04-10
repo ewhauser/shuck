@@ -32,7 +32,7 @@ pub fn signal_name_in_trap(checker: &mut Checker) {
 
 fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
     let signal_words = match args.first().and_then(|word| static_word_text(word, source)) {
-        Some(first) if matches!(first.as_str(), "-p" | "-l") => return Vec::new(),
+        Some(first) if trap_is_listing_mode(first.as_str()) => return Vec::new(),
         Some(first) if first == "--" => {
             if args.len() == 2 {
                 &args[1..]
@@ -67,6 +67,12 @@ fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
         .collect()
 }
 
+fn trap_is_listing_mode(text: &str) -> bool {
+    text.strip_prefix('-').is_some_and(|flags| {
+        !flags.is_empty() && flags.chars().all(|flag| matches!(flag, 'l' | 'p'))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
@@ -98,6 +104,18 @@ trap '' HUP
 #!/bin/bash
 trap -p SIGINT
 trap '' SIGINT
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SignalNameInTrap));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_combined_listing_flags_in_sh() {
+        let source = "\
+#!/bin/sh
+trap -lp SIGHUP
+trap -pl SIGINT
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SignalNameInTrap));
 

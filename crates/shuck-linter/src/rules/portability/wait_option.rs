@@ -81,4 +81,23 @@ wait -- -n
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_options_after_wait_p_argument() {
+        let source = "\
+#!/bin/sh
+wait -p jobid -n
+wait -pn name -f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
+
+        assert_eq!(diagnostics.len(), 4);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-p", "-n", "-pn", "-f"]
+        );
+    }
 }
