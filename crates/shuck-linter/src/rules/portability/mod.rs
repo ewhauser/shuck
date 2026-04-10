@@ -31,6 +31,7 @@ pub mod replacement_expansion;
 pub mod select_loop;
 pub mod signal_name_in_trap;
 pub mod source_builtin_in_sh;
+mod source_common;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
 pub mod standalone_arithmetic;
