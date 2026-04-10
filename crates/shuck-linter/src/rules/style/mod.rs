@@ -5,10 +5,12 @@ pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
+pub mod echo_here_doc;
 pub mod echoed_command_substitution;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
+pub mod heredoc_end_space;
 pub mod ifs_equals_ambiguity;
 pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
@@ -21,6 +23,7 @@ pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
 pub mod read_without_raw;
 pub mod single_quote_backslash;
+pub mod spaced_tabstrip_close;
 pub mod suspect_closing_quote;
 pub mod syntax;
 pub mod trailing_directive;
@@ -48,6 +51,7 @@ mod tests {
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
+    #[test_case(Rule::EchoHereDoc, Path::new("S033.sh"))]
     #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]
     #[test_case(Rule::ArithmeticScoreLine, Path::new("S035.sh"))]
     #[test_case(Rule::DollarInArithmetic, Path::new("S045.sh"))]
@@ -62,8 +66,10 @@ mod tests {
     #[test_case(Rule::IfsEqualsAmbiguity, Path::new("S042.sh"))]
     #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
     #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
+    #[test_case(Rule::HeredocEndSpace, Path::new("S030.sh"))]
     #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]
     #[test_case(Rule::LinebreakBeforeAnd, Path::new("S072.sh"))]
+    #[test_case(Rule::SpacedTabstripClose, Path::new("S073.sh"))]
     #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

@@ -95,6 +95,21 @@ impl Default for ShellCheckCodeMap {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
+            // ShellCheck 0.11.0 reports space-indented `<<-` close candidates as SC1040.
+            // Keep SC2393 as a suppression alias for compatibility metadata.
+            (1040, Rule::SpacedTabstripClose),
+            // ShellCheck 0.11.0 reports trailing whitespace after heredoc terminators as SC1118.
+            // Keep SC1040 as a suppression alias for compatibility metadata.
+            (1118, Rule::HeredocEndSpace),
+            // ShellCheck 0.11.0 reports near-match heredoc closers as SC1042.
+            // Keep SC2395 as a suppression alias for compatibility metadata.
+            (1042, Rule::MisquotedHeredocClose),
+            // ShellCheck 0.11.0 reports heredoc closers mixed with line content as SC1041.
+            // Keep SC2394 as a suppression alias for compatibility metadata.
+            (1041, Rule::HeredocCloserNotAlone),
+            // ShellCheck 0.11.0 reports missing heredoc terminators as SC1044.
+            // Keep SC2386 as a suppression alias for compatibility metadata.
+            (1044, Rule::HeredocMissingEnd),
             // ShellCheck 0.11.0 reports `foo &;` as SC1045.
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
@@ -159,6 +174,9 @@ impl Default for ShellCheckCodeMap {
             (2112, Rule::FunctionKeyword),
             (2216, Rule::PipeToKill),
             (2156, Rule::FindExecDirWithShell),
+            // ShellCheck 0.11.0 reports redirecting heredoc/stdin input into `echo` as SC2217.
+            // The legacy S033 metadata still references SC2127.
+            (2217, Rule::EchoHereDoc),
             // ShellCheck 0.11.0 reports C-style `for ((...))` loop portability warnings as SC3005.
             // Keep SC3063 as a suppression alias, but prefer the current code for comparisons.
             (3005, Rule::CStyleForInSh),
@@ -252,6 +270,7 @@ impl Default for ShellCheckCodeMap {
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2141, Rule::IfsSetToLiteralBackslashN),
             (2365, Rule::UnreachableAfterExit),
+            (2370, Rule::UnusedHeredoc),
             (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
             (3014, Rule::TestEqualityOperator),
@@ -281,6 +300,11 @@ impl Default for ShellCheckCodeMap {
                 (2235, Rule::SubshellTestGroup),
                 (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
+                (1040, Rule::SpacedTabstripClose),
+                (1118, Rule::HeredocEndSpace),
+                (1042, Rule::MisquotedHeredocClose),
+                (1041, Rule::HeredocCloserNotAlone),
+                (1044, Rule::HeredocMissingEnd),
                 (1045, Rule::AmpersandSemicolon),
                 (1047, Rule::MissingFi),
                 (1069, Rule::IfBracketGlued),
@@ -301,6 +325,9 @@ impl Default for ShellCheckCodeMap {
                 (1126, Rule::TrailingDirective),
                 (1113, Rule::TrailingDirective),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+                (2386, Rule::HeredocMissingEnd),
+                (2394, Rule::HeredocCloserNotAlone),
+                (2395, Rule::MisquotedHeredocClose),
                 (3002, Rule::ExtglobInSh),
                 (3026, Rule::CaretNegationInBracket),
                 (1127, Rule::CStyleComment),
@@ -397,6 +424,7 @@ impl Default for ShellCheckCodeMap {
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
+                (2217, Rule::EchoHereDoc),
                 (2154, Rule::UndefinedVariable),
                 (2239, Rule::NonAbsoluteShebang),
                 (2288, Rule::TemplateBraceInCommand),
@@ -410,6 +438,7 @@ impl Default for ShellCheckCodeMap {
                 (2390, Rule::MissingDoneInForLoop),
                 (2391, Rule::DanglingElse),
                 (2392, Rule::LinebreakBeforeAnd),
+                (2393, Rule::SpacedTabstripClose),
                 (2396, Rule::UntilMissingDo),
                 (2397, Rule::AmpersandSemicolon),
                 (2241, Rule::InvalidExitStatus),
@@ -435,6 +464,7 @@ impl Default for ShellCheckCodeMap {
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2141, Rule::IfsSetToLiteralBackslashN),
                 (2365, Rule::UnreachableAfterExit),
+                (2370, Rule::UnusedHeredoc),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),
                 (3014, Rule::TestEqualityOperator),
@@ -446,6 +476,7 @@ impl Default for ShellCheckCodeMap {
                 (3067, Rule::OwnershipTestInSh),
             ]),
             aliases: vec![
+                (1040, Rule::HeredocEndSpace),
                 (1075, Rule::ExtglobCase),
                 (2321, Rule::FunctionKeywordInSh),
                 (3061, Rule::ExtglobInSh),
@@ -463,6 +494,7 @@ impl Default for ShellCheckCodeMap {
                 (2290, Rule::SpacedAssignment),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
+                (2127, Rule::EchoHereDoc),
             ],
             comparison,
         }
@@ -489,6 +521,16 @@ mod tests {
         assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
+        assert_eq!(map.resolve("SC1040"), Some(Rule::SpacedTabstripClose));
+        assert_eq!(map.resolve("SC2393"), Some(Rule::SpacedTabstripClose));
+        assert_eq!(
+            map.resolve_all("SC1040"),
+            vec![Rule::SpacedTabstripClose, Rule::HeredocEndSpace]
+        );
+        assert_eq!(map.resolve("SC1118"), Some(Rule::HeredocEndSpace));
+        assert_eq!(map.resolve("SC1042"), Some(Rule::MisquotedHeredocClose));
+        assert_eq!(map.resolve("SC1041"), Some(Rule::HeredocCloserNotAlone));
+        assert_eq!(map.resolve("SC1044"), Some(Rule::HeredocMissingEnd));
         assert_eq!(map.resolve("SC1001"), Some(Rule::EscapedUnderscore));
         assert_eq!(map.resolve("SC1002"), Some(Rule::EscapedUnderscoreLiteral));
         assert_eq!(map.resolve("SC1003"), Some(Rule::SingleQuoteBackslash));
@@ -549,6 +591,7 @@ mod tests {
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
         );
+        assert_eq!(map.resolve("SC2386"), Some(Rule::HeredocMissingEnd));
         assert_eq!(map.resolve("SC1129"), Some(Rule::ZshBraceIf));
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1130"), Some(Rule::ZshAlwaysBlock));
@@ -568,6 +611,10 @@ mod tests {
         assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
         assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
         assert_eq!(map.resolve("SC2127"), Some(Rule::BashCaseFallthrough));
+        assert_eq!(
+            map.resolve_all("SC2127"),
+            vec![Rule::BashCaseFallthrough, Rule::EchoHereDoc]
+        );
         assert_eq!(map.resolve("SC3050"), Some(Rule::BraceFdRedirection));
         assert_eq!(map.resolve("SC3070"), Some(Rule::AmpersandRedirectInSh));
         assert_eq!(map.resolve("SC3073"), Some(Rule::PipeStderrInSh));
@@ -606,6 +653,7 @@ mod tests {
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
+        assert_eq!(map.resolve("SC2217"), Some(Rule::EchoHereDoc));
         assert_eq!(map.resolve("SC3005"), Some(Rule::CStyleForInSh));
         assert_eq!(map.resolve("SC3006"), Some(Rule::StandaloneArithmetic));
         assert_eq!(map.resolve("SC3007"), Some(Rule::LegacyArithmeticInSh));
@@ -633,6 +681,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(map.resolve("SC2370"), Some(Rule::UnusedHeredoc));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
@@ -721,6 +770,8 @@ mod tests {
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
         assert_eq!(map.resolve("SC2392"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(map.resolve("SC2394"), Some(Rule::HeredocCloserNotAlone));
+        assert_eq!(map.resolve("SC2395"), Some(Rule::MisquotedHeredocClose));
         assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2280"), Some(Rule::IfsEqualsAmbiguity));
@@ -758,6 +809,12 @@ mod tests {
             (1012, Rule::NeedlessBackslashUnderscore),
             (1019, Rule::EmptyTest),
             (1037, Rule::PositionalTenBraces),
+            (1040, Rule::SpacedTabstripClose),
+            (1040, Rule::HeredocEndSpace),
+            (1118, Rule::HeredocEndSpace),
+            (1042, Rule::MisquotedHeredocClose),
+            (1041, Rule::HeredocCloserNotAlone),
+            (1044, Rule::HeredocMissingEnd),
             (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
             (1069, Rule::IfBracketGlued),
@@ -811,6 +868,7 @@ mod tests {
             (2115, Rule::RmGlobOnVariablePath),
             (2126, Rule::GrepCountPipeline),
             (2127, Rule::BashCaseFallthrough),
+            (2127, Rule::EchoHereDoc),
             (2154, Rule::UndefinedVariable),
             (2155, Rule::ExportCommandSubstitution),
             (2156, Rule::FindExecDirWithShell),
@@ -822,6 +880,7 @@ mod tests {
             (2194, Rule::ConstantCaseSubject),
             (2219, Rule::AvoidLetBuiltin),
             (2210, Rule::BadRedirectionFdOrder),
+            (2217, Rule::EchoHereDoc),
             (2216, Rule::PipeToKill),
             (2233, Rule::SingleTestSubshell),
             (2235, Rule::SubshellTestGroup),
@@ -880,15 +939,22 @@ mod tests {
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
             (2392, Rule::LinebreakBeforeAnd),
+            (2393, Rule::SpacedTabstripClose),
+            (2394, Rule::HeredocCloserNotAlone),
+            (2395, Rule::MisquotedHeredocClose),
             (2396, Rule::UntilMissingDo),
             (2397, Rule::AmpersandSemicolon),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),
+            (2370, Rule::UnusedHeredoc),
             (2371, Rule::ZshArraySubscriptInCase),
             (2375, Rule::ZshParameterIndexFlag),
             (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
             (2388, Rule::BadVarName),
+            (2386, Rule::HeredocMissingEnd),
+            (2394, Rule::HeredocCloserNotAlone),
+            (2395, Rule::MisquotedHeredocClose),
             (3001, Rule::ProcessSubstitution),
             (3002, Rule::ExtglobInSh),
             (3003, Rule::AnsiCQuoting),
@@ -1000,6 +1066,7 @@ mod tests {
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
         assert!(comparison.contains(&(3048, Rule::WaitOption)));
+        assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
@@ -1020,6 +1087,12 @@ mod tests {
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
+        assert!(comparison.contains(&(1041, Rule::HeredocCloserNotAlone)));
+        assert!(comparison.contains(&(1042, Rule::MisquotedHeredocClose)));
+        assert!(comparison.contains(&(2370, Rule::UnusedHeredoc)));
+        assert!(comparison.contains(&(1044, Rule::HeredocMissingEnd)));
+        assert!(comparison.contains(&(1118, Rule::HeredocEndSpace)));
+        assert!(comparison.contains(&(1040, Rule::SpacedTabstripClose)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
@@ -1046,6 +1119,11 @@ mod tests {
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));
         assert!(!comparison.contains(&(3064, Rule::LegacyArithmeticInSh)));
         assert!(!comparison.contains(&(3069, Rule::CStyleForArithmeticInSh)));
+        assert!(!comparison.contains(&(2394, Rule::HeredocCloserNotAlone)));
+        assert!(!comparison.contains(&(2395, Rule::MisquotedHeredocClose)));
+        assert!(!comparison.contains(&(2386, Rule::HeredocMissingEnd)));
+        assert!(!comparison.contains(&(2393, Rule::SpacedTabstripClose)));
+        assert!(!comparison.contains(&(1040, Rule::HeredocEndSpace)));
     }
 
     #[test]

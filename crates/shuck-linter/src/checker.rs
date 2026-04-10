@@ -236,6 +236,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
             rules::style::export_command_substitution::export_command_substitution(self);
         }
+        if self.is_rule_enabled(Rule::EchoHereDoc) {
+            rules::style::echo_here_doc::echo_here_doc(self);
+        }
         if self.is_rule_enabled(Rule::InvalidExitStatus) {
             rules::correctness::invalid_exit_status::invalid_exit_status(self);
         }
@@ -480,6 +483,24 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::RedirectToCommandName) {
             rules::correctness::redirect_to_command_name::redirect_to_command_name(self);
+        }
+        if self.is_rule_enabled(Rule::UnusedHeredoc) {
+            rules::correctness::unused_heredoc::unused_heredoc(self);
+        }
+        if self.is_rule_enabled(Rule::HeredocMissingEnd) {
+            rules::correctness::heredoc_missing_end::heredoc_missing_end(self);
+        }
+        if self.is_rule_enabled(Rule::HeredocCloserNotAlone) {
+            rules::correctness::heredoc_closer_not_alone::heredoc_closer_not_alone(self);
+        }
+        if self.is_rule_enabled(Rule::MisquotedHeredocClose) {
+            rules::correctness::misquoted_heredoc_close::misquoted_heredoc_close(self);
+        }
+        if self.is_rule_enabled(Rule::HeredocEndSpace) {
+            rules::style::heredoc_end_space::heredoc_end_space(self);
+        }
+        if self.is_rule_enabled(Rule::SpacedTabstripClose) {
+            rules::style::spaced_tabstrip_close::spaced_tabstrip_close(self);
         }
     }
 

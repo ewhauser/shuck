@@ -26,6 +26,8 @@ pub mod empty_function_body;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+pub mod heredoc_closer_not_alone;
+pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
@@ -37,6 +39,7 @@ pub mod literal_unary_string_test;
 pub mod local_cross_reference;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
+pub mod misquoted_heredoc_close;
 pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
@@ -72,6 +75,7 @@ pub mod unreachable_after_exit;
 pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
+pub mod unused_heredoc;
 
 #[cfg(test)]
 mod tests {
@@ -148,10 +152,14 @@ mod tests {
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
     #[test_case(Rule::BadVarName, Path::new("C140.sh"))]
+    #[test_case(Rule::UnusedHeredoc, Path::new("C127.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
+    #[test_case(Rule::HeredocMissingEnd, Path::new("C138.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
     #[test_case(Rule::DanglingElse, Path::new("C143.sh"))]
+    #[test_case(Rule::HeredocCloserNotAlone, Path::new("C144.sh"))]
+    #[test_case(Rule::MisquotedHeredocClose, Path::new("C145.sh"))]
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {

@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 151
+---
+C138 this here-document is missing its closing marker
+ --> <source>:2:5
+  |
+2 | cat <<MARK
+  |

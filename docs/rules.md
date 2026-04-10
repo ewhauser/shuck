@@ -412,13 +412,13 @@ propagate. Require semantic scope analysis and are high complexity.
 Rules about heredoc structure: missing/mismatched markers, whitespace, and
 misuse.
 
-- [ ] **M** C127 (SC2370) `unused-heredoc` — heredoc opened without consuming command
-- [ ] **M** C138 (SC2386) `heredoc-missing-end` — heredoc never gets closing marker
-- [ ] **L** C144 (SC2394) `heredoc-closer-not-alone` — closer on same line as content
-- [ ] **M** C145 (SC2395) `misquoted-heredoc-close` — closing marker is only a near match
-- [ ] **L** S030 (SC1040) `heredoc-end-space` — trailing whitespace on terminator
-- [ ] **L** S033 (SC2127) `echo-here-doc` — heredoc attached to echo
-- [ ] **L** S073 (SC2393) `spaced-tabstrip-close` — spaces before `<<-` closer
+- [x] **M** C127 (SC2370) `unused-heredoc` — heredoc opened without consuming command
+- [x] **M** C138 (SC2386) `heredoc-missing-end` — heredoc never gets closing marker
+- [x] **L** C144 (SC2394) `heredoc-closer-not-alone` — closer on same line as content
+- [x] **M** C145 (SC2395) `misquoted-heredoc-close` — closing marker is only a near match
+- [x] **L** S030 (SC1040) `heredoc-end-space` — trailing whitespace on terminator
+- [x] **L** S033 (SC2127) `echo-here-doc` — heredoc attached to echo
+- [x] **L** S073 (SC2393) `spaced-tabstrip-close` — spaces before `<<-` closer
 
 ### Structural and Syntax Issues
 

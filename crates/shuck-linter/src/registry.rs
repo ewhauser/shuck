@@ -175,6 +175,7 @@ declare_rules! {
         PlusPrefixInAssignment
     ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
+    ("C127", Category::Correctness, Severity::Warning, UnusedHeredoc),
     (
         "C130",
         Category::Correctness,
@@ -195,6 +196,7 @@ declare_rules! {
         Severity::Warning,
         UnicodeSingleQuoteInSingleQuotes
     ),
+    ("C138", Category::Correctness, Severity::Warning, HeredocMissingEnd),
     ("C141", Category::Correctness, Severity::Error, LoopWithoutEnd),
     (
         "C142",
@@ -203,6 +205,13 @@ declare_rules! {
         MissingDoneInForLoop
     ),
     ("C143", Category::Correctness, Severity::Error, DanglingElse),
+    (
+        "C144",
+        Category::Correctness,
+        Severity::Warning,
+        HeredocCloserNotAlone
+    ),
+    ("C145", Category::Correctness, Severity::Warning, MisquotedHeredocClose),
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
@@ -291,6 +300,7 @@ declare_rules! {
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
+    ("S033", Category::Style, Severity::Warning, EchoHereDoc),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
     ("S035", Category::Style, Severity::Warning, ArithmeticScoreLine),
     ("S045", Category::Style, Severity::Warning, DollarInArithmetic),
@@ -312,6 +322,7 @@ declare_rules! {
     ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
     ("S028", Category::Style, Severity::Warning, SuspectClosingQuote),
     ("S029", Category::Style, Severity::Warning, LiteralBraces),
+    ("S030", Category::Style, Severity::Warning, HeredocEndSpace),
     ("S031", Category::Style, Severity::Warning, TrailingDirective),
     (
         "S039",
@@ -322,6 +333,7 @@ declare_rules! {
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
     ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
+    ("S073", Category::Style, Severity::Warning, SpacedTabstripClose),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
 }
 
@@ -398,6 +410,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
         "SH-050" => Some(Rule::ExportCommandSubstitution),
+        "SH-135" => Some(Rule::EchoHereDoc),
         "SH-052" => Some(Rule::LocalTopLevel),
         "SH-060" => Some(Rule::SudoRedirectionOrder),
         "SH-069" => Some(Rule::ConstantComparisonTest),
@@ -420,8 +433,10 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-114" => Some(Rule::SuspectClosingQuote),
         "SH-115" => Some(Rule::LinebreakInTest),
         "SH-116" => Some(Rule::LiteralBraces),
+        "SH-119" => Some(Rule::HeredocEndSpace),
         "SH-120" => Some(Rule::TrailingDirective),
         "SH-329" => Some(Rule::LinebreakBeforeAnd),
+        "SH-330" => Some(Rule::SpacedTabstripClose),
         "SH-335" => Some(Rule::AmpersandSemicolon),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
@@ -457,6 +472,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
+        "SH-298" => Some(Rule::UnusedHeredoc),
+        "SH-318" => Some(Rule::HeredocMissingEnd),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -500,6 +517,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-321" => Some(Rule::LoopWithoutEnd),
         "SH-322" => Some(Rule::MissingDoneInForLoop),
         "SH-327" => Some(Rule::DanglingElse),
+        "SH-332" => Some(Rule::HeredocCloserNotAlone),
+        "SH-333" => Some(Rule::MisquotedHeredocClose),
         "SH-334" => Some(Rule::UntilMissingDo),
         "SH-353" => Some(Rule::IfBracketGlued),
         _ => None,
@@ -589,6 +608,8 @@ mod tests {
             code_to_rule("SH-050"),
             Some(Rule::ExportCommandSubstitution)
         );
+        assert_eq!(code_to_rule("S033"), Some(Rule::EchoHereDoc));
+        assert_eq!(code_to_rule("SH-135"), Some(Rule::EchoHereDoc));
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
         assert_eq!(code_to_rule("SH-060"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(code_to_rule("SH-081"), Some(Rule::PrintfQFormatInSh));
@@ -621,10 +642,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-114"), Some(Rule::SuspectClosingQuote));
         assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
+        assert_eq!(code_to_rule("S030"), Some(Rule::HeredocEndSpace));
+        assert_eq!(code_to_rule("SH-119"), Some(Rule::HeredocEndSpace));
         assert_eq!(code_to_rule("S031"), Some(Rule::TrailingDirective));
         assert_eq!(code_to_rule("SH-120"), Some(Rule::TrailingDirective));
         assert_eq!(code_to_rule("S072"), Some(Rule::LinebreakBeforeAnd));
         assert_eq!(code_to_rule("SH-329"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(code_to_rule("S073"), Some(Rule::SpacedTabstripClose));
+        assert_eq!(code_to_rule("SH-330"), Some(Rule::SpacedTabstripClose));
         assert_eq!(code_to_rule("S074"), Some(Rule::AmpersandSemicolon));
         assert_eq!(code_to_rule("SH-335"), Some(Rule::AmpersandSemicolon));
         assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
@@ -690,6 +715,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(code_to_rule("C127"), Some(Rule::UnusedHeredoc));
+        assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
+        assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
+        assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),
@@ -705,6 +734,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-322"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(code_to_rule("C143"), Some(Rule::DanglingElse));
         assert_eq!(code_to_rule("SH-327"), Some(Rule::DanglingElse));
+        assert_eq!(code_to_rule("C144"), Some(Rule::HeredocCloserNotAlone));
+        assert_eq!(code_to_rule("SH-332"), Some(Rule::HeredocCloserNotAlone));
+        assert_eq!(code_to_rule("C145"), Some(Rule::MisquotedHeredocClose));
+        assert_eq!(code_to_rule("SH-333"), Some(Rule::MisquotedHeredocClose));
         assert_eq!(code_to_rule("C146"), Some(Rule::UntilMissingDo));
         assert_eq!(code_to_rule("SH-334"), Some(Rule::UntilMissingDo));
         assert_eq!(code_to_rule("C157"), Some(Rule::IfBracketGlued));
