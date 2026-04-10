@@ -19,9 +19,10 @@ use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    ParameterExpansion, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript,
-    VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
+    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -47,6 +48,7 @@ use crate::rules::common::expansion::{
     WordExpansionKind, WordLiteralness, WordSubstitutionShape, analyze_literal_runtime,
     analyze_redirect_target, analyze_word,
 };
+use crate::rules::common::span::expansion_part_spans;
 use crate::rules::common::{
     command::{self, NormalizedCommand, WrapperKind},
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
@@ -1132,6 +1134,17 @@ impl RmCommandFacts {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SshCommandFacts {
+    local_expansion_spans: Box<[Span]>,
+}
+
+impl SshCommandFacts {
+    pub fn local_expansion_spans(&self) -> &[Span] {
+        &self.local_expansion_spans
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FindCommandFacts {
     pub has_print0: bool,
@@ -1203,6 +1216,7 @@ pub struct SudoFamilyCommandFacts {
 #[derive(Debug, Clone, Default)]
 pub struct CommandOptionFacts<'a> {
     rm: Option<RmCommandFacts>,
+    ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
@@ -1219,6 +1233,10 @@ pub struct CommandOptionFacts<'a> {
 impl<'a> CommandOptionFacts<'a> {
     pub fn rm(&self) -> Option<&RmCommandFacts> {
         self.rm.as_ref()
+    }
+
+    pub fn ssh(&self) -> Option<&SshCommandFacts> {
+        self.ssh.as_ref()
     }
 
     pub fn read(&self) -> Option<&ReadCommandFacts> {
@@ -1272,6 +1290,9 @@ impl<'a> CommandOptionFacts<'a> {
                 .as_deref()
                 .is_some_and(|name| name == "rm" && normalized.wrappers.is_empty())
                 .then(|| parse_rm_command(normalized.body_args(), source))
+                .flatten(),
+            ssh: (normalized.effective_name_is("ssh") && normalized.wrappers.is_empty())
+                .then(|| parse_ssh_command(normalized.body_args(), source))
                 .flatten(),
             read: normalized
                 .effective_name_is("read")
@@ -4215,6 +4236,27 @@ fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
 
     (!dangerous_path_spans.is_empty()).then_some(RmCommandFacts {
         dangerous_path_spans: dangerous_path_spans.into_boxed_slice(),
+    })
+}
+
+fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
+    if ssh_has_option_syntax(args, source) {
+        return None;
+    }
+
+    let local_expansion_spans = args
+        .iter()
+        .flat_map(|word| expansion_part_spans(word))
+        .collect::<Vec<_>>();
+
+    Some(SshCommandFacts {
+        local_expansion_spans: local_expansion_spans.into_boxed_slice(),
+    })
+}
+
+fn ssh_has_option_syntax(args: &[&Word], source: &str) -> bool {
+    args.iter().any(|word| {
+        static_word_text(word, source).is_some_and(|text| text.starts_with('-') && text != "-")
     })
 }
 

@@ -188,6 +188,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::RmGlobOnVariablePath) {
             rules::security::rm_glob_on_variable_path::rm_glob_on_variable_path(self);
         }
+        if self.is_rule_enabled(Rule::SshLocalExpansion) {
+            rules::security::ssh_local_expansion::ssh_local_expansion(self);
+        }
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }

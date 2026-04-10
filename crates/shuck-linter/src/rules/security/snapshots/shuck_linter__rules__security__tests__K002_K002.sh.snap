@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/security/mod.rs
+assertion_line: 21
+---
+K002 ssh command text is expanded locally before the remote shell sees it
+ --> <source>:2:16
+  |
+2 | ssh host "echo $HOME"
+  |
+
+K002 ssh command text is expanded locally before the remote shell sees it
+ --> <source>:3:17
+  |
+3 | \ssh host "echo $HOME"
+  |

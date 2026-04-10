@@ -1,4 +1,5 @@
 pub mod rm_glob_on_variable_path;
+pub mod ssh_local_expansion;
 
 #[cfg(test)]
 mod tests {
@@ -10,6 +11,7 @@ mod tests {
     use crate::{LinterSettings, Rule, assert_diagnostics};
 
     #[test_case(Rule::RmGlobOnVariablePath, Path::new("K001.sh"))]
+    #[test_case(Rule::SshLocalExpansion, Path::new("K002.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
