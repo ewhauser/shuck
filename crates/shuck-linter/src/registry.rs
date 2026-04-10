@@ -168,6 +168,12 @@ declare_rules! {
         Severity::Warning,
         AssignmentToNumericVariable
     ),
+    (
+        "C117",
+        Category::Correctness,
+        Severity::Warning,
+        PlusPrefixInAssignment
+    ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
         "C137",
@@ -355,6 +361,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-088" => Some(Rule::LiteralBackslash),
         "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
         "SH-258" => Some(Rule::AssignmentToNumericVariable),
+        "SH-259" => Some(Rule::PlusPrefixInAssignment),
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),

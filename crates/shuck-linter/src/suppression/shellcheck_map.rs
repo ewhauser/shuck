@@ -228,6 +228,7 @@ impl Default for ShellCheckCodeMap {
             (2250, Rule::PatternWithVariable),
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
+            (2276, Rule::PlusPrefixInAssignment),
             (2238, Rule::RedirectToCommandName),
             (2259, Rule::SubshellTestGroup),
             (2266, Rule::OverwrittenFunction),
@@ -408,6 +409,7 @@ impl Default for ShellCheckCodeMap {
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
+                (2276, Rule::PlusPrefixInAssignment),
                 (2238, Rule::RedirectToCommandName),
                 (2266, Rule::OverwrittenFunction),
                 (2270, Rule::AssignmentToNumericVariable),
@@ -437,6 +439,7 @@ impl Default for ShellCheckCodeMap {
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
+                (2354, Rule::PlusPrefixInAssignment),
                 (2270, Rule::IfMissingThen),
             ],
             comparison,
@@ -653,6 +656,7 @@ mod tests {
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
+        assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve("SC2270"),
             Some(Rule::AssignmentToNumericVariable)
@@ -688,6 +692,7 @@ mod tests {
             map.resolve("SC2353"),
             Some(Rule::AssignmentToNumericVariable)
         );
+        assert_eq!(map.resolve("SC2354"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve_all("SC2270"),
             vec![Rule::AssignmentToNumericVariable, Rule::IfMissingThen]
@@ -787,6 +792,7 @@ mod tests {
             (2252, Rule::NestedZshSubstitution),
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
+            (2276, Rule::PlusPrefixInAssignment),
             (2257, Rule::ArithmeticRedirectionTarget),
             (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
@@ -811,6 +817,7 @@ mod tests {
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2141, Rule::IfsSetToLiteralBackslashN),
             (2353, Rule::AssignmentToNumericVariable),
+            (2354, Rule::PlusPrefixInAssignment),
             (2329, Rule::IfsSetToLiteralBackslashN),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
@@ -961,7 +968,9 @@ mod tests {
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
+        assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
+        assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
