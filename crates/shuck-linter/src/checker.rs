@@ -348,6 +348,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArrayKeysInSh) {
             rules::portability::array_keys_in_sh::array_keys_in_sh(self);
         }
+        if self.is_rule_enabled(Rule::StarGlobRemovalInSh) {
+            rules::portability::star_glob_removal_in_sh::star_glob_removal_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::IndirectExpansion) {
             rules::portability::indirect_expansion::indirect_expansion(self);
         }

@@ -296,6 +296,9 @@ impl Default for ShellCheckCodeMap {
             // Keep SC3058 as a suppression alias, but prefer the current code for comparisons.
             (3058, Rule::BashCaseFallthrough),
             (2127, Rule::BashCaseFallthrough),
+            // The pinned ShellCheck oracle reports `${*%%pattern}` portability findings as SC3058.
+            // Keep SC3085 as a suppression alias for compatibility with older rule metadata.
+            (3058, Rule::StarGlobRemovalInSh),
             (3075, Rule::ErrexitTrapInSh),
             (3076, Rule::SignalNameInTrap),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
@@ -528,6 +531,7 @@ impl Default for ShellCheckCodeMap {
                 (3046, Rule::SourceBuiltinInSh),
                 (3058, Rule::BashCaseFallthrough),
                 (2127, Rule::BashCaseFallthrough),
+                (3085, Rule::StarGlobRemovalInSh),
                 (3063, Rule::CStyleForInSh),
                 (3064, Rule::LegacyArithmeticInSh),
                 (3069, Rule::CStyleForArithmeticInSh),
@@ -606,6 +610,7 @@ impl Default for ShellCheckCodeMap {
                 (3024, Rule::BashFileSlurp),
                 (3055, Rule::PlusEqualsAppend),
                 (3055, Rule::ArrayKeysInSh),
+                (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (3062, Rule::DollarStringInSh),
                 (3061, Rule::ExtglobInSh),
@@ -834,6 +839,11 @@ mod tests {
         assert_eq!(
             map.resolve_all("SC2127"),
             vec![Rule::BashCaseFallthrough, Rule::EchoHereDoc]
+        );
+        assert_eq!(map.resolve("SC3085"), Some(Rule::StarGlobRemovalInSh));
+        assert_eq!(
+            map.resolve_all("SC3058"),
+            vec![Rule::BashCaseFallthrough, Rule::StarGlobRemovalInSh]
         );
         assert_eq!(map.resolve("SC3050"), Some(Rule::BraceFdRedirection));
         assert_eq!(map.resolve("SC3070"), Some(Rule::AmpersandRedirectInSh));
@@ -1305,10 +1315,12 @@ mod tests {
             (3071, Rule::PlusEqualsInSh),
             (3057, Rule::SubstringExpansion),
             (3058, Rule::BashCaseFallthrough),
+            (3058, Rule::StarGlobRemovalInSh),
             (3059, Rule::CaseModificationExpansion),
             (3060, Rule::ReplacementExpansion),
             (3061, Rule::ExtglobInSh),
             (3062, Rule::OptionTestInSh),
+            (3085, Rule::StarGlobRemovalInSh),
             (3062, Rule::DollarStringInSh),
             (3063, Rule::CStyleForInSh),
             (3064, Rule::LegacyArithmeticInSh),
@@ -1408,6 +1420,7 @@ mod tests {
         assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
         assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
+        assert!(comparison.contains(&(3058, Rule::StarGlobRemovalInSh)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
         assert!(comparison.contains(&(3048, Rule::WaitOption)));

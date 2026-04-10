@@ -599,6 +599,17 @@ impl ReplacementExpansionFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct StarGlobRemovalFragmentFact {
+    span: Span,
+}
+
+impl StarGlobRemovalFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordFactContext {
     Expansion(ExpansionContext),
@@ -1713,6 +1724,7 @@ pub struct LinterFacts<'a> {
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
     replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
+    star_glob_removal_fragments: Vec<StarGlobRemovalFragmentFact>,
     conditional_portability: ConditionalPortabilityFacts,
 }
 
@@ -2012,6 +2024,10 @@ impl<'a> LinterFacts<'a> {
         &self.replacement_expansion_fragments
     }
 
+    pub fn star_glob_removal_fragments(&self) -> &[StarGlobRemovalFragmentFact] {
+        &self.star_glob_removal_fragments
+    }
+
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
         &self.conditional_portability
     }
@@ -2204,6 +2220,7 @@ impl<'a> LinterFactsBuilder<'a> {
             substring_expansions,
             case_modifications,
             replacement_expansions,
+            star_glob_removals,
             subscript_spans,
         } = build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
@@ -2307,6 +2324,7 @@ impl<'a> LinterFactsBuilder<'a> {
             substring_expansion_fragments: substring_expansions,
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
+            star_glob_removal_fragments: star_glob_removals,
             conditional_portability,
         }
     }

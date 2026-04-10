@@ -39,6 +39,7 @@ pub mod source_builtin_in_sh;
 mod source_common;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
+pub mod star_glob_removal_in_sh;
 pub mod standalone_arithmetic;
 pub mod substring_expansion;
 mod trap_common;
@@ -127,6 +128,7 @@ mod tests {
     #[test_case(Rule::PlusEqualsInSh, Path::new("X064.sh"))]
     #[test_case(Rule::ArrayKeysInSh, Path::new("X071.sh"))]
     #[test_case(Rule::CaretNegationInBracket, Path::new("X065.sh"))]
+    #[test_case(Rule::StarGlobRemovalInSh, Path::new("X081.sh"))]
     #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
     #[test_case(Rule::ZshParameterIndexFlag, Path::new("X079.sh"))]
