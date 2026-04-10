@@ -62,6 +62,9 @@ impl ShellCheckCodeMap {
         if number == 2283 {
             return vec![Rule::DoubleParenGrouping];
         }
+        if number == 2143 {
+            return vec![Rule::GrepOutputInTest];
+        }
         if number == 2284 {
             return vec![Rule::UnicodeQuoteInString];
         }
@@ -92,6 +95,7 @@ impl Default for ShellCheckCodeMap {
             (2003, Rule::ExprArithmetic),
             (2005, Rule::EchoedCommandSubstitution),
             (2116, Rule::EchoInsideCommandSubstitution),
+            (2143, Rule::GrepOutputInTest),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
@@ -143,6 +147,7 @@ impl Default for ShellCheckCodeMap {
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),
             (2035, Rule::LeadingGlobArgument),
+            (2143, Rule::GrepOutputInTest),
             // ShellCheck 0.11.0 reports `find` output-in-loop warnings as SC2044.
             // Keep SC2348 as a suppression alias for historical compatibility.
             (2044, Rule::FindOutputLoop),
@@ -539,6 +544,7 @@ mod tests {
             map.resolve("SC2116"),
             Some(Rule::EchoInsideCommandSubstitution)
         );
+        assert_eq!(map.resolve("SC2143"), Some(Rule::GrepOutputInTest));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
@@ -1117,6 +1123,7 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
+        assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));

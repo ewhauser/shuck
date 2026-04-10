@@ -331,6 +331,7 @@ declare_rules! {
         Severity::Warning,
         EchoInsideCommandSubstitution
     ),
+    ("S019", Category::Style, Severity::Warning, GrepOutputInTest),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
     ("S033", Category::Style, Severity::Warning, EchoHereDoc),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
@@ -432,6 +433,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
         "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
+        "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
@@ -643,6 +645,7 @@ mod tests {
             code_to_rule("SH-066"),
             Some(Rule::EchoInsideCommandSubstitution)
         );
+        assert_eq!(code_to_rule("SH-071"), Some(Rule::GrepOutputInTest));
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));
         assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));

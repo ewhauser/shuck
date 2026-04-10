@@ -736,6 +736,7 @@ pub struct SubstitutionFact {
     stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
     body_contains_echo: bool,
+    body_contains_grep: bool,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
     unquoted_in_host: bool,
@@ -760,6 +761,10 @@ impl SubstitutionFact {
 
     pub fn body_contains_echo(&self) -> bool {
         self.body_contains_echo
+    }
+
+    pub fn body_contains_grep(&self) -> bool {
+        self.body_contains_grep
     }
 
     pub fn host_word_span(&self) -> Span {
@@ -8323,6 +8328,57 @@ brace_like=$(echo {a,b})
             assert_eq!(substitutions.get("$(echo -en \"\\001\")"), Some(&false));
             assert_eq!(substitutions.get("$(echo O*)"), Some(&false));
             assert_eq!(substitutions.get("$(echo {a,b})"), Some(&false));
+        });
+    }
+
+    #[test]
+    fn identifies_command_substitutions_that_grep_output_directly() {
+        let source = "\
+#!/bin/sh
+plain=$(grep foo input.txt)
+quiet=$(grep -q foo input.txt)
+egrep_plain=$(egrep foo input.txt)
+fgrep_plain=$(fgrep foo input.txt)
+nested_pipeline=$(echo foo | grep foo input.txt)
+escaped_pipeline=$(echo foo | \\grep foo input.txt)
+nested=$(foo $(grep foo input.txt))
+mixed=$(grep foo input.txt)$(date)
+pipeline=$(grep foo input.txt | wc -l)
+sequence=$(foo; grep foo input.txt)
+and_chain=$(foo && grep foo input.txt)
+legacy=`nvm ls | grep '^ *\\.'`
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.body_contains_grep(),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+
+            assert_eq!(substitutions.get("$(grep foo input.txt)"), Some(&true));
+            assert_eq!(substitutions.get("$(grep -q foo input.txt)"), Some(&true));
+            assert_eq!(substitutions.get("$(egrep foo input.txt)"), Some(&true));
+            assert_eq!(substitutions.get("$(fgrep foo input.txt)"), Some(&true));
+            assert_eq!(
+                substitutions.get("$(echo foo | grep foo input.txt)"),
+                Some(&true)
+            );
+            assert_eq!(
+                substitutions.get("$(echo foo | \\grep foo input.txt)"),
+                Some(&true)
+            );
+            assert_eq!(substitutions.get("$(foo $(grep foo input.txt))"), Some(&false));
+            assert_eq!(substitutions.get("$(grep foo input.txt | wc -l)"), Some(&false));
+            assert_eq!(substitutions.get("$(foo; grep foo input.txt)"), Some(&false));
+            assert_eq!(substitutions.get("$(foo && grep foo input.txt)"), Some(&false));
+            assert_eq!(substitutions.get("`nvm ls | grep '^ *\\.'`"), Some(&true));
         });
     }
 

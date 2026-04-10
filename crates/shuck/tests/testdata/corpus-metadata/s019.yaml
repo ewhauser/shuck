@@ -1,0 +1,10 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Listing versions__Running 'nvm ls' should filter out '.nvm'"
+    line: 10
+    column: 3
+    end_column: 5
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This test harness keeps the legacy backtick pipeline inside a string test, and ShellCheck stays silent on SC2143 for that project-closure comparison. Shuck keeps the grep-output-in-test warning on the same legacy substitution shape."
