@@ -404,7 +404,7 @@ oddities. Mostly AST-level checks.
 - [x] **L** C146 (SC2396) `until-missing-do` — until loop skips `do`
 - [x] **L** C157 (SC1069) `if-bracket-glued` — `if` concatenated with `[`
 - [x] **M** S028 (SC1079) `suspect-closing-quote` — quote closed but next char is suspicious
-- [ ] **M** S029 (SC1083) `literal-braces` — literal braces may be treated as expansion
+- [x] **M** S029 (SC1083) `literal-braces` — literal braces may be treated as expansion
 - [ ] **L** S031 (SC1113) `trailing-directive` — directive after code is ignored
 - [ ] **L** S072 (SC2392) `linebreak-before-and` — control operator starts new line
 - [ ] **L** S074 (SC2397) `ampersand-semicolon` — backgrounded command followed by `;`

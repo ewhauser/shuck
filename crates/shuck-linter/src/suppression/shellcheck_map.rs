@@ -100,6 +100,7 @@ impl Default for ShellCheckCodeMap {
             (1078, Rule::OpenDoubleQuote),
             (1079, Rule::SuspectClosingQuote),
             (1080, Rule::LinebreakInTest),
+            (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
             (1101, Rule::BackslashBeforeClosingBacktick),
@@ -258,6 +259,7 @@ impl Default for ShellCheckCodeMap {
                 (1078, Rule::OpenDoubleQuote),
                 (1079, Rule::SuspectClosingQuote),
                 (1080, Rule::LinebreakInTest),
+                (1083, Rule::LiteralBraces),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
                 (1101, Rule::BackslashBeforeClosingBacktick),
@@ -459,6 +461,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC1078"), Some(Rule::OpenDoubleQuote));
         assert_eq!(map.resolve("SC1079"), Some(Rule::SuspectClosingQuote));
+        assert_eq!(map.resolve("SC1083"), Some(Rule::LiteralBraces));
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
@@ -636,6 +639,7 @@ mod tests {
             (1078, Rule::OpenDoubleQuote),
             (1079, Rule::SuspectClosingQuote),
             (1080, Rule::LinebreakInTest),
+            (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
             (1101, Rule::BackslashBeforeClosingBacktick),

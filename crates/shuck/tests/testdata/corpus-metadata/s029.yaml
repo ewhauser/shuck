@@ -1,0 +1,59 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "Shuck keeps literal-brace findings for escaped template and eval string patterns that the ShellCheck oracle frequently suppresses in large helper-script and project-closure contexts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_gir.sh"
+    line: 105
+    end_line: 105
+    column: 29
+    end_column: 29
+    reason: "This setup helper keeps an escaped indirection form that ShellCheck reports at the brace edge while shuck does not currently anchor in this quoting shape."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_gir.sh"
+    line: 105
+    end_line: 105
+    column: 34
+    end_column: 34
+    reason: "This setup helper keeps an escaped indirection form that ShellCheck reports at the brace edge while shuck does not currently anchor in this quoting shape."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_no_integrated_as.sh"
+    line: 29
+    end_line: 29
+    column: 28
+    end_column: 28
+    reason: "The escaped indirect expansion in this bootstrap path is still surfaced by ShellCheck at the opening brace."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_no_integrated_as.sh"
+    line: 29
+    end_line: 29
+    column: 33
+    end_column: 33
+    reason: "The escaped indirect expansion in this bootstrap path is still surfaced by ShellCheck at the closing brace."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__bin__rvmsudo"
+    line: 81
+    end_line: 81
+    column: 25
+    end_column: 25
+    reason: "This `eval` launcher uses escaped parameter braces inside a quoted command string, which ShellCheck still reports at the opening brace."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__bin__rvmsudo"
+    line: 81
+    end_line: 81
+    column: 38
+    end_column: 38
+    reason: "This `eval` launcher uses escaped parameter braces inside a quoted command string, which ShellCheck still reports at the closing brace."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__pinebookpro-uboot__files__kernel.d__uboot"
+    line: 21
+    end_line: 21
+    column: 100
+    end_column: 100
+    reason: "This U-Boot loader script uses escaped brace variables in command strings that ShellCheck still reports at this opening-brace location."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__pinebookpro-uboot__files__kernel.d__uboot"
+    line: 21
+    end_line: 21
+    column: 108
+    end_column: 108
+    reason: "This U-Boot loader script uses escaped brace variables in command strings that ShellCheck still reports at this closing-brace location."

@@ -472,6 +472,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
             rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
         }
+        if self.is_rule_enabled(Rule::LiteralBraces) {
+            rules::style::literal_braces::literal_braces(self);
+        }
         if self.is_rule_enabled(Rule::AnsiCQuoting) {
             rules::portability::ansi_c_quoting::ansi_c_quoting(self);
         }

@@ -5,6 +5,7 @@ pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
+pub mod literal_braces;
 pub mod literal_backslash;
 pub mod literal_backslash_in_single_quotes;
 pub mod loop_from_command_output;
@@ -45,6 +46,7 @@ mod tests {
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
     #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
     #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
+    #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
