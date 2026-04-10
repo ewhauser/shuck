@@ -9,6 +9,7 @@ use crate::rules::correctness::dangling_else::DanglingElse;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
+use crate::rules::correctness::until_missing_do::UntilMissingDo;
 use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
@@ -68,6 +69,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
             diagnostics.push(Diagnostic::new(DanglingElse, span));
         }
     }
+    if enabled_rules.contains(crate::Rule::UntilMissingDo) {
+        if let Some(span) = until_missing_do_span(source, parse_diagnostics) {
+            diagnostics.push(Diagnostic::new(UntilMissingDo, span));
+        }
+    }
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
         for diagnostic in parse_diagnostics {
@@ -114,11 +120,60 @@ fn is_dangling_else_error(message: &str) -> bool {
     message.starts_with("syntax error: empty else clause")
 }
 
+fn is_expected_command_error(message: &str) -> bool {
+    message.starts_with("expected command")
+}
+
 fn dangling_else_span(parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
     parse_diagnostics
         .iter()
         .find(|diagnostic| is_dangling_else_error(&diagnostic.message))
         .map(|diagnostic| diagnostic.span)
+}
+
+fn until_missing_do_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
+    parse_diagnostics
+        .iter()
+        .find(|diagnostic| {
+            is_expected_command_error(&diagnostic.message)
+                && is_done_line(source, diagnostic.span.start.line)
+                && has_pending_until_without_do_before_line(source, diagnostic.span.start.line)
+        })
+        .map(|diagnostic| diagnostic.span)
+}
+
+fn is_done_line(source: &str, line_number: usize) -> bool {
+    line_text_at(source, line_number)
+        .map(|line| {
+            let text = line.split_once('#').map_or(line, |(before, _)| before);
+            shell_like_words(text).iter().any(|word| *word == "done")
+        })
+        .unwrap_or(false)
+}
+
+fn has_pending_until_without_do_before_line(source: &str, line_number: usize) -> bool {
+    if line_number <= 1 {
+        return false;
+    }
+
+    let mut pending_until_depth = 0usize;
+    for (index, line) in source.lines().enumerate() {
+        let current_line = index + 1;
+        if current_line >= line_number {
+            break;
+        }
+
+        let text = line.split_once('#').map_or(line, |(before, _)| before);
+        for word in shell_like_words(text) {
+            match word {
+                "until" => pending_until_depth += 1,
+                "do" | "done" if pending_until_depth > 0 => pending_until_depth -= 1,
+                _ => {}
+            }
+        }
+    }
+
+    pending_until_depth > 0
 }
 
 fn has_loop_without_end_error(
@@ -586,6 +641,39 @@ mod tests {
         let source = "#!/bin/sh\nif true; then echo yes; else fi\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_until_missing_do_parse_error_to_c146() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UntilMissingDo);
+    }
+
+    #[test]
+    fn ignores_non_until_expected_command_parse_errors_for_c146() {
+        let source = "#!/bin/sh\nwhile :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,

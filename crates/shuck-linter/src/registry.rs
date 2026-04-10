@@ -164,6 +164,7 @@ declare_rules! {
         MissingDoneInForLoop
     ),
     ("C143", Category::Correctness, Severity::Error, DanglingElse),
+    ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
@@ -423,6 +424,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-321" => Some(Rule::LoopWithoutEnd),
         "SH-322" => Some(Rule::MissingDoneInForLoop),
         "SH-327" => Some(Rule::DanglingElse),
+        "SH-334" => Some(Rule::UntilMissingDo),
         _ => None,
     })
 }
@@ -599,6 +601,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-322"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(code_to_rule("C143"), Some(Rule::DanglingElse));
         assert_eq!(code_to_rule("SH-327"), Some(Rule::DanglingElse));
+        assert_eq!(code_to_rule("C146"), Some(Rule::UntilMissingDo));
+        assert_eq!(code_to_rule("SH-334"), Some(Rule::UntilMissingDo));
         assert_eq!(code_to_rule("X005"), Some(Rule::BashCaseFallthrough));
         assert_eq!(code_to_rule("X008"), Some(Rule::StandaloneArithmetic));
         assert_eq!(code_to_rule("X009"), Some(Rule::SelectLoop));

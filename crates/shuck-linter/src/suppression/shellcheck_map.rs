@@ -198,6 +198,7 @@ impl Default for ShellCheckCodeMap {
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
+            (2396, Rule::UntilMissingDo),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
@@ -358,6 +359,7 @@ impl Default for ShellCheckCodeMap {
                 (2389, Rule::LoopWithoutEnd),
                 (2390, Rule::MissingDoneInForLoop),
                 (2391, Rule::DanglingElse),
+                (2396, Rule::UntilMissingDo),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -544,6 +546,7 @@ mod tests {
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
+        assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
@@ -708,6 +711,7 @@ mod tests {
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
+            (2396, Rule::UntilMissingDo),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),

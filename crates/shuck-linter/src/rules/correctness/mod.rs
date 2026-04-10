@@ -60,6 +60,7 @@ pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unreachable_after_exit;
 pub mod untracked_source_file;
+pub mod until_missing_do;
 pub mod unused_assignment;
 
 #[cfg(test)]
@@ -132,6 +133,7 @@ mod tests {
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
     #[test_case(Rule::DanglingElse, Path::new("C143.sh"))]
+    #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
