@@ -18,6 +18,12 @@ export default function Header() {
           >
             Docs
           </Link>
+          <Link
+            href="/docs/rules"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-fg-secondary hover:text-fg-primary hover:bg-bg-card transition-colors"
+          >
+            Rules
+          </Link>
           <a
             href="https://github.com/ewhauser/shuck"
             target="_blank"

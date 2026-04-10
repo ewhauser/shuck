@@ -43,5 +43,9 @@ export default async function DocsPage({ params }: Props) {
 
   const { default: MDXContent } = await loader();
 
-  return <MDXContent />;
+  return (
+    <div className="mdx-content max-w-3xl">
+      <MDXContent />
+    </div>
+  );
 }
