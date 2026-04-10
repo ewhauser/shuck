@@ -4671,10 +4671,11 @@ impl<'a> WordFactCollector<'a> {
         if host_kind == WordFactHostKind::Direct
             && word_needs_wrapped_arithmetic_fallback(word, self.source)
         {
-            collect_wrapped_arithmetic_dollar_spans_in_word(
+            collect_wrapped_arithmetic_spans_in_word(
                 word,
                 self.source,
                 &mut self.arithmetic.dollar_in_arithmetic_spans,
+                &mut self.arithmetic.arithmetic_command_substitution_spans,
             );
         }
     }
@@ -4823,10 +4824,11 @@ fn collect_dollar_prefixed_arithmetic_variable_spans(
     }
 }
 
-fn collect_wrapped_arithmetic_dollar_spans_in_word(
+fn collect_wrapped_arithmetic_spans_in_word(
     word: &Word,
     source: &str,
-    spans: &mut Vec<Span>,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
 ) {
     let text = word.span.slice(source);
     let bytes = text.as_bytes();
@@ -4864,10 +4866,16 @@ fn collect_wrapped_arithmetic_dollar_spans_in_word(
                         let expr_end = cursor;
                         let start = word.span.start.advanced_by(&text[..expr_start]);
                         let end = start.advanced_by(&text[expr_start..expr_end]);
+                        let expression_span = Span::from_positions(start, end);
                         collect_dollar_prefixed_arithmetic_variable_spans(
-                            Span::from_positions(start, end),
+                            expression_span,
                             source,
-                            spans,
+                            dollar_spans,
+                        );
+                        collect_wrapped_arithmetic_command_substitution_spans(
+                            expression_span,
+                            source,
+                            command_substitution_spans,
                         );
                         index = cursor + 2;
                         matched = true;
@@ -4887,6 +4895,181 @@ fn collect_wrapped_arithmetic_dollar_spans_in_word(
             break;
         }
     }
+}
+
+fn collect_wrapped_arithmetic_command_substitution_spans(
+    span: Span,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'$' || bytes[index + 1] != b'(' || bytes.get(index + 2) == Some(&b'(') {
+            index += 1;
+            continue;
+        }
+
+        let Some(end) = find_command_substitution_end(bytes, index) else {
+            break;
+        };
+
+        let start = span.start.advanced_by(&text[..index]);
+        let end_pos = start.advanced_by(&text[index..end]);
+        spans.push(Span::from_positions(start, end_pos));
+        index = end;
+    }
+}
+
+fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut paren_depth = 0usize;
+    let mut cursor = start + 2;
+
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+
+        if cursor + 2 < bytes.len()
+            && bytes[cursor] == b'$'
+            && bytes[cursor + 1] == b'('
+            && bytes[cursor + 2] == b'('
+        {
+            cursor = find_wrapped_arithmetic_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len() && bytes[cursor] == b'$' && bytes[cursor + 1] == b'(' {
+            cursor = find_command_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        match bytes[cursor] {
+            b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
+            b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
+            b'`' => cursor = skip_backticks(bytes, cursor + 1)?,
+            b'(' => {
+                paren_depth += 1;
+                cursor += 1;
+            }
+            b')' if paren_depth == 0 => return Some(cursor + 1),
+            b')' => {
+                paren_depth -= 1;
+                cursor += 1;
+            }
+            _ => cursor += 1,
+        }
+    }
+
+    None
+}
+
+fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut paren_depth = 0usize;
+    let mut cursor = start + 3;
+
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+
+        if cursor + 2 < bytes.len()
+            && bytes[cursor] == b'$'
+            && bytes[cursor + 1] == b'('
+            && bytes[cursor + 2] == b'('
+        {
+            cursor = find_wrapped_arithmetic_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len() && bytes[cursor] == b'$' && bytes[cursor + 1] == b'(' {
+            cursor = find_command_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        match bytes[cursor] {
+            b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
+            b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
+            b'`' => cursor = skip_backticks(bytes, cursor + 1)?,
+            b'(' => {
+                paren_depth += 1;
+                cursor += 1;
+            }
+            b')' if paren_depth == 0 && cursor + 1 < bytes.len() && bytes[cursor + 1] == b')' => {
+                return Some(cursor + 2);
+            }
+            b')' if paren_depth > 0 => {
+                paren_depth -= 1;
+                cursor += 1;
+            }
+            _ => cursor += 1,
+        }
+    }
+
+    None
+}
+
+fn skip_single_quoted(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\'' {
+            return Some(cursor + 1);
+        }
+        cursor += 1;
+    }
+    None
+}
+
+fn skip_double_quoted(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+
+        if cursor + 2 < bytes.len()
+            && bytes[cursor] == b'$'
+            && bytes[cursor + 1] == b'('
+            && bytes[cursor + 2] == b'('
+        {
+            cursor = find_wrapped_arithmetic_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len() && bytes[cursor] == b'$' && bytes[cursor + 1] == b'(' {
+            cursor = find_command_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        match bytes[cursor] {
+            b'"' => return Some(cursor + 1),
+            b'`' => cursor = skip_backticks(bytes, cursor + 1)?,
+            _ => cursor += 1,
+        }
+    }
+
+    None
+}
+
+fn skip_backticks(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+        if bytes[cursor] == b'`' {
+            return Some(cursor + 1);
+        }
+        cursor += 1;
+    }
+    None
 }
 
 fn word_needs_wrapped_arithmetic_fallback(word: &Word, source: &str) -> bool {
@@ -8298,6 +8481,22 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                 .collect::<Vec<_>>();
 
             assert_eq!(spans, vec!["$len"], "command words: {words:?}");
+        });
+    }
+
+    #[test]
+    fn collects_command_substitution_spans_for_wrapped_substring_offset_arithmetic() {
+        let source =
+            "#!/bin/bash\nrest=abcdef\nprintf '%s\\n' \"${rest:$((${#rest}-$(printf 1)))}\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .arithmetic_command_substitution_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["$(printf 1)"]);
         });
     }
 

@@ -50,4 +50,17 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "$(printf 1)");
     }
+
+    #[test]
+    fn reports_command_substitutions_in_wrapped_substring_offset_arithmetic() {
+        let source =
+            "#!/bin/bash\nrest=abcdef\nprintf '%s\\n' \"${rest:$((${#rest}-$(printf 1)))}\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellInArithmetic),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$(printf 1)");
+    }
 }
