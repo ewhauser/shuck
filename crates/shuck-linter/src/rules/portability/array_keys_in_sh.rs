@@ -17,6 +17,11 @@ pub fn array_keys_in_sh(checker: &mut Checker) {
         return;
     }
 
+    // X018 owns the broader indirect-expansion wording when both rules are enabled.
+    if checker.is_rule_enabled(Rule::IndirectExpansion) {
+        return;
+    }
+
     let spans = checker
         .facts()
         .indirect_expansion_fragments()
@@ -59,5 +64,18 @@ printf '%s\n' \"${!name}\" \"${!build_option_@}\" \"${!arr[*]}\" \"${!arr[@]}\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn defers_to_x018_when_both_indirect_expansion_rules_are_enabled() {
+        let source = "printf '%s\\n' \"${!arr[*]}\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([Rule::ArrayKeysInSh, Rule::IndirectExpansion])
+                .with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::IndirectExpansion);
     }
 }

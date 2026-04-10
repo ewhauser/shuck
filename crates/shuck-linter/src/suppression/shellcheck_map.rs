@@ -239,7 +239,7 @@ impl Default for ShellCheckCodeMap {
             (3053, Rule::IndirectExpansion),
             // The pinned ShellCheck oracle reports `${!arr[*]}` portability findings as SC3055.
             // Keep SC3078 as a suppression alias for compatibility with older rule metadata.
-            (3078, Rule::ArrayKeysInSh),
+            (3055, Rule::ArrayKeysInSh),
             (2219, Rule::AvoidLetBuiltin),
             // ShellCheck 0.11.0 reports array references as SC3054.
             // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
@@ -1432,7 +1432,7 @@ mod tests {
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
         assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
-        assert!(comparison.contains(&(3078, Rule::ArrayKeysInSh)));
+        assert!(comparison.contains(&(3055, Rule::ArrayKeysInSh)));
         assert!(comparison.contains(&(3054, Rule::ArrayReference)));
         assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
         assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
@@ -1482,7 +1482,7 @@ mod tests {
         assert!(!comparison.contains(&(3062, Rule::DollarStringInSh)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3055, Rule::PlusEqualsAppend)));
-        assert!(!comparison.contains(&(3055, Rule::ArrayKeysInSh)));
+        assert!(!comparison.contains(&(3078, Rule::ArrayKeysInSh)));
         assert!(!comparison.contains(&(3085, Rule::StarGlobRemovalInSh)));
         assert!(!comparison.contains(&(3071, Rule::PlusEqualsInSh)));
         assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));
