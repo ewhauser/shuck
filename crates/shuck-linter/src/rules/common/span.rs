@@ -490,7 +490,7 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
             && let Some(relative_end) = remainder.find('}')
         {
             let candidate = &remainder[..=relative_end];
-            if candidate.contains("[@]") {
+            if candidate_is_all_elements_array_expansion(candidate) {
                 let end = position_at_offset(source, absolute_start + candidate.len())?;
                 return Some(Span::from_positions(start, end));
             }
@@ -517,12 +517,41 @@ fn widen_all_elements_array_expansion_span(span: Span, source: &str) -> Option<S
     let remainder = &source[start_offset..];
     let relative_end = remainder.find('}')?;
     let candidate = &remainder[..=relative_end];
-    if !candidate.contains("[@]") {
+    if !candidate_is_all_elements_array_expansion(candidate) {
         return None;
     }
 
     let end = position_at_offset(source, start_offset + candidate.len())?;
     Some(Span::from_positions(start, end))
+}
+
+fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
+    let Some(inner) = candidate
+        .strip_prefix("${")
+        .and_then(|text| text.strip_suffix('}'))
+    else {
+        return false;
+    };
+
+    let Some(first) = inner.as_bytes().first().copied() else {
+        return false;
+    };
+
+    if first == b'@' {
+        return true;
+    }
+
+    if !is_name_start(first) {
+        return false;
+    }
+
+    let bytes = inner.as_bytes();
+    let mut index = 1usize;
+    while index < bytes.len() && is_name_continue(bytes[index]) {
+        index += 1;
+    }
+
+    inner[index..].starts_with("[@]")
 }
 
 fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
@@ -1486,6 +1515,29 @@ eval command sudo \\\"\\${sudo_args[@]}\\\" \\\"\\$@\\\"
         };
 
         assert!(all_elements_array_expansion_part_spans(&command.args[2], source).is_empty());
+    }
+
+    #[test]
+    fn all_elements_array_expansion_spans_ignore_non_selector_at_text() {
+        let source = "\
+printf '%s\\n' ${#arr[@]} ${!arr[@]} ${name:-safe[@]} ${arr[@]}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(all_elements_array_expansion_part_spans(&command.args[1], source).is_empty());
+        assert!(all_elements_array_expansion_part_spans(&command.args[2], source).is_empty());
+        assert!(all_elements_array_expansion_part_spans(&command.args[3], source).is_empty());
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[4], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]}"]
+        );
     }
 
     #[test]

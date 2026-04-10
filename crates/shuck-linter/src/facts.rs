@@ -4280,7 +4280,7 @@ fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
         return None;
     }
 
-    let remote_args = &args[1..];
+    let (_, remote_args) = args.split_first()?;
     if remote_args.is_empty() {
         return None;
     }

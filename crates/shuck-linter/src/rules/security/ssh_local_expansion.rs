@@ -32,6 +32,7 @@ mod tests {
     fn ignores_expansions_in_destination_arguments() {
         let source = "\
 #!/bin/sh
+ssh
 ssh \"$host\"
 ssh \"$host\" printf '%s\\n' ok
 ";

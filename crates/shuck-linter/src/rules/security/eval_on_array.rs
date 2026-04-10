@@ -79,4 +79,15 @@ eval command sudo \\\"\\${sudo_args[@]}\\\" $(printf '%s\\n' env=1) \\\"\\$@\\\"
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
+
+    #[test]
+    fn ignores_scalar_parameter_expansions_with_literal_array_selector_text() {
+        let source = "\
+#!/bin/bash
+eval \"${name:-safe[@]}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EvalOnArray));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
 }
