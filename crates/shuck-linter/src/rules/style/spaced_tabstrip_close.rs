@@ -44,10 +44,10 @@ fn spaced_tabstrip_close_spans(redirect: &Redirect, source: &str) -> Vec<Span> {
     let mut line_start_offset = heredoc.body.span.start.offset;
     for raw_line in heredoc.body.span.slice(source).split_inclusive('\n') {
         let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
-        if is_spaced_tabstrip_close_line(line_without_newline, delimiter) {
-            if let Some(position) = position_at_offset(source, line_start_offset) {
-                spans.push(Span::from_positions(position, position));
-            }
+        if is_spaced_tabstrip_close_line(line_without_newline, delimiter)
+            && let Some(position) = position_at_offset(source, line_start_offset)
+        {
+            spans.push(Span::from_positions(position, position));
         }
         line_start_offset += raw_line.len();
     }
