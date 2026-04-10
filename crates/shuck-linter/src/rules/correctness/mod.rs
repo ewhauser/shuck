@@ -33,6 +33,7 @@ pub mod leading_glob_argument;
 pub mod line_oriented_input;
 pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
+pub mod local_cross_reference;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
 pub mod missing_done_in_for_loop;
@@ -142,6 +143,7 @@ mod tests {
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
+    #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]

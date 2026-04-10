@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 142
+---
+C136 assignment is reused later in the same declaration
+ --> <source>:4:9
+  |
+4 |   local iface="${1}" ifvar="$(echo "${iface}" | tr - _)"
+  |

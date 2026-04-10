@@ -182,6 +182,12 @@ declare_rules! {
         AppendWithEscapedQuotes
     ),
     (
+        "C136",
+        Category::Correctness,
+        Severity::Warning,
+        LocalCrossReference
+    ),
+    (
         "C137",
         Category::Correctness,
         Severity::Warning,

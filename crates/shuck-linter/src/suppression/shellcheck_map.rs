@@ -229,6 +229,9 @@ impl Default for ShellCheckCodeMap {
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
             (2089, Rule::AppendWithEscapedQuotes),
+            // ShellCheck 0.11.0 reports declaration cross-reference warnings as SC2318.
+            // Keep SC2384 as a suppression alias, but prefer the current code for comparisons.
+            (2318, Rule::LocalCrossReference),
             (2276, Rule::PlusPrefixInAssignment),
             (2238, Rule::RedirectToCommandName),
             (2259, Rule::SubshellTestGroup),
@@ -415,6 +418,7 @@ impl Default for ShellCheckCodeMap {
                 (2238, Rule::RedirectToCommandName),
                 (2266, Rule::OverwrittenFunction),
                 (2270, Rule::AssignmentToNumericVariable),
+                (2318, Rule::LocalCrossReference),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
@@ -442,6 +446,7 @@ impl Default for ShellCheckCodeMap {
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
+                (2384, Rule::LocalCrossReference),
                 (2377, Rule::AppendWithEscapedQuotes),
                 (2270, Rule::IfMissingThen),
             ],
@@ -660,6 +665,7 @@ mod tests {
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
         assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
+        assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
         assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve("SC2270"),
@@ -697,11 +703,13 @@ mod tests {
             Some(Rule::AssignmentToNumericVariable)
         );
         assert_eq!(map.resolve("SC2354"), Some(Rule::PlusPrefixInAssignment));
+        assert_eq!(map.resolve("SC2384"), Some(Rule::LocalCrossReference));
         assert_eq!(map.resolve("SC2377"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(
             map.resolve_all("SC2270"),
             vec![Rule::AssignmentToNumericVariable, Rule::IfMissingThen]
         );
+        assert_eq!(map.resolve_all("SC2384"), vec![Rule::LocalCrossReference]);
         assert_eq!(map.resolve("SC2141"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC2329"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC7777"), None);
@@ -809,6 +817,8 @@ mod tests {
             (2267, Rule::LiteralBackslashInSingleQuotes),
             (2270, Rule::AssignmentToNumericVariable),
             (2270, Rule::IfMissingThen),
+            (2318, Rule::LocalCrossReference),
+            (2384, Rule::LocalCrossReference),
             (2271, Rule::ElseWithoutThen),
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
@@ -975,10 +985,12 @@ mod tests {
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
+        assert!(comparison.contains(&(2318, Rule::LocalCrossReference)));
         assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
         assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
+        assert!(!comparison.contains(&(2384, Rule::LocalCrossReference)));
         assert!(!comparison.contains(&(2377, Rule::AppendWithEscapedQuotes)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));

@@ -72,8 +72,10 @@ mod tests {
 +YYYY=\"$( date +%Y )\"
 export +MONTH=12
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::PlusPrefixInAssignment));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment),
+        );
 
         assert_eq!(
             diagnostics
@@ -92,8 +94,10 @@ echo +YEAR=2024
 +1=bad
 name+=still_ok
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::PlusPrefixInAssignment));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment),
+        );
 
         assert!(diagnostics.is_empty());
     }
