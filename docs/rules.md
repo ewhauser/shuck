@@ -118,7 +118,7 @@ related syntax in POSIX sh. Mostly surface-level AST node type checks.
 - [x] **L** X026 (SC3024) `bash-file-slurp` — `$(< file)` in sh
 - [x] **L** X045 (SC3055) `plus-equals-append` — `+=` assignment in sh
 - [x] **L** X055 (SC3062) `dollar-string-in-sh` — `$"string"` in sh
-- [ ] **L** X064 (SC3071) `plus-equals-in-sh` — `+=` append operator in sh
+- [x] **L** X064 (SC3071) `plus-equals-in-sh` — `+=` append operator in sh
 - [ ] **L** X071 (SC3078) `array-keys-in-sh` — `${!arr[*]}` in sh
 - [ ] **L** X081 (SC3085) `star-glob-removal-in-sh` — `${*%%pattern}` in sh
 

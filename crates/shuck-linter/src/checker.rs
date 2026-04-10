@@ -342,6 +342,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PlusEqualsAppend) {
             rules::portability::plus_equals_append::plus_equals_append(self);
         }
+        if self.is_rule_enabled(Rule::PlusEqualsInSh) {
+            rules::portability::plus_equals_in_sh::plus_equals_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::IndirectExpansion) {
             rules::portability::indirect_expansion::indirect_expansion(self);
         }

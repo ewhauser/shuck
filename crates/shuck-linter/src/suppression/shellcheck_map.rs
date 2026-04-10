@@ -217,8 +217,9 @@ impl Default for ShellCheckCodeMap {
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
             // The pinned ShellCheck oracle reports `+=` assignment portability findings as SC3024.
-            // Keep SC3055 as a suppression alias for compatibility with older rule metadata.
+            // Keep SC3055/SC3071 as suppression aliases for compatibility with older rule metadata.
             (3024, Rule::PlusEqualsAppend),
+            (3024, Rule::PlusEqualsInSh),
             (3002, Rule::ExtglobInSh),
             // The pinned ShellCheck oracle reports `$(< file)` as SC3034.
             // Keep SC3024 as a legacy alias for suppression compatibility.
@@ -456,6 +457,7 @@ impl Default for ShellCheckCodeMap {
                 (2186, Rule::DeprecatedTempfileCommand),
                 (2258, Rule::BareRead),
                 (3024, Rule::PlusEqualsAppend),
+                (3071, Rule::PlusEqualsInSh),
                 (3034, Rule::BashFileSlurp),
                 (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
@@ -599,6 +601,7 @@ impl Default for ShellCheckCodeMap {
                 (2321, Rule::FunctionKeywordInSh),
                 (3024, Rule::BashFileSlurp),
                 (3055, Rule::PlusEqualsAppend),
+                (3024, Rule::PlusEqualsInSh),
                 (3062, Rule::DollarStringInSh),
                 (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
@@ -850,10 +853,16 @@ mod tests {
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3055"), Some(Rule::PlusEqualsAppend));
+        assert_eq!(map.resolve("SC3071"), Some(Rule::PlusEqualsInSh));
         assert_eq!(
             map.resolve_all("SC3024"),
-            vec![Rule::PlusEqualsAppend, Rule::BashFileSlurp]
+            vec![
+                Rule::PlusEqualsAppend,
+                Rule::BashFileSlurp,
+                Rule::PlusEqualsInSh
+            ]
         );
+        assert_eq!(map.resolve_all("SC3071"), vec![Rule::PlusEqualsInSh]);
         assert_eq!(map.resolve("SC3001"), Some(Rule::ProcessSubstitution));
         assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
         assert_eq!(map.resolve("SC3004"), Some(Rule::DollarStringInSh));
@@ -1259,6 +1268,7 @@ mod tests {
             (3017, Rule::ATestInSh),
             (3018, Rule::CStyleForArithmeticInSh),
             (3024, Rule::PlusEqualsAppend),
+            (3024, Rule::PlusEqualsInSh),
             (3024, Rule::BashFileSlurp),
             (3034, Rule::BashFileSlurp),
             (3025, Rule::PrintfQFormatInSh),
@@ -1281,6 +1291,7 @@ mod tests {
             (3053, Rule::IndirectExpansion),
             (3054, Rule::ArrayReference),
             (3055, Rule::PlusEqualsAppend),
+            (3071, Rule::PlusEqualsInSh),
             (3057, Rule::SubstringExpansion),
             (3058, Rule::BashCaseFallthrough),
             (3059, Rule::CaseModificationExpansion),
@@ -1391,6 +1402,7 @@ mod tests {
         assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3024, Rule::PlusEqualsAppend)));
+        assert!(comparison.contains(&(3024, Rule::PlusEqualsInSh)));
         assert!(comparison.contains(&(3034, Rule::BashFileSlurp)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
@@ -1444,6 +1456,7 @@ mod tests {
         assert!(!comparison.contains(&(3062, Rule::DollarStringInSh)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3055, Rule::PlusEqualsAppend)));
+        assert!(!comparison.contains(&(3071, Rule::PlusEqualsInSh)));
         assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));

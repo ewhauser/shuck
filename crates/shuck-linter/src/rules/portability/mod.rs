@@ -28,6 +28,7 @@ pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
 pub mod pipefail_option;
 pub mod plus_equals_append;
+pub mod plus_equals_in_sh;
 pub mod printf_q_format_in_sh;
 pub mod process_substitution;
 pub mod replacement_expansion;
@@ -122,6 +123,7 @@ mod tests {
     #[test_case(Rule::CStyleForInSh, Path::new("X056.sh"))]
     #[test_case(Rule::LegacyArithmeticInSh, Path::new("X057.sh"))]
     #[test_case(Rule::CStyleForArithmeticInSh, Path::new("X062.sh"))]
+    #[test_case(Rule::PlusEqualsInSh, Path::new("X064.sh"))]
     #[test_case(Rule::CaretNegationInBracket, Path::new("X065.sh"))]
     #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
