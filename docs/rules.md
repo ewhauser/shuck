@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 92 |
+| Implemented | 93 |
 | Scheduled (Tranches 1-3) | 18 |
-| Remaining | 208 |
+| Remaining | 207 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -300,7 +300,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **L** S013 (SC2010) `ls-grep-pipeline` — piping ls into grep
 - [x] [x] **L** S016 (SC2116) `echo-inside-command-substitution` — echo in `$()` is unnecessary
 - [x] [x] **M** S019 (SC2143) `grep-output-in-test` — grep text as boolean check
-- [ ] **L** S036 (SC2258) `bare-read` — `read` without options
+- [x] [x] **L** S036 (SC2258) `bare-read` — `read` without options
 - [ ] **L** S037 (SC2263) `redundant-spaces-in-echo` — extra spaces in echo collapsed
 - [ ] **M** S044 (SC2291) `unquoted-variable-in-sed` — unquoted variable in sed
 - [ ] **L** S046 (SC2293) `ls-piped-to-xargs` — ls piped to xargs

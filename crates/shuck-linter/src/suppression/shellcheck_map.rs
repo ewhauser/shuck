@@ -65,6 +65,9 @@ impl ShellCheckCodeMap {
         if number == 2143 {
             return vec![Rule::GrepOutputInTest];
         }
+        if number == 2258 {
+            return vec![Rule::BareRead];
+        }
         if number == 2284 {
             return vec![Rule::UnicodeQuoteInString];
         }
@@ -259,6 +262,7 @@ impl Default for ShellCheckCodeMap {
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
+            (2258, Rule::BareRead),
             (2257, Rule::ArithmeticRedirectionTarget),
             (2004, Rule::DollarInArithmetic),
             (2321, Rule::ArrayIndexArithmetic),
@@ -350,6 +354,7 @@ impl Default for ShellCheckCodeMap {
                 (2394, Rule::HeredocCloserNotAlone),
                 (2395, Rule::MisquotedHeredocClose),
                 (3002, Rule::ExtglobInSh),
+                (3061, Rule::ExtglobInSh),
                 (3026, Rule::CaretNegationInBracket),
                 (1127, Rule::CStyleComment),
                 (1129, Rule::ZshBraceIf),
@@ -507,7 +512,6 @@ impl Default for ShellCheckCodeMap {
                 (1040, Rule::HeredocEndSpace),
                 (1075, Rule::ExtglobCase),
                 (2321, Rule::FunctionKeywordInSh),
-                (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
                 (2319, Rule::AssignmentLooksLikeComparison),
@@ -594,10 +598,12 @@ mod tests {
         );
         assert_eq!(map.resolve("SC3002"), Some(Rule::ExtglobInSh));
         assert_eq!(map.resolve("SC3061"), Some(Rule::ExtglobInSh));
+        assert_eq!(map.resolve("SC2258"), Some(Rule::BareRead));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve("SC3072"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve_all("SC3002"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve_all("SC3061"), vec![Rule::ExtglobInSh]);
+        assert_eq!(map.resolve_all("SC2258"), vec![Rule::BareRead]);
         assert_eq!(
             map.resolve_all("SC3026"),
             vec![Rule::CaretNegationInBracket]
@@ -1184,6 +1190,7 @@ mod tests {
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
+        assert!(!comparison.contains(&(3061, Rule::BareRead)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
