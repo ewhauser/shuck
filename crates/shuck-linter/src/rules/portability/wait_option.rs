@@ -87,25 +87,6 @@ wait -- -n
         let source = "\
 #!/bin/sh
 wait -p jobid -n
-wait -pn name -f
-";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
-
-        assert_eq!(diagnostics.len(), 4);
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["-p", "-n", "-pn", "-f"]
-        );
-    }
-
-    #[test]
-    fn reports_attached_wait_p_argument_without_skipping_later_options() {
-        let source = "\
-#!/bin/sh
-wait -pjob -n
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
 
@@ -115,7 +96,26 @@ wait -pjob -n
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-pjob", "-n"]
+            vec!["-p", "-n"]
+        );
+    }
+
+    #[test]
+    fn reports_attached_wait_p_argument_without_skipping_later_options() {
+        let source = "\
+#!/bin/sh
+wait -pjob -n
+wait -pfn -f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
+
+        assert_eq!(diagnostics.len(), 4);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-pjob", "-n", "-pfn", "-f"]
         );
     }
 }
