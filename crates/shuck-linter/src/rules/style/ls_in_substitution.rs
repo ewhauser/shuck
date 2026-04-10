@@ -50,7 +50,10 @@ LAYOUTS=\"$(ls layout.*.h | cut -d. -f2 | xargs echo)\"
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LsInSubstitution));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "$(ls layout.*.h | cut -d. -f2 | xargs echo)");
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "$(ls layout.*.h | cut -d. -f2 | xargs echo)"
+        );
     }
 
     #[test]

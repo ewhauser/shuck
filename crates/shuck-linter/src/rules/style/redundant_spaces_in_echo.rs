@@ -33,7 +33,9 @@ pub fn redundant_spaces_in_echo(checker: &mut Checker) {
 }
 
 fn has_repeated_argument_spaces(words: &[&shuck_ast::Word], source: &str) -> bool {
-    words.windows(2).any(|pair| repeated_space_gap(pair[0].span, pair[1].span, source))
+    words
+        .windows(2)
+        .any(|pair| repeated_space_gap(pair[0].span, pair[1].span, source))
 }
 
 fn repeated_space_gap(left: shuck_ast::Span, right: shuck_ast::Span, source: &str) -> bool {
@@ -50,7 +52,10 @@ fn repeated_space_gap(left: shuck_ast::Span, right: shuck_ast::Span, source: &st
 
 fn command_span(name: &shuck_ast::Word, args: &[&shuck_ast::Word]) -> Option<shuck_ast::Span> {
     let last = args.last()?;
-    Some(shuck_ast::Span::from_positions(name.span.start, last.span.end))
+    Some(shuck_ast::Span::from_positions(
+        name.span.start,
+        last.span.end,
+    ))
 }
 
 #[cfg(test)]
@@ -81,7 +86,12 @@ builtin echo foo    bar
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["echo foo    bar", "echo -n    \"foo\"", "echo \"foo\"    bar", "echo foo    \"bar\""]
+            vec![
+                "echo foo    bar",
+                "echo -n    \"foo\"",
+                "echo \"foo\"    bar",
+                "echo foo    \"bar\""
+            ]
         );
     }
 

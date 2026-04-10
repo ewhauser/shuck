@@ -333,6 +333,7 @@ declare_rules! {
     ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
     ("S057", Category::Style, Severity::Warning, FunctionInAlias),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
+    ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
     ("S047", Category::Style, Severity::Warning, LsInSubstitution),
@@ -450,6 +451,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-199" => Some(Rule::LsInSubstitution),
         "SH-163" => Some(Rule::BareRead),
         "SH-245" => Some(Rule::DeprecatedTempfileCommand),
+        "SH-247" => Some(Rule::EgrepDeprecated),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
@@ -719,6 +721,7 @@ mod tests {
             code_to_rule("SH-245"),
             Some(Rule::DeprecatedTempfileCommand)
         );
+        assert_eq!(code_to_rule("SH-247"), Some(Rule::EgrepDeprecated));
         assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("S030"), Some(Rule::HeredocEndSpace));

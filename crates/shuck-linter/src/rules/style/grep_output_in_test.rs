@@ -2,8 +2,8 @@ use shuck_ast::Span;
 
 use crate::{
     Checker, CommandSubstitutionKind, ConditionalNodeFact, ConditionalOperatorFamily,
-    ExpansionContext, Rule, SimpleTestOperatorFamily, SimpleTestShape, SubstitutionFact,
-    Violation, WordFactContext,
+    ExpansionContext, Rule, SimpleTestOperatorFamily, SimpleTestShape, SubstitutionFact, Violation,
+    WordFactContext,
 };
 
 pub struct GrepOutputInTest;
@@ -33,7 +33,11 @@ pub fn grep_output_in_test(checker: &mut Checker) {
         .flat_map(|fact| {
             let mut spans = Vec::new();
             if let Some(simple_test) = fact.simple_test() {
-                spans.extend(collect_simple_test_spans(checker, simple_test, &substitutions));
+                spans.extend(collect_simple_test_spans(
+                    checker,
+                    simple_test,
+                    &substitutions,
+                ));
             }
             if let Some(conditional) = fact.conditional() {
                 spans.extend(collect_conditional_spans(conditional, &substitutions));
@@ -61,7 +65,9 @@ fn collect_simple_test_spans(
             })
             .into_iter()
             .collect(),
-        SimpleTestShape::Unary if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary => {
+        SimpleTestShape::Unary
+            if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary =>
+        {
             simple_test
                 .operands()
                 .get(1)

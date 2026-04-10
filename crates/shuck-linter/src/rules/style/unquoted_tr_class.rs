@@ -1,4 +1,6 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote, static_word_text};
+use crate::{
+    Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote, static_word_text,
+};
 
 pub struct UnquotedTrClass;
 
@@ -16,16 +18,14 @@ pub fn unquoted_tr_class(checker: &mut Checker) {
     let spans = checker
         .facts()
         .commands()
-        .into_iter()
+        .iter()
         .filter(|fact| fact.effective_name_is("tr") && fact.wrappers().is_empty())
         .flat_map(|fact| {
             fact.body_args().iter().filter_map(|word| {
-                let Some(word_fact) = checker
-                    .facts()
-                    .word_fact(word.span, WordFactContext::Expansion(ExpansionContext::CommandArgument))
-                else {
-                    return None;
-                };
+                let word_fact = checker.facts().word_fact(
+                    word.span,
+                    WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                )?;
                 if word_fact.classification().quote != WordQuote::Unquoted {
                     return None;
                 }

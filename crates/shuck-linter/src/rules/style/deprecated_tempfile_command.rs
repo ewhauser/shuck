@@ -16,7 +16,7 @@ pub fn deprecated_tempfile_command(checker: &mut Checker) {
     let spans = checker
         .facts()
         .commands()
-        .into_iter()
+        .iter()
         .filter(|fact| fact.effective_name_is("tempfile") && fact.wrappers().is_empty())
         .filter_map(|fact| fact.body_name_word().map(|word| word.span))
         .collect::<Vec<_>>();

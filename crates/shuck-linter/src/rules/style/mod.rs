@@ -3,18 +3,20 @@ pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
+pub mod bare_read;
 pub mod command_substitution_in_alias;
 pub mod deprecated_tempfile_command;
-pub mod function_in_alias;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
 pub mod echo_here_doc;
 pub mod echo_inside_command_substitution;
 pub mod echoed_command_substitution;
-pub mod grep_output_in_test;
+pub mod egrep_deprecated;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
+pub mod function_in_alias;
+pub mod grep_output_in_test;
 pub mod heredoc_end_space;
 pub mod ifs_equals_ambiguity;
 pub mod legacy_arithmetic_expansion;
@@ -28,23 +30,22 @@ pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
 pub mod needless_backslash_underscore;
-pub mod bare_read;
-pub mod redundant_spaces_in_echo;
-pub mod unquoted_variable_in_sed;
 pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
 pub mod read_without_raw;
+pub mod redundant_spaces_in_echo;
 pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
+pub mod su_without_flag;
 pub mod suspect_closing_quote;
 pub mod syntax;
-pub mod su_without_flag;
 pub mod trailing_directive;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
 pub mod unquoted_expansion;
 pub mod unquoted_tr_class;
 pub mod unquoted_tr_range;
+pub mod unquoted_variable_in_sed;
 
 #[cfg(test)]
 mod tests {
@@ -68,6 +69,7 @@ mod tests {
     #[test_case(Rule::EchoInsideCommandSubstitution, Path::new("S016.sh"))]
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
+    #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]

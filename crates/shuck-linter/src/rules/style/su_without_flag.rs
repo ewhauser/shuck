@@ -16,7 +16,7 @@ pub fn su_without_flag(checker: &mut Checker) {
     let spans = checker
         .facts()
         .commands()
-        .into_iter()
+        .iter()
         .filter(|fact| fact.effective_name_is("su") && fact.wrappers().is_empty())
         .filter(|fact| !su_has_login_or_command_flag(fact, checker.source()))
         .filter_map(|fact| fact.body_name_word().map(|word| word.span))

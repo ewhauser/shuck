@@ -311,7 +311,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **L** S056 (SC2328) `command-substitution-in-alias` — command substitution in alias
 - [x] [x] **L** S057 (SC2330) `function-in-alias` — function definition inside alias
 - [x] [x] **L** S059 (SC2340) `deprecated-tempfile-command` — deprecated `tempfile` command
-- [ ] **L** S060 (SC2342) `egrep-deprecated` — `egrep` instead of `grep -E`
+- [x] [x] **L** S060 (SC2342) `egrep-deprecated` — `egrep` instead of `grep -E`
 - [ ] **L** S061 (SC2343) `fgrep-deprecated` — `fgrep` instead of `grep -F`
 - [ ] **L** S063 (SC2347) `relative-symlink-target` — deep relative symlink path
 - [ ] **L** S064 (SC2350) `xargs-with-inline-replace` — deprecated `-i` flag for xargs

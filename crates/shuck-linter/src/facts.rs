@@ -8401,10 +8401,22 @@ legacy=`nvm ls | grep '^ *\\.'`
                 substitutions.get("$(echo foo | \\grep foo input.txt)"),
                 Some(&true)
             );
-            assert_eq!(substitutions.get("$(foo $(grep foo input.txt))"), Some(&false));
-            assert_eq!(substitutions.get("$(grep foo input.txt | wc -l)"), Some(&false));
-            assert_eq!(substitutions.get("$(foo; grep foo input.txt)"), Some(&false));
-            assert_eq!(substitutions.get("$(foo && grep foo input.txt)"), Some(&false));
+            assert_eq!(
+                substitutions.get("$(foo $(grep foo input.txt))"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(grep foo input.txt | wc -l)"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(foo; grep foo input.txt)"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(foo && grep foo input.txt)"),
+                Some(&false)
+            );
             assert_eq!(substitutions.get("`nvm ls | grep '^ *\\.'`"), Some(&true));
         });
     }

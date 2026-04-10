@@ -16,7 +16,7 @@ pub fn unquoted_tr_range(checker: &mut Checker) {
     let spans = checker
         .facts()
         .commands()
-        .into_iter()
+        .iter()
         .filter(|fact| fact.effective_name_is("tr") && fact.wrappers().is_empty())
         .flat_map(|fact| {
             fact.body_args().iter().filter_map(|word| {
@@ -43,7 +43,9 @@ fn is_bracketed_tr_set(text: &str) -> bool {
         return false;
     }
 
-    inner.bytes().any(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    inner
+        .bytes()
+        .any(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
 #[cfg(test)]
@@ -113,11 +115,7 @@ _idn_temp=$(printf \"%s\" \"$value\" | tr -d '[0-9]' | tr -d '[a-z]' | tr -d '[A
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "'[0-9]'",
-                "'[a-z]'",
-                "'[A-Z]'",
-            ]
+            vec!["'[0-9]'", "'[a-z]'", "'[A-Z]'",]
         );
     }
 }

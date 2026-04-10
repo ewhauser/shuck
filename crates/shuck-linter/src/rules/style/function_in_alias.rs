@@ -105,7 +105,10 @@ fn is_definition_suffix(text: &str, mut index: usize) -> bool {
         index += 1;
     }
 
-    if bytes.get(index..).is_some_and(|rest| rest.starts_with(b"()")) {
+    if bytes
+        .get(index..)
+        .is_some_and(|rest| rest.starts_with(b"()"))
+    {
         index += 2;
         while index < bytes.len() && bytes[index].is_ascii_whitespace() {
             index += 1;

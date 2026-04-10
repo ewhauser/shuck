@@ -64,7 +64,11 @@ alias plain=printf
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$(command -v printf)", "$(command -v printf)", "$(command -v cat)"]
+            vec![
+                "$(command -v printf)",
+                "$(command -v printf)",
+                "$(command -v cat)"
+            ]
         );
     }
 
