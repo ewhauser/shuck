@@ -1,17 +1,125 @@
 # Getting Started
 
-Shuck is a fast shell script linter and formatter, built in Rust.
+Shuck is a shell script linter and formatter, written in Rust. It parses and analyzes shell scripts to catch common bugs, style issues, and portability problems. It includes a built-in formatter and a caching layer for fast incremental runs.
 
 ## Installation
+
+### From source
 
 ```bash
 cargo install shuck
 ```
 
-## Usage
+### Pre-built binaries
+
+Pre-built binaries are available for macOS (aarch64) and Linux (x86_64) from the [releases page](https://github.com/ewhauser/shuck/releases).
+
+## Lint
 
 ```bash
+# Check files and directories
+shuck check script.sh src/
+
+# Check the current directory
 shuck check .
+
+# Read from stdin
+echo 'echo $foo' | shuck check -
+
+# Apply safe fixes automatically
+shuck check --fix .
 ```
 
-Shuck will discover shell scripts by extension (`.sh`, `.bash`, `.zsh`, `.ksh`) or shebang and report any issues found.
+Shuck prints rich code-frame diagnostics by default:
+
+```
+warning[C001]: variable `tmp` is assigned but never used
+ --> deploy.sh:14:1
+  |
+14 | tmp=$(mktemp)
+  | ^^^
+  |
+```
+
+Use `--output-format concise` for a one-line format:
+
+```
+deploy.sh:14:1: warning[C001] variable `tmp` is assigned but never used
+```
+
+## Format
+
+```bash
+# Format files in-place
+shuck format .
+
+# Check formatting without modifying files (exit 1 if changes needed)
+shuck format --check .
+
+# Show diffs instead of writing
+shuck format --diff .
+
+# Format with specific options
+shuck format --indent-style space --indent-width 4 .
+```
+
+## Rules
+
+Shuck ships with rules organized into four categories:
+
+| Category | Prefix | Description |
+|----------|--------|-------------|
+| Correctness | `C` | Bugs, errors, and likely mistakes |
+| Style | `S` | Code quality and best-practice suggestions |
+| Performance | `P` | Inefficient patterns with simpler alternatives |
+| Portability | `X` | Bash-isms and constructs that break under POSIX or other shells |
+
+Each rule has a short code (e.g., `C006`, `S001`) that appears in diagnostics and can be used in suppression directives.
+
+## Suppression
+
+Suppress diagnostics with inline comments. Both native and ShellCheck-style directives are supported.
+
+```bash
+# Suppress a specific rule for the next line
+# shuck:disable=C001
+unused_var="ok"
+
+# Suppress multiple rules
+# shuck:disable=C001,S001
+code_here
+
+# ShellCheck-compatible syntax (also works)
+# shellcheck disable=SC2034,SC2086
+```
+
+## Configuration
+
+Create a `.shuck.toml` or `shuck.toml` at your project root:
+
+```toml
+[format]
+dialect = "bash"           # auto | bash | posix | mksh | zsh
+indent-style = "space"     # tab | space
+indent-width = 4           # 1-255, used when indent-style = "space"
+binary-next-line = false   # place binary operators on the next line
+switch-case-indent = false # indent case branch bodies
+space-redirects = false    # spaces around redirect operators
+keep-padding = false       # preserve original source padding
+function-next-line = false # opening brace on its own line
+```
+
+## File discovery
+
+When given a directory, shuck recursively discovers shell scripts by:
+
+1. **Extension**: `.sh`, `.bash`, `.zsh`, `.ksh`, `.dash`, `.mksh`, `.bats`
+2. **Shebang**: files starting with `#!/bin/bash`, `#!/usr/bin/env sh`, etc.
+
+Gitignore and `.ignore` files are respected by default.
+
+## Caching
+
+Shuck caches lint and format results per file using a shared cache outside the project tree. The default location follows the OS cache directory convention (`~/Library/Caches/shuck` on macOS, `~/.cache/shuck` on Linux).
+
+Override the cache location with `--cache-dir` or `SHUCK_CACHE_DIR`. Disable caching with `--no-cache`, or clear the cache with `shuck clean .`.
