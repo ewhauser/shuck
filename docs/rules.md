@@ -39,7 +39,7 @@ Review scope: all currently dispatched rule entrypoints under `crates/shuck-lint
 
 ## Validation Review (2026-04-10)
 
-The remaining implemented-but-unvetted rules were reviewed against three gates:
+The reviewed implemented rules below were checked against three gates:
 
 1. rule logic uses facts APIs only (no direct AST walks or traversal helpers in rule modules)
 2. rule logic avoids duplicating command/AST extraction work that belongs in facts
@@ -47,7 +47,7 @@ The remaining implemented-but-unvetted rules were reviewed against three gates:
 
 | Rule | Facts-only / no walks | Duplication | Coverage status | Outcome |
 |---|---|---|---|---|
-| C141 `loop-without-end` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
+| C141 `loop-without-end` | ✅ | ✅ | ✅ positive plus balanced/nested non-trigger tests | vetted |
 | C142 `missing-done-in-for-loop` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
 | C143 `dangling-else` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
 | C146 `until-missing-do` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
@@ -57,7 +57,6 @@ The remaining implemented-but-unvetted rules were reviewed against three gates:
 
 ## Validation TODOs
 
-- **C141 `loop-without-end`**: add explicit non-trigger coverage for balanced `while`/`until` loops and nested loops to prove parse-error mapping does not over-fire.
 - **C142 `missing-done-in-for-loop`**: add edge-case fixtures for `for` loops with heredocs/line continuations near EOF and a negative case with a valid trailing `done`.
 - **C143 `dangling-else`**: add cases that distinguish parse-recovery noise from true empty `else` branches, including nested `if` blocks.
 - **C146 `until-missing-do`**: add coverage for multiline `until` headers and ensure no finding when `do` appears after comments/blank lines.
@@ -427,7 +426,7 @@ oddities. Mostly AST-level checks.
 
 - [x] [x] **M** C076 (SC2289) `commented-continuation-line` — line continuation followed by comment
 - [x] [x] **M** C104 (SC2333) `non-shell-syntax-in-script` — C or other non-shell code in script
-- [x] **L** C141 (SC2389) `loop-without-end` — loop body never closed
+- [x] [x] **L** C141 (SC2389) `loop-without-end` — loop body never closed
 - [x] **L** C142 (SC2390) `missing-done-in-for-loop` — for loop reaches EOF without `done`
 - [x] **L** C143 (SC2391) `dangling-else` — else branch has no body
 - [x] **L** C146 (SC2396) `until-missing-do` — until loop skips `do`
