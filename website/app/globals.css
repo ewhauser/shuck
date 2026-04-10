@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+:root {
+  --bg-primary: #08090a;
+  --bg-secondary: rgba(255, 255, 255, 0.07);
+  --bg-card: rgba(255, 255, 255, 0.07);
+  --fg-primary: #ffffff;
+  --fg-secondary: rgba(255, 255, 255, 0.69);
+  --fg-dim: rgba(255, 255, 255, 0.13);
+  --accent: #70b8ff;
+  --accent-dim: #4a8fd4;
+  --accent-glow: rgba(112, 184, 255, 0.1);
+  --danger: #ff5f57;
+
+  --font-heading: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-body: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: var(--font-ibm-plex-mono), "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+}
+
+@theme inline {
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-card: var(--bg-card);
+  --color-fg-primary: var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-dim: var(--fg-dim);
+  --color-accent: var(--accent);
+  --color-accent-dim: var(--accent-dim);
+  --color-accent-glow: var(--accent-glow);
+  --color-danger: var(--danger);
+  --font-heading: var(--font-heading);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ===== MDX Documentation Styles ===== */
+.mdx-content {
+  font-family: var(--font-body);
+  color: var(--fg-primary);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.mdx-content h1 {
+  font-family: var(--font-heading);
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1.25;
+  margin: 2rem 0 1rem;
+  color: var(--fg-primary);
+}
+
+.mdx-content h2 {
+  font-family: var(--font-heading);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.33;
+  margin: 1.75rem 0 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--fg-dim);
+  color: var(--fg-primary);
+}
+
+.mdx-content h3 {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.6;
+  margin: 1.5rem 0 0.5rem;
+  color: var(--fg-primary);
+}
+
+.mdx-content h4 {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--fg-secondary);
+}
+
+.mdx-content p {
+  margin: 0.75rem 0;
+}
+
+.mdx-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mdx-content a:hover {
+  color: #a0d0ff;
+}
+
+.mdx-content code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--bg-card);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  border: 1px solid var(--fg-dim);
+}
+
+.mdx-content pre {
+  background: var(--bg-secondary);
+  border: 1px solid var(--fg-dim);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.mdx-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.mdx-content ul, .mdx-content ol {
+  padding-left: 1.5rem;
+  margin: 0.75rem 0;
+}
+
+.mdx-content li {
+  margin: 0.25rem 0;
+}
+
+.mdx-content li::marker {
+  color: var(--accent-dim);
+}
+
+.mdx-content blockquote {
+  border-left: 3px solid var(--accent-dim);
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  background: var(--bg-card);
+  border-radius: 0 8px 8px 0;
+  color: var(--fg-secondary);
+}
+
+.mdx-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.mdx-content th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 2px solid var(--fg-dim);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.mdx-content td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(74, 90, 74, 0.3);
+  font-size: 0.9rem;
+}
+
+.mdx-content tr:hover td {
+  background: var(--bg-card);
+}
+
+.mdx-content hr {
+  border: none;
+  border-top: 1px solid var(--fg-dim);
+  margin: 2rem 0;
+}
