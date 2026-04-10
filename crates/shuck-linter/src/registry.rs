@@ -201,6 +201,12 @@ declare_rules! {
         AppendWithEscapedQuotes
     ),
     (
+        "C132",
+        Category::Correctness,
+        Severity::Warning,
+        MisspelledOptionName
+    ),
+    (
         "C136",
         Category::Correctness,
         Severity::Warning,
@@ -497,6 +503,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
         "SH-318" => Some(Rule::HeredocMissingEnd),
+        "SH-310" => Some(Rule::MisspelledOptionName),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -753,6 +760,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
+        assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
+        assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

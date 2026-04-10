@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C132 configure option name looks misspelled
+ --> <source>:4:13
+  |
+4 | ./configure --with-optmizer="${CFLAGS}"
+  |
+
+C132 configure option name looks misspelled
+ --> <source>:7:12
+  |
+7 | configure "--enable-optmizer=${CFLAGS}"
+  |

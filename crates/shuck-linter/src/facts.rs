@@ -1238,6 +1238,17 @@ impl SetCommandFacts {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ConfigureCommandFacts {
+    misspelled_option_spans: Box<[Span]>,
+}
+
+impl ConfigureCommandFacts {
+    pub fn misspelled_option_spans(&self) -> &[Span] {
+        &self.misspelled_option_spans
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ExprCommandFacts {
     pub uses_arithmetic_operator: bool,
@@ -1274,6 +1285,7 @@ pub struct CommandOptionFacts<'a> {
     wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
     set: Option<SetCommandFacts>,
+    configure: Option<ConfigureCommandFacts>,
     expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
@@ -1322,6 +1334,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn set(&self) -> Option<&SetCommandFacts> {
         self.set.as_ref()
+    }
+
+    pub fn configure(&self) -> Option<&ConfigureCommandFacts> {
+        self.configure.as_ref()
     }
 
     pub fn expr(&self) -> Option<&ExprCommandFacts> {
@@ -1400,6 +1416,10 @@ impl<'a> CommandOptionFacts<'a> {
             set: normalized
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
+            configure: normalized
+                .effective_or_literal_name()
+                .is_some_and(is_configure_command_name)
+                .then(|| parse_configure_command(normalized.body_args(), source)),
             expr: normalized
                 .effective_name_is("expr")
                 .then_some(())
@@ -6983,6 +7003,93 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     }
 }
 
+fn is_configure_command_name(name: &str) -> bool {
+    name == "configure" || name.ends_with("/configure")
+}
+
+fn parse_configure_command(args: &[&Word], source: &str) -> ConfigureCommandFacts {
+    let misspelled_option_spans = args
+        .iter()
+        .filter_map(|word| {
+            let option_name = configure_option_name(word, source)?;
+            configure_option_misspelling(option_name.as_str())
+                .and_then(|_| configure_option_name_span(word, source, option_name.as_str()))
+        })
+        .collect::<Vec<_>>();
+
+    ConfigureCommandFacts {
+        misspelled_option_spans: misspelled_option_spans.into_boxed_slice(),
+    }
+}
+
+fn configure_option_name(word: &Word, source: &str) -> Option<String> {
+    let prefix = leading_literal_word_prefix(word, source);
+    let option_name = prefix
+        .split_once('=')
+        .map_or(prefix.as_str(), |(name, _)| name);
+    option_name
+        .starts_with("--")
+        .then(|| option_name.to_owned())
+}
+
+fn configure_option_name_span(word: &Word, source: &str, option_name: &str) -> Option<Span> {
+    let text = word.span.slice(source);
+    let relative_start = text.find(option_name)?;
+    let start = word.span.start.advanced_by(&text[..relative_start]);
+    let end = start.advanced_by(option_name);
+    Some(Span::from_positions(start, end))
+}
+
+fn configure_option_misspelling(option_name: &str) -> Option<&'static str> {
+    match option_name {
+        "--with-optmizer" => Some("--with-optimizer"),
+        "--without-optmizer" => Some("--without-optimizer"),
+        "--enable-optmizer" => Some("--enable-optimizer"),
+        "--disable-optmizer" => Some("--disable-optimizer"),
+        _ => None,
+    }
+}
+
+fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
+    let mut prefix = String::new();
+    collect_leading_literal_word_parts(&word.parts, source, &mut prefix);
+    prefix
+}
+
+fn collect_leading_literal_word_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    prefix: &mut String,
+) -> bool {
+    for part in parts {
+        if !collect_leading_literal_word_part(part, source, prefix) {
+            return false;
+        }
+    }
+    true
+}
+
+fn collect_leading_literal_word_part(
+    part: &WordPartNode,
+    source: &str,
+    prefix: &mut String,
+) -> bool {
+    match &part.kind {
+        WordPart::Literal(text) => {
+            prefix.push_str(text.as_str(source, part.span));
+            true
+        }
+        WordPart::SingleQuoted { value, .. } => {
+            prefix.push_str(value.slice(source));
+            true
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            collect_leading_literal_word_parts(parts, source, prefix)
+        }
+        _ => false,
+    }
+}
+
 fn parse_wait_command(args: &[&Word], source: &str) -> WaitCommandFacts {
     let mut option_spans = Vec::new();
     let mut index = 0;
@@ -7444,7 +7551,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -7610,6 +7717,17 @@ mod tests {
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["euox"]
+        );
+        let configure_option_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().configure())
+            .flat_map(|configure| configure.misspelled_option_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            configure_option_spans,
+            vec!["--with-optmizer", "--enable-optmizer"]
         );
         let rm_spans = facts
             .commands()

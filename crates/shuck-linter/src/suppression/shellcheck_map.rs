@@ -143,6 +143,7 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `find` output-in-loop warnings as SC2044.
             // Keep SC2348 as a suppression alias for historical compatibility.
             (2044, Rule::FindOutputLoop),
+            (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
@@ -373,6 +374,7 @@ impl Default for ShellCheckCodeMap {
                 (2035, Rule::LeadingGlobArgument),
                 (2044, Rule::FindOutputLoop),
                 (2348, Rule::FindOutputLoop),
+                (2380, Rule::MisspelledOptionName),
                 (2045, Rule::LoopFromCommandOutput),
                 (2046, Rule::UnquotedCommandSubstitution),
                 (2059, Rule::PrintfFormatVariable),
@@ -642,6 +644,7 @@ mod tests {
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
         assert_eq!(map.resolve("SC2348"), Some(Rule::FindOutputLoop));
+        assert_eq!(map.resolve("SC2380"), Some(Rule::MisspelledOptionName));
         assert_eq!(map.resolve("SC2045"), Some(Rule::LoopFromCommandOutput));
         assert_eq!(
             map.resolve("SC2046"),
@@ -878,6 +881,7 @@ mod tests {
             (2038, Rule::FindOutputToXargs),
             (2044, Rule::FindOutputLoop),
             (2348, Rule::FindOutputLoop),
+            (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
@@ -1096,6 +1100,7 @@ mod tests {
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
         assert!(comparison.contains(&(2339, Rule::MapfileProcessSubstitution)));
+        assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
         assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
