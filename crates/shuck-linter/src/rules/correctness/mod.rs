@@ -81,6 +81,7 @@ pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unreachable_after_exit;
+pub mod unset_associative_array_element;
 pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
@@ -159,6 +160,7 @@ mod tests {
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
+    #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]

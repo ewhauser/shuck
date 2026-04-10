@@ -192,6 +192,12 @@ declare_rules! {
         AppendToArrayAsString
     ),
     (
+        "C108",
+        Category::Correctness,
+        Severity::Warning,
+        UnsetAssociativeArrayElement
+    ),
+    (
         "C109",
         Category::Correctness,
         Severity::Warning,
@@ -589,6 +595,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-241" => Some(Rule::AppendToArrayAsString),
+        "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
         "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
@@ -883,6 +890,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
+        assert_eq!(
+            code_to_rule("C108"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
+        assert_eq!(
+            code_to_rule("SH-243"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
         assert_eq!(code_to_rule("C109"), Some(Rule::MapfileProcessSubstitution));
         assert_eq!(
             code_to_rule("SH-244"),

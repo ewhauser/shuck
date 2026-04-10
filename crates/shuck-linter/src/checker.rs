@@ -306,6 +306,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
             rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
         }
+        if self.is_rule_enabled(Rule::UnsetAssociativeArrayElement) {
+            rules::correctness::unset_associative_array_element::unset_associative_array_element(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::MisspelledOptionName) {
             rules::correctness::misspelled_option_name::misspelled_option_name(self);
         }

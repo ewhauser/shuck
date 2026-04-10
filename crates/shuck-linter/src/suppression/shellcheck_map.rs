@@ -258,6 +258,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `set` flag-prefix issues as SC2121.
             // Keep SC2324 as a suppression alias for historical compatibility.
             (2121, Rule::SetFlagsWithoutDashes),
+            // ShellCheck 0.11.0 reports quoted associative-array unset keys as SC2184.
+            // Keep SC2338 as a suppression alias for historical compatibility.
+            (2184, Rule::UnsetAssociativeArrayElement),
             (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2115, Rule::RmGlobOnVariablePath),
@@ -516,6 +519,7 @@ impl Default for ShellCheckCodeMap {
                     (2332, Rule::FindOrWithoutGrouping),
                     (2121, Rule::SetFlagsWithoutDashes),
                     (2324, Rule::SetFlagsWithoutDashes),
+                    (2184, Rule::UnsetAssociativeArrayElement),
                     (2115, Rule::RmGlobOnVariablePath),
                     (2104, Rule::LoopControlOutsideLoop),
                     (2112, Rule::FunctionKeyword),
@@ -605,6 +609,7 @@ impl Default for ShellCheckCodeMap {
                     (3015, Rule::RegexMatchInSh),
                     (3016, Rule::VTestInSh),
                     (3017, Rule::ATestInSh),
+                    (2338, Rule::UnsetAssociativeArrayElement),
                     (3062, Rule::OptionTestInSh),
                     (3065, Rule::StickyBitTestInSh),
                     (3067, Rule::OwnershipTestInSh),
@@ -879,6 +884,14 @@ mod tests {
         assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3055"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3071"), Some(Rule::PlusEqualsInSh));
+        assert_eq!(
+            map.resolve("SC2184"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
+        assert_eq!(
+            map.resolve("SC2338"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
         assert_eq!(
             map.resolve_all("SC3024"),
             vec![
@@ -1169,6 +1182,7 @@ mod tests {
             (2060, Rule::UnquotedTrClass),
             (2060, Rule::UnquotedTrRange),
             (2303, Rule::UnquotedTrClass),
+            (2184, Rule::UnsetAssociativeArrayElement),
             (2322, Rule::SuWithoutFlag),
             (2340, Rule::DeprecatedTempfileCommand),
             (2342, Rule::EgrepDeprecated),
@@ -1331,6 +1345,7 @@ mod tests {
             (3030, Rule::ArrayAssignment),
             (3032, Rule::Coproc),
             (3033, Rule::SelectLoop),
+            (2338, Rule::UnsetAssociativeArrayElement),
             (3039, Rule::LetCommand),
             (3040, Rule::PipefailOption),
             (3042, Rule::LetCommand),
@@ -1431,6 +1446,7 @@ mod tests {
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
         assert!(comparison.contains(&(2186, Rule::DeprecatedTempfileCommand)));
         assert!(comparison.contains(&(2196, Rule::EgrepDeprecated)));
+        assert!(comparison.contains(&(2184, Rule::UnsetAssociativeArrayElement)));
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
@@ -1501,6 +1517,7 @@ mod tests {
         assert!(comparison.contains(&(2282, Rule::BadVarName)));
         assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
         assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
+        assert!(!comparison.contains(&(2338, Rule::UnsetAssociativeArrayElement)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2290, Rule::SpacedAssignment)));

@@ -7246,7 +7246,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
         let Some(text) = static_word_text(word, source) else {
             if parsing_options {
                 options_parseable = false;
-                break;
+                parsing_options = false;
             }
 
             operands.push(*word);
@@ -8546,6 +8546,37 @@ complex[$((i+=1))]+=x
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn preserves_dynamic_unset_operands_after_option_parsing_stops() {
+        let source = "\
+#!/bin/bash
+declare -A parts
+key=one
+unset parts[\"$key\"] extra
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let unset = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("unset"))
+            .and_then(|fact| fact.options().unset())
+            .expect("expected unset facts");
+
+        assert_eq!(
+            unset
+                .operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["parts[\"$key\"]", "extra"]
+        );
     }
 
     #[test]
