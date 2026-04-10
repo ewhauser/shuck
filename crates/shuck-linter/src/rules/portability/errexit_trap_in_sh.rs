@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct ErrexitTrapInSh;
 
@@ -28,11 +28,10 @@ pub fn errexit_trap_in_sh(checker: &mut Checker) {
                 .is_some_and(|set| set.errtrace_change.is_some())
         })
         .flat_map(|fact| {
-            fact.body_args().iter().filter_map(|word| {
-                let text = static_word_text(word, checker.source())?;
-                (text == "errtrace" || (text.starts_with(['-', '+']) && text[1..].contains('E')))
-                    .then_some(word.span)
-            })
+            fact.options()
+                .set()
+                .into_iter()
+                .flat_map(|set| set.errtrace_option_spans().iter().copied())
         })
         .collect::<Vec<_>>();
 
@@ -73,5 +72,24 @@ set -E
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ErrexitTrapInSh));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_positional_operands_after_double_dash() {
+        let source = "\
+#!/bin/sh
+set -E -- +E
+set -o errtrace -- errtrace
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ErrexitTrapInSh));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-E", "errtrace"]
+        );
     }
 }

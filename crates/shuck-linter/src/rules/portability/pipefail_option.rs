@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct PipefailOption;
 
@@ -13,7 +13,7 @@ impl Violation for PipefailOption {
 }
 
 pub fn pipefail_option(checker: &mut Checker) {
-    if !matches!(checker.shell(), ShellDialect::Sh | ShellDialect::Dash) {
+    if checker.shell() != ShellDialect::Sh {
         return;
     }
 
@@ -28,11 +28,10 @@ pub fn pipefail_option(checker: &mut Checker) {
                 .is_some_and(|set| set.pipefail_change.is_some())
         })
         .flat_map(|fact| {
-            fact.body_args().iter().filter_map(|word| {
-                static_word_text(word, checker.source())
-                    .is_some_and(|text| text == "pipefail")
-                    .then_some(word.span)
-            })
+            fact.options()
+                .set()
+                .into_iter()
+                .flat_map(|set| set.pipefail_option_spans().iter().copied())
         })
         .collect::<Vec<_>>();
 
@@ -73,5 +72,28 @@ set -o pipefail
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PipefailOption));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_dash_shells() {
+        let source = "\
+#!/bin/dash
+set -o pipefail
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PipefailOption));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_positional_pipefail_after_double_dash() {
+        let source = "\
+#!/bin/sh
+set -o pipefail -- pipefail
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PipefailOption));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "pipefail");
     }
 }
