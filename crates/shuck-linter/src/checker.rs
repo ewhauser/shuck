@@ -500,6 +500,9 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::VariableAsCommandName) {
+            rules::correctness::variable_as_command_name::variable_as_command_name(self);
+        }
         if self.is_rule_enabled(Rule::PipeToKill) {
             rules::correctness::pipe_to_kill::pipe_to_kill(self);
         }

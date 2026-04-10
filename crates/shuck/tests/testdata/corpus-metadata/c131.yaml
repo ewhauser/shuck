@@ -1,0 +1,5 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    reason: "ShellCheck 0.11.0 reports SC2086 on top-level wrappers, launchers, and other non-function command lines. C131 only checks variable command names inside functions, so those corpus hits are outside the rule's scope."
+  - side: shuck-only
+    reason: "C131 intentionally reports function-local variable command names that the current ShellCheck 0.11.0 oracle does not model under SC2086."

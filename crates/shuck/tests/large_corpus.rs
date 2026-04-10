@@ -2292,6 +2292,12 @@ fn large_corpus_comparison_mappings(
     }) {
         mappings.push((2104, shuck_linter::Rule::ContinueOutsideLoopInFunction));
     }
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::VariableAsCommandName)
+            && !rules.contains(shuck_linter::Rule::UnquotedExpansion)
+    }) {
+        mappings.push((2086, shuck_linter::Rule::VariableAsCommandName));
+    }
 
     mappings.into_iter()
 }

@@ -601,6 +601,7 @@ impl Default for ShellCheckCodeMap {
                 (2354, Rule::PlusPrefixInAssignment),
                 (2367, Rule::UncheckedDirectoryChangeInFunction),
                 (2368, Rule::ContinueOutsideLoopInFunction),
+                (2378, Rule::VariableAsCommandName),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
                 (2384, Rule::LocalCrossReference),
@@ -855,6 +856,7 @@ mod tests {
             map.resolve("SC2368"),
             Some(Rule::ContinueOutsideLoopInFunction)
         );
+        assert_eq!(map.resolve("SC2378"), Some(Rule::VariableAsCommandName));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC2217"), Some(Rule::EchoHereDoc));

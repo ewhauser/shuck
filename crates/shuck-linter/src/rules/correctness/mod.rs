@@ -84,6 +84,7 @@ pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
 pub mod unused_heredoc;
+pub mod variable_as_command_name;
 
 #[cfg(test)]
 mod tests {
@@ -164,6 +165,7 @@ mod tests {
     #[test_case(Rule::UncheckedDirectoryChangeInFunction, Path::new("C125.sh"))]
     #[test_case(Rule::ContinueOutsideLoopInFunction, Path::new("C126.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
+    #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]

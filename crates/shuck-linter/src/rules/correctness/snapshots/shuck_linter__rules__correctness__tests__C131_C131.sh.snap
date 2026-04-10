@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 157
+---
+C131 variable expansion is being used as a command name inside a function
+ --> <source>:4:3
+  |
+4 |   $cmd
+  |

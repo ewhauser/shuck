@@ -225,12 +225,17 @@ declare_rules! {
         AppendWithEscapedQuotes
     ),
     (
+        "C131",
+        Category::Correctness,
+        Severity::Warning,
+        VariableAsCommandName
+    ),
+    (
         "C132",
         Category::Correctness,
         Severity::Warning,
         MisspelledOptionName
     ),
-    (
         "C136",
         Category::Correctness,
         Severity::Warning,
@@ -467,6 +472,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),
         "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
+        "SH-308" => Some(Rule::VariableAsCommandName),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -873,6 +879,8 @@ mod tests {
             code_to_rule("SH-296"),
             Some(Rule::ContinueOutsideLoopInFunction)
         );
+        assert_eq!(code_to_rule("C131"), Some(Rule::VariableAsCommandName));
+        assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
