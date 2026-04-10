@@ -1,8 +1,7 @@
 use shuck_ast::{
     ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr,
-    ParameterExpansion, ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart,
-    Position, Redirect, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget,
+    ParameterExpansion, ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Position,
+    Redirect, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -396,10 +395,7 @@ fn collect_arithmetic_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Sp
     }
 }
 
-fn collect_parenthesized_arithmetic_expansion_spans(
-    parts: &[WordPartNode],
-    spans: &mut Vec<Span>,
-) {
+fn collect_parenthesized_arithmetic_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => {

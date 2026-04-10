@@ -32,7 +32,10 @@ pub fn avoid_let_builtin(checker: &mut Checker) {
 
 fn let_command_span(source: &str, fact: &crate::facts::CommandFact<'_>) -> Option<Span> {
     let name = fact.body_name_word()?;
-    let mut end = fact.body_args().last().map_or(name.span.end, |word| word.span.end);
+    let mut end = fact
+        .body_args()
+        .last()
+        .map_or(name.span.end, |word| word.span.end);
 
     let tail = source.get(end.offset..)?;
     let mut padding_end = end;
@@ -60,10 +63,7 @@ mod tests {
     #[test]
     fn reports_let_builtin_in_bash() {
         let source = "#!/usr/bin/env bash\nlet 10\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::AvoidLetBuiltin),
-        );
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AvoidLetBuiltin));
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
@@ -85,10 +85,7 @@ mod tests {
     #[test]
     fn ignores_wrapped_let_commands() {
         let source = "#!/usr/bin/env bash\ncommand let 10\nbuiltin let 10\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::AvoidLetBuiltin),
-        );
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AvoidLetBuiltin));
 
         assert!(diagnostics.is_empty());
     }
