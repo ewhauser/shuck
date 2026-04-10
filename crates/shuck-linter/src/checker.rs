@@ -563,6 +563,9 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::AppendWithEscapedQuotes) {
+            rules::correctness::append_with_escaped_quotes::append_with_escaped_quotes(self);
+        }
         if self.is_rule_enabled(Rule::CommentedContinuationLine) {
             rules::correctness::commented_continuation_line::commented_continuation_line(self);
         }

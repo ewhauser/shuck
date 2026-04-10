@@ -176,6 +176,12 @@ declare_rules! {
     ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
+        "C130",
+        Category::Correctness,
+        Severity::Warning,
+        AppendWithEscapedQuotes
+    ),
+    (
         "C137",
         Category::Correctness,
         Severity::Warning,
@@ -362,6 +368,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
         "SH-258" => Some(Rule::AssignmentToNumericVariable),
         "SH-259" => Some(Rule::PlusPrefixInAssignment),
+        "SH-307" => Some(Rule::AppendWithEscapedQuotes),
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),

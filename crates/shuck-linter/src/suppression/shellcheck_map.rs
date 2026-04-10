@@ -228,6 +228,7 @@ impl Default for ShellCheckCodeMap {
             (2250, Rule::PatternWithVariable),
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
+            (2089, Rule::AppendWithEscapedQuotes),
             (2276, Rule::PlusPrefixInAssignment),
             (2238, Rule::RedirectToCommandName),
             (2259, Rule::SubshellTestGroup),
@@ -409,6 +410,7 @@ impl Default for ShellCheckCodeMap {
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
+                (2089, Rule::AppendWithEscapedQuotes),
                 (2276, Rule::PlusPrefixInAssignment),
                 (2238, Rule::RedirectToCommandName),
                 (2266, Rule::OverwrittenFunction),
@@ -440,6 +442,7 @@ impl Default for ShellCheckCodeMap {
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
+                (2377, Rule::AppendWithEscapedQuotes),
                 (2270, Rule::IfMissingThen),
             ],
             comparison,
@@ -656,6 +659,7 @@ mod tests {
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
+        assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve("SC2270"),
@@ -693,6 +697,7 @@ mod tests {
             Some(Rule::AssignmentToNumericVariable)
         );
         assert_eq!(map.resolve("SC2354"), Some(Rule::PlusPrefixInAssignment));
+        assert_eq!(map.resolve("SC2377"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(
             map.resolve_all("SC2270"),
             vec![Rule::AssignmentToNumericVariable, Rule::IfMissingThen]
@@ -760,6 +765,7 @@ mod tests {
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2078, Rule::TruthyLiteralTest),
+            (2089, Rule::AppendWithEscapedQuotes),
             (2086, Rule::UnquotedExpansion),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
@@ -818,6 +824,7 @@ mod tests {
             (2141, Rule::IfsSetToLiteralBackslashN),
             (2353, Rule::AssignmentToNumericVariable),
             (2354, Rule::PlusPrefixInAssignment),
+            (2377, Rule::AppendWithEscapedQuotes),
             (2329, Rule::IfsSetToLiteralBackslashN),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
@@ -967,10 +974,12 @@ mod tests {
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
+        assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
         assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
         assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
+        assert!(!comparison.contains(&(2377, Rule::AppendWithEscapedQuotes)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));

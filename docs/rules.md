@@ -252,7 +252,7 @@ Rules about assignment syntax, variable naming, and value issues.
 - [x] **M** C101 (SC2329) `ifs-set-to-literal-backslash-n` — IFS set to literal `\n` not newline
 - [x] **L** C116 (SC2353) `assignment-to-numeric-variable` — numeric string as variable name
 - [x] **L** C117 (SC2354) `plus-prefix-in-assignment` — `+` before variable assignment
-- [ ] **M** C130 (SC2377) `append-with-escaped-quotes` — `+=` with escaped quotes
+- [x] **M** C130 (SC2377) `append-with-escaped-quotes` — `+=` with escaped quotes
 - [ ] **M** C136 (SC2384) `local-cross-reference` — local assigns from same-line variable
 - [ ] **L** C139 (SC2387) `spaced-assignment` — assignment-like word with stray spaces
 - [ ] **L** C140 (SC2388) `bad-var-name` — variable name starts with invalid character

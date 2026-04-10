@@ -1,4 +1,5 @@
 pub mod arithmetic_redirection_target;
+pub mod append_with_escaped_quotes;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
 pub mod backslash_before_closing_backtick;
@@ -140,6 +141,7 @@ mod tests {
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
+    #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
