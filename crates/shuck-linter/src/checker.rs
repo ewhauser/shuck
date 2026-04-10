@@ -170,6 +170,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::OverwrittenFunction) {
             rules::correctness::overwritten_function::overwritten_function(self);
         }
+        if self.is_rule_enabled(Rule::FunctionCalledWithoutArgs) {
+            rules::correctness::function_called_without_args::function_called_without_args(self);
+        }
     }
 
     fn check_source_refs(&mut self) {

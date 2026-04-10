@@ -343,6 +343,7 @@ impl Default for ShellCheckCodeMap {
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
+            (2120, Rule::FunctionCalledWithoutArgs),
             (2277, Rule::ExtglobInCasePattern),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
@@ -561,6 +562,7 @@ impl Default for ShellCheckCodeMap {
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
+                (2120, Rule::FunctionCalledWithoutArgs),
                 (2277, Rule::ExtglobInCasePattern),
                 (2100, Rule::AssignmentLooksLikeComparison),
                 (2319, Rule::StatusCaptureAfterBranchTest),
@@ -865,6 +867,7 @@ mod tests {
             map.resolve_all("SC2321"),
             vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]
         );
+        assert_eq!(map.resolve("SC2120"), Some(Rule::FunctionCalledWithoutArgs));
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(
             map.resolve("SC2339"),
@@ -1145,6 +1148,7 @@ mod tests {
             (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
+            (2120, Rule::FunctionCalledWithoutArgs),
             (2141, Rule::IfsSetToLiteralBackslashN),
             (2353, Rule::AssignmentToNumericVariable),
             (2354, Rule::PlusPrefixInAssignment),
@@ -1153,6 +1157,7 @@ mod tests {
             (2321, Rule::ArrayIndexArithmetic),
             (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
+            (2120, Rule::FunctionCalledWithoutArgs),
             (2323, Rule::ArithmeticScoreLine),
             (2332, Rule::FindOrWithoutGrouping),
             (2339, Rule::MapfileProcessSubstitution),
@@ -1338,6 +1343,7 @@ mod tests {
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
+        assert!(comparison.contains(&(2120, Rule::FunctionCalledWithoutArgs)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(comparison.contains(&(1041, Rule::HeredocCloserNotAlone)));
         assert!(comparison.contains(&(1042, Rule::MisquotedHeredocClose)));

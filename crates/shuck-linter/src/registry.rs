@@ -156,12 +156,17 @@ declare_rules! {
         AssignmentLooksLikeComparison
     ),
     (
+        "C097",
+        Category::Correctness,
+        Severity::Error,
+        FunctionCalledWithoutArgs
+    ),
+    (
         "C098",
         Category::Correctness,
         Severity::Warning,
         SetFlagsWithoutDashes
     ),
-    (
         "C101",
         Category::Correctness,
         Severity::Warning,
@@ -636,6 +641,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-157"), Some(Rule::ArrayIndexArithmetic));
         assert_eq!(code_to_rule("S035"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(code_to_rule("SH-161"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(
+            code_to_rule("SH-228"),
+            Some(Rule::FunctionCalledWithoutArgs)
+        );
         assert_eq!(code_to_rule("S045"), Some(Rule::DollarInArithmetic));
         assert_eq!(code_to_rule("SH-197"), Some(Rule::DollarInArithmetic));
         assert_eq!(code_to_rule("S046"), Some(Rule::LsPipedToXargs));

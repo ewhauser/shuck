@@ -375,7 +375,7 @@ Rules about `&&`/`||` chain semantics and boolean shortcut patterns.
 Rules about function definitions, local variables, and scope issues. Some
 require semantic model access for call site analysis.
 
-- [ ] **H** C097 (SC2323) `function-called-without-args` — function referencing `$1` called without args
+- [x] **H** C097 (SC2120) `function-called-without-args` — function that reads positional parameters is called with no arguments
 - [ ] **H** C123 (SC2364) `function-references-unset-param` — function references unset positional param
 - [ ] **M** C125 (SC2367) `cd-without-error-check-in-func` — cd without error handling in function
 - [ ] **M** C126 (SC2368) `continue-outside-loop-in-func` — continue inside function but outside loop

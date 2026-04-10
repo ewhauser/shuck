@@ -27,7 +27,7 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
-use shuck_semantic::SemanticModel;
+use shuck_semantic::{ScopeId, SemanticModel};
 use std::borrow::Cow;
 
 use self::{
@@ -1250,12 +1250,17 @@ pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
     pub errtrace_change: Option<bool>,
     pub pipefail_change: Option<bool>,
+    resets_positional_parameters: bool,
     errtrace_option_spans: Box<[Span]>,
     pipefail_option_spans: Box<[Span]>,
     flags_without_prefix_spans: Box<[Span]>,
 }
 
 impl SetCommandFacts {
+    pub fn resets_positional_parameters(&self) -> bool {
+        self.resets_positional_parameters
+    }
+
     pub fn errtrace_option_spans(&self) -> &[Span] {
         &self.errtrace_option_spans
     }
@@ -1277,6 +1282,22 @@ pub struct ConfigureCommandFacts {
 impl ConfigureCommandFacts {
     pub fn misspelled_option_spans(&self) -> &[Span] {
         &self.misspelled_option_spans
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FunctionPositionalParameterFacts {
+    uses_unprotected_positional_parameters: bool,
+    resets_positional_parameters: bool,
+}
+
+impl FunctionPositionalParameterFacts {
+    pub fn uses_unprotected_positional_parameters(&self) -> bool {
+        self.uses_unprotected_positional_parameters
+    }
+
+    pub fn resets_positional_parameters(&self) -> bool {
+        self.resets_positional_parameters
     }
 }
 
@@ -1642,6 +1663,7 @@ pub struct LinterFacts<'a> {
     dollar_in_arithmetic_spans: Vec<Span>,
     dollar_in_arithmetic_context_spans: Vec<Span>,
     arithmetic_command_substitution_spans: Vec<Span>,
+    function_positional_parameter_facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
     suspect_closing_quote_fragments: Vec<SuspectClosingQuoteFragmentFact>,
@@ -1681,6 +1703,16 @@ impl<'a> LinterFacts<'a> {
 
     pub fn commands(&self) -> &[CommandFact<'a>] {
         &self.commands
+    }
+
+    pub fn function_positional_parameter_facts(
+        &self,
+        scope: ScopeId,
+    ) -> FunctionPositionalParameterFacts {
+        self.function_positional_parameter_facts
+            .get(&scope)
+            .copied()
+            .unwrap_or_default()
     }
 
     pub fn structural_commands(&self) -> impl Iterator<Item = &CommandFact<'a>> + '_ {
@@ -2095,6 +2127,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_elif_condition_command_ids(&self.file.body, &command_ids_by_span);
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
         let function_headers = build_function_header_facts(&self.file.body);
+        let function_positional_parameter_facts =
+            build_function_positional_parameter_facts(self._semantic, &commands);
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
@@ -2210,6 +2244,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 .dollar_in_arithmetic_context_spans,
             arithmetic_command_substitution_spans: arithmetic_summary
                 .arithmetic_command_substitution_spans,
+            function_positional_parameter_facts,
             single_quoted_fragments: single_quoted,
             open_double_quote_fragments: open_double_quotes,
             suspect_closing_quote_fragments: suspect_closing_quotes,
@@ -2934,6 +2969,58 @@ fn build_function_header_facts(body: &StmtSeq) -> Vec<FunctionHeaderFact<'_>> {
         | Command::AnonymousFunction(_) => None,
     })
     .collect()
+}
+
+fn build_function_positional_parameter_facts(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+) -> FxHashMap<ScopeId, FunctionPositionalParameterFacts> {
+    let mut facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts> = FxHashMap::default();
+
+    for reference in semantic.references() {
+        if !is_positional_parameter_name(reference.name.as_str())
+            || semantic.is_guarded_parameter_reference(reference.id)
+        {
+            continue;
+        }
+
+        let scope = semantic.scope_at(reference.span.start.offset);
+        if !matches!(
+            semantic.scope_kind(scope),
+            shuck_semantic::ScopeKind::Function(_)
+        ) {
+            continue;
+        }
+
+        facts
+            .entry(scope)
+            .or_default()
+            .uses_unprotected_positional_parameters = true;
+    }
+
+    for command in commands {
+        let scope = semantic.scope_at(command.span().start.offset);
+        if !matches!(
+            semantic.scope_kind(scope),
+            shuck_semantic::ScopeKind::Function(_)
+        ) {
+            continue;
+        }
+
+        if command
+            .options()
+            .set()
+            .is_some_and(|set| set.resets_positional_parameters())
+        {
+            facts.entry(scope).or_default().resets_positional_parameters = true;
+        }
+    }
+
+    facts
+}
+
+fn is_positional_parameter_name(name: &str) -> bool {
+    matches!(name, "@" | "*" | "#") || (name != "0" && name.chars().all(|ch| ch.is_ascii_digit()))
 }
 
 fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
@@ -7244,6 +7331,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errexit_change = None;
     let mut errtrace_change = None;
     let mut pipefail_change = None;
+    let mut resets_positional_parameters = false;
     let mut errtrace_option_spans = Vec::new();
     let mut pipefail_option_spans = Vec::new();
     let mut flags_without_prefix_spans = Vec::new();
@@ -7265,6 +7353,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         };
 
         if text == "--" {
+            resets_positional_parameters = true;
             break;
         }
 
@@ -7335,6 +7424,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         errexit_change,
         errtrace_change,
         pipefail_change,
+        resets_positional_parameters,
         errtrace_option_spans: errtrace_option_spans.into_boxed_slice(),
         pipefail_option_spans: pipefail_option_spans.into_boxed_slice(),
         flags_without_prefix_spans: flags_without_prefix_spans.into_boxed_slice(),

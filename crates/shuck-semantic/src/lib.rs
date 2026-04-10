@@ -316,6 +316,10 @@ impl SemanticModel {
             .map(|binding| &self.bindings[binding.index()])
     }
 
+    pub fn is_guarded_parameter_reference(&self, id: ReferenceId) -> bool {
+        self.guarded_parameter_refs.contains(&id)
+    }
+
     pub fn indirect_targets_for_binding(&self, id: BindingId) -> &[BindingId] {
         self.indirect_targets_by_binding
             .get(&id)
