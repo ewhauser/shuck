@@ -3130,3 +3130,21 @@ else
     }
   }
 fi
+
+#### minimization__zsh_parameter_quoted_word_target_trim
+
+# regression surface: quoted command-substitution targets in zsh parameter trims
+
+print ${"$(xcode-select -p)"%%/Contents/Developer*}
+
+#### minimization__zsh_parameter_nested_length_target
+
+# regression surface: nested zsh replacement expressions under ${#...} length prefixes
+
+print ${#${cd//${~q}/}}
+
+#### minimization__zsh_parameter_colon_modifier_targets
+
+# regression surface: zsh :h/:t/:l-style suffixes on identifier and positional targets
+
+print ${REPLY:l} ${1:t} ${0:h}

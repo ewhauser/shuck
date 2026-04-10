@@ -1346,6 +1346,7 @@ pub enum BourneParameterExpansion {
 pub struct ZshParameterExpansion {
     pub target: ZshExpansionTarget,
     pub modifiers: Vec<ZshModifier>,
+    pub length_prefix: Option<Span>,
     pub operation: Option<ZshExpansionOperation>,
 }
 

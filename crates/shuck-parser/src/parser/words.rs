@@ -1998,6 +1998,60 @@ impl<'a> Parser<'a> {
         )))
     }
 
+    fn zsh_parameter_requires_fallback(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    ) -> bool {
+        if !self.dialect.features().zsh_parameter_modifiers {
+            return false;
+        }
+
+        match chars.peek().copied() {
+            Some('"') | Some('\'') => true,
+            Some(ch) if ch.is_ascii_digit() => true,
+            Some('$') => {
+                let mut lookahead = chars.clone();
+                lookahead.next();
+                matches!(lookahead.peek().copied(), Some('(' | '{' | '"' | '\''))
+            }
+            _ => false,
+        }
+    }
+
+    fn zsh_parameter_suffix_looks_like_modifier(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    ) -> bool {
+        self.dialect.features().zsh_parameter_modifiers
+            && chars.peek().copied() == Some(':')
+            && Self::zsh_modifier_suffix_candidate(
+                chars
+                    .clone()
+                    .skip(1)
+                    .collect::<String>()
+                    .trim_end_matches('}'),
+            )
+    }
+
+    fn prefixed_parameter_raw_body(
+        &self,
+        prefix: &str,
+        prefix_start: Position,
+        tail: SourceText,
+        source_backed: bool,
+    ) -> SourceText {
+        if source_backed && tail.is_source_backed() {
+            SourceText::source(Span::from_positions(prefix_start, tail.span().end))
+        } else {
+            let prefix_end = prefix_start.advanced_by(prefix);
+            self.source_text(
+                format!("{prefix}{}", tail.slice(self.input)),
+                prefix_start,
+                prefix_end.advanced_by(tail.slice(self.input)),
+            )
+        }
+    }
+
     pub(super) fn parse_var_ref_from_word(
         &self,
         word: &Word,
@@ -2857,6 +2911,14 @@ impl<'a> Parser<'a> {
                     continue;
                 }
 
+                if self.zsh_parameter_requires_fallback(&mut chars) {
+                    let raw_body = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                    let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);
+                    Self::push_word_part(parts, parameter, part_start, cursor);
+                    current_start = cursor;
+                    continue;
+                }
+
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '#') {
                     if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
                         let part = self.parameter_word_part_from_legacy(
@@ -2866,6 +2928,20 @@ impl<'a> Parser<'a> {
                             source_backed,
                         );
                         Self::push_word_part(parts, part, part_start, cursor);
+                        current_start = cursor;
+                        continue;
+                    }
+
+                    if self.zsh_parameter_requires_fallback(&mut chars) {
+                        let tail = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                        let raw_body = self.prefixed_parameter_raw_body(
+                            "#",
+                            brace_body_start,
+                            tail,
+                            source_backed,
+                        );
+                        let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);
+                        Self::push_word_part(parts, parameter, part_start, cursor);
                         current_start = cursor;
                         continue;
                     }
@@ -3249,6 +3325,20 @@ impl<'a> Parser<'a> {
                                     operand: Some(operand),
                                     colon_variant: true,
                                 }
+                            } else if self.zsh_parameter_suffix_looks_like_modifier(&mut chars) {
+                                let tail =
+                                    self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                                let raw_body = self.prefixed_parameter_raw_body(
+                                    &format!("{}[{}]", var_name, subscript.syntax_text(self.input)),
+                                    brace_body_start,
+                                    tail,
+                                    source_backed,
+                                );
+                                let parameter =
+                                    self.zsh_parameter_word_part(raw_body, part_start, cursor);
+                                Self::push_word_part(parts, parameter, part_start, cursor);
+                                current_start = cursor;
+                                continue;
                             } else {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 let offset = self.read_source_text_while(
@@ -3370,6 +3460,22 @@ impl<'a> Parser<'a> {
                 let part = if let Some(c) = chars.peek().copied() {
                     match c {
                         ':' => {
+                            if self.zsh_parameter_suffix_looks_like_modifier(&mut chars) {
+                                let tail =
+                                    self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                                let raw_body = self.prefixed_parameter_raw_body(
+                                    &var_name,
+                                    brace_body_start,
+                                    tail,
+                                    source_backed,
+                                );
+                                let parameter =
+                                    self.zsh_parameter_word_part(raw_body, part_start, cursor);
+                                Self::push_word_part(parts, parameter, part_start, cursor);
+                                current_start = cursor;
+                                continue;
+                            }
+
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             match chars.peek() {
                                 Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?') => {

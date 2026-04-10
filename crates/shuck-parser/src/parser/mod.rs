@@ -665,7 +665,23 @@ impl<'a> Parser<'a> {
     /// Parse a word string with caller-configured limits.
     /// Prevents bypass of parser limits in parameter expansion contexts.
     pub fn parse_word_string_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {
+        Self::parse_word_string_with_limits_and_dialect(
+            input,
+            max_depth,
+            max_fuel,
+            ShellDialect::Bash,
+        )
+    }
+
+    /// Parse a word string with caller-configured limits and shell dialect.
+    pub fn parse_word_string_with_limits_and_dialect(
+        input: &str,
+        max_depth: usize,
+        max_fuel: usize,
+        dialect: ShellDialect,
+    ) -> Word {
         let mut parser = Parser::with_limits(input, max_depth, max_fuel);
+        parser.dialect = dialect;
         let start = Position::new();
         parser.parse_word_with_context(
             input,
@@ -2650,6 +2666,9 @@ impl<'a> Parser<'a> {
                         argument.rebased(base);
                     }
                 }
+                if let Some(length_prefix) = &mut syntax.length_prefix {
+                    *length_prefix = length_prefix.rebased(base);
+                }
                 if let Some(operation) = &mut syntax.operation {
                     match operation {
                         ZshExpansionOperation::PatternOperation { operand, .. }
@@ -3146,6 +3165,7 @@ impl<'a> Parser<'a> {
         let text = raw_body.slice(self.input);
         let mut index = 0;
         let mut modifiers = Vec::new();
+        let mut length_prefix = None;
         let source_backed = raw_body.is_source_backed();
 
         while text[index..].starts_with('(')
@@ -3154,6 +3174,13 @@ impl<'a> Parser<'a> {
         {
             modifiers.extend(group_modifiers);
             index = next_index;
+        }
+
+        if text[index..].starts_with('#') {
+            let prefix_start = base.advanced_by(&text[..index]);
+            let prefix_end = prefix_start.advanced_by("#");
+            length_prefix = Some(Span::from_positions(prefix_start, prefix_end));
+            index += '#'.len_utf8();
         }
 
         let (target, operation_index) = if text[index..].starts_with("${") {
@@ -3198,6 +3225,7 @@ impl<'a> Parser<'a> {
         ZshParameterExpansion {
             target,
             modifiers,
+            length_prefix,
             operation,
         }
     }
@@ -3250,18 +3278,28 @@ impl<'a> Parser<'a> {
         }
 
         let raw_body = SourceText::from(text[2..text.len() - 1].to_string());
-        let syntax = if raw_body.slice(self.input).starts_with('(')
-            || raw_body.slice(self.input).starts_with(':')
-            || raw_body.slice(self.input).starts_with('^')
-            || raw_body.slice(self.input).starts_with('~')
-            || raw_body.slice(self.input).starts_with('.')
+        let raw_body_text = raw_body.slice(self.input);
+        let syntax = if raw_body_text.starts_with('(')
+            || raw_body_text.starts_with(':')
+            || raw_body_text.starts_with('^')
+            || raw_body_text.starts_with('~')
+            || raw_body_text.starts_with('.')
+            || raw_body_text.starts_with('#')
+            || raw_body_text.starts_with('"')
+            || raw_body_text.starts_with('\'')
+            || raw_body_text.starts_with('$')
+            || raw_body_text
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_digit())
+            || self.find_zsh_operation_start(raw_body_text).is_some()
         {
             ParameterExpansionSyntax::Zsh(
                 self.parse_zsh_parameter_syntax(&raw_body, Position::new()),
             )
         } else {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
-                reference: self.parse_loose_var_ref(raw_body.slice(self.input)),
+                reference: self.parse_loose_var_ref(raw_body_text),
             })
         };
 
@@ -3425,15 +3463,38 @@ impl<'a> Parser<'a> {
         None
     }
 
+    fn zsh_modifier_suffix_candidate(rest: &str) -> bool {
+        if rest.is_empty() {
+            return false;
+        }
+
+        let Some(first) = rest.chars().next() else {
+            return false;
+        };
+        if first.is_ascii_digit()
+            || first.is_ascii_whitespace()
+            || matches!(first, '$' | '\'' | '"' | '(' | '{')
+        {
+            return false;
+        }
+
+        rest.split(':').all(|segment| {
+            !segment.is_empty()
+                && segment.len() <= 2
+                && segment.chars().all(|ch| ch.is_ascii_alphabetic())
+        })
+    }
+
     fn zsh_slice_candidate(rest: &str) -> bool {
         let Some(first) = rest.chars().next() else {
             return false;
         };
 
-        first.is_ascii_alphanumeric()
-            || first == '_'
-            || first.is_ascii_whitespace()
-            || matches!(first, '$' | '\'' | '"' | '(' | '{')
+        !Self::zsh_modifier_suffix_candidate(rest)
+            && (first.is_ascii_alphanumeric()
+                || first == '_'
+                || first.is_ascii_whitespace()
+                || matches!(first, '$' | '\'' | '"' | '(' | '{'))
     }
 
     fn parse_zsh_parameter_operation(&self, text: &str, base: Position) -> ZshExpansionOperation {
@@ -3521,17 +3582,25 @@ impl<'a> Parser<'a> {
             };
         }
 
-        if let Some(rest) = text.strip_prefix(':')
-            && Self::zsh_slice_candidate(rest)
-        {
-            let separator = self.find_zsh_top_level_delimiter(rest, ':');
-            let offset_end = separator.unwrap_or(rest.len());
-            return ZshExpansionOperation::Slice {
-                offset: self.zsh_operation_source_text(text, base, 1, 1 + offset_end),
-                length: separator.map(|separator| {
-                    self.zsh_operation_source_text(text, base, 1 + separator + 1, text.len())
-                }),
-            };
+        if let Some(rest) = text.strip_prefix(':') {
+            if Self::zsh_modifier_suffix_candidate(rest) {
+                return ZshExpansionOperation::Unknown(self.source_text(
+                    text.to_string(),
+                    base,
+                    base.advanced_by(text),
+                ));
+            }
+
+            if Self::zsh_slice_candidate(rest) {
+                let separator = self.find_zsh_top_level_delimiter(rest, ':');
+                let offset_end = separator.unwrap_or(rest.len());
+                return ZshExpansionOperation::Slice {
+                    offset: self.zsh_operation_source_text(text, base, 1, 1 + offset_end),
+                    length: separator.map(|separator| {
+                        self.zsh_operation_source_text(text, base, 1 + separator + 1, text.len())
+                    }),
+                };
+            }
         }
 
         ZshExpansionOperation::Unknown(self.source_text(
