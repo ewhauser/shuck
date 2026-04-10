@@ -148,6 +148,7 @@ declare_rules! {
         Severity::Warning,
         CommentedContinuationLine
     ),
+    ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
         "C137",
@@ -372,6 +373,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-194" => Some(Rule::CommentedContinuationLine),
+        "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
@@ -564,6 +566,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C076"), Some(Rule::CommentedContinuationLine));
         assert_eq!(code_to_rule("SH-194"), Some(Rule::CommentedContinuationLine));
+        assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));

@@ -194,6 +194,7 @@ impl Default for ShellCheckCodeMap {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
+            (2333, Rule::NonShellSyntaxInScript),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
@@ -350,6 +351,7 @@ impl Default for ShellCheckCodeMap {
                 (2288, Rule::TemplateBraceInCommand),
                 (2289, Rule::CommentedContinuationLine),
                 (2294, Rule::EvalOnArray),
+                (2333, Rule::NonShellSyntaxInScript),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -532,6 +534,7 @@ mod tests {
         assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
         assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
+        assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
@@ -692,6 +695,7 @@ mod tests {
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2321, Rule::FunctionKeywordInSh),
+            (2333, Rule::NonShellSyntaxInScript),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),

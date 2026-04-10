@@ -241,6 +241,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TemplateBraceInCommand) {
             rules::correctness::template_brace_in_command::template_brace_in_command(self);
         }
+        if self.is_rule_enabled(Rule::NonShellSyntaxInScript) {
+            rules::correctness::non_shell_syntax_in_script::non_shell_syntax_in_script(self);
+        }
         if self.is_rule_enabled(Rule::LocalVariableInSh) {
             rules::portability::local_variable_in_sh::local_variable_in_sh(self);
         }

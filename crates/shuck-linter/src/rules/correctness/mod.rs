@@ -32,6 +32,7 @@ pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
+pub mod non_shell_syntax_in_script;
 pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
@@ -122,6 +123,7 @@ mod tests {
     #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
+    #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
