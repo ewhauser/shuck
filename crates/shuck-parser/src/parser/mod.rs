@@ -4668,11 +4668,17 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LeftBrace) => Ok(true),
             Some(TokenKind::Semicolon) => {
                 self.advance();
-                self.skip_newlines()?;
+                if let Err(error) = self.skip_newlines() {
+                    self.restore(checkpoint);
+                    return Err(error);
+                }
                 Ok(self.current_keyword() == Some(Keyword::Do))
             }
             Some(TokenKind::Newline) => {
-                self.skip_newlines()?;
+                if let Err(error) = self.skip_newlines() {
+                    self.restore(checkpoint);
+                    return Err(error);
+                }
                 Ok(self.current_keyword() == Some(Keyword::Do))
             }
             _ => Ok(false),
@@ -4734,7 +4740,10 @@ impl<'a> Parser<'a> {
                         break true;
                     }
                     Some(TokenKind::Newline) => {
-                        self.skip_newlines()?;
+                        if let Err(error) = self.skip_newlines() {
+                            self.restore(checkpoint);
+                            return Err(error);
+                        }
                         break true;
                     }
                     _ => break false,
