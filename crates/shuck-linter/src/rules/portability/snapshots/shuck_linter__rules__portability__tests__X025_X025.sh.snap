@@ -1,0 +1,51 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 112
+---
+X025 replacement expansion is not portable in `sh`
+ --> <source>:4:16
+  |
+4 | printf '%s\n' "${1//a/b}" "${1/a/b}" "${name/#old/new}" "${name/%old/new}"
+  |
+
+X025 replacement expansion is not portable in `sh`
+ --> <source>:4:28
+  |
+4 | printf '%s\n' "${1//a/b}" "${1/a/b}" "${name/#old/new}" "${name/%old/new}"
+  |
+
+X025 replacement expansion is not portable in `sh`
+ --> <source>:4:39
+  |
+4 | printf '%s\n' "${1//a/b}" "${1/a/b}" "${name/#old/new}" "${name/%old/new}"
+  |
+
+X025 replacement expansion is not portable in `sh`
+ --> <source>:4:58
+  |
+4 | printf '%s\n' "${1//a/b}" "${1/a/b}" "${name/#old/new}" "${name/%old/new}"
+  |
+
+X025 replacement expansion is not portable in `sh`
+ --> <source>:7:16
+  |
+7 | printf '%s\n' "${arr[0]//old/new}" "${arr[@]/old/new}" "${arr[*]//old}"
+  |
+
+X025 replacement expansion is not portable in `sh`
+ --> <source>:7:37
+  |
+7 | printf '%s\n' "${arr[0]//old/new}" "${arr[@]/old/new}" "${arr[*]//old}"
+  |
+
+X025 replacement expansion is not portable in `sh`
+ --> <source>:7:57
+  |
+7 | printf '%s\n' "${arr[0]//old/new}" "${arr[@]/old/new}" "${arr[*]//old}"
+  |
+
+X025 replacement expansion is not portable in `sh`
+  --> <source>:11:12
+   |
+11 | Expected: '${commit//old/new}'
+   |

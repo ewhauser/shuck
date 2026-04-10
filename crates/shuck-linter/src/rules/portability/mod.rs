@@ -1,6 +1,10 @@
 pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
+pub mod ansi_c_quoting;
+pub mod array_assignment;
+pub mod array_reference;
 pub mod bash_case_fallthrough;
+pub mod brace_expansion;
 pub mod brace_fd_redirection;
 pub mod c_style_for_arithmetic_in_sh;
 pub mod c_style_for_in_sh;
@@ -10,17 +14,23 @@ pub mod csh_syntax_in_sh;
 pub mod declare_command;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
+pub mod here_string;
+pub mod indirect_expansion;
 pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
+pub mod process_substitution;
+pub mod replacement_expansion;
 pub mod select_loop;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
 pub mod standalone_arithmetic;
+pub mod substring_expansion;
+pub mod uppercase_expansion;
 pub mod zsh_always_block;
 pub mod zsh_array_subscript_in_case;
 pub mod zsh_assignment_to_zero;
@@ -57,13 +67,23 @@ mod tests {
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
     #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
+    #[test_case(Rule::ProcessSubstitution, Path::new("X006.sh"))]
+    #[test_case(Rule::AnsiCQuoting, Path::new("X007.sh"))]
+    #[test_case(Rule::BraceExpansion, Path::new("X010.sh"))]
+    #[test_case(Rule::HereString, Path::new("X011.sh"))]
     #[test_case(Rule::StandaloneArithmetic, Path::new("X008.sh"))]
     #[test_case(Rule::SelectLoop, Path::new("X009.sh"))]
     #[test_case(Rule::Coproc, Path::new("X014.sh"))]
     #[test_case(Rule::AmpersandRedirection, Path::new("X012.sh"))]
+    #[test_case(Rule::ArrayAssignment, Path::new("X013.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
+    #[test_case(Rule::IndirectExpansion, Path::new("X018.sh"))]
+    #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
+    #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
+    #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
+    #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]

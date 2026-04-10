@@ -7,8 +7,8 @@ shellcheck_code: SC3059
 shells:
   - sh
   - dash
-description: The script converts a parameter to uppercase with a bash-only expansion form.
-rationale: Perform case conversion in another step, or target a shell that supports this expansion.
+description: The script modifies a parameter's case with a bash-only expansion form.
+rationale: Perform case conversion in another step, or target a shell that supports case-modification expansion.
 source:
   shell_checks_rule: rules/SH-032.yaml
   shell_checks_example: examples/032.sh

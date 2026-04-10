@@ -158,13 +158,23 @@ declare_rules! {
     ("X003", Category::Portability, Severity::Warning, LocalVariableInSh),
     ("X004", Category::Portability, Severity::Warning, FunctionKeyword),
     ("X005", Category::Portability, Severity::Warning, BashCaseFallthrough),
+    ("X006", Category::Portability, Severity::Warning, ProcessSubstitution),
+    ("X007", Category::Portability, Severity::Warning, AnsiCQuoting),
+    ("X010", Category::Portability, Severity::Warning, BraceExpansion),
+    ("X011", Category::Portability, Severity::Warning, HereString),
     ("X008", Category::Portability, Severity::Warning, StandaloneArithmetic),
     ("X009", Category::Portability, Severity::Warning, SelectLoop),
     ("X014", Category::Portability, Severity::Warning, Coproc),
     ("X012", Category::Portability, Severity::Warning, AmpersandRedirection),
+    ("X013", Category::Portability, Severity::Warning, ArrayAssignment),
     ("X015", Category::Portability, Severity::Warning, LetCommand),
     ("X016", Category::Portability, Severity::Warning, DeclareCommand),
+    ("X018", Category::Portability, Severity::Warning, IndirectExpansion),
+    ("X019", Category::Portability, Severity::Warning, ArrayReference),
     ("X020", Category::Portability, Severity::Warning, BraceFdRedirection),
+    ("X023", Category::Portability, Severity::Warning, SubstringExpansion),
+    ("X024", Category::Portability, Severity::Warning, CaseModificationExpansion),
+    ("X025", Category::Portability, Severity::Warning, ReplacementExpansion),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
@@ -238,6 +248,16 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-008" => Some(Rule::LocalVariableInSh),
         "SH-009" => Some(Rule::FunctionKeyword),
         "SH-010" => Some(Rule::BashCaseFallthrough),
+        "SH-011" => Some(Rule::ProcessSubstitution),
+        "SH-012" => Some(Rule::AnsiCQuoting),
+        "SH-015" => Some(Rule::BraceExpansion),
+        "SH-016" => Some(Rule::HereString),
+        "SH-018" => Some(Rule::ArrayAssignment),
+        "SH-023" => Some(Rule::IndirectExpansion),
+        "SH-024" => Some(Rule::ArrayReference),
+        "SH-031" => Some(Rule::SubstringExpansion),
+        "SH-032" => Some(Rule::CaseModificationExpansion),
+        "SH-033" => Some(Rule::ReplacementExpansion),
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
@@ -542,5 +562,20 @@ mod tests {
         assert_eq!(code_to_rule("SH-299"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(code_to_rule("X079"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(code_to_rule("SH-303"), Some(Rule::ZshParameterIndexFlag));
+        assert_eq!(code_to_rule("X013"), Some(Rule::ArrayAssignment));
+        assert_eq!(code_to_rule("SH-018"), Some(Rule::ArrayAssignment));
+        assert_eq!(code_to_rule("X018"), Some(Rule::IndirectExpansion));
+        assert_eq!(code_to_rule("SH-023"), Some(Rule::IndirectExpansion));
+        assert_eq!(code_to_rule("X019"), Some(Rule::ArrayReference));
+        assert_eq!(code_to_rule("SH-024"), Some(Rule::ArrayReference));
+        assert_eq!(code_to_rule("X023"), Some(Rule::SubstringExpansion));
+        assert_eq!(code_to_rule("SH-031"), Some(Rule::SubstringExpansion));
+        assert_eq!(code_to_rule("X024"), Some(Rule::CaseModificationExpansion));
+        assert_eq!(
+            code_to_rule("SH-032"),
+            Some(Rule::CaseModificationExpansion)
+        );
+        assert_eq!(code_to_rule("X025"), Some(Rule::ReplacementExpansion));
+        assert_eq!(code_to_rule("SH-033"), Some(Rule::ReplacementExpansion));
     }
 }

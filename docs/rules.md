@@ -68,16 +68,16 @@ or keyword checks gated on dialect.
 Detect bash-specific parameter expansion, process substitution, arrays, and
 related syntax in POSIX sh. Mostly surface-level AST node type checks.
 
-- [ ] **L** X006 (SC3001) `process-substitution` — `<()` / `>()` in sh
-- [ ] **L** X007 (SC3003) `ansi-c-quoting` — `$'...'` in sh
-- [ ] **L** X010 (SC3009) `brace-expansion` — `{a,b}` expansion in sh
-- [ ] **L** X011 (SC3054) `here-string` — `<<<` in sh
-- [ ] **L** X013 (SC3030) `array-assignment` — array variable assignment in sh
-- [ ] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
-- [ ] **L** X019 (SC3028) `array-reference` — indexed array reference in sh
-- [ ] **L** X023 (SC3057) `substring-expansion` — `${var:offset:len}` in sh
-- [ ] **L** X024 (SC3059) `uppercase-expansion` — `${var^^}` in sh
-- [ ] **L** X025 (SC3060) `replacement-expansion` — `${var//pat/repl}` in sh
+- [x] **L** X006 (SC3001) `process-substitution` — `<()` / `>()` in sh
+- [x] **L** X007 (SC3003) `ansi-c-quoting` — `$'...'` in sh
+- [x] **L** X010 (SC3009) `brace-expansion` — `{a,b}` expansion in sh
+- [x] **L** X011 (SC3011) `here-string` — `<<<` in sh
+- [x] **L** X013 (SC3030) `array-assignment` — array variable assignment in sh
+- [x] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
+- [x] **L** X019 (SC3054) `array-reference` — array reference in sh
+- [x] **L** X023 (SC3057) `substring-expansion` — `${var:offset:len}` in sh
+- [x] **L** X024 (SC3059) `uppercase-expansion` — case-modification expansion in sh
+- [x] **L** X025 (SC3060) `replacement-expansion` — replacement expansion in sh
 - [ ] **L** X026 (SC3024) `bash-file-slurp` — `$(< file)` in sh
 - [ ] **L** X045 (SC3055) `plus-equals-append` — `+=` assignment in sh
 - [ ] **L** X055 (SC3062) `dollar-string-in-sh` — `$"string"` in sh

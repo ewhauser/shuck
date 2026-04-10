@@ -423,6 +423,7 @@ impl<'a> RedirectFact<'a> {
 #[derive(Debug, Clone)]
 pub struct SingleQuotedFragmentFact {
     span: Span,
+    dollar_quoted: bool,
     command_name: Option<Box<str>>,
     assignment_target: Option<Box<str>>,
     variable_set_operand: bool,
@@ -431,6 +432,10 @@ pub struct SingleQuotedFragmentFact {
 impl SingleQuotedFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn dollar_quoted(&self) -> bool {
+        self.dollar_quoted
     }
 
     pub fn command_name(&self) -> Option<&str> {
@@ -496,6 +501,66 @@ pub struct NestedParameterExpansionFragmentFact {
 }
 
 impl NestedParameterExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IndirectExpansionFragmentFact {
+    span: Span,
+    array_keys: bool,
+}
+
+impl IndirectExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn array_keys(&self) -> bool {
+        self.array_keys
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IndexedArrayReferenceFragmentFact {
+    span: Span,
+}
+
+impl IndexedArrayReferenceFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SubstringExpansionFragmentFact {
+    span: Span,
+}
+
+impl SubstringExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CaseModificationFragmentFact {
+    span: Span,
+}
+
+impl CaseModificationFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplacementExpansionFragmentFact {
+    span: Span,
+}
+
+impl ReplacementExpansionFragmentFact {
     pub fn span(&self) -> Span {
         self.span
     }
@@ -1365,6 +1430,11 @@ pub struct LinterFacts<'a> {
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
+    indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
+    indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
+    substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
+    case_modification_fragments: Vec<CaseModificationFragmentFact>,
+    replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1544,6 +1614,26 @@ impl<'a> LinterFacts<'a> {
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
         &self.nested_parameter_expansion_fragments
     }
+
+    pub fn indirect_expansion_fragments(&self) -> &[IndirectExpansionFragmentFact] {
+        &self.indirect_expansion_fragments
+    }
+
+    pub fn indexed_array_reference_fragments(&self) -> &[IndexedArrayReferenceFragmentFact] {
+        &self.indexed_array_reference_fragments
+    }
+
+    pub fn substring_expansion_fragments(&self) -> &[SubstringExpansionFragmentFact] {
+        &self.substring_expansion_fragments
+    }
+
+    pub fn case_modification_fragments(&self) -> &[CaseModificationFragmentFact] {
+        &self.case_modification_fragments
+    }
+
+    pub fn replacement_expansion_fragments(&self) -> &[ReplacementExpansionFragmentFact] {
+        &self.replacement_expansion_fragments
+    }
 }
 
 struct LinterFactsBuilder<'a> {
@@ -1705,6 +1795,11 @@ impl<'a> LinterFactsBuilder<'a> {
             pattern_literal_spans,
             pattern_charclass_spans,
             nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
+            indirect_expansion_fragments: surface_fragments.indirect_expansions,
+            indexed_array_reference_fragments: surface_fragments.indexed_array_references,
+            substring_expansion_fragments: surface_fragments.substring_expansions,
+            case_modification_fragments: surface_fragments.case_modifications,
+            replacement_expansion_fragments: surface_fragments.replacement_expansions,
         }
     }
 }
@@ -4809,6 +4904,17 @@ echo \"$(( x $1 y ))\"
 PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
+printf '%s\n' $'tab\t'
+printf '%s\n' \"${!name}\" \"${!arr[*]}\"
+printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
+printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
+printf '%s\n' \"${name^}\" \"${name^^pattern}\" \"${name,}\" \"${arr[0]^^}\" \"${arr[@],,}\" \"${!name^^}\" \"${name//x/y}\"
+printf '%s\n' \"${name/a/b}\" \"${name//a}\" \"${arr[0]//a/b}\" \"${arr[@]/a/b}\" \"${arr[*]//a}\" \"${!name//a/b}\"
+cat <<EOF
+Expected: '${expected_commit::7}'
+#define LAST_COMMIT_POSITION \"2311 ${GN_COMMIT:0:12}\"
+Replacement: '${name//before/after}'
+EOF
 printf '%s\\n' 123 | command kill -9
 echo \"#!/bin/bash
 if [[ \"$@\" =~ x ]]; then :; fi
@@ -4860,6 +4966,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 .map(|fragment| {
                     (
                         fragment.span().slice(source).to_owned(),
+                        fragment.dollar_quoted(),
                         fragment.command_name().map(str::to_owned),
                         fragment.assignment_target().map(str::to_owned),
                         fragment.variable_set_operand(),
@@ -4867,7 +4974,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 })
                 .collect::<Vec<_>>();
             assert!(single_quoted.iter().any(
-                |(text, _, assignment_target, variable_set_operand)| {
+                |(text, _, _, assignment_target, variable_set_operand)| {
                     text == "'$prompt'"
                         && assignment_target.as_deref() == Some("PS4")
                         && !variable_set_operand
@@ -4875,16 +4982,91 @@ if [[ \"$@\" =~ x ]]; then :; fi
             ));
             assert!(single_quoted.contains(&(
                 "'$__loc__'".to_owned(),
+                false,
                 Some("jq".to_owned()),
                 None,
                 false,
             )));
             assert!(single_quoted.contains(&(
                 "'$name'".to_owned(),
+                false,
                 Some("test".to_owned()),
                 None,
                 true,
             )));
+            assert!(single_quoted.iter().any(
+                |(text, dollar_quoted, _, _, variable_set_operand)| {
+                    text.starts_with("$'tab") && *dollar_quoted && !variable_set_operand
+                }
+            ));
+            assert_eq!(
+                facts
+                    .indirect_expansion_fragments()
+                    .iter()
+                    .map(|fragment| (fragment.span().slice(source), fragment.array_keys()))
+                    .collect::<Vec<_>>(),
+                vec![
+                    ("${!name}", false),
+                    ("${!arr[*]}", true),
+                    ("${!arr[0]}", false),
+                    ("${!name//a/b}", false),
+                ]
+            );
+            assert_eq!(
+                facts
+                    .indexed_array_reference_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${arr[0]}", "${arr[@]}", "${arr[*]}"]
+            );
+            assert_eq!(
+                facts
+                    .substring_expansion_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "${name:2}",
+                    "${1:1}",
+                    "${name::2}",
+                    "${@:1}",
+                    "${*:1:2}",
+                    "${expected_commit::7}",
+                    "${GN_COMMIT:0:12}",
+                ]
+            );
+            assert_eq!(
+                facts
+                    .case_modification_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "${name^}",
+                    "${name^^pattern}",
+                    "${name,}",
+                    "${arr[0]^^}",
+                    "${arr[@],,}",
+                ]
+            );
+            assert_eq!(
+                facts
+                    .replacement_expansion_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "${arr[0]//x/y}",
+                    "${name//x/y}",
+                    "${name/a/b}",
+                    "${name//a}",
+                    "${arr[0]//a/b}",
+                    "${arr[@]/a/b}",
+                    "${arr[*]//a}",
+                    "${name//before/after}",
+                ]
+            );
 
             let jq = facts
                 .structural_commands()

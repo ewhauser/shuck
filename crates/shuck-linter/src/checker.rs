@@ -259,6 +259,24 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DeclareCommand) {
             rules::portability::declare_command::declare_command(self);
         }
+        if self.is_rule_enabled(Rule::ArrayAssignment) {
+            rules::portability::array_assignment::array_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::IndirectExpansion) {
+            rules::portability::indirect_expansion::indirect_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayReference) {
+            rules::portability::array_reference::array_reference(self);
+        }
+        if self.is_rule_enabled(Rule::SubstringExpansion) {
+            rules::portability::substring_expansion::substring_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::CaseModificationExpansion) {
+            rules::portability::uppercase_expansion::uppercase_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::ReplacementExpansion) {
+            rules::portability::replacement_expansion::replacement_expansion(self);
+        }
         if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
             rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
         }
@@ -385,6 +403,12 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AmpersandRedirection) {
             rules::portability::ampersand_redirection::ampersand_redirection(self);
         }
+        if self.is_rule_enabled(Rule::ProcessSubstitution) {
+            rules::portability::process_substitution::process_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::HereString) {
+            rules::portability::here_string::here_string(self);
+        }
         if self.is_rule_enabled(Rule::BraceFdRedirection) {
             rules::portability::brace_fd_redirection::brace_fd_redirection(self);
         }
@@ -411,6 +435,12 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
             rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::AnsiCQuoting) {
+            rules::portability::ansi_c_quoting::ansi_c_quoting(self);
+        }
+        if self.is_rule_enabled(Rule::BraceExpansion) {
+            rules::portability::brace_expansion::brace_expansion(self);
         }
         if self.is_rule_enabled(Rule::LegacyArithmeticInSh) {
             rules::portability::legacy_arithmetic_in_sh::legacy_arithmetic_in_sh(self);

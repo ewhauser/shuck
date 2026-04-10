@@ -1,0 +1,57 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 110
+---
+X024 case-modification expansion is not portable in `sh`
+ --> <source>:4:16
+  |
+4 | printf '%s\n' "${1^^}" "${1^}" "${name^^pattern}"
+  |
+
+X024 case-modification expansion is not portable in `sh`
+ --> <source>:4:25
+  |
+4 | printf '%s\n' "${1^^}" "${1^}" "${name^^pattern}"
+  |
+
+X024 case-modification expansion is not portable in `sh`
+ --> <source>:4:33
+  |
+4 | printf '%s\n' "${1^^}" "${1^}" "${name^^pattern}"
+  |
+
+X024 case-modification expansion is not portable in `sh`
+ --> <source>:7:16
+  |
+7 | printf '%s\n' "${name,,}" "${name,}" "${name,,pattern}"
+  |
+
+X024 case-modification expansion is not portable in `sh`
+ --> <source>:7:28
+  |
+7 | printf '%s\n' "${name,,}" "${name,}" "${name,,pattern}"
+  |
+
+X024 case-modification expansion is not portable in `sh`
+ --> <source>:7:39
+  |
+7 | printf '%s\n' "${name,,}" "${name,}" "${name,,pattern}"
+  |
+
+X024 case-modification expansion is not portable in `sh`
+  --> <source>:10:16
+   |
+10 | printf '%s\n' "${arr[@]^^}" "${arr[0]^}"
+   |
+
+X024 case-modification expansion is not portable in `sh`
+  --> <source>:10:30
+   |
+10 | printf '%s\n' "${arr[@]^^}" "${arr[0]^}"
+   |
+
+X024 case-modification expansion is not portable in `sh`
+  --> <source>:14:12
+   |
+14 | Expected: '${commit^^}'
+   |

@@ -96,6 +96,18 @@ impl Default for ShellCheckCodeMap {
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
             (3043, Rule::LocalVariableInSh),
+            (3001, Rule::ProcessSubstitution),
+            (3003, Rule::AnsiCQuoting),
+            (3009, Rule::BraceExpansion),
+            (3011, Rule::HereString),
+            (3030, Rule::ArrayAssignment),
+            (3053, Rule::IndirectExpansion),
+            // ShellCheck 0.11.0 reports array references as SC3054.
+            // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
+            (3054, Rule::ArrayReference),
+            (3057, Rule::SubstringExpansion),
+            (3059, Rule::CaseModificationExpansion),
+            (3060, Rule::ReplacementExpansion),
             (2038, Rule::FindOutputToXargs),
             (2064, Rule::TrapStringExpansion),
             (2068, Rule::UnquotedArrayExpansion),
@@ -237,6 +249,17 @@ impl Default for ShellCheckCodeMap {
                 (2046, Rule::UnquotedCommandSubstitution),
                 (2059, Rule::PrintfFormatVariable),
                 (3043, Rule::LocalVariableInSh),
+                (3001, Rule::ProcessSubstitution),
+                (3003, Rule::AnsiCQuoting),
+                (3009, Rule::BraceExpansion),
+                (3011, Rule::HereString),
+                (3030, Rule::ArrayAssignment),
+                (3053, Rule::IndirectExpansion),
+                (3028, Rule::ArrayReference),
+                (3054, Rule::ArrayReference),
+                (3057, Rule::SubstringExpansion),
+                (3059, Rule::CaseModificationExpansion),
+                (3060, Rule::ReplacementExpansion),
                 (2038, Rule::FindOutputToXargs),
                 (2064, Rule::TrapStringExpansion),
                 (2068, Rule::UnquotedArrayExpansion),
@@ -392,6 +415,17 @@ mod tests {
             Some(Rule::UnquotedCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
+        assert_eq!(map.resolve("SC3001"), Some(Rule::ProcessSubstitution));
+        assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
+        assert_eq!(map.resolve("SC3009"), Some(Rule::BraceExpansion));
+        assert_eq!(map.resolve("SC3011"), Some(Rule::HereString));
+        assert_eq!(map.resolve("SC3028"), Some(Rule::ArrayReference));
+        assert_eq!(map.resolve("SC3030"), Some(Rule::ArrayAssignment));
+        assert_eq!(map.resolve("SC3053"), Some(Rule::IndirectExpansion));
+        assert_eq!(map.resolve("SC3054"), Some(Rule::ArrayReference));
+        assert_eq!(map.resolve("SC3057"), Some(Rule::SubstringExpansion));
+        assert_eq!(map.resolve("SC3059"), Some(Rule::CaseModificationExpansion));
+        assert_eq!(map.resolve("SC3060"), Some(Rule::ReplacementExpansion));
         assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2064"), Some(Rule::TrapStringExpansion));
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
@@ -574,17 +608,23 @@ mod tests {
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+                (3001, Rule::ProcessSubstitution),
+                (3003, Rule::AnsiCQuoting),
                 (3005, Rule::CStyleForInSh),
                 (3006, Rule::StandaloneArithmetic),
                 (3007, Rule::LegacyArithmeticInSh),
                 (3008, Rule::SelectLoop),
+                (3009, Rule::BraceExpansion),
                 (3010, Rule::DoubleBracketInSh),
+                (3011, Rule::HereString),
                 (3012, Rule::GreaterThanInDoubleBracket),
                 (3014, Rule::TestEqualityOperator),
                 (3015, Rule::RegexMatchInSh),
                 (3016, Rule::VTestInSh),
                 (3017, Rule::ATestInSh),
                 (3018, Rule::CStyleForArithmeticInSh),
+                (3028, Rule::ArrayReference),
+                (3030, Rule::ArrayAssignment),
                 (3032, Rule::Coproc),
                 (3033, Rule::SelectLoop),
                 (3039, Rule::LetCommand),
@@ -595,7 +635,12 @@ mod tests {
                 (3050, Rule::BraceFdRedirection),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3052, Rule::AmpersandRedirection),
+                (3053, Rule::IndirectExpansion),
+                (3054, Rule::ArrayReference),
+                (3057, Rule::SubstringExpansion),
                 (3058, Rule::BashCaseFallthrough),
+                (3059, Rule::CaseModificationExpansion),
+                (3060, Rule::ReplacementExpansion),
                 (3062, Rule::OptionTestInSh),
                 (3063, Rule::CStyleForInSh),
                 (3064, Rule::LegacyArithmeticInSh),
@@ -651,6 +696,13 @@ mod tests {
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
+        assert!(comparison.contains(&(3011, Rule::HereString)));
+        assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
+        assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
+        assert!(comparison.contains(&(3054, Rule::ArrayReference)));
+        assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
+        assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
+        assert!(comparison.contains(&(3060, Rule::ReplacementExpansion)));
         assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
         assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));

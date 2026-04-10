@@ -1,0 +1,27 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 108
+---
+X023 substring expansion is not portable in `sh`
+ --> <source>:4:16
+  |
+4 | printf '%s\n' "${1:1}"
+  |
+
+X023 substring expansion is not portable in `sh`
+ --> <source>:7:16
+  |
+7 | printf '%s\n' "${name:2:3}"
+  |
+
+X023 substring expansion is not portable in `sh`
+  --> <source>:10:16
+   |
+10 | printf '%s\n' "${@:1}" "${*:1:2}"
+   |
+
+X023 substring expansion is not portable in `sh`
+  --> <source>:10:25
+   |
+10 | printf '%s\n' "${@:1}" "${*:1:2}"
+   |
