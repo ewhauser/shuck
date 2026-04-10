@@ -192,6 +192,7 @@ impl Default for ShellCheckCodeMap {
             (2154, Rule::UndefinedVariable),
             (2239, Rule::NonAbsoluteShebang),
             (2288, Rule::TemplateBraceInCommand),
+            (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
@@ -347,6 +348,7 @@ impl Default for ShellCheckCodeMap {
                 (2154, Rule::UndefinedVariable),
                 (2239, Rule::NonAbsoluteShebang),
                 (2288, Rule::TemplateBraceInCommand),
+                (2289, Rule::CommentedContinuationLine),
                 (2294, Rule::EvalOnArray),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
@@ -584,6 +586,7 @@ mod tests {
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
+        assert_eq!(map.resolve("SC2289"), Some(Rule::CommentedContinuationLine));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
@@ -684,6 +687,7 @@ mod tests {
             (2278, Rule::ZshPromptBracket),
             (2279, Rule::CshSyntaxInSh),
             (2288, Rule::TemplateBraceInCommand),
+            (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),

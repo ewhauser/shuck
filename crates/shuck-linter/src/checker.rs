@@ -512,6 +512,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnicodeQuoteInString) {
             rules::correctness::unicode_quote_in_string::unicode_quote_in_string(self);
         }
+        if self.is_rule_enabled(Rule::CommentedContinuationLine) {
+            rules::correctness::commented_continuation_line::commented_continuation_line(self);
+        }
         if self.is_rule_enabled(Rule::UnicodeSingleQuoteInSingleQuotes) {
             rules::correctness::unicode_single_quote_in_single_quotes::unicode_single_quote_in_single_quotes(self);
         }

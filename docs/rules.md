@@ -396,7 +396,7 @@ misuse.
 Rules about control flow structure, continuation lines, braces, and syntax
 oddities. Mostly AST-level checks.
 
-- [ ] **M** C076 (SC2289) `commented-continuation-line` — line continuation followed by comment
+- [x] **M** C076 (SC2289) `commented-continuation-line` — line continuation followed by comment
 - [ ] **M** C104 (SC2333) `non-shell-syntax-in-script` — C or other non-shell code in script
 - [ ] **L** C141 (SC2389) `loop-without-end` — loop body never closed
 - [ ] **L** C142 (SC2390) `missing-done-in-for-loop` — for loop reaches EOF without `done`

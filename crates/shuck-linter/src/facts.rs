@@ -1537,6 +1537,7 @@ pub struct LinterFacts<'a> {
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
     non_absolute_shebang_span: Option<Span>,
+    commented_continuation_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
@@ -1686,6 +1687,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
         self.non_absolute_shebang_span
+    }
+
+    pub fn commented_continuation_comment_spans(&self) -> &[Span] {
+        &self.commented_continuation_comment_spans
     }
 
     pub fn condition_status_capture_spans(&self) -> &[Span] {
@@ -1893,6 +1898,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let subshell_test_group_spans =
             build_subshell_test_group_spans(&commands, &command_ids_by_span, self.source);
         let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
+        let commented_continuation_comment_spans =
+            build_commented_continuation_comment_spans(self.source, self._indexer);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
         let SurfaceFragmentFacts {
@@ -1972,6 +1979,7 @@ impl<'a> LinterFactsBuilder<'a> {
             single_test_subshell_spans,
             subshell_test_group_spans,
             non_absolute_shebang_span,
+            commented_continuation_comment_spans,
             condition_status_capture_spans,
             single_quoted_fragments: single_quoted,
             open_double_quote_fragments: open_double_quotes,
@@ -2484,6 +2492,41 @@ fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
     };
     let end = start.advanced_by(line);
     Some(Span::from_positions(start, end))
+}
+
+fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
+    let line_index = indexer.line_index();
+    let comment_index = indexer.comment_index();
+
+    indexer
+        .continuation_line_starts()
+        .iter()
+        .filter_map(|&line_start_offset| {
+            let line = line_index.line_number(line_start_offset);
+            let line_text = line_index.line_range(line, source)?.slice(source);
+            if !line_text.trim_end().ends_with('\\') {
+                return None;
+            }
+            let comment = comment_index
+                .comments_on_line(line)
+                .iter()
+                .find(|comment| comment.is_own_line)?;
+            let line_start = usize::from(line_index.line_start(line)?);
+            let comment_start = usize::from(comment.range.start());
+            if comment_start < line_start || comment_start > source.len() {
+                return None;
+            }
+
+            let line_start_position = Position {
+                line,
+                column: 1,
+                offset: line_start,
+            };
+            let start = line_start_position.advanced_by(&source[line_start..comment_start]);
+            let end = start.advanced_by("#");
+            Some(Span::from_positions(start, end))
+        })
+        .collect()
 }
 
 fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {

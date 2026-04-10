@@ -10,6 +10,7 @@ pub mod c_prototype_fragment;
 pub mod c_style_comment;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
+pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
 pub mod double_paren_grouping;
@@ -120,6 +121,7 @@ mod tests {
     #[test_case(Rule::PositionalParamAsOperator, Path::new("C070.sh"))]
     #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
+    #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
