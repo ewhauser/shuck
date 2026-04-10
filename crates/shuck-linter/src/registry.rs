@@ -322,6 +322,7 @@ declare_rules! {
     ("X050", Category::Portability, Severity::Warning, CshSyntaxInSh),
     ("X053", Category::Portability, Severity::Warning, ZshAssignmentToZero),
     ("X056", Category::Portability, Severity::Warning, CStyleForInSh),
+    ("X055", Category::Portability, Severity::Warning, DollarStringInSh),
     ("X057", Category::Portability, Severity::Warning, LegacyArithmeticInSh),
     ("X062", Category::Portability, Severity::Warning, CStyleForArithmeticInSh),
     ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
@@ -601,6 +602,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-184" => Some(Rule::CshSyntaxInSh),
         "SH-218" => Some(Rule::ZshNestedExpansion),
         "SH-260" => Some(Rule::ZshAssignmentToZero),
+        "SH-262" => Some(Rule::DollarStringInSh),
         "SH-263" => Some(Rule::CStyleForInSh),
         "SH-264" => Some(Rule::LegacyArithmeticInSh),
         "SH-269" => Some(Rule::CStyleForArithmeticInSh),
@@ -946,6 +948,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-218"), Some(Rule::ZshNestedExpansion));
         assert_eq!(code_to_rule("X053"), Some(Rule::ZshAssignmentToZero));
         assert_eq!(code_to_rule("SH-260"), Some(Rule::ZshAssignmentToZero));
+        assert_eq!(code_to_rule("X055"), Some(Rule::DollarStringInSh));
+        assert_eq!(code_to_rule("SH-262"), Some(Rule::DollarStringInSh));
         assert_eq!(code_to_rule("X056"), Some(Rule::CStyleForInSh));
         assert_eq!(code_to_rule("SH-263"), Some(Rule::CStyleForInSh));
         assert_eq!(code_to_rule("X057"), Some(Rule::LegacyArithmeticInSh));

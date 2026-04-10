@@ -14,6 +14,7 @@ pub mod conditional_portability;
 pub mod coproc;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
+pub mod dollar_string_in_sh;
 pub mod errexit_trap_in_sh;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
@@ -116,6 +117,7 @@ mod tests {
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
+    #[test_case(Rule::DollarStringInSh, Path::new("X055.sh"))]
     #[test_case(Rule::ExtglobInSh, Path::new("X054.sh"))]
     #[test_case(Rule::CStyleForInSh, Path::new("X056.sh"))]
     #[test_case(Rule::LegacyArithmeticInSh, Path::new("X057.sh"))]

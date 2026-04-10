@@ -4,6 +4,7 @@ use shuck_ast::PatternGroupKind;
 #[derive(Debug, Default)]
 pub(super) struct SurfaceFragmentFacts {
     pub(super) single_quoted: Vec<SingleQuotedFragmentFact>,
+    pub(super) dollar_double_quoted: Vec<DollarDoubleQuotedFragmentFact>,
     pub(super) open_double_quotes: Vec<OpenDoubleQuoteFragmentFact>,
     pub(super) suspect_closing_quotes: Vec<SuspectClosingQuoteFragmentFact>,
     pub(super) backticks: Vec<BacktickFragmentFact>,
@@ -495,7 +496,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         variable_set_operand: context.variable_set_operand,
                     });
                 }
-                WordPart::DoubleQuoted { parts, .. } => self.collect_word_parts(parts, context),
+                WordPart::DoubleQuoted { parts, dollar } => {
+                    if *dollar {
+                        self.facts
+                            .dollar_double_quoted
+                            .push(DollarDoubleQuotedFragmentFact { span: part.span });
+                    }
+                    self.collect_word_parts(parts, context);
+                }
                 WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
                 WordPart::ArithmeticExpansion {
                     expression,

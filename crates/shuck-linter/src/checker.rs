@@ -602,6 +602,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AnsiCQuoting) {
             rules::portability::ansi_c_quoting::ansi_c_quoting(self);
         }
+        if self.is_rule_enabled(Rule::DollarStringInSh) {
+            rules::portability::dollar_string_in_sh::dollar_string_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::BraceExpansion) {
             rules::portability::brace_expansion::brace_expansion(self);
         }

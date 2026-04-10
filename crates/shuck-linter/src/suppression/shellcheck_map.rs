@@ -229,6 +229,9 @@ impl Default for ShellCheckCodeMap {
             (3043, Rule::LocalVariableInSh),
             (3001, Rule::ProcessSubstitution),
             (3003, Rule::AnsiCQuoting),
+            // The pinned ShellCheck oracle reports `$\"...\"` portability findings as SC3004.
+            // Keep SC3062 as a suppression alias for compatibility with older rule metadata.
+            (3004, Rule::DollarStringInSh),
             (3009, Rule::BraceExpansion),
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
@@ -477,6 +480,7 @@ impl Default for ShellCheckCodeMap {
                 (3043, Rule::LocalVariableInSh),
                 (3001, Rule::ProcessSubstitution),
                 (3003, Rule::AnsiCQuoting),
+                (3004, Rule::DollarStringInSh),
                 (3009, Rule::BraceExpansion),
                 (3011, Rule::HereString),
                 (3030, Rule::ArrayAssignment),
@@ -595,6 +599,7 @@ impl Default for ShellCheckCodeMap {
                 (2321, Rule::FunctionKeywordInSh),
                 (3024, Rule::BashFileSlurp),
                 (3055, Rule::PlusEqualsAppend),
+                (3062, Rule::DollarStringInSh),
                 (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
@@ -851,6 +856,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC3001"), Some(Rule::ProcessSubstitution));
         assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
+        assert_eq!(map.resolve("SC3004"), Some(Rule::DollarStringInSh));
         assert_eq!(map.resolve("SC3009"), Some(Rule::BraceExpansion));
         assert_eq!(map.resolve("SC3011"), Some(Rule::HereString));
         assert_eq!(map.resolve("SC3028"), Some(Rule::ArrayReference));
@@ -893,6 +899,11 @@ mod tests {
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3040"), Some(Rule::PipefailOption));
+        assert_eq!(map.resolve("SC3062"), Some(Rule::OptionTestInSh));
+        assert_eq!(
+            map.resolve_all("SC3062"),
+            vec![Rule::OptionTestInSh, Rule::DollarStringInSh]
+        );
         assert_eq!(map.resolve("SC3048"), Some(Rule::WaitOption));
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
         assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
@@ -1233,6 +1244,7 @@ mod tests {
             (3001, Rule::ProcessSubstitution),
             (3002, Rule::ExtglobInSh),
             (3003, Rule::AnsiCQuoting),
+            (3004, Rule::DollarStringInSh),
             (3005, Rule::CStyleForInSh),
             (3006, Rule::StandaloneArithmetic),
             (3007, Rule::LegacyArithmeticInSh),
@@ -1275,6 +1287,7 @@ mod tests {
             (3060, Rule::ReplacementExpansion),
             (3061, Rule::ExtglobInSh),
             (3062, Rule::OptionTestInSh),
+            (3062, Rule::DollarStringInSh),
             (3063, Rule::CStyleForInSh),
             (3064, Rule::LegacyArithmeticInSh),
             (3065, Rule::StickyBitTestInSh),
@@ -1330,6 +1343,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(comparison.contains(&(3002, Rule::ExtglobInSh)));
+        assert!(comparison.contains(&(3004, Rule::DollarStringInSh)));
         assert!(comparison.contains(&(3006, Rule::StandaloneArithmetic)));
         assert!(comparison.contains(&(3007, Rule::LegacyArithmeticInSh)));
         assert!(comparison.contains(&(3008, Rule::SelectLoop)));
@@ -1427,6 +1441,7 @@ mod tests {
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
         assert!(!comparison.contains(&(3061, Rule::BareRead)));
+        assert!(!comparison.contains(&(3062, Rule::DollarStringInSh)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3055, Rule::PlusEqualsAppend)));
         assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));

@@ -463,6 +463,17 @@ impl SingleQuotedFragmentFact {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct DollarDoubleQuotedFragmentFact {
+    span: Span,
+}
+
+impl DollarDoubleQuotedFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct OpenDoubleQuoteFragmentFact {
     span: Span,
 }
@@ -1679,6 +1690,7 @@ pub struct LinterFacts<'a> {
     arithmetic_command_substitution_spans: Vec<Span>,
     function_positional_parameter_facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
+    dollar_double_quoted_fragments: Vec<DollarDoubleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
     suspect_closing_quote_fragments: Vec<SuspectClosingQuoteFragmentFact>,
     literal_brace_spans: Vec<Span>,
@@ -1902,6 +1914,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn single_quoted_fragments(&self) -> &[SingleQuotedFragmentFact] {
         &self.single_quoted_fragments
+    }
+
+    pub fn dollar_double_quoted_fragments(&self) -> &[DollarDoubleQuotedFragmentFact] {
+        &self.dollar_double_quoted_fragments
     }
 
     pub fn open_double_quote_fragments(&self) -> &[OpenDoubleQuoteFragmentFact] {
@@ -2171,6 +2187,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let literal_brace_spans = build_literal_brace_spans(&words, &commands, self.source);
         let SurfaceFragmentFacts {
             single_quoted,
+            dollar_double_quoted,
             open_double_quotes,
             suspect_closing_quotes,
             backticks,
@@ -2267,6 +2284,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 .arithmetic_command_substitution_spans,
             function_positional_parameter_facts,
             single_quoted_fragments: single_quoted,
+            dollar_double_quoted_fragments: dollar_double_quoted,
             open_double_quote_fragments: open_double_quotes,
             suspect_closing_quote_fragments: suspect_closing_quotes,
             literal_brace_spans,
@@ -9743,6 +9761,7 @@ PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
 printf '%s\n' $'tab\t'
+echo $\"Usage: $0 {start|stop}\"
 printf '%s\n' \"${!name}\" \"${!arr[*]}\"
 printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
 printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
@@ -9845,6 +9864,14 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     text.starts_with("$'tab") && *dollar_quoted && !variable_set_operand
                 }
             ));
+            assert_eq!(
+                facts
+                    .dollar_double_quoted_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$\"Usage: $0 {start|stop}\""]
+            );
             assert_eq!(
                 facts
                     .indirect_expansion_fragments()
