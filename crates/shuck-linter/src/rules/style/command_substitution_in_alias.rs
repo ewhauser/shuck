@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, ExpansionContext, Rule, Violation};
 
 pub struct CommandSubstitutionInAlias;
 
@@ -16,7 +14,7 @@ impl Violation for CommandSubstitutionInAlias {
 
 pub fn command_substitution_in_alias(checker: &mut Checker) {
     let source = checker.source();
-    let alias_command_ids = checker
+    let alias_definition_spans = checker
         .facts()
         .commands()
         .iter()
@@ -27,14 +25,20 @@ pub fn command_substitution_in_alias(checker: &mut Checker) {
                     .iter()
                     .any(|word| word.span.slice(source).contains('='))
         })
-        .map(|fact| fact.id())
-        .collect::<HashSet<_>>();
+        .flat_map(|fact| {
+            fact.body_args()
+                .iter()
+                .filter(|word| word.span.slice(source).contains('='))
+                .map(|word| word.span)
+        })
+        .collect::<Vec<_>>();
 
     let spans = checker
         .facts()
         .word_facts()
         .iter()
-        .filter(|fact| alias_command_ids.contains(&fact.command_id()))
+        .filter(|fact| fact.expansion_context() == Some(ExpansionContext::CommandArgument))
+        .filter(|fact| alias_definition_spans.contains(&fact.span()))
         .flat_map(|fact| fact.command_substitution_spans().iter().copied())
         .collect::<Vec<_>>();
 
@@ -81,6 +85,21 @@ alias foo=$BAR
 alias plain='$(command -v printf)'
 \\alias \"${1-}\" >/dev/null 2>&1
 alias -p
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CommandSubstitutionInAlias),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_command_substitutions_outside_alias_operands() {
+        let source = "\
+#!/bin/sh
+X=$(date) alias ll='ls -l'
+FOO=$(date) BAR=$(uname) alias ll='ls -l'
 ";
         let diagnostics = test_snippet(
             source,

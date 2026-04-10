@@ -6875,7 +6875,7 @@ fn parse_find_execdir_shell_command(
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut saw_or = false;
-    let mut saw_grouping = false;
+    let mut grouping_depth = 0usize;
     let mut saw_action_before_current_branch = false;
     let mut current_branch_has_predicate = false;
     let mut current_branch_has_explicit_and = false;
@@ -6890,12 +6890,17 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
             has_print0 = true;
         }
 
-        if is_find_group_open_token(text.as_str()) || is_find_group_close_token(text.as_str()) {
-            saw_grouping = true;
+        if is_find_group_open_token(text.as_str()) {
+            grouping_depth += 1;
             continue;
         }
 
-        if is_find_or_token(text.as_str()) {
+        if is_find_group_close_token(text.as_str()) {
+            grouping_depth = grouping_depth.saturating_sub(1);
+            continue;
+        }
+
+        if grouping_depth == 0 && is_find_or_token(text.as_str()) {
             saw_or = true;
             current_branch_has_predicate = false;
             current_branch_has_explicit_and = false;
@@ -6916,7 +6921,6 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
 
         if is_find_branch_action_token(text.as_str()) {
             if is_find_reportable_action_token(text.as_str())
-                && !saw_grouping
                 && !saw_action_before_current_branch
                 && current_branch_has_predicate
                 && !current_branch_has_explicit_and
