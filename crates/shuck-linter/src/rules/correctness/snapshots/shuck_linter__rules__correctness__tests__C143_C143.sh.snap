@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C143 this `else` branch has no command body
+ --> <source>:2:30
+  |
+2 | if true; then echo yes; else fi
+  |

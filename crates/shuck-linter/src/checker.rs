@@ -241,6 +241,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TemplateBraceInCommand) {
             rules::correctness::template_brace_in_command::template_brace_in_command(self);
         }
+        if self.is_rule_enabled(Rule::NonShellSyntaxInScript) {
+            rules::correctness::non_shell_syntax_in_script::non_shell_syntax_in_script(self);
+        }
         if self.is_rule_enabled(Rule::LocalVariableInSh) {
             rules::portability::local_variable_in_sh::local_variable_in_sh(self);
         }
@@ -351,6 +354,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::BackslashBeforeCommand) {
             rules::style::backslash_before_command::backslash_before_command(self);
+        }
+        if self.is_rule_enabled(Rule::AmpersandSemicolon) {
+            rules::style::ampersand_semicolon::ampersand_semicolon(self);
         }
         if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
             rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
@@ -469,6 +475,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
             rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
         }
+        if self.is_rule_enabled(Rule::LiteralBraces) {
+            rules::style::literal_braces::literal_braces(self);
+        }
         if self.is_rule_enabled(Rule::AnsiCQuoting) {
             rules::portability::ansi_c_quoting::ansi_c_quoting(self);
         }
@@ -492,6 +501,12 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::OpenDoubleQuote) {
             rules::correctness::open_double_quote::open_double_quote(self);
         }
+        if self.is_rule_enabled(Rule::SuspectClosingQuote) {
+            rules::style::suspect_closing_quote::suspect_closing_quote(self);
+        }
+        if self.is_rule_enabled(Rule::TrailingDirective) {
+            rules::style::trailing_directive::trailing_directive(self);
+        }
         if self.is_rule_enabled(Rule::PositionalTenBraces) {
             rules::correctness::positional_ten_braces::positional_ten_braces(self);
         }
@@ -511,6 +526,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::UnicodeQuoteInString) {
             rules::correctness::unicode_quote_in_string::unicode_quote_in_string(self);
+        }
+        if self.is_rule_enabled(Rule::CommentedContinuationLine) {
+            rules::correctness::commented_continuation_line::commented_continuation_line(self);
         }
         if self.is_rule_enabled(Rule::UnicodeSingleQuoteInSingleQuotes) {
             rules::correctness::unicode_single_quote_in_single_quotes::unicode_single_quote_in_single_quotes(self);

@@ -5,10 +5,16 @@ use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDi
 
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
+use crate::rules::correctness::dangling_else::DanglingElse;
+use crate::rules::correctness::if_bracket_glued::IfBracketGlued;
+use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
+use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
+use crate::rules::correctness::until_missing_do::UntilMissingDo;
 use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
+use crate::rules::style::linebreak_before_and::LinebreakBeforeAnd;
 use crate::{Diagnostic, Rule, RuleSet, ShellDialect, Violation};
 
 pub struct ExtglobCase;
@@ -42,6 +48,10 @@ pub(crate) fn collect_parse_rule_diagnostics(
     shell: ShellDialect,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    let missing_done_loop_kind = (enabled_rules.contains(crate::Rule::LoopWithoutEnd)
+        || enabled_rules.contains(crate::Rule::MissingDoneInForLoop))
+    .then(|| missing_done_loop_kind(file, source, parse_diagnostics))
+    .flatten();
 
     if enabled_rules.contains(crate::Rule::MissingFi)
         && parse_diagnostics
@@ -49,6 +59,36 @@ pub(crate) fn collect_parse_rule_diagnostics(
             .any(|diagnostic| is_missing_fi_error(&diagnostic.message))
     {
         diagnostics.push(Diagnostic::new(MissingFi, eof_point(file)));
+    }
+    if enabled_rules.contains(crate::Rule::LoopWithoutEnd)
+        && missing_done_loop_kind == Some(MissingDoneLoopKind::NonFor)
+    {
+        diagnostics.push(Diagnostic::new(LoopWithoutEnd, eof_point(file)));
+    }
+    if enabled_rules.contains(crate::Rule::MissingDoneInForLoop)
+        && missing_done_loop_kind == Some(MissingDoneLoopKind::For)
+    {
+        diagnostics.push(Diagnostic::new(MissingDoneInForLoop, eof_point(file)));
+    }
+    if enabled_rules.contains(crate::Rule::DanglingElse)
+        && let Some(span) = dangling_else_span(parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(DanglingElse, span));
+    }
+    if enabled_rules.contains(crate::Rule::UntilMissingDo)
+        && let Some(span) = until_missing_do_span(source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(UntilMissingDo, span));
+    }
+    if enabled_rules.contains(crate::Rule::IfBracketGlued)
+        && let Some(span) = if_bracket_glued_span(source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(IfBracketGlued, span));
+    }
+    if enabled_rules.contains(crate::Rule::LinebreakBeforeAnd) {
+        for span in linebreak_before_and_spans(source, parse_diagnostics) {
+            diagnostics.push(Diagnostic::new(LinebreakBeforeAnd, span));
+        }
     }
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
@@ -88,6 +128,280 @@ fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
 }
 
+fn is_loop_without_end_error(message: &str) -> bool {
+    message.starts_with("expected 'done'")
+}
+
+fn is_dangling_else_error(message: &str) -> bool {
+    message.starts_with("syntax error: empty else clause")
+}
+
+fn is_expected_command_error(message: &str) -> bool {
+    message.starts_with("expected command")
+}
+
+fn linebreak_before_and_spans(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Vec<Span> {
+    parse_diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            if !is_expected_command_error(&diagnostic.message) {
+                return None;
+            }
+
+            leading_control_operator_span(source, diagnostic.span.start.line)
+        })
+        .collect()
+}
+
+fn leading_control_operator_span(source: &str, line_number: usize) -> Option<Span> {
+    let line = line_text_at(source, line_number)?;
+    let text = line.split_once('#').map_or(line, |(before, _)| before);
+    let leading_bytes = text
+        .bytes()
+        .take_while(|byte| matches!(*byte, b' ' | b'\t' | b'\r'))
+        .count();
+    let trimmed = &text[leading_bytes..];
+
+    let operator = if let Some(rest) = trimmed.strip_prefix("&&") {
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_whitespace())
+        {
+            return None;
+        }
+        "&&"
+    } else if let Some(rest) = trimmed.strip_prefix("||") {
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_whitespace())
+        {
+            return None;
+        }
+        "||"
+    } else if let Some(rest) = trimmed.strip_prefix('|') {
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_whitespace())
+        {
+            return None;
+        }
+        "|"
+    } else {
+        return None;
+    };
+
+    let line_start = line_start_offset(source, line_number)?;
+    let start_offset = line_start + leading_bytes;
+    let start = position_at_offset(source, start_offset)?;
+    let end = position_at_offset(source, start_offset + operator.len())?;
+    Some(Span::from_positions(start, end))
+}
+
+fn dangling_else_span(parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
+    parse_diagnostics
+        .iter()
+        .find(|diagnostic| is_dangling_else_error(&diagnostic.message))
+        .map(|diagnostic| diagnostic.span)
+}
+
+fn until_missing_do_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
+    parse_diagnostics
+        .iter()
+        .find(|diagnostic| {
+            is_expected_command_error(&diagnostic.message)
+                && is_done_line(source, diagnostic.span.start.line)
+                && has_pending_until_without_do_before_line(source, diagnostic.span.start.line)
+        })
+        .map(|diagnostic| diagnostic.span)
+}
+
+fn if_bracket_glued_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
+    parse_diagnostics.iter().find_map(|diagnostic| {
+        if !is_expected_command_error(&diagnostic.message) {
+            return None;
+        }
+        if_bracket_glued_span_on_line(source, diagnostic.span.start.line)
+    })
+}
+
+fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Span> {
+    let line = line_text_at(source, line_number)?;
+    let text = line.split_once('#').map_or(line, |(before, _)| before);
+    let bytes = text.as_bytes();
+    if bytes.len() < 3 {
+        return None;
+    }
+
+    for index in 0..=bytes.len() - 3 {
+        if bytes[index] != b'i' || bytes[index + 1] != b'f' || bytes[index + 2] != b'[' {
+            continue;
+        }
+        if index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_') {
+            continue;
+        }
+
+        let line_offset = line_start_offset(source, line_number)?;
+        let start_offset = line_offset + index;
+        let end_offset = start_offset + 3;
+        let start = position_at_offset(source, start_offset)?;
+        let end = position_at_offset(source, end_offset)?;
+        return Some(Span::from_positions(start, end));
+    }
+
+    None
+}
+
+fn is_done_line(source: &str, line_number: usize) -> bool {
+    line_text_at(source, line_number)
+        .map(|line| {
+            let text = line.split_once('#').map_or(line, |(before, _)| before);
+            shell_like_words(text).contains(&"done")
+        })
+        .unwrap_or(false)
+}
+
+fn has_pending_until_without_do_before_line(source: &str, line_number: usize) -> bool {
+    if line_number <= 1 {
+        return false;
+    }
+
+    let mut pending_until_depth = 0usize;
+    for (index, line) in source.lines().enumerate() {
+        let current_line = index + 1;
+        if current_line >= line_number {
+            break;
+        }
+
+        let text = line.split_once('#').map_or(line, |(before, _)| before);
+        if line_has_command_leading_word(text, "until") {
+            pending_until_depth += 1;
+        }
+        if pending_until_depth > 0
+            && (line_has_command_leading_word(text, "do")
+                || line_has_command_leading_word(text, "done"))
+        {
+            pending_until_depth -= 1;
+        }
+    }
+
+    pending_until_depth > 0
+}
+
+fn line_has_command_leading_word(line: &str, word: &str) -> bool {
+    line.split([';', '|', '&'])
+        .filter_map(|segment| shell_like_words(segment.trim_start()).into_iter().next())
+        .any(|candidate| candidate == word)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MissingDoneLoopKind {
+    For,
+    NonFor,
+}
+
+fn missing_done_loop_kind(
+    file: &File,
+    source: &str,
+    parse_diagnostics: &[ParseDiagnostic],
+) -> Option<MissingDoneLoopKind> {
+    if !parse_diagnostics
+        .iter()
+        .any(|diagnostic| is_loop_without_end_error(&diagnostic.message))
+    {
+        return None;
+    }
+
+    Some(if missing_done_belongs_to_for_loop(file, source) {
+        MissingDoneLoopKind::For
+    } else {
+        MissingDoneLoopKind::NonFor
+    })
+}
+
+fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {
+    let eof_offset = file.span.end.offset;
+    let mut trailing_loop_kind = None;
+
+    for visit in query::iter_commands(&file.body, CommandWalkOptions::default()) {
+        if visit.stmt.span.end.offset != eof_offset {
+            continue;
+        }
+
+        let is_for_loop = match visit.command {
+            Command::Compound(CompoundCommand::For(_)) => true,
+            Command::Compound(CompoundCommand::While(_) | CompoundCommand::Until(_)) => false,
+            _ => continue,
+        };
+
+        let start_offset = visit.stmt.span.start.offset;
+        if trailing_loop_kind
+            .as_ref()
+            .is_none_or(|(best_start, _)| start_offset >= *best_start)
+        {
+            trailing_loop_kind = Some((start_offset, is_for_loop));
+        }
+    }
+
+    trailing_loop_kind
+        .map(|(_, is_for_loop)| is_for_loop)
+        .or_else(|| missing_done_loop_kind_from_source(source))
+        .unwrap_or(false)
+}
+
+fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
+    let mut loop_stack = Vec::new();
+
+    for line in source.lines() {
+        let text = line.split_once('#').map_or(line, |(before, _)| before);
+        let words = shell_like_words(text);
+        if words.is_empty() {
+            continue;
+        }
+
+        let has_do = words.contains(&"do");
+        if has_do {
+            if words.contains(&"for") {
+                loop_stack.push(true);
+            } else if words.iter().any(|word| matches!(*word, "while" | "until")) {
+                loop_stack.push(false);
+            }
+        }
+
+        let done_count = words.iter().filter(|word| **word == "done").count();
+        for _ in 0..done_count {
+            if loop_stack.pop().is_none() {
+                break;
+            }
+        }
+    }
+
+    loop_stack.last().copied()
+}
+
+fn shell_like_words(line: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = None;
+
+    for (index, ch) in line.char_indices() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            if start.is_none() {
+                start = Some(index);
+            }
+        } else if let Some(word_start) = start.take() {
+            words.push(&line[word_start..index]);
+        }
+    }
+
+    if let Some(word_start) = start {
+        words.push(&line[word_start..]);
+    }
+
+    words
+}
+
 fn is_x037_shell(shell: ShellDialect) -> bool {
     matches!(
         shell,
@@ -101,7 +415,6 @@ fn is_x048_shell(shell: ShellDialect) -> bool {
         ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
     )
 }
-
 fn eof_point(file: &File) -> Span {
     Span::from_positions(file.span.end, file.span.end)
 }
@@ -326,6 +639,240 @@ mod tests {
         let source = "#!/bin/sh\nif true; then\n  :\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_loop_without_end_parse_error_to_c141_at_end_of_file() {
+        let source = "#!/bin/sh\nwhile true; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LoopWithoutEnd);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn ignores_loop_without_end_parse_error_when_rule_is_not_enabled() {
+        let source = "#!/bin/sh\nwhile true; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_for_loop_missing_done_for_c141() {
+        let source = "#!/bin/sh\nfor x in a; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_for_loop_missing_done_parse_error_to_c142() {
+        let source = "#!/bin/sh\nfor x in a; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::MissingDoneInForLoop);
+    }
+
+    #[test]
+    fn ignores_while_loop_missing_done_for_c142() {
+        let source = "#!/bin/sh\nwhile true; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_dangling_else_parse_error_to_c143() {
+        let source = "#!/bin/sh\nif true; then echo yes; else fi\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::DanglingElse);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DanglingElse);
+    }
+
+    #[test]
+    fn ignores_dangling_else_parse_error_when_rule_is_not_enabled() {
+        let source = "#!/bin/sh\nif true; then echo yes; else fi\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_until_missing_do_parse_error_to_c146() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UntilMissingDo);
+    }
+
+    #[test]
+    fn ignores_non_until_expected_command_parse_errors_for_c146() {
+        let source = "#!/bin/sh\nwhile :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_plain_until_word_before_done_for_c146() {
+        let source = "#!/bin/sh\necho until\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_if_bracket_glued_parse_error_to_c157() {
+        let source = "#!/bin/sh\nif[ \"${1:-}\" = ok ]; then\n  :\nfi\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::IfBracketGlued);
+        assert_eq!(diagnostics[0].span.slice(source), "if[");
+    }
+
+    #[test]
+    fn ignores_non_if_bracket_expected_command_parse_errors_for_c157() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_linebreak_before_and_parse_error_to_s072() {
+        let source = "#!/bin/bash\ntrue\n&& echo x\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Bash,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LinebreakBeforeAnd);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn ignores_non_and_expected_command_parse_errors_for_s072() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,

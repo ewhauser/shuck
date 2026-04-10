@@ -1,3 +1,4 @@
+pub mod ampersand_semicolon;
 pub mod backslash_before_command;
 pub mod echoed_command_substitution;
 pub mod escaped_underscore;
@@ -5,14 +6,18 @@ pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
+pub mod linebreak_before_and;
 pub mod literal_backslash;
 pub mod literal_backslash_in_single_quotes;
+pub mod literal_braces;
 pub mod loop_from_command_output;
 pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
 pub mod read_without_raw;
 pub mod single_quote_backslash;
+pub mod suspect_closing_quote;
 pub mod syntax;
+pub mod trailing_directive;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
 pub mod unquoted_expansion;
@@ -43,6 +48,11 @@ mod tests {
     #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
     #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
+    #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
+    #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
+    #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]
+    #[test_case(Rule::LinebreakBeforeAnd, Path::new("S072.sh"))]
+    #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

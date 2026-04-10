@@ -10,8 +10,10 @@ pub mod c_prototype_fragment;
 pub mod c_style_comment;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
+pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
+pub mod dangling_else;
 pub mod double_paren_grouping;
 pub mod dynamic_source_path;
 pub mod else_if;
@@ -20,6 +22,7 @@ pub mod empty_function_body;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+pub mod if_bracket_glued;
 pub mod if_missing_then;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
@@ -27,10 +30,13 @@ pub mod line_oriented_input;
 pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
+pub mod loop_without_end;
+pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
+pub mod non_shell_syntax_in_script;
 pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
@@ -54,6 +60,7 @@ pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unreachable_after_exit;
+pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
 
@@ -120,8 +127,15 @@ mod tests {
     #[test_case(Rule::PositionalParamAsOperator, Path::new("C070.sh"))]
     #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
+    #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
+    #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
+    #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
+    #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
+    #[test_case(Rule::DanglingElse, Path::new("C143.sh"))]
+    #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
+    #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

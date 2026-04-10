@@ -65,6 +65,9 @@ impl ShellCheckCodeMap {
         if number == 2284 {
             return vec![Rule::UnicodeQuoteInString];
         }
+        if number == 1126 {
+            return vec![Rule::TrailingDirective];
+        }
         if number == 2385 {
             return vec![Rule::UnicodeSingleQuoteInSingleQuotes];
         }
@@ -92,17 +95,25 @@ impl Default for ShellCheckCodeMap {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
+            // ShellCheck 0.11.0 reports `foo &;` as SC1045.
+            // Keep SC2397 as a suppression alias for historical compatibility.
+            (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
+            (1069, Rule::IfBracketGlued),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
             (1075, Rule::ElseIf),
             (1078, Rule::OpenDoubleQuote),
+            (1079, Rule::SuspectClosingQuote),
             (1080, Rule::LinebreakInTest),
+            (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
+            (1126, Rule::TrailingDirective),
+            (1113, Rule::TrailingDirective),
             (1127, Rule::CStyleComment),
             (1132, Rule::CPrototypeFragment),
             (2164, Rule::UncheckedDirectoryChange),
@@ -192,7 +203,16 @@ impl Default for ShellCheckCodeMap {
             (2154, Rule::UndefinedVariable),
             (2239, Rule::NonAbsoluteShebang),
             (2288, Rule::TemplateBraceInCommand),
+            (2289, Rule::CommentedContinuationLine),
+            (1133, Rule::LinebreakBeforeAnd),
             (2294, Rule::EvalOnArray),
+            (2333, Rule::NonShellSyntaxInScript),
+            (2389, Rule::LoopWithoutEnd),
+            (2390, Rule::MissingDoneInForLoop),
+            (2391, Rule::DanglingElse),
+            (2392, Rule::LinebreakBeforeAnd),
+            (2397, Rule::AmpersandSemicolon),
+            (2396, Rule::UntilMissingDo),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
@@ -241,18 +261,24 @@ impl Default for ShellCheckCodeMap {
                 (2235, Rule::SubshellTestGroup),
                 (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
+                (1045, Rule::AmpersandSemicolon),
                 (1047, Rule::MissingFi),
+                (1069, Rule::IfBracketGlued),
                 (1070, Rule::ZshRedirPipe),
                 (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
                 (1075, Rule::ElseIf),
                 (1078, Rule::OpenDoubleQuote),
+                (1079, Rule::SuspectClosingQuote),
                 (1080, Rule::LinebreakInTest),
+                (1083, Rule::LiteralBraces),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
+                (1126, Rule::TrailingDirective),
+                (1113, Rule::TrailingDirective),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (3002, Rule::ExtglobInSh),
                 (3026, Rule::CaretNegationInBracket),
@@ -347,7 +373,16 @@ impl Default for ShellCheckCodeMap {
                 (2154, Rule::UndefinedVariable),
                 (2239, Rule::NonAbsoluteShebang),
                 (2288, Rule::TemplateBraceInCommand),
+                (2289, Rule::CommentedContinuationLine),
+                (1133, Rule::LinebreakBeforeAnd),
                 (2294, Rule::EvalOnArray),
+                (2333, Rule::NonShellSyntaxInScript),
+                (2389, Rule::LoopWithoutEnd),
+                (2390, Rule::MissingDoneInForLoop),
+                (2391, Rule::DanglingElse),
+                (2392, Rule::LinebreakBeforeAnd),
+                (2397, Rule::AmpersandSemicolon),
+                (2396, Rule::UntilMissingDo),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -418,6 +453,7 @@ mod tests {
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
+        assert_eq!(map.resolve("SC1069"), Some(Rule::IfBracketGlued));
         assert_eq!(map.resolve("SC1070"), Some(Rule::ZshRedirPipe));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
@@ -441,6 +477,8 @@ mod tests {
             vec![Rule::CaretNegationInBracket]
         );
         assert_eq!(map.resolve("SC1078"), Some(Rule::OpenDoubleQuote));
+        assert_eq!(map.resolve("SC1079"), Some(Rule::SuspectClosingQuote));
+        assert_eq!(map.resolve("SC1083"), Some(Rule::LiteralBraces));
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
@@ -450,6 +488,8 @@ mod tests {
         );
         assert_eq!(map.resolve("SC1102"), Some(Rule::PositionalParamAsOperator));
         assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(map.resolve("SC1113"), Some(Rule::TrailingDirective));
+        assert_eq!(map.resolve("SC1126"), Some(Rule::TrailingDirective));
         assert_eq!(
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
@@ -480,6 +520,7 @@ mod tests {
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
+        assert_eq!(map.resolve("SC1045"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
@@ -530,6 +571,11 @@ mod tests {
         assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
         assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
+        assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
+        assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
+        assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
+        assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
@@ -584,6 +630,15 @@ mod tests {
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
+        assert_eq!(map.resolve("SC2289"), Some(Rule::CommentedContinuationLine));
+        assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(map.resolve("SC1133"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
+        assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
+        assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
+        assert_eq!(map.resolve("SC2392"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
+        assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
@@ -602,19 +657,26 @@ mod tests {
             (1012, Rule::NeedlessBackslashUnderscore),
             (1019, Rule::EmptyTest),
             (1037, Rule::PositionalTenBraces),
+            (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
+            (1069, Rule::IfBracketGlued),
             (1070, Rule::ZshRedirPipe),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
             (1075, Rule::ElseIf),
             (1075, Rule::ExtglobCase),
             (1078, Rule::OpenDoubleQuote),
+            (1079, Rule::SuspectClosingQuote),
             (1080, Rule::LinebreakInTest),
+            (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
+            (1133, Rule::LinebreakBeforeAnd),
+            (1113, Rule::TrailingDirective),
+            (1126, Rule::TrailingDirective),
             (1127, Rule::CStyleComment),
             (1129, Rule::ZshBraceIf),
             (1130, Rule::ZshAlwaysBlock),
@@ -684,10 +746,18 @@ mod tests {
             (2278, Rule::ZshPromptBracket),
             (2279, Rule::CshSyntaxInSh),
             (2288, Rule::TemplateBraceInCommand),
+            (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2321, Rule::FunctionKeywordInSh),
+            (2333, Rule::NonShellSyntaxInScript),
+            (2389, Rule::LoopWithoutEnd),
+            (2390, Rule::MissingDoneInForLoop),
+            (2391, Rule::DanglingElse),
+            (2392, Rule::LinebreakBeforeAnd),
+            (2396, Rule::UntilMissingDo),
+            (2397, Rule::AmpersandSemicolon),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),

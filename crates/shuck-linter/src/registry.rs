@@ -142,6 +142,13 @@ declare_rules! {
     ("C070", Category::Correctness, Severity::Warning, PositionalParamAsOperator),
     ("C071", Category::Correctness, Severity::Warning, DoubleParenGrouping),
     ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
+    (
+        "C076",
+        Category::Correctness,
+        Severity::Warning,
+        CommentedContinuationLine
+    ),
+    ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
         "C137",
@@ -149,6 +156,16 @@ declare_rules! {
         Severity::Warning,
         UnicodeSingleQuoteInSingleQuotes
     ),
+    ("C141", Category::Correctness, Severity::Error, LoopWithoutEnd),
+    (
+        "C142",
+        Category::Correctness,
+        Severity::Error,
+        MissingDoneInForLoop
+    ),
+    ("C143", Category::Correctness, Severity::Error, DanglingElse),
+    ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
+    ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
@@ -244,6 +261,9 @@ declare_rules! {
         NeedlessBackslashUnderscore
     ),
     ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
+    ("S028", Category::Style, Severity::Warning, SuspectClosingQuote),
+    ("S029", Category::Style, Severity::Warning, LiteralBraces),
+    ("S031", Category::Style, Severity::Warning, TrailingDirective),
     (
         "S039",
         Category::Style,
@@ -251,6 +271,8 @@ declare_rules! {
         LiteralBackslashInSingleQuotes
     ),
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
+    ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
+    ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -335,7 +357,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-272" => Some(Rule::CaretNegationInBracket),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
+        "SH-114" => Some(Rule::SuspectClosingQuote),
         "SH-115" => Some(Rule::LinebreakInTest),
+        "SH-116" => Some(Rule::LiteralBraces),
+        "SH-120" => Some(Rule::TrailingDirective),
+        "SH-329" => Some(Rule::LinebreakBeforeAnd),
+        "SH-335" => Some(Rule::AmpersandSemicolon),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
         "SH-129" => Some(Rule::BadRedirectionFdOrder),
@@ -365,6 +392,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-187" => Some(Rule::PositionalParamAsOperator),
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
+        "SH-194" => Some(Rule::CommentedContinuationLine),
+        "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
@@ -403,6 +432,11 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-282" => Some(Rule::OwnershipTestInSh),
         "SH-283" => Some(Rule::FindExecDirWithShell),
         "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
+        "SH-321" => Some(Rule::LoopWithoutEnd),
+        "SH-322" => Some(Rule::MissingDoneInForLoop),
+        "SH-327" => Some(Rule::DanglingElse),
+        "SH-334" => Some(Rule::UntilMissingDo),
+        "SH-353" => Some(Rule::IfBracketGlued),
         _ => None,
     })
 }
@@ -507,6 +541,16 @@ mod tests {
         assert_eq!(code_to_rule("SH-112"), Some(Rule::ElseIf));
         assert_eq!(code_to_rule("C039"), Some(Rule::OpenDoubleQuote));
         assert_eq!(code_to_rule("SH-113"), Some(Rule::OpenDoubleQuote));
+        assert_eq!(code_to_rule("S028"), Some(Rule::SuspectClosingQuote));
+        assert_eq!(code_to_rule("SH-114"), Some(Rule::SuspectClosingQuote));
+        assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
+        assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
+        assert_eq!(code_to_rule("S031"), Some(Rule::TrailingDirective));
+        assert_eq!(code_to_rule("SH-120"), Some(Rule::TrailingDirective));
+        assert_eq!(code_to_rule("S072"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(code_to_rule("SH-329"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(code_to_rule("S074"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(code_to_rule("SH-335"), Some(Rule::AmpersandSemicolon));
         assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("SH-115"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("C041"), Some(Rule::CStyleComment));
@@ -555,6 +599,13 @@ mod tests {
         assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
+        assert_eq!(code_to_rule("C076"), Some(Rule::CommentedContinuationLine));
+        assert_eq!(
+            code_to_rule("SH-194"),
+            Some(Rule::CommentedContinuationLine)
+        );
+        assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
@@ -566,6 +617,16 @@ mod tests {
             code_to_rule("SH-315"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
         );
+        assert_eq!(code_to_rule("C141"), Some(Rule::LoopWithoutEnd));
+        assert_eq!(code_to_rule("SH-321"), Some(Rule::LoopWithoutEnd));
+        assert_eq!(code_to_rule("C142"), Some(Rule::MissingDoneInForLoop));
+        assert_eq!(code_to_rule("SH-322"), Some(Rule::MissingDoneInForLoop));
+        assert_eq!(code_to_rule("C143"), Some(Rule::DanglingElse));
+        assert_eq!(code_to_rule("SH-327"), Some(Rule::DanglingElse));
+        assert_eq!(code_to_rule("C146"), Some(Rule::UntilMissingDo));
+        assert_eq!(code_to_rule("SH-334"), Some(Rule::UntilMissingDo));
+        assert_eq!(code_to_rule("C157"), Some(Rule::IfBracketGlued));
+        assert_eq!(code_to_rule("SH-353"), Some(Rule::IfBracketGlued));
         assert_eq!(code_to_rule("X005"), Some(Rule::BashCaseFallthrough));
         assert_eq!(code_to_rule("X008"), Some(Rule::StandaloneArithmetic));
         assert_eq!(code_to_rule("X009"), Some(Rule::SelectLoop));

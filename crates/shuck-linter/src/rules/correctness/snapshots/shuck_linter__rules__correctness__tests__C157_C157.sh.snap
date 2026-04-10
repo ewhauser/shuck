@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C157 this `if` keyword is glued to a `[` test
+ --> <source>:2:1
+  |
+2 | if[ "${1:-}" = ok ]; then
+  |
