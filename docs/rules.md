@@ -322,7 +322,7 @@ Rules about arithmetic expansion and arithmetic-context issues.
 - [x] **L** S034 (SC2254) `array-index-arithmetic` — arithmetic expansion in array subscript
 - [x] **L** S035 (SC2257) `arithmetic-score-line` — long arithmetic expansion in assignment
 - [x] **L** S045 (SC2292) `dollar-in-arithmetic` — `$` before variable in `$(( ))`
-- [ ] **L** S048 (SC2297) `dollar-in-arithmetic-context` — `$` in double-paren context
+- [x] **L** S048 (SC2297) `dollar-in-arithmetic-context` — `$` in double-paren context
 
 ### Redirection and Pipe Issues
 

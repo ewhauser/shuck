@@ -592,6 +592,7 @@ impl ReplacementExpansionFragmentFact {
 pub enum WordFactContext {
     Expansion(ExpansionContext),
     CaseSubject,
+    ArithmeticCommand,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -610,6 +611,7 @@ pub struct WordFact<'a> {
     command_id: CommandId,
     nested_word_command: bool,
     from_arithmetic_expansion: bool,
+    from_arithmetic_command: bool,
     context: WordFactContext,
     host_kind: WordFactHostKind,
     analysis: ExpansionAnalysis,
@@ -652,18 +654,29 @@ impl<'a> WordFact<'a> {
         self.from_arithmetic_expansion
     }
 
+    pub fn is_from_arithmetic_command(&self) -> bool {
+        self.from_arithmetic_command
+    }
+
+    fn is_arithmetic_variable_reference_parts(&self) -> bool {
+        matches!(self.word.parts.as_slice(), [part] if match &part.kind {
+            WordPart::Variable(name) => is_shell_variable_name(name.as_str()),
+            WordPart::Parameter(parameter) => matches!(
+                parameter.bourne(),
+                Some(BourneParameterExpansion::Access { reference })
+                    if is_shell_variable_name(reference.name.as_str())
+                        && reference.subscript.is_none()
+            ),
+            _ => false,
+        })
+    }
+
     pub fn is_arithmetic_variable_reference(&self) -> bool {
-        self.from_arithmetic_expansion
-            && matches!(self.word.parts.as_slice(), [part] if match &part.kind {
-                WordPart::Variable(name) => is_shell_variable_name(name.as_str()),
-                WordPart::Parameter(parameter) => matches!(
-                    parameter.bourne(),
-                    Some(BourneParameterExpansion::Access { reference })
-                        if is_shell_variable_name(reference.name.as_str())
-                            && reference.subscript.is_none()
-                ),
-                _ => false,
-            })
+        self.from_arithmetic_expansion && self.is_arithmetic_variable_reference_parts()
+    }
+
+    pub fn is_arithmetic_command_variable_reference(&self) -> bool {
+        self.from_arithmetic_command && self.is_arithmetic_variable_reference_parts()
     }
 
     pub fn context(&self) -> WordFactContext {
@@ -674,11 +687,16 @@ impl<'a> WordFact<'a> {
         match self.context {
             WordFactContext::Expansion(context) => Some(context),
             WordFactContext::CaseSubject => None,
+            WordFactContext::ArithmeticCommand => None,
         }
     }
 
     pub fn is_case_subject(&self) -> bool {
         self.context == WordFactContext::CaseSubject
+    }
+
+    pub fn is_arithmetic_command(&self) -> bool {
+        self.context == WordFactContext::ArithmeticCommand
     }
 
     pub fn host_kind(&self) -> WordFactHostKind {
@@ -4122,6 +4140,19 @@ impl<'a> WordFactCollector<'a> {
                 CompoundCommand::Conditional(command) => {
                     self.collect_conditional_expansion_words(&command.expression);
                 }
+                CompoundCommand::Arithmetic(command) => {
+                    if let Some(expression) = &command.expr_ast {
+                        query::visit_arithmetic_words(expression, &mut |nested_word| {
+                            self.push_arithmetic_word(
+                                nested_word.clone(),
+                                WordFactContext::ArithmeticCommand,
+                                WordFactHostKind::Direct,
+                                false,
+                                true,
+                            );
+                        });
+                    }
+                }
                 CompoundCommand::If(_)
                 | CompoundCommand::ArithmeticFor(_)
                 | CompoundCommand::While(_)
@@ -4129,7 +4160,6 @@ impl<'a> WordFactCollector<'a> {
                 | CompoundCommand::Subshell(_)
                 | CompoundCommand::BraceGroup(_)
                 | CompoundCommand::Always(_)
-                | CompoundCommand::Arithmetic(_)
                 | CompoundCommand::Coproc(_)
                 | CompoundCommand::Time(_) => {}
             }
@@ -4520,7 +4550,7 @@ impl<'a> WordFactCollector<'a> {
     }
 
     fn push_word(&mut self, word: &'a Word, context: WordFactContext, host_kind: WordFactHostKind) {
-        self.push_cow_word(Cow::Borrowed(word), context, host_kind, false);
+        self.push_cow_word(Cow::Borrowed(word), context, host_kind, false, false);
     }
 
     fn push_owned_word(
@@ -4529,7 +4559,7 @@ impl<'a> WordFactCollector<'a> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) {
-        self.push_cow_word(Cow::Owned(word), context, host_kind, false);
+        self.push_cow_word(Cow::Owned(word), context, host_kind, false, false);
     }
 
     fn push_arithmetic_word(
@@ -4537,8 +4567,16 @@ impl<'a> WordFactCollector<'a> {
         word: Word,
         context: WordFactContext,
         host_kind: WordFactHostKind,
+        from_arithmetic_expansion: bool,
+        from_arithmetic_command: bool,
     ) {
-        self.push_cow_word(Cow::Owned(word), context, host_kind, true);
+        self.push_cow_word(
+            Cow::Owned(word),
+            context,
+            host_kind,
+            from_arithmetic_expansion,
+            from_arithmetic_command,
+        );
     }
 
     fn push_cow_word(
@@ -4547,6 +4585,7 @@ impl<'a> WordFactCollector<'a> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
         from_arithmetic_expansion: bool,
+        from_arithmetic_command: bool,
     ) {
         let word_ref = word.as_ref();
         let key = FactSpan::new(word_ref.span);
@@ -4556,7 +4595,13 @@ impl<'a> WordFactCollector<'a> {
 
         self.collect_word_parameter_patterns(&word_ref.parts, host_kind);
 
-        self.collect_arithmetic_words(word_ref, context, host_kind);
+        self.collect_arithmetic_words(
+            word_ref,
+            context,
+            host_kind,
+            from_arithmetic_expansion,
+            from_arithmetic_command,
+        );
 
         let analysis = analyze_word(word_ref, self.source);
         let operand_class = match context {
@@ -4572,7 +4617,9 @@ impl<'a> WordFactCollector<'a> {
                     },
                 )
             }
-            WordFactContext::Expansion(_) | WordFactContext::CaseSubject => None,
+            WordFactContext::Expansion(_)
+            | WordFactContext::CaseSubject
+            | WordFactContext::ArithmeticCommand => None,
         };
 
         self.facts.push(WordFact {
@@ -4609,6 +4656,7 @@ impl<'a> WordFactCollector<'a> {
             command_id: self.command_id,
             nested_word_command: self.nested_word_command,
             from_arithmetic_expansion,
+            from_arithmetic_command,
             context,
             host_kind,
             analysis,
@@ -4621,18 +4669,32 @@ impl<'a> WordFactCollector<'a> {
         word: &Word,
         context: WordFactContext,
         host_kind: WordFactHostKind,
+        from_arithmetic_expansion: bool,
+        from_arithmetic_command: bool,
     ) {
         for part in &word.parts {
             match &part.kind {
                 WordPart::DoubleQuoted { parts, .. } => {
-                    self.collect_arithmetic_words_in_parts(parts, context, host_kind);
+                    self.collect_arithmetic_words_in_parts(
+                        parts,
+                        context,
+                        host_kind,
+                        from_arithmetic_expansion,
+                        from_arithmetic_command,
+                    );
                 }
                 WordPart::ArithmeticExpansion {
                     expression_ast: Some(expression),
                     ..
                 } => {
                     query::visit_arithmetic_words(expression, &mut |nested_word| {
-                        self.push_arithmetic_word(nested_word.clone(), context, host_kind);
+                        self.push_arithmetic_word(
+                            nested_word.clone(),
+                            context,
+                            host_kind,
+                            true,
+                            from_arithmetic_command,
+                        );
                     });
                 }
                 WordPart::ArithmeticExpansion {
@@ -4649,18 +4711,32 @@ impl<'a> WordFactCollector<'a> {
         parts: &[WordPartNode],
         context: WordFactContext,
         host_kind: WordFactHostKind,
+        from_arithmetic_expansion: bool,
+        from_arithmetic_command: bool,
     ) {
         for part in parts {
             match &part.kind {
                 WordPart::DoubleQuoted { parts, .. } => {
-                    self.collect_arithmetic_words_in_parts(parts, context, host_kind);
+                    self.collect_arithmetic_words_in_parts(
+                        parts,
+                        context,
+                        host_kind,
+                        from_arithmetic_expansion,
+                        from_arithmetic_command,
+                    );
                 }
                 WordPart::ArithmeticExpansion {
                     expression_ast: Some(expression),
                     ..
                 } => {
                     query::visit_arithmetic_words(expression, &mut |nested_word| {
-                        self.push_arithmetic_word(nested_word.clone(), context, host_kind);
+                        self.push_arithmetic_word(
+                            nested_word.clone(),
+                            context,
+                            host_kind,
+                            true,
+                            from_arithmetic_command,
+                        );
                     });
                 }
                 WordPart::ArithmeticExpansion {

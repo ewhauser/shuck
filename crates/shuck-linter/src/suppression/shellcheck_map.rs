@@ -209,6 +209,7 @@ impl Default for ShellCheckCodeMap {
             (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
             (2294, Rule::EvalOnArray),
+            (2297, Rule::DollarInArithmeticContext),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
@@ -293,6 +294,7 @@ impl Default for ShellCheckCodeMap {
                 (1130, Rule::ZshAlwaysBlock),
                 (1132, Rule::CPrototypeFragment),
                 (2254, Rule::ArrayIndexArithmetic),
+                (2297, Rule::DollarInArithmeticContext),
                 (2240, Rule::SourcedWithArgs),
                 (2251, Rule::ZshFlagExpansion),
                 (2252, Rule::NestedZshSubstitution),
@@ -621,6 +623,7 @@ mod tests {
             Some(Rule::ArithmeticRedirectionTarget)
         );
         assert_eq!(map.resolve("SC2292"), Some(Rule::DollarInArithmetic));
+        assert_eq!(map.resolve("SC2297"), Some(Rule::DollarInArithmeticContext));
         assert_eq!(map.resolve("SC2250"), Some(Rule::PatternWithVariable));
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
@@ -752,6 +755,7 @@ mod tests {
             (2256, Rule::SubstWithRedirectErr),
             (2257, Rule::ArithmeticRedirectionTarget),
             (2292, Rule::DollarInArithmetic),
+            (2297, Rule::DollarInArithmeticContext),
             (2259, Rule::SubshellTestGroup),
             (2264, Rule::NestedParameterExpansion),
             (2266, Rule::OverwrittenFunction),
@@ -913,6 +917,7 @@ mod tests {
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
+        assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
