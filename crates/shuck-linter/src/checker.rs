@@ -203,6 +203,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AvoidLetBuiltin) {
             rules::style::avoid_let_builtin::avoid_let_builtin(self);
         }
+        if self.is_rule_enabled(Rule::ArrayIndexArithmetic) {
+            rules::style::array_index_arithmetic::array_index_arithmetic(self);
+        }
         if self.is_rule_enabled(Rule::ExprArithmetic) {
             rules::performance::expr_arithmetic::expr_arithmetic(self);
         }

@@ -41,6 +41,12 @@ pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+pub fn arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_arithmetic_expansion_spans(&word.parts, &mut spans);
+    spans
+}
+
 pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_unquoted_command_substitution_spans(&word.parts, false, &mut spans);
@@ -366,6 +372,18 @@ fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Sp
                 collect_command_substitution_spans(parts, spans)
             }
             WordPart::CommandSubstitution { .. } => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
+fn collect_arithmetic_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_arithmetic_expansion_spans(parts, spans)
+            }
+            WordPart::ArithmeticExpansion { .. } => spans.push(part.span),
             _ => {}
         }
     }

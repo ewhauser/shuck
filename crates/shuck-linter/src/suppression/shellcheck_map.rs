@@ -219,6 +219,7 @@ impl Default for ShellCheckCodeMap {
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
             (2257, Rule::ArithmeticRedirectionTarget),
+            (2321, Rule::ArrayIndexArithmetic),
             (2264, Rule::NestedParameterExpansion),
             (2250, Rule::PatternWithVariable),
             (2255, Rule::SubstWithRedirect),
@@ -288,6 +289,7 @@ impl Default for ShellCheckCodeMap {
                 (1129, Rule::ZshBraceIf),
                 (1130, Rule::ZshAlwaysBlock),
                 (1132, Rule::CPrototypeFragment),
+                (2254, Rule::ArrayIndexArithmetic),
                 (2240, Rule::SourcedWithArgs),
                 (2251, Rule::ZshFlagExpansion),
                 (2252, Rule::NestedZshSubstitution),
@@ -326,6 +328,7 @@ impl Default for ShellCheckCodeMap {
                 (3030, Rule::ArrayAssignment),
                 (3053, Rule::IndirectExpansion),
                 (2219, Rule::AvoidLetBuiltin),
+                (2321, Rule::ArrayIndexArithmetic),
                 (3028, Rule::ArrayReference),
                 (3054, Rule::ArrayReference),
                 (3057, Rule::SubstringExpansion),
@@ -573,6 +576,7 @@ mod tests {
         assert_eq!(map.resolve("SC3048"), Some(Rule::WaitOption));
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
         assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
+        assert_eq!(map.resolve("SC2254"), Some(Rule::ArrayIndexArithmetic));
         assert_eq!(map.resolve("SC3077"), Some(Rule::BasePrefixInArithmetic));
         assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
         assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
@@ -896,6 +900,7 @@ mod tests {
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
+        assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));

@@ -620,6 +620,7 @@ pub struct WordFact<'a> {
     all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_array_expansion_spans: Box<[Span]>,
     command_substitution_spans: Box<[Span]>,
+    arithmetic_expansion_spans: Box<[Span]>,
     unquoted_command_substitution_spans: Box<[Span]>,
     double_quoted_expansion_spans: Box<[Span]>,
 }
@@ -702,6 +703,10 @@ impl<'a> WordFact<'a> {
 
     pub fn command_substitution_spans(&self) -> &[Span] {
         &self.command_substitution_spans
+    }
+
+    pub fn arithmetic_expansion_spans(&self) -> &[Span] {
+        &self.arithmetic_expansion_spans
     }
 
     pub fn unquoted_command_substitution_spans(&self) -> &[Span] {
@@ -4553,6 +4558,8 @@ impl<'a> WordFactCollector<'a> {
             )
             .into_boxed_slice(),
             command_substitution_spans: span::command_substitution_part_spans(word_ref)
+                .into_boxed_slice(),
+            arithmetic_expansion_spans: span::arithmetic_expansion_part_spans(word_ref)
                 .into_boxed_slice(),
             unquoted_command_substitution_spans: span::unquoted_command_substitution_part_spans(
                 word_ref,
