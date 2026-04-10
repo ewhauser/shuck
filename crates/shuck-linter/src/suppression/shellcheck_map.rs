@@ -95,6 +95,9 @@ impl Default for ShellCheckCodeMap {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
+            // ShellCheck 0.11.0 reports `foo &;` as SC1045.
+            // Keep SC2397 as a suppression alias for historical compatibility.
+            (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
             (1069, Rule::IfBracketGlued),
             (1072, Rule::BrokenTestParse),
@@ -208,6 +211,7 @@ impl Default for ShellCheckCodeMap {
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
             (2392, Rule::LinebreakBeforeAnd),
+            (2397, Rule::AmpersandSemicolon),
             (2396, Rule::UntilMissingDo),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
@@ -257,6 +261,7 @@ impl Default for ShellCheckCodeMap {
                 (2235, Rule::SubshellTestGroup),
                 (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
+                (1045, Rule::AmpersandSemicolon),
                 (1047, Rule::MissingFi),
                 (1069, Rule::IfBracketGlued),
                 (1070, Rule::ZshRedirPipe),
@@ -376,6 +381,7 @@ impl Default for ShellCheckCodeMap {
                 (2390, Rule::MissingDoneInForLoop),
                 (2391, Rule::DanglingElse),
                 (2392, Rule::LinebreakBeforeAnd),
+                (2397, Rule::AmpersandSemicolon),
                 (2396, Rule::UntilMissingDo),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
@@ -514,6 +520,7 @@ mod tests {
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
+        assert_eq!(map.resolve("SC1045"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
@@ -631,6 +638,7 @@ mod tests {
         assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
         assert_eq!(map.resolve("SC2392"), Some(Rule::LinebreakBeforeAnd));
         assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
+        assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
@@ -649,6 +657,7 @@ mod tests {
             (1012, Rule::NeedlessBackslashUnderscore),
             (1019, Rule::EmptyTest),
             (1037, Rule::PositionalTenBraces),
+            (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
             (1069, Rule::IfBracketGlued),
             (1070, Rule::ZshRedirPipe),
@@ -748,6 +757,7 @@ mod tests {
             (2391, Rule::DanglingElse),
             (2392, Rule::LinebreakBeforeAnd),
             (2396, Rule::UntilMissingDo),
+            (2397, Rule::AmpersandSemicolon),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),

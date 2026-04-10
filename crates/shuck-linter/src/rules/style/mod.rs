@@ -1,3 +1,4 @@
+pub mod ampersand_semicolon;
 pub mod backslash_before_command;
 pub mod echoed_command_substitution;
 pub mod escaped_underscore;
@@ -51,6 +52,7 @@ mod tests {
     #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
     #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]
     #[test_case(Rule::LinebreakBeforeAnd, Path::new("S072.sh"))]
+    #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
