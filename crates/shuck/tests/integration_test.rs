@@ -382,7 +382,7 @@ fn format_stdin_filename_infers_zsh_dialect() {
 }
 
 #[test]
-fn format_stdin_uses_configured_zsh_dialect() {
+fn format_stdin_rejects_configured_dialect() {
     let tempdir = tempdir().unwrap();
     fs::write(
         tempdir.path().join("shuck.toml"),
@@ -393,6 +393,17 @@ fn format_stdin_uses_configured_zsh_dialect() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.current_dir(tempdir.path())
         .args(["format", "-"])
+        .write_stdin("print ${(m)foo}\n");
+    cmd.assert()
+        .code(2)
+        .stderr(predicate::str::contains("[format].dialect"))
+        .stderr(predicate::str::contains("--dialect"));
+}
+
+#[test]
+fn format_stdin_uses_cli_zsh_dialect_override() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["format", "--dialect", "zsh", "-"])
         .write_stdin("print ${(m)foo}\n");
     cmd.assert().success().stdout("print ${(m)foo}\n");
 }

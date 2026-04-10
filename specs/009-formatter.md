@@ -8,7 +8,7 @@ Partially Implemented
 
 A shell script formatter built on a generic document/printer abstraction, following ruff's formatter architecture. The system is split across three crates: `shuck-format` (language-agnostic document IR and printer), `shuck-formatter` (shell-specific formatting rules, comment handling, and an optional simplify pass), and `shuck` (CLI integration, config, and caching). The formatter parses shell source into an AST, converts AST nodes into a document IR of text, line breaks, indentation, and groups, then prints the IR back to source text respecting user-chosen options like indent style, dialect, and layout preferences.
 
-The formatter supports Bash, POSIX, and mksh dialects with auto-inference from shebangs and file extensions. It exposes 11 formatting options through CLI flags and `[format]` config sections. An optional simplify pass applies safe AST rewrites before formatting, and a minify mode produces compact output without comments.
+The formatter supports Bash, POSIX, and mksh dialects with auto-inference from shebangs and file extensions. It exposes formatting layout options through CLI flags and `[format]` config sections, while `--dialect` remains a CLI-only override. An optional simplify pass applies safe AST rewrites before formatting, and a minify mode produces compact output without comments.
 
 ## Motivation
 
@@ -281,6 +281,8 @@ shuck format-stdin [OPTIONS] [--stdin-filename <NAME>]
 1. CLI flags (`--indent-style space`)
 2. `[format]` section in the nearest `.shuck.toml` / `shuck.toml`
 3. Built-in defaults
+
+Dialect stays on auto-inference unless the user passes `--dialect` on the CLI.
 
 **Caching:** Formatted results are cached via `shuck-cache` (SHA-256 keyed by file content, mtime, permissions, and formatting options). The `--no-cache` flag bypasses caching. Formatting options are part of the cache key, so changing options invalidates cached results.
 

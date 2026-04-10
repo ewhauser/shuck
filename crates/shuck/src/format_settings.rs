@@ -109,19 +109,6 @@ pub(crate) fn resolve_project_format_settings(
     Ok(settings)
 }
 
-pub(crate) fn parse_config_dialect(value: &str) -> Result<ShellDialect> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "auto" => Ok(ShellDialect::Auto),
-        "bash" => Ok(ShellDialect::Bash),
-        "posix" => Ok(ShellDialect::Posix),
-        "mksh" => Ok(ShellDialect::Mksh),
-        "zsh" => Ok(ShellDialect::Zsh),
-        _ => Err(anyhow!(
-            "unsupported `[format].dialect` value `{value}`; expected one of: auto, bash, posix, mksh, zsh"
-        )),
-    }
-}
-
 pub(crate) fn parse_config_indent_style(value: &str) -> Result<IndentStyle> {
     match value.trim().to_ascii_lowercase().as_str() {
         "tab" => Ok(IndentStyle::Tab),
@@ -158,7 +145,7 @@ mod tests {
 
     use super::*;
     use crate::args::FormatCommand;
-    use crate::config::FormatConfig;
+    use crate::config::{CONFIG_DIALECT_UNSUPPORTED_ERROR, FormatConfig};
 
     fn format_args() -> FormatCommand {
         FormatCommand {
@@ -204,7 +191,6 @@ mod tests {
     #[test]
     fn config_patch_overrides_defaults() {
         let config = FormatConfig {
-            dialect: Some("mksh".to_owned()),
             indent_style: Some("space".to_owned()),
             indent_width: Some(2),
             binary_next_line: Some(true),
@@ -213,6 +199,7 @@ mod tests {
             keep_padding: Some(true),
             function_next_line: Some(true),
             never_split: Some(true),
+            ..FormatConfig::default()
         };
 
         let mut settings = ResolvedFormatSettings::default();
@@ -221,7 +208,7 @@ mod tests {
             .unwrap();
         let options = settings.to_shell_format_options();
 
-        assert_eq!(options.dialect(), ShellDialect::Mksh);
+        assert_eq!(options.dialect(), ShellDialect::Auto);
         assert_eq!(options.indent_style(), IndentStyle::Space);
         assert_eq!(options.indent_width(), 2);
         assert!(options.binary_next_line());
@@ -251,6 +238,17 @@ mod tests {
 
         assert!(options.function_next_line());
         assert_eq!(options.indent_width(), 4);
+    }
+
+    #[test]
+    fn configured_dialect_errors_with_migration_hint() {
+        let config = FormatConfig {
+            dialect: Some(toml::Value::String("zsh".to_owned())),
+            ..FormatConfig::default()
+        };
+
+        let err = config.to_patch().unwrap_err();
+        assert_eq!(err.to_string(), CONFIG_DIALECT_UNSUPPORTED_ERROR);
     }
 
     #[test]
