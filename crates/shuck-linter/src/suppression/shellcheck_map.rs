@@ -145,6 +145,7 @@ impl Default for ShellCheckCodeMap {
             (2126, Rule::GrepCountPipeline),
             (2112, Rule::FunctionKeyword),
             (2216, Rule::PipeToKill),
+            (2156, Rule::FindExecDirWithShell),
             // ShellCheck 0.11.0 reports C-style `for ((...))` loop portability warnings as SC3005.
             // Keep SC3063 as a suppression alias, but prefer the current code for comparisons.
             (3005, Rule::CStyleForInSh),
@@ -180,6 +181,7 @@ impl Default for ShellCheckCodeMap {
             (3070, Rule::AmpersandRedirectInSh),
             (3073, Rule::PipeStderrInSh),
             (2155, Rule::ExportCommandSubstitution),
+            (2156, Rule::FindExecDirWithShell),
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),
             (2162, Rule::ReadWithoutRaw),
@@ -334,6 +336,7 @@ impl Default for ShellCheckCodeMap {
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
                 (2155, Rule::ExportCommandSubstitution),
+                (2156, Rule::FindExecDirWithShell),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
                 (2162, Rule::ReadWithoutRaw),
@@ -530,6 +533,7 @@ mod tests {
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
+        assert_eq!(map.resolve("SC2156"), Some(Rule::FindExecDirWithShell));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
         assert_eq!(map.resolve("SC2078"), Some(Rule::TruthyLiteralTest));

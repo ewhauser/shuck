@@ -10,6 +10,7 @@ pub enum WrapperKind {
     Exec,
     Busybox,
     FindExec,
+    FindExecDir,
     SudoFamily,
 }
 
@@ -307,9 +308,9 @@ fn resolve_command_resolution(
             kind: WrapperKind::Busybox,
             target_index: words.get(current_index + 1).map(|_| current_index + 1),
         }),
-        "find" => find_exec_target_index(words, current_index, source).map(|target_index| {
+        "find" => find_exec_target_index(words, current_index, source).map(|(kind, target_index)| {
             CommandResolution::Wrapper {
-                kind: WrapperKind::FindExec,
+                kind,
                 target_index: Some(target_index),
             }
         }),
@@ -370,11 +371,24 @@ fn exec_wrapper_target_index(words: &[&Word], current_index: usize, source: &str
     None
 }
 
-fn find_exec_target_index(words: &[&Word], current_index: usize, source: &str) -> Option<usize> {
+fn find_exec_target_index(
+    words: &[&Word],
+    current_index: usize,
+    source: &str,
+) -> Option<(WrapperKind, usize)> {
     for index in current_index + 1..words.len() {
-        let arg = static_word_text(words[index], source)?;
-        if matches!(arg.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir") {
-            return words.get(index + 1).map(|_| index + 1);
+        let Some(arg) = static_word_text(words[index], source) else {
+            continue;
+        };
+        match arg.as_str() {
+            "-exec" | "-ok" => return words.get(index + 1).map(|_| (WrapperKind::FindExec, index + 1)),
+            "-execdir" => {
+                return words
+                    .get(index + 1)
+                    .map(|_| (WrapperKind::FindExecDir, index + 1));
+            }
+            "-okdir" => return words.get(index + 1).map(|_| (WrapperKind::FindExec, index + 1)),
+            _ => {}
         }
     }
 
@@ -544,6 +558,13 @@ mod tests {
                 Some("awk"),
                 vec![WrapperKind::FindExec],
                 ("awk", Some("'{print $1}'")),
+            ),
+            (
+                "find . -execdir sh -c 'echo {}' \\;\n",
+                Some("find"),
+                Some("sh"),
+                vec![WrapperKind::FindExecDir],
+                ("sh", Some("-c")),
             ),
             (
                 "sudo -u root tee /tmp/out >/dev/null\n",

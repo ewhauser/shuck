@@ -223,6 +223,7 @@ declare_rules! {
     ("K001", Category::Security, Severity::Warning, RmGlobOnVariablePath),
     ("K002", Category::Security, Severity::Warning, SshLocalExpansion),
     ("K003", Category::Security, Severity::Warning, EvalOnArray),
+    ("K004", Category::Security, Severity::Warning, FindExecDirWithShell),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
     ("S003", Category::Style, Severity::Warning, LoopFromCommandOutput),

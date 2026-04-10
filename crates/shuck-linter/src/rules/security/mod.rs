@@ -1,3 +1,4 @@
+pub mod find_execdir_with_shell;
 pub mod eval_on_array;
 pub mod rm_glob_on_variable_path;
 pub mod ssh_local_expansion;
@@ -11,6 +12,7 @@ mod tests {
     use crate::test::test_path;
     use crate::{LinterSettings, Rule, assert_diagnostics};
 
+    #[test_case(Rule::FindExecDirWithShell, Path::new("K004.sh"))]
     #[test_case(Rule::RmGlobOnVariablePath, Path::new("K001.sh"))]
     #[test_case(Rule::SshLocalExpansion, Path::new("K002.sh"))]
     #[test_case(Rule::EvalOnArray, Path::new("K003.sh"))]

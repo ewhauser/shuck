@@ -1155,6 +1155,17 @@ pub struct FindCommandFacts {
     pub has_print0: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct FindExecDirCommandFacts {
+    shell_command_spans: Box<[Span]>,
+}
+
+impl FindExecDirCommandFacts {
+    pub fn shell_command_spans(&self) -> &[Span] {
+        &self.shell_command_spans
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct XargsCommandFacts {
     pub uses_null_input: bool,
@@ -1226,6 +1237,7 @@ pub struct CommandOptionFacts<'a> {
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
+    find_execdir: Option<FindExecDirCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
@@ -1258,6 +1270,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn find(&self) -> Option<&FindCommandFacts> {
         self.find.as_ref()
+    }
+
+    pub fn find_execdir(&self) -> Option<&FindExecDirCommandFacts> {
+        self.find_execdir.as_ref()
     }
 
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
@@ -1324,6 +1340,16 @@ impl<'a> CommandOptionFacts<'a> {
                         .filter_map(|word| static_word_text(word, source))
                         .any(|arg| arg == "-print0"),
                 }),
+            find_execdir: normalized
+                .has_wrapper(WrapperKind::FindExecDir)
+                .then(|| {
+                    parse_find_execdir_shell_command(
+                        normalized.effective_name.as_deref(),
+                        normalized.body_args(),
+                        source,
+                    )
+                })
+                .flatten(),
             xargs: normalized
                 .effective_name_is("xargs")
                 .then(|| XargsCommandFacts {
@@ -4730,6 +4756,36 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
     }
 }
 
+fn parse_find_execdir_shell_command(
+    shell_name: Option<&str>,
+    args: &[&Word],
+    source: &str,
+) -> Option<FindExecDirCommandFacts> {
+    if !matches!(shell_name, Some("sh" | "bash" | "dash" | "ksh")) {
+        return None;
+    }
+
+    let shell_command_spans = args
+        .windows(2)
+        .filter_map(|pair| {
+            let flag = static_word_text(pair[0], source)?;
+            if flag != "-c" {
+                return None;
+            }
+            let script = pair[1];
+            script
+                .span
+                .slice(source)
+                .contains("{}")
+                .then_some(script.span)
+        })
+        .collect::<Vec<_>>();
+
+    (!shell_command_spans.is_empty()).then_some(FindExecDirCommandFacts {
+        shell_command_spans: shell_command_spans.into_boxed_slice(),
+    })
+}
+
 fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errexit_change = None;
     let mut errtrace_change = None;
@@ -5370,6 +5426,13 @@ mod tests {
             .expect("expected find facts");
         assert!(find.has_print0);
 
+        let find_execdir = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+            .and_then(|fact| fact.options().find_execdir());
+        assert!(find_execdir.is_none(), "fixture without execdir should not match");
+
         let xargs = facts
             .commands()
             .iter()
@@ -5502,6 +5565,39 @@ echo ${foo:-${1##*/}}
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
 
         assert!(facts.base_prefix_arithmetic_spans().is_empty());
+    }
+
+    #[test]
+    fn builds_find_execdir_command_facts_for_shell_targets() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=2086,2154
+find $dir -type f -name \"rename*\" -execdir sh -c 'mv {} $(echo {} | sed \"s|rename|perl-rename|\")' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let find = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+                .expect("expected find -execdir fact");
+
+            assert_eq!(find.effective_name(), Some("sh"));
+            assert_eq!(find.wrappers(), &[WrapperKind::FindExecDir]);
+
+            let find_execdir = find
+                .options()
+                .find_execdir()
+                .expect("expected shell command fact for find -execdir");
+            assert_eq!(
+                find_execdir
+                    .shell_command_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["'mv {} $(echo {} | sed \"s|rename|perl-rename|\")'"]
+            );
+        });
     }
 
     #[test]
