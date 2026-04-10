@@ -187,6 +187,7 @@ declare_rules! {
         Severity::Warning,
         LocalCrossReference
     ),
+    ("C139", Category::Correctness, Severity::Warning, SpacedAssignment),
     (
         "C137",
         Category::Correctness,
@@ -489,7 +490,9 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-281" => Some(Rule::StickyBitTestInSh),
         "SH-282" => Some(Rule::OwnershipTestInSh),
         "SH-283" => Some(Rule::FindExecDirWithShell),
+        "SH-314" => Some(Rule::LocalCrossReference),
         "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
+        "SH-319" => Some(Rule::SpacedAssignment),
         "SH-321" => Some(Rule::LoopWithoutEnd),
         "SH-322" => Some(Rule::MissingDoneInForLoop),
         "SH-327" => Some(Rule::DanglingElse),

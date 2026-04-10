@@ -136,9 +136,7 @@ fn word_references_name(fact: &WordFact<'_>, target_name: &str) -> bool {
 fn word_parts_reference_name(parts: &[shuck_ast::WordPartNode], target_name: &str) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::Variable(name) => name.as_str() == target_name,
-        WordPart::Parameter(expansion) => {
-            parameter_expansion_references_name(expansion, target_name)
-        }
+        WordPart::Parameter(expansion) => parameter_expansion_references_name(expansion, target_name),
         WordPart::ParameterExpansion { reference, .. }
         | WordPart::Length(reference)
         | WordPart::ArrayAccess(reference)
@@ -164,9 +162,7 @@ fn parameter_expansion_references_name(expansion: &ParameterExpansion, target_na
         | Some(BourneParameterExpansion::Transformation { reference, .. }) => {
             reference.name.as_str() == target_name
         }
-        Some(BourneParameterExpansion::PrefixMatch { prefix, .. }) => {
-            prefix.as_str() == target_name
-        }
+        Some(BourneParameterExpansion::PrefixMatch { prefix, .. }) => prefix.as_str() == target_name,
         None => expansion.zsh().is_some_and(|zsh| match &zsh.target {
             ZshExpansionTarget::Reference(reference) => reference.name.as_str() == target_name,
             ZshExpansionTarget::Nested(expansion) => {
@@ -189,10 +185,8 @@ mod tests {
 #!/bin/sh
 CFLAGS+=\" -DDIR=\\\"$PREFIX/share/\\\"\"\n\
 $CC $CFLAGS -c test.c -o test.o\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
-        );
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes));
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "\" -DDIR=\\\"");
@@ -203,10 +197,8 @@ $CC $CFLAGS -c test.c -o test.o\n";
         let source = "\
 #!/bin/sh
 CFLAGS=\" -DDIR=\\\"$PREFIX/share/\\\"\"\nCFLAGS+=\" -DDIR=$PREFIX/share/\"\nCFLAGS+=\" -DDIR=\\\"arm\\\"\"\nshell+=$(printf '%s' \"\\\"$PREFIX\\\"\")\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
-        );
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes));
 
         assert!(diagnostics.is_empty());
     }
@@ -218,10 +210,8 @@ CFLAGS=\" -DDIR=\\\"$PREFIX/share/\\\"\"\nCFLAGS+=\" -DDIR=$PREFIX/share/\"\nCFL
 GO_LDFLAGS=\"\"
 GO_LDFLAGS+=\" -X \\\"main.GitVersion=$VERSION\\\"\"\n\
 go build -ldflags \"$GO_LDFLAGS\"\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
-        );
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes));
 
         assert!(diagnostics.is_empty());
     }
@@ -232,10 +222,8 @@ go build -ldflags \"$GO_LDFLAGS\"\n";
 #!/bin/bash
 DEPENDENTS[0]+=\" --slave \\\"$prefix/bin/tool\\\" \\\"tool\\\" \\\"$prefix/bin/tool-real\\\"\"\n\
 printf '%s\\n' \"${DEPENDENTS[0]}\"\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
-        );
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes));
 
         assert!(diagnostics.is_empty());
     }
