@@ -9,6 +9,7 @@
 
 mod command_flow;
 mod conditional_portability;
+mod escape_scan;
 mod presence;
 mod surface;
 
@@ -36,6 +37,7 @@ use self::{
         build_subshell_test_group_spans, build_substitution_facts,
     },
     conditional_portability::build_conditional_portability_facts,
+    escape_scan::{EscapeScanContext, EscapeScanMatch, build_escape_scan_matches},
     presence::build_presence_tested_names,
     surface::{
         SurfaceFragmentFacts, build_subscript_index_reference_spans, build_surface_fragment_facts,
@@ -60,6 +62,7 @@ use crate::rules::common::{
 };
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
+pub(crate) use self::escape_scan::EscapeScanSourceKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FactSpan {
@@ -1544,6 +1547,7 @@ pub struct LinterFacts<'a> {
     double_paren_grouping_spans: Vec<Span>,
     arithmetic_for_update_operator_spans: Vec<Span>,
     base_prefix_arithmetic_spans: Vec<Span>,
+    escape_scan_matches: Vec<EscapeScanMatch>,
     unicode_smart_quote_spans: Vec<Span>,
     pattern_exactly_one_extglob_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
@@ -1722,6 +1726,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn base_prefix_arithmetic_spans(&self) -> &[Span] {
         &self.base_prefix_arithmetic_spans
+    }
+
+    pub(crate) fn escape_scan_matches(&self) -> &[EscapeScanMatch] {
+        &self.escape_scan_matches
     }
 
     pub fn unicode_smart_quote_spans(&self) -> &[Span] {
@@ -1915,6 +1923,18 @@ impl<'a> LinterFactsBuilder<'a> {
             build_subscript_index_reference_spans(self._semantic, &subscript_spans);
         pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
+        let escape_scan_matches = build_escape_scan_matches(
+            &commands,
+            &words,
+            &pattern_literal_spans,
+            &pattern_charclass_spans,
+            &single_quoted,
+            &backticks,
+            EscapeScanContext {
+                source: self.source,
+                file_context: self._file_context,
+            },
+        );
         let nested_pattern_charclass_spans = nested_pattern_charclass_spans
             .into_iter()
             .map(FactSpan::new)
@@ -1962,6 +1982,7 @@ impl<'a> LinterFactsBuilder<'a> {
             double_paren_grouping_spans,
             arithmetic_for_update_operator_spans,
             base_prefix_arithmetic_spans,
+            escape_scan_matches,
             unicode_smart_quote_spans,
             pattern_exactly_one_extglob_spans,
             pattern_literal_spans,
