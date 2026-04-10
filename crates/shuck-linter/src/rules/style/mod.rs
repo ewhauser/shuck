@@ -1,6 +1,6 @@
+pub mod ampersand_semicolon;
 pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
-pub mod ampersand_semicolon;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod dollar_in_arithmetic;
