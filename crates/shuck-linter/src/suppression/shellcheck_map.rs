@@ -168,6 +168,9 @@ impl Default for ShellCheckCodeMap {
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2086, Rule::UnquotedExpansion),
+            // ShellCheck 0.11.0 reports ungrouped `find ... -o ...` actions as SC2146.
+            // Keep SC2332 as a suppression alias for historical compatibility.
+            (2146, Rule::FindOrWithoutGrouping),
             // ShellCheck 0.11.0 reports `set` flag-prefix issues as SC2121.
             // Keep SC2324 as a suppression alias for historical compatibility.
             (2121, Rule::SetFlagsWithoutDashes),
@@ -390,6 +393,8 @@ impl Default for ShellCheckCodeMap {
                 (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
+                (2146, Rule::FindOrWithoutGrouping),
+                (2332, Rule::FindOrWithoutGrouping),
                 (2121, Rule::SetFlagsWithoutDashes),
                 (2324, Rule::SetFlagsWithoutDashes),
                 (2115, Rule::RmGlobOnVariablePath),
@@ -654,6 +659,8 @@ mod tests {
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
+        assert_eq!(map.resolve("SC2146"), Some(Rule::FindOrWithoutGrouping));
+        assert_eq!(map.resolve("SC2332"), Some(Rule::FindOrWithoutGrouping));
         assert_eq!(map.resolve("SC2121"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(map.resolve("SC2324"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(map.resolve("SC2115"), Some(Rule::RmGlobOnVariablePath));
@@ -870,6 +877,7 @@ mod tests {
             (2078, Rule::TruthyLiteralTest),
             (2089, Rule::AppendWithEscapedQuotes),
             (2086, Rule::UnquotedExpansion),
+            (2146, Rule::FindOrWithoutGrouping),
             (2121, Rule::SetFlagsWithoutDashes),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
@@ -942,6 +950,7 @@ mod tests {
             (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
+            (2332, Rule::FindOrWithoutGrouping),
             (2324, Rule::SetFlagsWithoutDashes),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
@@ -1071,6 +1080,7 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
+        assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));

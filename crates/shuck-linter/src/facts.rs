@@ -1170,9 +1170,16 @@ impl SshCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FindCommandFacts {
     pub has_print0: bool,
+    or_without_grouping_spans: Box<[Span]>,
+}
+
+impl FindCommandFacts {
+    pub fn or_without_grouping_spans(&self) -> &[Span] {
+        &self.or_without_grouping_spans
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1358,13 +1365,7 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| parse_unset_command(normalized.body_args(), source)),
             find: normalized
                 .effective_name_is("find")
-                .then(|| FindCommandFacts {
-                    has_print0: normalized
-                        .body_args()
-                        .iter()
-                        .filter_map(|word| static_word_text(word, source))
-                        .any(|arg| arg == "-print0"),
-                }),
+                .then(|| parse_find_command(normalized.body_args(), source)),
             find_execdir: normalized
                 .has_wrapper(WrapperKind::FindExecDir)
                 .then(|| {
@@ -6729,6 +6730,125 @@ fn parse_find_execdir_shell_command(
     })
 }
 
+fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
+    let mut has_print0 = false;
+    let mut saw_or = false;
+    let mut saw_grouping = false;
+    let mut saw_action_before_current_branch = false;
+    let mut current_branch_has_predicate = false;
+    let mut current_branch_has_explicit_and = false;
+    let mut or_without_grouping_spans = Vec::new();
+
+    for word in args {
+        let Some(text) = static_word_text(word, source) else {
+            continue;
+        };
+
+        if text == "-print0" {
+            has_print0 = true;
+        }
+
+        if is_find_group_open_token(text.as_str()) || is_find_group_close_token(text.as_str()) {
+            saw_grouping = true;
+            continue;
+        }
+
+        if is_find_or_token(text.as_str()) {
+            saw_or = true;
+            current_branch_has_predicate = false;
+            current_branch_has_explicit_and = false;
+            continue;
+        }
+
+        if !saw_or {
+            if is_find_branch_action_token(text.as_str()) {
+                saw_action_before_current_branch = true;
+            }
+            continue;
+        }
+
+        if is_find_and_token(text.as_str()) {
+            current_branch_has_explicit_and = true;
+            continue;
+        }
+
+        if is_find_branch_action_token(text.as_str()) {
+            if is_find_reportable_action_token(text.as_str())
+                && !saw_grouping
+                && !saw_action_before_current_branch
+                && current_branch_has_predicate
+                && !current_branch_has_explicit_and
+            {
+                or_without_grouping_spans.push(word.span);
+            }
+            saw_action_before_current_branch = true;
+            continue;
+        }
+
+        if is_find_predicate_token(text.as_str()) {
+            current_branch_has_predicate = true;
+        }
+    }
+
+    FindCommandFacts {
+        has_print0,
+        or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
+    }
+}
+
+fn is_find_group_open_token(token: &str) -> bool {
+    matches!(token, "(" | "\\(" | "-(")
+}
+
+fn is_find_group_close_token(token: &str) -> bool {
+    matches!(token, ")" | "\\)" | "-)")
+}
+
+fn is_find_or_token(token: &str) -> bool {
+    matches!(token, "-o" | "-or")
+}
+
+fn is_find_and_token(token: &str) -> bool {
+    matches!(token, "-a" | "-and")
+}
+
+fn is_find_action_token(token: &str) -> bool {
+    matches!(
+        token,
+        "-delete"
+            | "-exec"
+            | "-execdir"
+            | "-ok"
+            | "-okdir"
+            | "-print"
+            | "-print0"
+            | "-printf"
+            | "-ls"
+            | "-fls"
+            | "-fprint"
+            | "-fprint0"
+            | "-fprintf"
+    )
+}
+
+fn is_find_branch_action_token(token: &str) -> bool {
+    is_find_reportable_action_token(token) || matches!(token, "-prune" | "-quit")
+}
+
+fn is_find_reportable_action_token(token: &str) -> bool {
+    is_find_action_token(token)
+}
+
+fn is_find_predicate_token(token: &str) -> bool {
+    token.starts_with('-')
+        && !is_find_branch_action_token(token)
+        && !is_find_or_token(token)
+        && !is_find_and_token(token)
+        && !is_find_group_open_token(token)
+        && !is_find_group_close_token(token)
+        && !matches!(token, "-not")
+}
+
 fn shell_flag_contains_command_string(flag: &str) -> bool {
     let Some(cluster) = flag.strip_prefix('-') else {
         return false;
@@ -7324,7 +7444,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -7412,6 +7532,15 @@ mod tests {
             .and_then(|fact| fact.options().find())
             .expect("expected find facts");
         assert!(find.has_print0);
+        let find_or_without_grouping_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.or_without_grouping_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
 
         let find_execdir = facts
             .commands()

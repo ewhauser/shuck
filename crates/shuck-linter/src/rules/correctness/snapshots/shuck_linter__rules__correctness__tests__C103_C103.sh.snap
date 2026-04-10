@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C103 `find` alternatives joined with `-o` should be grouped before applying actions
+ --> <source>:4:49
+  |
+4 | find . -name perllocal.pod -o -name ".packlist" -print
+  |
+
+C103 `find` alternatives joined with `-o` should be grouped before applying actions
+ --> <source>:7:39
+  |
+7 | find . -name '*.tmp' -o -name '*.bak' -delete
+  |

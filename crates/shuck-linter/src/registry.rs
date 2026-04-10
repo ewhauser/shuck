@@ -167,6 +167,12 @@ declare_rules! {
         Severity::Warning,
         IfsSetToLiteralBackslashN
     ),
+    (
+        "C103",
+        Category::Correctness,
+        Severity::Warning,
+        FindOrWithoutGrouping
+    ),
     ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     (
         "C116",
@@ -477,6 +483,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-229" => Some(Rule::SetFlagsWithoutDashes),
+        "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
@@ -720,6 +727,8 @@ mod tests {
         );
         assert_eq!(code_to_rule("C098"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(code_to_rule("SH-229"), Some(Rule::SetFlagsWithoutDashes));
+        assert_eq!(code_to_rule("C103"), Some(Rule::FindOrWithoutGrouping));
+        assert_eq!(code_to_rule("SH-237"), Some(Rule::FindOrWithoutGrouping));
         assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));

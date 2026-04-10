@@ -24,6 +24,7 @@ pub mod else_if;
 pub mod else_without_then;
 pub mod empty_function_body;
 pub mod empty_test;
+pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod heredoc_closer_not_alone;
@@ -145,10 +146,11 @@ mod tests {
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
+    #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
+    #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
+    #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
-    #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
-    #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
