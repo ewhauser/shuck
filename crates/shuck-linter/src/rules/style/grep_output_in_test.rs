@@ -88,6 +88,35 @@ fn collect_conditional_spans(
     substitutions: &[&SubstitutionFact],
 ) -> Vec<Span> {
     let mut spans = Vec::new();
+    let unary_operand_spans = conditional
+        .nodes()
+        .iter()
+        .filter_map(|node| match node {
+            ConditionalNodeFact::Unary(unary)
+                if unary.operator_family() == ConditionalOperatorFamily::StringUnary =>
+            {
+                unary.operand().word().map(|word| word.span)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let comparison_operand_spans = conditional
+        .nodes()
+        .iter()
+        .filter_map(|node| match node {
+            ConditionalNodeFact::Binary(binary)
+                if binary.operator_family() != ConditionalOperatorFamily::Logical =>
+            {
+                Some([
+                    binary.left().word().map(|word| word.span),
+                    binary.right().word().map(|word| word.span),
+                ])
+            }
+            _ => None,
+        })
+        .flatten()
+        .flatten()
+        .collect::<Vec<_>>();
 
     match conditional.root() {
         ConditionalNodeFact::BareWord(bare_word)
@@ -123,19 +152,45 @@ fn collect_conditional_spans(
     }
 
     for node in conditional.nodes().iter().skip(1) {
-        if let ConditionalNodeFact::Unary(unary) = node
-            && unary.operator_family() == ConditionalOperatorFamily::StringUnary
-            && unary.operand().word().is_some_and(|word| {
-                unary
-                    .operand()
-                    .word_classification()
-                    .is_some_and(|classification| {
-                        classification.has_plain_command_substitution()
-                            && word_has_top_level_grep_substitution(word.span, substitutions)
-                    })
-            })
-        {
-            spans.push(unary.operator_span());
+        match node {
+            ConditionalNodeFact::BareWord(bare_word)
+                if bare_word.operand().word().is_some_and(|word| {
+                    !unary_operand_spans.contains(&word.span)
+                        && !comparison_operand_spans.contains(&word.span)
+                        && bare_word
+                            .operand()
+                            .word_classification()
+                            .is_some_and(|classification| {
+                                classification.has_plain_command_substitution()
+                                    && word_has_top_level_grep_substitution(
+                                        word.span,
+                                        substitutions,
+                                    )
+                            })
+                }) =>
+            {
+                if let Some(word) = bare_word.operand().word() {
+                    spans.push(word.span);
+                }
+            }
+            ConditionalNodeFact::Unary(unary)
+                if unary.operator_family() == ConditionalOperatorFamily::StringUnary
+                    && unary.operand().word().is_some_and(|word| {
+                        unary
+                            .operand()
+                            .word_classification()
+                            .is_some_and(|classification| {
+                                classification.has_plain_command_substitution()
+                                    && word_has_top_level_grep_substitution(
+                                        word.span,
+                                        substitutions,
+                                    )
+                            })
+                    }) =>
+            {
+                spans.push(unary.operator_span());
+            }
+            _ => {}
         }
     }
 
@@ -221,5 +276,35 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["-z"]
         );
+    }
+
+    #[test]
+    fn reports_grep_output_in_non_root_bareword_conditionals() {
+        let source = "\
+#!/bin/bash
+[[ \"$ok\" && $(grep foo file) ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(grep foo file)"]
+        );
+    }
+
+    #[test]
+    fn ignores_grep_output_when_compared_in_binary_conditionals() {
+        let source = "\
+#!/bin/bash
+[[ $(grep foo input.txt) = bar ]]
+[[ $(grep foo input.txt) != \"\" ]]
+[[ $(grep foo input.txt) -ge 1 ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert!(diagnostics.is_empty());
     }
 }
