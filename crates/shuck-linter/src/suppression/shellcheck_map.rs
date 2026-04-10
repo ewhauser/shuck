@@ -385,7 +385,6 @@ impl Default for ShellCheckCodeMap {
                 (3069, Rule::CStyleForArithmeticInSh),
                 (3075, Rule::ErrexitTrapInSh),
                 (3076, Rule::SignalNameInTrap),
-                (2321, Rule::FunctionKeywordInSh),
                 (2323, Rule::ArithmeticScoreLine),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
@@ -448,6 +447,7 @@ impl Default for ShellCheckCodeMap {
             ]),
             aliases: vec![
                 (1075, Rule::ExtglobCase),
+                (2321, Rule::FunctionKeywordInSh),
                 (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2319, Rule::AssignmentLooksLikeComparison),
@@ -626,7 +626,11 @@ mod tests {
         assert_eq!(map.resolve("SC3077"), Some(Rule::BasePrefixInArithmetic));
         assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
         assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
-        assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
+        assert_eq!(map.resolve("SC2321"), Some(Rule::ArrayIndexArithmetic));
+        assert_eq!(
+            map.resolve_all("SC2321"),
+            vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]
+        );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
@@ -867,6 +871,8 @@ mod tests {
             (2354, Rule::PlusPrefixInAssignment),
             (2377, Rule::AppendWithEscapedQuotes),
             (2329, Rule::IfsSetToLiteralBackslashN),
+            (2321, Rule::ArrayIndexArithmetic),
+            (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
             (2333, Rule::NonShellSyntaxInScript),
