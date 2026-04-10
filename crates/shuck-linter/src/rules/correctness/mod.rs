@@ -29,6 +29,7 @@ pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
+pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
 pub mod nested_parameter_expansion;
@@ -128,6 +129,7 @@ mod tests {
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
+    #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

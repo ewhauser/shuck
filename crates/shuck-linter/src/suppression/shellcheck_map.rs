@@ -196,6 +196,7 @@ impl Default for ShellCheckCodeMap {
             (2294, Rule::EvalOnArray),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
+            (2390, Rule::MissingDoneInForLoop),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
@@ -354,6 +355,7 @@ impl Default for ShellCheckCodeMap {
                 (2294, Rule::EvalOnArray),
                 (2333, Rule::NonShellSyntaxInScript),
                 (2389, Rule::LoopWithoutEnd),
+                (2390, Rule::MissingDoneInForLoop),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -538,6 +540,7 @@ mod tests {
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
+        assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
@@ -700,6 +703,7 @@ mod tests {
             (2321, Rule::FunctionKeywordInSh),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
+            (2390, Rule::MissingDoneInForLoop),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),

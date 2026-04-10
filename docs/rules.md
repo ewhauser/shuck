@@ -399,7 +399,7 @@ oddities. Mostly AST-level checks.
 - [x] **M** C076 (SC2289) `commented-continuation-line` — line continuation followed by comment
 - [x] **M** C104 (SC2333) `non-shell-syntax-in-script` — C or other non-shell code in script
 - [x] **L** C141 (SC2389) `loop-without-end` — loop body never closed
-- [ ] **L** C142 (SC2390) `missing-done-in-for-loop` — for loop reaches EOF without `done`
+- [x] **L** C142 (SC2390) `missing-done-in-for-loop` — for loop reaches EOF without `done`
 - [ ] **L** C143 (SC2391) `dangling-else` — else branch has no body
 - [ ] **L** C146 (SC2396) `until-missing-do` — until loop skips `do`
 - [ ] **L** C157 (SC1069) `if-bracket-glued` — `if` concatenated with `[`

@@ -157,6 +157,12 @@ declare_rules! {
         UnicodeSingleQuoteInSingleQuotes
     ),
     ("C141", Category::Correctness, Severity::Error, LoopWithoutEnd),
+    (
+        "C142",
+        Category::Correctness,
+        Severity::Error,
+        MissingDoneInForLoop
+    ),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
@@ -414,6 +420,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-283" => Some(Rule::FindExecDirWithShell),
         "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
         "SH-321" => Some(Rule::LoopWithoutEnd),
+        "SH-322" => Some(Rule::MissingDoneInForLoop),
         _ => None,
     })
 }
@@ -586,6 +593,8 @@ mod tests {
         );
         assert_eq!(code_to_rule("C141"), Some(Rule::LoopWithoutEnd));
         assert_eq!(code_to_rule("SH-321"), Some(Rule::LoopWithoutEnd));
+        assert_eq!(code_to_rule("C142"), Some(Rule::MissingDoneInForLoop));
+        assert_eq!(code_to_rule("SH-322"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(code_to_rule("X005"), Some(Rule::BashCaseFallthrough));
         assert_eq!(code_to_rule("X008"), Some(Rule::StandaloneArithmetic));
         assert_eq!(code_to_rule("X009"), Some(Rule::SelectLoop));

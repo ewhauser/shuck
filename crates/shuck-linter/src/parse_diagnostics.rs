@@ -6,6 +6,7 @@ use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDi
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
+use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
 use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
@@ -55,6 +56,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
         && has_loop_without_end_error(file, source, parse_diagnostics)
     {
         diagnostics.push(Diagnostic::new(LoopWithoutEnd, eof_point(file)));
+    }
+    if enabled_rules.contains(crate::Rule::MissingDoneInForLoop)
+        && has_missing_done_in_for_loop_error(file, source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(MissingDoneInForLoop, eof_point(file)));
     }
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
@@ -111,6 +117,21 @@ fn has_loop_without_end_error(
     }
 
     !missing_done_belongs_to_for_loop(file, source)
+}
+
+fn has_missing_done_in_for_loop_error(
+    file: &File,
+    source: &str,
+    parse_diagnostics: &[ParseDiagnostic],
+) -> bool {
+    if !parse_diagnostics
+        .iter()
+        .any(|diagnostic| is_loop_without_end_error(&diagnostic.message))
+    {
+        return false;
+    }
+
+    missing_done_belongs_to_for_loop(file, source)
 }
 
 fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {
@@ -482,6 +503,39 @@ mod tests {
         let source = "#!/bin/sh\nfor x in a; do\n  :\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_for_loop_missing_done_parse_error_to_c142() {
+        let source = "#!/bin/sh\nfor x in a; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::MissingDoneInForLoop);
+    }
+
+    #[test]
+    fn ignores_while_loop_missing_done_for_c142() {
+        let source = "#!/bin/sh\nwhile true; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
