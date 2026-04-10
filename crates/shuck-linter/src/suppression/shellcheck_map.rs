@@ -379,7 +379,11 @@ impl Default for ShellCheckCodeMap {
         ];
 
         Self {
-            map: FxHashMap::from_iter([
+            map: {
+                let mut map = FxHashMap::default();
+                // Preserve the first-listed rule as the primary suppression target when
+                // multiple rules intentionally share a ShellCheck code.
+                for (sc_code, rule) in [
                 (1001, Rule::EscapedUnderscore),
                 (1002, Rule::EscapedUnderscoreLiteral),
                 (1003, Rule::SingleQuoteBackslash),
@@ -602,7 +606,11 @@ impl Default for ShellCheckCodeMap {
                 (3062, Rule::OptionTestInSh),
                 (3065, Rule::StickyBitTestInSh),
                 (3067, Rule::OwnershipTestInSh),
-            ]),
+                ] {
+                    map.entry(sc_code).or_insert(rule);
+                }
+                map
+            },
             aliases: vec![
                 (1040, Rule::HeredocEndSpace),
                 (1075, Rule::ExtglobCase),
@@ -613,10 +621,10 @@ impl Default for ShellCheckCodeMap {
                 (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (3062, Rule::DollarStringInSh),
-                (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
+                (2294, Rule::EvalOnArray),
                 (2322, Rule::SuWithoutFlag),
                 (2340, Rule::DeprecatedTempfileCommand),
                 (2342, Rule::EgrepDeprecated),
@@ -1069,6 +1077,27 @@ mod tests {
         assert_eq!(map.resolve("SC2141"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC2329"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC7777"), None);
+    }
+
+    #[test]
+    fn shared_comparison_codes_keep_legacy_primary_suppressions() {
+        let map = ShellCheckCodeMap::default();
+
+        assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
+        assert_eq!(
+            map.resolve_all("SC3024"),
+            vec![
+                Rule::PlusEqualsAppend,
+                Rule::BashFileSlurp,
+                Rule::PlusEqualsInSh
+            ]
+        );
+
+        assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
+        assert_eq!(
+            map.resolve_all("SC3058"),
+            vec![Rule::BashCaseFallthrough, Rule::StarGlobRemovalInSh]
+        );
     }
 
     #[test]
