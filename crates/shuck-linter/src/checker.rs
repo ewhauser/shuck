@@ -309,6 +309,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::NonShellSyntaxInScript) {
             rules::correctness::non_shell_syntax_in_script::non_shell_syntax_in_script(self);
         }
+        if self.is_rule_enabled(Rule::ExportWithPositionalParams) {
+            rules::correctness::export_with_positional_params::export_with_positional_params(self);
+        }
         if self.is_rule_enabled(Rule::SetFlagsWithoutDashes) {
             rules::correctness::set_flags_without_dashes::set_flags_without_dashes(self);
         }

@@ -30,6 +30,7 @@ pub mod else_if;
 pub mod else_without_then;
 pub mod empty_function_body;
 pub mod empty_test;
+pub mod export_with_positional_params;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
@@ -178,6 +179,7 @@ mod tests {
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
+    #[test_case(Rule::ExportWithPositionalParams, Path::new("C105.sh"))]
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
     #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]

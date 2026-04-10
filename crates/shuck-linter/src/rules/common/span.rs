@@ -196,6 +196,16 @@ pub fn word_quoted_star_splat_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+pub fn word_positional_at_splat_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_positional_at_splat_spans(&word.parts, &mut spans);
+    spans
+}
+
+pub fn word_is_pure_positional_at_splat(word: &Word) -> bool {
+    parts_are_pure_positional_at_splat(&word.parts)
+}
+
 pub fn word_zsh_flag_modifier_spans(word: &Word) -> Vec<Span> {
     word.parts
         .iter()
@@ -1527,6 +1537,15 @@ fn part_uses_star_splat(part: &WordPart) -> bool {
     }
 }
 
+fn part_uses_positional_at_splat(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "@",
+        WordPart::ArrayAccess(reference) => var_ref_uses_positional_at_splat(reference),
+        WordPart::Parameter(parameter) => parameter_uses_positional_at_splat(parameter),
+        _ => false,
+    }
+}
+
 fn var_ref_uses_star_splat(reference: &VarRef) -> bool {
     reference.name.as_str() == "*"
         || matches!(
@@ -1546,6 +1565,24 @@ fn parameter_uses_star_splat(parameter: &ParameterExpansion) -> bool {
     match syntax {
         BourneParameterExpansion::Access { reference }
         | BourneParameterExpansion::Slice { reference, .. } => var_ref_uses_star_splat(reference),
+        _ => false,
+    }
+}
+
+fn var_ref_uses_positional_at_splat(reference: &VarRef) -> bool {
+    reference.name.as_str() == "@"
+}
+
+fn parameter_uses_positional_at_splat(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Slice { reference, .. } => {
+            var_ref_uses_positional_at_splat(reference)
+        }
         _ => false,
     }
 }
@@ -1576,6 +1613,37 @@ fn collect_quoted_star_splat_spans(parts: &[WordPartNode], quoted: bool, spans: 
     }
 }
 
+fn collect_positional_at_splat_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => collect_positional_at_splat_spans(parts, spans),
+            _ if part_uses_positional_at_splat(&part.kind) => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
+fn parts_are_pure_positional_at_splat(parts: &[WordPartNode]) -> bool {
+    let mut saw_splat = false;
+
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => return false,
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !parts_are_pure_positional_at_splat(parts) {
+                    return false;
+                }
+                saw_splat = true;
+            }
+            _ if part_uses_positional_at_splat(&part.kind) => saw_splat = true,
+            _ => return false,
+        }
+    }
+
+    saw_splat
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_parser::parser::Parser;
@@ -1585,6 +1653,7 @@ mod tests {
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
+        word_is_pure_positional_at_splat, word_positional_at_splat_spans,
         word_quoted_star_splat_spans, word_unquoted_star_splat_spans,
     };
 
@@ -2014,6 +2083,52 @@ printf '%s\\n' \"$*\" \"${*}\" \"${*:1}\" \"${arr[*]}\" \"${arr[*]:1:2}\" \"${!a
         assert_eq!(
             spans,
             vec!["$*", "${*}", "${*:1}", "${arr[*]}", "${arr[*]:1:2}"]
+        );
+    }
+
+    #[test]
+    fn word_positional_at_splat_spans_tracks_positional_forms_only() {
+        let source = "\
+printf '%s\\n' $@ ${@} ${@:1:2} \"${@}\" \"x$@y\" ${array[@]} ${array[@]:1} $* \"${*}\" ${!@}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(word_positional_at_splat_spans)
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$@", "${@}", "${@:1:2}", "${@}", "$@"]);
+    }
+
+    #[test]
+    fn word_is_pure_positional_at_splat_rejects_mixed_words() {
+        let source = "\
+printf '%s\\n' \"$@\" ${@} \"${@:1}\" \"$@$@\" \"prefix$@suffix\" ${array[@]} \"$*\" \"$1\" \"${@:-fallback}\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let pure = command
+            .args
+            .iter()
+            .map(|word| word_is_pure_positional_at_splat(word))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            pure,
+            vec![
+                false, true, true, true, true, false, false, false, false, false
+            ]
         );
     }
 }

@@ -364,6 +364,9 @@ impl Default for ShellCheckCodeMap {
             (2292, Rule::DollarInArithmetic),
             (2297, Rule::DollarInArithmeticContext),
             (2333, Rule::NonShellSyntaxInScript),
+            // ShellCheck 0.11.0 reports `export "$@"`-style findings as SC2163.
+            // Keep SC2334 as a suppression alias for the authored C105 rule code.
+            (2163, Rule::ExportWithPositionalParams),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
@@ -619,10 +622,12 @@ impl Default for ShellCheckCodeMap {
                     (2289, Rule::CommentedContinuationLine),
                     (1133, Rule::LinebreakBeforeAnd),
                     (2290, Rule::SubshellInArithmetic),
-                    (2292, Rule::DollarInArithmetic),
-                    (2294, Rule::EvalOnArray),
-                    (2333, Rule::NonShellSyntaxInScript),
-                    (2389, Rule::LoopWithoutEnd),
+                (2292, Rule::DollarInArithmetic),
+                (2294, Rule::EvalOnArray),
+                (2333, Rule::NonShellSyntaxInScript),
+                (2163, Rule::ExportWithPositionalParams),
+                (2334, Rule::ExportWithPositionalParams),
+                (2389, Rule::LoopWithoutEnd),
                     (2390, Rule::MissingDoneInForLoop),
                     (2391, Rule::DanglingElse),
                     (2392, Rule::LinebreakBeforeAnd),
@@ -1127,6 +1132,14 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2399"), Some(Rule::BrokenAssocKey));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(
+            map.resolve("SC2163"),
+            Some(Rule::ExportWithPositionalParams)
+        );
+        assert_eq!(
+            map.resolve("SC2334"),
+            Some(Rule::ExportWithPositionalParams)
+        );
         assert_eq!(map.resolve("SC2370"), Some(Rule::UnusedHeredoc));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
@@ -1393,6 +1406,7 @@ mod tests {
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),
             (2162, Rule::ReadWithoutRaw),
+            (2163, Rule::ExportWithPositionalParams),
             (2164, Rule::UncheckedDirectoryChange),
             (2168, Rule::LocalTopLevel),
             (2194, Rule::ConstantCaseSubject),
@@ -1472,6 +1486,7 @@ mod tests {
             (2324, Rule::SetFlagsWithoutDashes),
             (2326, Rule::GlobAssignedToVariable),
             (2333, Rule::NonShellSyntaxInScript),
+            (2334, Rule::ExportWithPositionalParams),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),

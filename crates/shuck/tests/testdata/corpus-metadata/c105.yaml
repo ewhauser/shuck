@@ -1,0 +1,15 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 2484
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "C105 is intentionally scoped to positional-parameter @ splats, while the oracle's SC2163 check also flags exporting values through general variable expansion."
+  - side: shellcheck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 2490
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "C105 is intentionally scoped to positional-parameter @ splats, while the oracle's SC2163 check also flags exporting values through general variable expansion."

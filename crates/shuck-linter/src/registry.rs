@@ -197,6 +197,12 @@ declare_rules! {
         NonShellSyntaxInScript
     ),
     (
+        "C105",
+        Category::Correctness,
+        Severity::Warning,
+        ExportWithPositionalParams
+    ),
+    (
         "C106",
         Category::Correctness,
         Severity::Warning,
@@ -648,6 +654,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-235" => Some(Rule::FunctionInAlias),
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
+        "SH-239" => Some(Rule::ExportWithPositionalParams),
         "SH-241" => Some(Rule::AppendToArrayAsString),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
@@ -972,6 +979,11 @@ mod tests {
         assert_eq!(code_to_rule("SH-237"), Some(Rule::FindOrWithoutGrouping));
         assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(code_to_rule("C105"), Some(Rule::ExportWithPositionalParams));
+        assert_eq!(
+            code_to_rule("SH-239"),
+            Some(Rule::ExportWithPositionalParams)
+        );
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
         assert_eq!(
