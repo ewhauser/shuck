@@ -330,6 +330,7 @@ declare_rules! {
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
     ("S054", Category::Style, Severity::Warning, SuWithoutFlag),
+    ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
     ("S047", Category::Style, Severity::Warning, LsInSubstitution),

@@ -3,6 +3,7 @@ pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
+pub mod command_substitution_in_alias;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
 pub mod echo_here_doc;
@@ -63,6 +64,7 @@ mod tests {
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
     #[test_case(Rule::EchoInsideCommandSubstitution, Path::new("S016.sh"))]
+    #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
