@@ -600,6 +600,7 @@ impl Default for ShellCheckCodeMap {
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
                 (2367, Rule::UncheckedDirectoryChangeInFunction),
+                (2368, Rule::ContinueOutsideLoopInFunction),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
                 (2384, Rule::LocalCrossReference),
@@ -797,6 +798,10 @@ mod tests {
             map.resolve("SC2367"),
             Some(Rule::UncheckedDirectoryChangeInFunction)
         );
+        assert_eq!(
+            map.resolve("SC2368"),
+            Some(Rule::ContinueOutsideLoopInFunction)
+        );
         assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
         assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
         assert_eq!(map.resolve("SC2127"), Some(Rule::BashCaseFallthrough));
@@ -846,6 +851,10 @@ mod tests {
         assert_eq!(map.resolve("SC2324"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(map.resolve("SC2115"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
+        assert_eq!(
+            map.resolve("SC2368"),
+            Some(Rule::ContinueOutsideLoopInFunction)
+        );
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC2217"), Some(Rule::EchoHereDoc));

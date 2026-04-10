@@ -495,6 +495,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LoopControlOutsideLoop) {
             rules::correctness::loop_control_outside_loop::loop_control_outside_loop(self);
         }
+        if self.is_rule_enabled(Rule::ContinueOutsideLoopInFunction) {
+            rules::correctness::continue_outside_loop_in_function::continue_outside_loop_in_function(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::PipeToKill) {
             rules::correctness::pipe_to_kill::pipe_to_kill(self);
         }

@@ -1,4 +1,5 @@
 use shuck_ast::{BuiltinCommand, Command, Span};
+use shuck_semantic::ScopeKind;
 
 use crate::{Checker, Rule, Violation};
 
@@ -17,12 +18,24 @@ impl Violation for LoopControlOutsideLoop {
 }
 
 pub fn loop_control_outside_loop(checker: &mut Checker) {
-    let violations = checker
+    let violations = loop_control_violations(checker, false, false);
+
+    for (_, report_span, keyword) in violations {
+        checker.report(LoopControlOutsideLoop { keyword }, report_span);
+    }
+}
+
+pub(crate) fn loop_control_violations(
+    checker: &Checker<'_>,
+    inside_function_only: bool,
+    continue_only: bool,
+) -> Vec<(Span, Span, &'static str)> {
+    checker
         .facts()
         .commands()
         .iter()
         .filter_map(|fact| match fact.command() {
-            Command::Builtin(BuiltinCommand::Break(command)) => {
+            Command::Builtin(BuiltinCommand::Break(command)) if !continue_only => {
                 Some((command.span, keyword_span(command.span, "break"), "break"))
             }
             Command::Builtin(BuiltinCommand::Continue(command)) => Some((
@@ -33,17 +46,23 @@ pub fn loop_control_outside_loop(checker: &mut Checker) {
             _ => None,
         })
         .filter(|(command_span, _, _)| {
+            let scope = checker.semantic().scope_at(command_span.start.offset);
+            let inside_function = checker.semantic().ancestor_scopes(scope).any(|ancestor| {
+                matches!(
+                    checker.semantic().scope_kind(ancestor),
+                    ScopeKind::Function(_)
+                )
+            });
+            if inside_function_only && !inside_function {
+                return false;
+            }
             checker
                 .semantic()
                 .flow_context_at(command_span)
                 .map(|context| context.loop_depth == 0)
                 .unwrap_or(true)
         })
-        .collect::<Vec<_>>();
-
-    for (_, report_span, keyword) in violations {
-        checker.report(LoopControlOutsideLoop { keyword }, report_span);
-    }
+        .collect()
 }
 
 fn keyword_span(span: Span, keyword: &str) -> Span {

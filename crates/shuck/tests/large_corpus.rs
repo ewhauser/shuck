@@ -2286,6 +2286,12 @@ fn large_corpus_comparison_mappings(
     }) {
         mappings.push((2164, shuck_linter::Rule::UncheckedDirectoryChangeInFunction));
     }
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::ContinueOutsideLoopInFunction)
+            && !rules.contains(shuck_linter::Rule::LoopControlOutsideLoop)
+    }) {
+        mappings.push((2104, shuck_linter::Rule::ContinueOutsideLoopInFunction));
+    }
 
     mappings.into_iter()
 }

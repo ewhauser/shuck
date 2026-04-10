@@ -213,6 +213,12 @@ declare_rules! {
         UncheckedDirectoryChangeInFunction
     ),
     (
+        "C126",
+        Category::Correctness,
+        Severity::Error,
+        ContinueOutsideLoopInFunction
+    ),
+    (
         "C130",
         Category::Correctness,
         Severity::Warning,
@@ -460,6 +466,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),
+        "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -857,6 +864,14 @@ mod tests {
         assert_eq!(
             code_to_rule("SH-295"),
             Some(Rule::UncheckedDirectoryChangeInFunction)
+        );
+        assert_eq!(
+            code_to_rule("C126"),
+            Some(Rule::ContinueOutsideLoopInFunction)
+        );
+        assert_eq!(
+            code_to_rule("SH-296"),
+            Some(Rule::ContinueOutsideLoopInFunction)
         );
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));

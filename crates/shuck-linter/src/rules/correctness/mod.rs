@@ -17,6 +17,7 @@ pub mod chained_test_branches;
 pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
+pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
 pub mod double_paren_grouping;
 pub mod dynamic_source_path;
@@ -161,6 +162,7 @@ mod tests {
     #[test_case(Rule::FunctionReferencesUnsetParam, Path::new("C123.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UncheckedDirectoryChangeInFunction, Path::new("C125.sh"))]
+    #[test_case(Rule::ContinueOutsideLoopInFunction, Path::new("C126.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
