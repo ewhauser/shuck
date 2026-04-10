@@ -1,3 +1,4 @@
+pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod ampersand_semicolon;
 pub mod backslash_before_command;
@@ -43,8 +44,9 @@ mod tests {
     #[test_case(Rule::UnquotedArrayExpansion, Path::new("S008.sh"))]
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
-    #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
+    #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]
+    #[test_case(Rule::ArithmeticScoreLine, Path::new("S035.sh"))]
     #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
     #[test_case(Rule::EscapedUnderscoreLiteral, Path::new("S027.sh"))]
     #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]

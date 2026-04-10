@@ -220,6 +220,7 @@ impl Default for ShellCheckCodeMap {
             (2248, Rule::BareSlashMarker),
             (2257, Rule::ArithmeticRedirectionTarget),
             (2321, Rule::ArrayIndexArithmetic),
+            (2323, Rule::ArithmeticScoreLine),
             (2264, Rule::NestedParameterExpansion),
             (2250, Rule::PatternWithVariable),
             (2255, Rule::SubstWithRedirect),
@@ -329,6 +330,7 @@ impl Default for ShellCheckCodeMap {
                 (3053, Rule::IndirectExpansion),
                 (2219, Rule::AvoidLetBuiltin),
                 (2321, Rule::ArrayIndexArithmetic),
+                (2323, Rule::ArithmeticScoreLine),
                 (3028, Rule::ArrayReference),
                 (3054, Rule::ArrayReference),
                 (3057, Rule::SubstringExpansion),
@@ -365,6 +367,7 @@ impl Default for ShellCheckCodeMap {
                 (3075, Rule::ErrexitTrapInSh),
                 (3076, Rule::SignalNameInTrap),
                 (2321, Rule::FunctionKeywordInSh),
+                (2323, Rule::ArithmeticScoreLine),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
                 (2155, Rule::ExportCommandSubstitution),
@@ -581,6 +584,7 @@ mod tests {
         assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
         assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
+        assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
@@ -761,6 +765,7 @@ mod tests {
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2321, Rule::FunctionKeywordInSh),
+            (2323, Rule::ArithmeticScoreLine),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
@@ -901,6 +906,7 @@ mod tests {
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
+        assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));

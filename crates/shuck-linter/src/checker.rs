@@ -206,6 +206,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArrayIndexArithmetic) {
             rules::style::array_index_arithmetic::array_index_arithmetic(self);
         }
+        if self.is_rule_enabled(Rule::ArithmeticScoreLine) {
+            rules::style::arithmetic_score_line::arithmetic_score_line(self);
+        }
         if self.is_rule_enabled(Rule::ExprArithmetic) {
             rules::performance::expr_arithmetic::expr_arithmetic(self);
         }

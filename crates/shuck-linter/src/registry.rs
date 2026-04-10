@@ -254,6 +254,7 @@ declare_rules! {
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
+    ("S035", Category::Style, Severity::Warning, ArithmeticScoreLine),
     ("S023", Category::Style, Severity::Warning, EscapedUnderscore),
     ("S024", Category::Style, Severity::Warning, SingleQuoteBackslash),
     ("S025", Category::Style, Severity::Warning, LiteralBackslash),
@@ -316,6 +317,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-277" => Some(Rule::BasePrefixInArithmetic),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
+        "SH-161" => Some(Rule::ArithmeticScoreLine),
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
@@ -486,6 +488,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-095"), Some(Rule::EscapedUnderscoreLiteral));
         assert_eq!(code_to_rule("S034"), Some(Rule::ArrayIndexArithmetic));
         assert_eq!(code_to_rule("SH-157"), Some(Rule::ArrayIndexArithmetic));
+        assert_eq!(code_to_rule("S035"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(code_to_rule("SH-161"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
