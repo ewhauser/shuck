@@ -493,6 +493,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CommandSubstitutionInAlias) {
             rules::style::command_substitution_in_alias::command_substitution_in_alias(self);
         }
+        if self.is_rule_enabled(Rule::FunctionInAlias) {
+            rules::style::function_in_alias::function_in_alias(self);
+        }
         if self.is_rule_enabled(Rule::SudoRedirectionOrder) {
             rules::correctness::sudo_redirection_order::sudo_redirection_order(self);
         }

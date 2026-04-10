@@ -62,6 +62,9 @@ impl ShellCheckCodeMap {
         if number == 2139 {
             return vec![Rule::CommandSubstitutionInAlias];
         }
+        if number == 2142 {
+            return vec![Rule::FunctionInAlias];
+        }
         if number == 2303 {
             return vec![Rule::UnquotedTrClass];
         }
@@ -132,6 +135,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports command substitutions inside alias definitions as SC2139.
             // Keep SC2328 as a suppression alias for historical compatibility.
             (2139, Rule::CommandSubstitutionInAlias),
+            // ShellCheck 0.11.0 reports alias function-definition issues as SC2142.
+            // Keep SC2330 as a suppression alias for the authored S057 rule code.
+            (2142, Rule::FunctionInAlias),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
@@ -356,6 +362,7 @@ impl Default for ShellCheckCodeMap {
                 (2293, Rule::LsPipedToXargs),
                 (2117, Rule::SuWithoutFlag),
                 (2139, Rule::CommandSubstitutionInAlias),
+                (2142, Rule::FunctionInAlias),
                 (2283, Rule::DoubleParenGrouping),
                 (2233, Rule::SingleTestSubshell),
                 (2235, Rule::SubshellTestGroup),
@@ -569,6 +576,7 @@ impl Default for ShellCheckCodeMap {
                 (2294, Rule::LsInSubstitution),
                 (2322, Rule::SuWithoutFlag),
                 (2328, Rule::CommandSubstitutionInAlias),
+                (2330, Rule::FunctionInAlias),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
                 (2060, Rule::UnquotedTrRange),
@@ -651,10 +659,8 @@ mod tests {
         assert_eq!(map.resolve("SC2291"), Some(Rule::UnquotedVariableInSed));
         assert_eq!(map.resolve("SC2322"), Some(Rule::SuWithoutFlag));
         assert_eq!(map.resolve("SC2117"), Some(Rule::SuWithoutFlag));
-        assert_eq!(
-            map.resolve("SC2139"),
-            Some(Rule::CommandSubstitutionInAlias)
-        );
+        assert_eq!(map.resolve("SC2139"), Some(Rule::CommandSubstitutionInAlias));
+        assert_eq!(map.resolve("SC2142"), Some(Rule::FunctionInAlias));
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
@@ -673,14 +679,13 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2322"), vec![Rule::SuWithoutFlag]);
         assert_eq!(map.resolve_all("SC2117"), vec![Rule::SuWithoutFlag]);
-        assert_eq!(
-            map.resolve_all("SC2139"),
-            vec![Rule::CommandSubstitutionInAlias]
-        );
+        assert_eq!(map.resolve_all("SC2139"), vec![Rule::CommandSubstitutionInAlias]);
+        assert_eq!(map.resolve_all("SC2142"), vec![Rule::FunctionInAlias]);
         assert_eq!(
             map.resolve_all("SC2328"),
             vec![Rule::CommandSubstitutionInAlias]
         );
+        assert_eq!(map.resolve_all("SC2330"), vec![Rule::FunctionInAlias]);
         assert_eq!(map.resolve_all("SC2303"), vec![Rule::UnquotedTrClass]);
         assert_eq!(map.resolve_all("SC2298"), vec![Rule::UnquotedTrRange]);
         assert_eq!(map.resolve_all("SC2021"), vec![Rule::UnquotedTrRange]);
@@ -1002,11 +1007,13 @@ mod tests {
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
             (2139, Rule::CommandSubstitutionInAlias),
+            (2142, Rule::FunctionInAlias),
             (2021, Rule::UnquotedTrRange),
             (2060, Rule::UnquotedTrClass),
             (2303, Rule::UnquotedTrClass),
             (2322, Rule::SuWithoutFlag),
             (2328, Rule::CommandSubstitutionInAlias),
+            (2330, Rule::FunctionInAlias),
             (2298, Rule::UnquotedTrRange),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
@@ -1240,8 +1247,10 @@ mod tests {
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
+        assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
         assert!(!comparison.contains(&(2328, Rule::CommandSubstitutionInAlias)));
+        assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));

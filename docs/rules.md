@@ -309,7 +309,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **L** S051 (SC2303) `unquoted-tr-class` — unquoted tr class may glob-expand
 - [x] [x] **L** S054 (SC2322) `su-without-flag` — su without `-l` or `-c`
 - [x] [x] **L** S056 (SC2328) `command-substitution-in-alias` — command substitution in alias
-- [ ] **L** S057 (SC2330) `function-in-alias` — function definition inside alias
+- [x] [x] **L** S057 (SC2330) `function-in-alias` — function definition inside alias
 - [ ] **L** S059 (SC2340) `deprecated-tempfile-command` — deprecated `tempfile` command
 - [ ] **L** S060 (SC2342) `egrep-deprecated` — `egrep` instead of `grep -E`
 - [ ] **L** S061 (SC2343) `fgrep-deprecated` — `fgrep` instead of `grep -F`
