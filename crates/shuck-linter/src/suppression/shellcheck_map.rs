@@ -93,6 +93,7 @@ impl Default for ShellCheckCodeMap {
             (2009, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
             (1047, Rule::MissingFi),
+            (1069, Rule::IfBracketGlued),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
             (1075, Rule::ElseIf),
@@ -248,6 +249,7 @@ impl Default for ShellCheckCodeMap {
                 (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
                 (1047, Rule::MissingFi),
+                (1069, Rule::IfBracketGlued),
                 (1070, Rule::ZshRedirPipe),
                 (1072, Rule::BrokenTestParse),
                 (1073, Rule::BrokenTestEnd),
@@ -430,6 +432,7 @@ mod tests {
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
         assert_eq!(map.resolve("SC1047"), Some(Rule::MissingFi));
+        assert_eq!(map.resolve("SC1069"), Some(Rule::IfBracketGlued));
         assert_eq!(map.resolve("SC1070"), Some(Rule::ZshRedirPipe));
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
@@ -621,6 +624,7 @@ mod tests {
             (1019, Rule::EmptyTest),
             (1037, Rule::PositionalTenBraces),
             (1047, Rule::MissingFi),
+            (1069, Rule::IfBracketGlued),
             (1070, Rule::ZshRedirPipe),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),

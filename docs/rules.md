@@ -402,7 +402,7 @@ oddities. Mostly AST-level checks.
 - [x] **L** C142 (SC2390) `missing-done-in-for-loop` — for loop reaches EOF without `done`
 - [x] **L** C143 (SC2391) `dangling-else` — else branch has no body
 - [x] **L** C146 (SC2396) `until-missing-do` — until loop skips `do`
-- [ ] **L** C157 (SC1069) `if-bracket-glued` — `if` concatenated with `[`
+- [x] **L** C157 (SC1069) `if-bracket-glued` — `if` concatenated with `[`
 - [ ] **M** S028 (SC1079) `suspect-closing-quote` — quote closed but next char is suspicious
 - [ ] **M** S029 (SC1083) `literal-braces` — literal braces may be treated as expansion
 - [ ] **L** S031 (SC1113) `trailing-directive` — directive after code is ignored

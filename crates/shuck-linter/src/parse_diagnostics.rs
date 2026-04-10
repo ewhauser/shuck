@@ -6,6 +6,7 @@ use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDi
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::dangling_else::DanglingElse;
+use crate::rules::correctness::if_bracket_glued::IfBracketGlued;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
@@ -74,6 +75,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
             diagnostics.push(Diagnostic::new(UntilMissingDo, span));
         }
     }
+    if enabled_rules.contains(crate::Rule::IfBracketGlued) {
+        if let Some(span) = if_bracket_glued_span(source, parse_diagnostics) {
+            diagnostics.push(Diagnostic::new(IfBracketGlued, span));
+        }
+    }
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
         for diagnostic in parse_diagnostics {
@@ -140,6 +146,42 @@ fn until_missing_do_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) ->
                 && has_pending_until_without_do_before_line(source, diagnostic.span.start.line)
         })
         .map(|diagnostic| diagnostic.span)
+}
+
+fn if_bracket_glued_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
+    parse_diagnostics.iter().find_map(|diagnostic| {
+        if !is_expected_command_error(&diagnostic.message) {
+            return None;
+        }
+        if_bracket_glued_span_on_line(source, diagnostic.span.start.line)
+    })
+}
+
+fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Span> {
+    let line = line_text_at(source, line_number)?;
+    let text = line.split_once('#').map_or(line, |(before, _)| before);
+    let bytes = text.as_bytes();
+    if bytes.len() < 3 {
+        return None;
+    }
+
+    for index in 0..=bytes.len() - 3 {
+        if bytes[index] != b'i' || bytes[index + 1] != b'f' || bytes[index + 2] != b'[' {
+            continue;
+        }
+        if index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_') {
+            continue;
+        }
+
+        let line_offset = line_start_offset(source, line_number)?;
+        let start_offset = line_offset + index;
+        let end_offset = start_offset + 3;
+        let start = position_at_offset(source, start_offset)?;
+        let end = position_at_offset(source, end_offset)?;
+        return Some(Span::from_positions(start, end));
+    }
+
+    None
 }
 
 fn is_done_line(source: &str, line_number: usize) -> bool {
@@ -674,6 +716,40 @@ mod tests {
         let source = "#!/bin/sh\nwhile :\ndone\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_if_bracket_glued_parse_error_to_c157() {
+        let source = "#!/bin/sh\nif[ \"${1:-}\" = ok ]; then\n  :\nfi\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::IfBracketGlued);
+        assert_eq!(diagnostics[0].span.slice(source), "if[");
+    }
+
+    #[test]
+    fn ignores_non_if_bracket_expected_command_parse_errors_for_c157() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
