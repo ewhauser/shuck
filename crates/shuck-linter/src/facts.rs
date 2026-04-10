@@ -2985,8 +2985,35 @@ fn build_function_positional_parameter_facts(
     commands: &[CommandFact<'_>],
 ) -> FxHashMap<ScopeId, FunctionPositionalParameterFacts> {
     let mut facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts> = FxHashMap::default();
+    let mut local_reset_offsets_by_scope: FxHashMap<ScopeId, Vec<usize>> = FxHashMap::default();
+
+    for command in commands {
+        if !command
+            .options()
+            .set()
+            .is_some_and(|set| set.resets_positional_parameters())
+        {
+            continue;
+        }
+
+        let offset = command.span().start.offset;
+        if let Some(scope) = innermost_nonpersistent_scope_within_function(semantic, offset) {
+            local_reset_offsets_by_scope
+                .entry(scope)
+                .or_default()
+                .push(offset);
+        }
+    }
 
     for reference in semantic.references() {
+        if reference_has_local_positional_reset(
+            semantic,
+            reference.span.start.offset,
+            &local_reset_offsets_by_scope,
+        ) {
+            continue;
+        }
+
         let Some(index) = positional_parameter_index(reference.name.as_str()) else {
             let Some(uses_positional_parameters) =
                 special_positional_parameter_name(reference.name.as_str())
@@ -3025,7 +3052,9 @@ fn build_function_positional_parameter_facts(
     }
 
     for command in commands {
-        let Some(scope) = enclosing_function_scope(semantic, command.span().start.offset) else {
+        let Some(scope) =
+            enclosing_function_scope_for_positional_reset(semantic, command.span().start.offset)
+        else {
             continue;
         };
 
@@ -3049,6 +3078,70 @@ fn enclosing_function_scope(semantic: &SemanticModel, offset: usize) -> Option<S
             shuck_semantic::ScopeKind::Function(_)
         )
     })
+}
+
+fn enclosing_function_scope_for_positional_reset(
+    semantic: &SemanticModel,
+    offset: usize,
+) -> Option<ScopeId> {
+    let scope = semantic.scope_at(offset);
+
+    for scope in semantic.ancestor_scopes(scope) {
+        match semantic.scope_kind(scope) {
+            shuck_semantic::ScopeKind::Function(_) => return Some(scope),
+            shuck_semantic::ScopeKind::Subshell
+            | shuck_semantic::ScopeKind::CommandSubstitution => return None,
+            shuck_semantic::ScopeKind::File | shuck_semantic::ScopeKind::Pipeline => {}
+        }
+    }
+
+    None
+}
+
+fn innermost_nonpersistent_scope_within_function(
+    semantic: &SemanticModel,
+    offset: usize,
+) -> Option<ScopeId> {
+    let scope = semantic.scope_at(offset);
+
+    for scope in semantic.ancestor_scopes(scope) {
+        match semantic.scope_kind(scope) {
+            shuck_semantic::ScopeKind::Subshell
+            | shuck_semantic::ScopeKind::CommandSubstitution => return Some(scope),
+            shuck_semantic::ScopeKind::Function(_) => return None,
+            shuck_semantic::ScopeKind::File | shuck_semantic::ScopeKind::Pipeline => {}
+        }
+    }
+
+    None
+}
+
+fn reference_has_local_positional_reset(
+    semantic: &SemanticModel,
+    offset: usize,
+    local_reset_offsets_by_scope: &FxHashMap<ScopeId, Vec<usize>>,
+) -> bool {
+    let scope = semantic.scope_at(offset);
+
+    for scope in semantic.ancestor_scopes(scope) {
+        match semantic.scope_kind(scope) {
+            shuck_semantic::ScopeKind::Subshell
+            | shuck_semantic::ScopeKind::CommandSubstitution => {
+                if local_reset_offsets_by_scope
+                    .get(&scope)
+                    .is_some_and(|offsets| {
+                        offsets.iter().any(|reset_offset| *reset_offset < offset)
+                    })
+                {
+                    return true;
+                }
+            }
+            shuck_semantic::ScopeKind::Function(_) => return false,
+            shuck_semantic::ScopeKind::File | shuck_semantic::ScopeKind::Pipeline => {}
+        }
+    }
+
+    false
 }
 
 fn positional_parameter_index(name: &str) -> Option<usize> {

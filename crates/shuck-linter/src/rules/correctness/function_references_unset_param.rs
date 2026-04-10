@@ -398,4 +398,46 @@ greet
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn command_substitution_set_does_not_reset_outer_function_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() {
+  status=$(set -- hello world)
+  echo \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() {\n  status=$(set -- hello world)\n  echo \"$2\"\n}"
+        );
+    }
+
+    #[test]
+    fn command_substitution_local_reset_still_protects_nested_positional_parameter_use() {
+        let source = "\
+#!/bin/sh
+greet() {
+  status=\"$(
+    set -- hello world
+    printf '%s\n' \"$2\"
+  )\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

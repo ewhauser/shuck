@@ -475,4 +475,46 @@ greet
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn subshell_set_does_not_reset_outer_function_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() {
+  (set -- hello)
+  echo \"$1\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() {\n  (set -- hello)\n  echo \"$1\"\n}"
+        );
+    }
+
+    #[test]
+    fn subshell_local_reset_still_protects_nested_positional_parameter_use() {
+        let source = "\
+#!/bin/sh
+greet() {
+  (
+    set -- hello
+    printf '%s\n' \"$1\"
+  )
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }
