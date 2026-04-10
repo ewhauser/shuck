@@ -71,6 +71,7 @@ const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 /// The result of a successful parse: a script plus collected comments.
 #[derive(Debug, Clone)]
 pub struct ParseOutput {
+    /// Parsed shell file AST, including statements and all collected comments.
     pub file: File,
 }
 
@@ -158,10 +159,14 @@ enum Command {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ShellDialect {
+    /// POSIX-style shell syntax (`sh`, `dash`, and compatibility mode parsing).
     Posix,
+    /// MirBSD Korn shell dialect (`mksh`).
     Mksh,
+    /// Bash dialect (default).
     #[default]
     Bash,
+    /// Z shell dialect (`zsh`) including zsh-only constructs.
     Zsh,
 }
 
@@ -183,6 +188,9 @@ struct DialectFeatures {
 }
 
 impl ShellDialect {
+    /// Maps a user-provided shell name to a parser dialect.
+    ///
+    /// Unrecognized names default to [`ShellDialect::Bash`].
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "sh" | "dash" | "ksh" | "posix" => Self::Posix,
@@ -324,14 +332,18 @@ struct ParserCheckpoint<'a> {
 /// A parser diagnostic emitted while recovering from invalid input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseDiagnostic {
+    /// Human-readable parse error summary.
     pub message: String,
+    /// Source span where the diagnostic was produced.
     pub span: Span,
 }
 
 /// The result of a recovered parse: a partial script plus parse diagnostics.
 #[derive(Debug, Clone)]
 pub struct RecoveredParse {
+    /// Parsed file that may be incomplete when recovery was needed.
     pub file: File,
+    /// Diagnostics emitted while attempting to continue after parse failures.
     pub diagnostics: Vec<ParseDiagnostic>,
 }
 
@@ -551,9 +563,8 @@ impl<'a> Parser<'a> {
 
     /// Create a new parser with custom depth and fuel limits.
     ///
-    /// `max_depth` is clamped to `HARD_MAX_AST_DEPTH` (500)
-    /// to prevent stack overflow from misconfiguration. Even if the caller passes
-    /// `max_depth = 1_000_000`, the parser will cap it at 500.
+    /// `max_depth` is clamped to [`HARD_MAX_AST_DEPTH`] to prevent stack
+    /// overflow from misconfiguration.
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
         Self::with_limits_and_dialect(input, max_depth, max_fuel, ShellDialect::Bash)
     }
@@ -640,6 +651,7 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Returns the active shell dialect for this parser instance.
     pub fn dialect(&self) -> ShellDialect {
         self.dialect
     }
