@@ -9,6 +9,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
     pub(super) positional_parameter_operator_spans: Vec<Span>,
     pub(super) unicode_smart_quote_spans: Vec<Span>,
+    pub(super) pattern_exactly_one_extglob_spans: Vec<Span>,
     pub(super) pattern_charclass_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
@@ -700,7 +701,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
     fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
         for (part, span) in pattern.parts_with_spans() {
             match part {
-                PatternPart::Group { patterns, .. } => self.collect_patterns(patterns, context),
+                PatternPart::Group { kind, patterns } => {
+                    if *kind == PatternGroupKind::ExactlyOne {
+                        self.facts.pattern_exactly_one_extglob_spans.push(span);
+                    }
+                    self.collect_patterns(patterns, context);
+                }
                 PatternPart::Word(word) => self.collect_word(word, context),
                 PatternPart::CharClass(_) if context.collect_pattern_charclasses => {
                     self.facts.pattern_charclass_spans.push(span)
@@ -864,7 +870,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
             ParameterOp::RemovePrefixShort { pattern }
             | ParameterOp::RemovePrefixLong { pattern }
             | ParameterOp::RemoveSuffixShort { pattern }
-            | ParameterOp::RemoveSuffixLong { pattern } => self.collect_pattern(pattern, context),
+            | ParameterOp::RemoveSuffixLong { pattern } => {
+                self.collect_pattern(pattern, context.with_pattern_charclass_scan())
+            }
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
@@ -873,7 +881,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 pattern,
                 replacement,
             } => {
-                self.collect_pattern(pattern, context);
+                self.collect_pattern(pattern, context.with_pattern_charclass_scan());
                 self.collect_source_text_word(replacement, context);
             }
             ParameterOp::UseDefault

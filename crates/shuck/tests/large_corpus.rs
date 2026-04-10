@@ -3143,6 +3143,14 @@ mod tests {
     }
 
     #[test]
+    fn selected_rule_filter_skips_ambiguous_x037_shellcheck_code() {
+        let rules = parse_large_corpus_rule_set("X037").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert!(codes.is_empty());
+    }
+
+    #[test]
     fn selected_rule_filter_skips_ambiguous_x052_shellcheck_code() {
         let rules = parse_large_corpus_rule_set("X052").unwrap();
         let codes = build_selected_shellcheck_codes(&rules);

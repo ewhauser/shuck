@@ -18,9 +18,10 @@ use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, Position,
+    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1429,6 +1430,7 @@ pub struct LinterFacts<'a> {
     double_paren_grouping_spans: Vec<Span>,
     arithmetic_for_update_operator_spans: Vec<Span>,
     unicode_smart_quote_spans: Vec<Span>,
+    pattern_exactly_one_extglob_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
@@ -1605,6 +1607,10 @@ impl<'a> LinterFacts<'a> {
         &self.unicode_smart_quote_spans
     }
 
+    pub fn pattern_exactly_one_extglob_spans(&self) -> &[Span] {
+        &self.pattern_exactly_one_extglob_spans
+    }
+
     pub fn pattern_literal_spans(&self) -> &[Span] {
         &self.pattern_literal_spans
     }
@@ -1756,6 +1762,7 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameters,
             positional_parameter_operator_spans,
             unicode_smart_quote_spans,
+            pattern_exactly_one_extglob_spans,
             pattern_charclass_spans,
             nested_parameter_expansions,
             indirect_expansions,
@@ -1804,6 +1811,7 @@ impl<'a> LinterFactsBuilder<'a> {
             double_paren_grouping_spans,
             arithmetic_for_update_operator_spans,
             unicode_smart_quote_spans,
+            pattern_exactly_one_extglob_spans,
             pattern_literal_spans,
             pattern_charclass_spans,
             nested_parameter_expansion_fragments: nested_parameter_expansions,
@@ -5186,6 +5194,52 @@ case x in [^a]*) continue ;; esac
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["[^a]"]
+            );
+        });
+    }
+
+    #[test]
+    fn traces_pattern_charclass_spans_for_parameter_patterns() {
+        let source = "\
+#!/bin/sh
+pkgopts=\"${XBPS_CURRENT_PKG//[^A-Za-z0-9_]/_}\"
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .pattern_charclass_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["[^A-Za-z0-9_]"]
+            );
+        });
+    }
+
+    #[test]
+    fn traces_exactly_one_extglob_pattern_spans_across_pattern_contexts() {
+        let source = "\
+#!/bin/sh
+case \"$x\" in
+  @(foo|bar)) ;;
+esac
+[[ $OSTYPE == *@(linux|freebsd)* ]]
+trimmed=${name%@($suffix|$(printf '%s' zz))}
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .pattern_exactly_one_extglob_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "@(foo|bar)",
+                    "@(linux|freebsd)",
+                    "@($suffix|$(printf '%s' zz))"
+                ]
             );
         });
     }

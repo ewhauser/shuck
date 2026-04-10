@@ -96,7 +96,6 @@ impl Default for ShellCheckCodeMap {
             (1047, Rule::MissingFi),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
-            (1075, Rule::ExtglobCase),
             (1075, Rule::ElseIf),
             (1078, Rule::OpenDoubleQuote),
             (1080, Rule::LinebreakInTest),
@@ -614,6 +613,7 @@ mod tests {
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
             (2126, Rule::GrepCountPipeline),
+            (2127, Rule::BashCaseFallthrough),
             (2154, Rule::UndefinedVariable),
             (2155, Rule::ExportCommandSubstitution),
             (2157, Rule::ConstantComparisonTest),
@@ -662,13 +662,20 @@ mod tests {
             (2375, Rule::ZshParameterIndexFlag),
             (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
             (3002, Rule::ExtglobInSh),
+            (3005, Rule::CStyleForInSh),
+            (3006, Rule::StandaloneArithmetic),
+            (3007, Rule::LegacyArithmeticInSh),
+            (3008, Rule::SelectLoop),
             (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
             (3014, Rule::TestEqualityOperator),
             (3015, Rule::RegexMatchInSh),
             (3016, Rule::VTestInSh),
             (3017, Rule::ATestInSh),
+            (3018, Rule::CStyleForArithmeticInSh),
             (3026, Rule::CaretNegationInBracket),
+            (3032, Rule::Coproc),
+            (3033, Rule::SelectLoop),
             (3039, Rule::LetCommand),
             (3042, Rule::LetCommand),
             (3043, Rule::LocalVariableInSh),
@@ -677,11 +684,15 @@ mod tests {
             (3050, Rule::BraceFdRedirection),
             (3051, Rule::SourceInsideFunctionInSh),
             (3052, Rule::AmpersandRedirection),
+            (3058, Rule::BashCaseFallthrough),
             (3061, Rule::ExtglobInSh),
             (3072, Rule::CaretNegationInBracket),
             (3062, Rule::OptionTestInSh),
+            (3063, Rule::CStyleForInSh),
+            (3064, Rule::LegacyArithmeticInSh),
             (3065, Rule::StickyBitTestInSh),
             (3067, Rule::OwnershipTestInSh),
+            (3069, Rule::CStyleForArithmeticInSh),
             (3070, Rule::AmpersandRedirectInSh),
             (3073, Rule::PipeStderrInSh),
             (3084, Rule::SourceInsideFunctionInSh),
@@ -749,6 +760,7 @@ mod tests {
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
+        assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
