@@ -39,15 +39,15 @@ impl ZshCaseScanState {
 }
 
 impl<'a> Parser<'a> {
-    fn apply_simple_command_effects(&mut self, command: &SimpleCommand) {
-        let Some(name) = self.literal_word_text(&command.name) else {
+    fn apply_word_command_effects(&mut self, name: &Word, args: &[Word]) {
+        let Some(name) = self.literal_word_text(name) else {
             return;
         };
 
         match name.as_str() {
             "shopt" => {
                 let mut toggle = None;
-                for arg in &command.args {
+                for arg in args {
                     let Some(arg) = self.literal_word_text(arg) else {
                         continue;
                     };
@@ -64,7 +64,7 @@ impl<'a> Parser<'a> {
                 }
             }
             "alias" => {
-                for arg in &command.args {
+                for arg in args {
                     let Some(arg) = self.literal_word_text(arg) else {
                         continue;
                     };
@@ -79,7 +79,7 @@ impl<'a> Parser<'a> {
                 }
             }
             "unalias" => {
-                for arg in &command.args {
+                for arg in args {
                     let Some(arg) = self.literal_word_text(arg) else {
                         continue;
                     };
@@ -96,20 +96,26 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn apply_command_effects(&mut self, command: &Command) {
-        match command {
-            Command::Simple(simple) => self.apply_simple_command_effects(simple),
-            Command::List(list) => {
-                self.apply_command_effects(&list.first);
-                for item in &list.rest {
-                    self.apply_command_effects(&item.command);
-                }
+    fn apply_stmt_effects(&mut self, stmt: &Stmt) {
+        match &stmt.command {
+            AstCommand::Simple(simple) => {
+                self.apply_word_command_effects(&simple.name, &simple.args)
+            }
+            AstCommand::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
+                self.apply_stmt_effects(&binary.left);
+                self.apply_stmt_effects(&binary.right);
             }
             _ => {}
         }
     }
 
-    fn parse_command_list_required(&mut self) -> Result<Command> {
+    fn apply_stmt_list_effects(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            self.apply_stmt_effects(stmt);
+        }
+    }
+
+    fn parse_command_list_required(&mut self) -> Result<Vec<Stmt>> {
         self.parse_command_list()?
             .ok_or_else(|| self.error("expected command"))
     }
@@ -186,7 +192,7 @@ impl<'a> Parser<'a> {
 
         let file_span =
             Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
-        let mut commands = Vec::new();
+        let mut stmts = Vec::new();
 
         while self.current_token.is_some() {
             self.tick()?;
@@ -195,13 +201,13 @@ impl<'a> Parser<'a> {
             if self.current_token.is_none() {
                 break;
             }
-            let command = self.parse_command_list_required()?;
-            self.apply_command_effects(&command);
-            commands.push(command);
+            let command_stmts = self.parse_command_list_required()?;
+            self.apply_stmt_list_effects(&command_stmts);
+            stmts.extend(command_stmts);
         }
 
         let mut file = File {
-            body: Self::lower_commands_to_stmt_seq(commands, file_span),
+            body: Self::stmt_seq_with_span(file_span, stmts),
             span: file_span,
         };
         self.attach_comments_to_file(&mut file);
@@ -216,7 +222,7 @@ impl<'a> Parser<'a> {
     fn parse_recovered_impl(&mut self) -> RecoveredParse {
         let file_span =
             Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
-        let mut commands = Vec::new();
+        let mut stmts = Vec::new();
         let mut diagnostics = Vec::new();
 
         while self.current_token.is_some() {
@@ -243,9 +249,9 @@ impl<'a> Parser<'a> {
 
             let command_start = self.current_span.start.offset;
             match self.parse_command_list_required() {
-                Ok(command) => {
-                    self.apply_command_effects(&command);
-                    commands.push(command);
+                Ok(command_stmts) => {
+                    self.apply_stmt_list_effects(&command_stmts);
+                    stmts.extend(command_stmts);
                 }
                 Err(error) => {
                     diagnostics.push(self.parse_diagnostic_from_error(error));
@@ -257,7 +263,7 @@ impl<'a> Parser<'a> {
         }
 
         let mut file = File {
-            body: Self::lower_commands_to_stmt_seq(commands, file_span),
+            body: Self::stmt_seq_with_span(file_span, stmts),
             span: file_span,
         };
         self.attach_comments_to_file(&mut file);
@@ -287,29 +293,35 @@ impl<'a> Parser<'a> {
         (output, parser.finish_benchmark_counters())
     }
 
-    fn parse_command_list(&mut self) -> Result<Option<Command>> {
+    fn parse_command_list(&mut self) -> Result<Option<Vec<Stmt>>> {
         self.tick()?;
-        let first = match self.parse_pipeline()? {
-            Some(cmd) => cmd,
+        let mut current = match self.parse_pipeline()? {
+            Some(stmt) => stmt,
             None => return Ok(None),
         };
 
-        let mut rest = Vec::with_capacity(1);
+        let mut stmts = Vec::with_capacity(2);
 
         loop {
-            let (op, allow_empty_tail) = match self.current_token_kind {
-                Some(TokenKind::And) => (ListOperator::And, false),
-                Some(TokenKind::Or) => (ListOperator::Or, false),
-                Some(TokenKind::Semicolon) => (ListOperator::Semicolon, true),
-                Some(TokenKind::Background) => {
-                    (ListOperator::Background(BackgroundOperator::Plain), true)
-                }
-                Some(TokenKind::BackgroundPipe) => {
-                    (ListOperator::Background(BackgroundOperator::Pipe), true)
-                }
-                Some(TokenKind::BackgroundBang) => {
-                    (ListOperator::Background(BackgroundOperator::Bang), true)
-                }
+            let (op, terminator, allow_empty_tail) = match self.current_token_kind {
+                Some(TokenKind::And) => (Some(BinaryOp::And), None, false),
+                Some(TokenKind::Or) => (Some(BinaryOp::Or), None, false),
+                Some(TokenKind::Semicolon) => (None, Some(StmtTerminator::Semicolon), true),
+                Some(TokenKind::Background) => (
+                    None,
+                    Some(StmtTerminator::Background(BackgroundOperator::Plain)),
+                    true,
+                ),
+                Some(TokenKind::BackgroundPipe) => (
+                    None,
+                    Some(StmtTerminator::Background(BackgroundOperator::Pipe)),
+                    true,
+                ),
+                Some(TokenKind::BackgroundBang) => (
+                    None,
+                    Some(StmtTerminator::Background(BackgroundOperator::Bang)),
+                    true,
+                ),
                 _ => break,
             };
             let operator_span = self.current_span;
@@ -317,26 +329,27 @@ impl<'a> Parser<'a> {
 
             self.skip_newlines()?;
             if allow_empty_tail && self.current_token.is_none() {
-                rest.push(CommandListItem {
-                    operator: op,
-                    operator_span,
-                    command: Command::Simple(SimpleCommand {
-                        name: Word::literal(""),
-                        args: vec![],
-                        redirects: vec![],
-                        assignments: vec![],
-                        span: self.current_span,
-                    }),
-                });
-                break;
+                current.terminator = terminator;
+                current.terminator_span = Some(operator_span);
+                stmts.push(current);
+                return Ok(Some(stmts));
             }
 
-            if let Some(cmd) = self.parse_pipeline()? {
-                rest.push(CommandListItem {
-                    operator: op,
-                    operator_span,
-                    command: cmd,
-                });
+            if let Some(binary_op) = op {
+                if let Some(right) = self.parse_pipeline()? {
+                    current = Self::binary_stmt(current, binary_op, operator_span, right);
+                } else {
+                    break;
+                }
+                continue;
+            }
+
+            let terminator = terminator.expect("list terminator should be present");
+            if let Some(next) = self.parse_pipeline()? {
+                current.terminator = Some(terminator);
+                current.terminator_span = Some(operator_span);
+                stmts.push(current);
+                current = next;
             } else if allow_empty_tail {
                 if self
                     .current_keyword()
@@ -350,37 +363,23 @@ impl<'a> Parser<'a> {
                 ) {
                     self.advance();
                 }
-                rest.push(CommandListItem {
-                    operator: op,
-                    operator_span,
-                    command: Command::Simple(SimpleCommand {
-                        name: Word::literal(""),
-                        args: vec![],
-                        redirects: vec![],
-                        assignments: vec![],
-                        span: self.current_span,
-                    }),
-                });
-                break;
+                current.terminator = Some(terminator);
+                current.terminator_span = Some(operator_span);
+                stmts.push(current);
+                return Ok(Some(stmts));
             } else {
                 break;
             }
         }
 
-        if rest.is_empty() {
-            Ok(Some(first))
-        } else {
-            Ok(Some(Command::List(CommandList {
-                first: Box::new(first),
-                rest,
-            })))
-        }
+        stmts.push(current);
+        Ok(Some(stmts))
     }
 
     /// Parse a pipeline (commands connected by |)
     ///
     /// Handles `!` pipeline negation: `! cmd | cmd2` negates the exit code.
-    fn parse_pipeline(&mut self) -> Result<Option<Command>> {
+    fn parse_pipeline(&mut self) -> Result<Option<Stmt>> {
         let start_span = self.current_span;
 
         // Check for pipeline negation: `! command`
@@ -389,8 +388,8 @@ impl<'a> Parser<'a> {
             self.advance();
         }
 
-        let first = match self.parse_command()? {
-            Some(cmd) => cmd,
+        let mut stmt = match self.parse_command()? {
+            Some(cmd) => Self::lower_non_sequence_command_to_stmt(cmd),
             None => {
                 if negated {
                     return Err(self.error("expected command after !"));
@@ -399,11 +398,9 @@ impl<'a> Parser<'a> {
             }
         };
 
-        let mut commands = Vec::with_capacity(2);
-        commands.push(first);
-        let mut operators = Vec::with_capacity(1);
-
+        let mut saw_pipe = false;
         while self.at_in_set(PIPE_OPERATOR_TOKENS) {
+            saw_pipe = true;
             let op = if self.at(TokenKind::PipeBoth) {
                 BinaryOp::PipeAll
             } else {
@@ -414,23 +411,18 @@ impl<'a> Parser<'a> {
             self.skip_newlines()?;
 
             if let Some(cmd) = self.parse_command()? {
-                operators.push((op, operator_span));
-                commands.push(cmd);
+                let right = Self::lower_non_sequence_command_to_stmt(cmd);
+                stmt = Self::binary_stmt(stmt, op, operator_span, right);
             } else {
                 return Err(self.error("expected command after |"));
             }
         }
 
-        if commands.len() == 1 && !negated {
-            Ok(Some(commands.remove(0)))
-        } else {
-            Ok(Some(Command::Pipeline(Pipeline {
-                negated,
-                commands,
-                operators,
-                span: start_span.merge(self.current_span),
-            })))
+        if negated || saw_pipe {
+            stmt.negated = negated;
+            stmt.span = start_span.merge(self.current_span);
         }
+        Ok(Some(stmt))
     }
 
     fn parse_compound_with_redirects(
@@ -857,7 +849,7 @@ impl<'a> Parser<'a> {
         let allow_brace_syntax = self.dialect.features().zsh_brace_if;
         let condition = self.parse_if_condition_until_body_start(allow_brace_syntax)?;
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
-        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
+        let condition = Self::stmt_seq_with_span(condition_span, condition);
 
         let (mut syntax, then_branch, brace_style) =
             if allow_brace_syntax && self.at(TokenKind::LeftBrace) {
@@ -891,7 +883,7 @@ impl<'a> Parser<'a> {
                         return Err(self.error("syntax error: empty then clause"));
                     }
                 } else {
-                    Self::lower_commands_to_stmt_seq(then_branch, then_branch_span)
+                    Self::stmt_seq_with_span(then_branch_span, then_branch)
                 };
 
                 (
@@ -914,8 +906,7 @@ impl<'a> Parser<'a> {
             let elif_condition = self.parse_if_condition_until_body_start(brace_style)?;
             let elif_condition_span =
                 Span::from_positions(elif_condition_start, self.current_span.start);
-            let elif_condition =
-                Self::lower_commands_to_stmt_seq(elif_condition, elif_condition_span);
+            let elif_condition = Self::stmt_seq_with_span(elif_condition_span, elif_condition);
 
             let elif_body = if brace_style {
                 if !self.at(TokenKind::LeftBrace) {
@@ -952,7 +943,7 @@ impl<'a> Parser<'a> {
                         return Err(self.error("syntax error: empty elif clause"));
                     }
                 } else {
-                    Self::lower_commands_to_stmt_seq(elif_body, elif_body_span)
+                    Self::stmt_seq_with_span(elif_body_span, elif_body)
                 }
             };
 
@@ -997,7 +988,7 @@ impl<'a> Parser<'a> {
                         return Err(self.error("syntax error: empty else clause"));
                     }
                 } else {
-                    Some(Self::lower_commands_to_stmt_seq(branch, else_span))
+                    Some(Self::stmt_seq_with_span(else_span, branch))
                 }
             }
         } else {
@@ -1178,7 +1169,7 @@ impl<'a> Parser<'a> {
                 let body = if body.is_empty() {
                     Self::stmt_seq_with_span(body_span, Vec::new())
                 } else {
-                    Self::lower_commands_to_stmt_seq(body, body_span)
+                    Self::stmt_seq_with_span(body_span, body)
                 };
                 (
                     body,
@@ -1219,7 +1210,7 @@ impl<'a> Parser<'a> {
                 let body = if body.is_empty() {
                     Self::stmt_seq_with_span(body_span, Vec::new())
                 } else {
-                    Self::lower_commands_to_stmt_seq(body, body_span)
+                    Self::stmt_seq_with_span(body_span, body)
                 };
                 (
                     body,
@@ -1374,7 +1365,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 (
                     RepeatSyntax::DoDone { do_span, done_span },
-                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    Self::stmt_seq_with_span(body_span, body),
                     done_span,
                 )
             }
@@ -1419,7 +1410,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 (
                     RepeatSyntax::DoDone { do_span, done_span },
-                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    Self::stmt_seq_with_span(body_span, body),
                     done_span,
                 )
             }
@@ -1448,13 +1439,12 @@ impl<'a> Parser<'a> {
                 self.advance();
                 (
                     RepeatSyntax::DoDone { do_span, done_span },
-                    Self::lower_commands_to_stmt_seq(body, body_span),
+                    Self::stmt_seq_with_span(body_span, body),
                     done_span,
                 )
             }
             _ => {
-                let command = self.parse_single_stmt_command()?;
-                let stmt = Self::lower_non_sequence_command_to_stmt(command);
+                let stmt = self.parse_single_stmt_command()?;
                 let span = stmt.span;
                 (
                     RepeatSyntax::Direct,
@@ -1591,7 +1581,7 @@ impl<'a> Parser<'a> {
             self.advance();
             (
                 words,
-                Self::lower_commands_to_stmt_seq(body, body_span),
+                Self::stmt_seq_with_span(body_span, body),
                 ForeachSyntax::InDoDone {
                     in_span,
                     do_span,
@@ -1674,7 +1664,7 @@ impl<'a> Parser<'a> {
             self.pop_depth();
             return Err(self.error("syntax error: empty select loop body"));
         }
-        let body = Self::lower_commands_to_stmt_seq(body, body_span);
+        let body = Self::stmt_seq_with_span(body_span, body);
 
         // Expect 'done'
         self.expect_keyword(Keyword::Done)?;
@@ -1802,9 +1792,12 @@ impl<'a> Parser<'a> {
             let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
             let span = Self::compound_span(&body);
             (
-                Self::lower_commands_to_stmt_seq(
-                    vec![Command::Compound(Box::new(body), Vec::new())],
+                Self::stmt_seq_with_span(
                     span,
+                    vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                        Box::new(body),
+                        Vec::new(),
+                    ))],
                 ),
                 self.current_span,
             )
@@ -1829,7 +1822,7 @@ impl<'a> Parser<'a> {
             }
             let done_span = self.current_span;
             self.advance();
-            (Self::lower_commands_to_stmt_seq(body, body_span), done_span)
+            (Self::stmt_seq_with_span(body_span, body), done_span)
         };
 
         Ok(CompoundCommand::ArithmeticFor(Box::new(
@@ -1861,7 +1854,7 @@ impl<'a> Parser<'a> {
         let condition_start = self.current_span.start;
         let condition = self.parse_compound_list(Keyword::Do)?;
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
-        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
+        let condition = Self::stmt_seq_with_span(condition_span, condition);
 
         // Expect 'do'
         self.expect_keyword(Keyword::Do)?;
@@ -1877,7 +1870,7 @@ impl<'a> Parser<'a> {
             self.pop_depth();
             return Err(self.error("syntax error: empty while loop body"));
         }
-        let body = Self::lower_commands_to_stmt_seq(body, body_span);
+        let body = Self::stmt_seq_with_span(body_span, body);
 
         // Expect 'done'
         self.expect_keyword(Keyword::Done)?;
@@ -1901,7 +1894,7 @@ impl<'a> Parser<'a> {
         let condition_start = self.current_span.start;
         let condition = self.parse_compound_list(Keyword::Do)?;
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
-        let condition = Self::lower_commands_to_stmt_seq(condition, condition_span);
+        let condition = Self::stmt_seq_with_span(condition_span, condition);
 
         // Expect 'do'
         self.expect_keyword(Keyword::Do)?;
@@ -1917,7 +1910,7 @@ impl<'a> Parser<'a> {
             self.pop_depth();
             return Err(self.error("syntax error: empty until loop body"));
         }
-        let body = Self::lower_commands_to_stmt_seq(body, body_span);
+        let body = Self::stmt_seq_with_span(body_span, body);
 
         // Expect 'done'
         self.expect_keyword(Keyword::Done)?;
@@ -1969,7 +1962,7 @@ impl<'a> Parser<'a> {
                 && !self.is_keyword(Keyword::Esac)
                 && self.current_token.is_some()
             {
-                commands.push(self.parse_command_list_required()?);
+                commands.extend(self.parse_command_list_required()?);
                 self.skip_newlines()?;
             }
 
@@ -1977,7 +1970,7 @@ impl<'a> Parser<'a> {
             let body_span = Span::from_positions(body_start, self.current_span.start);
             cases.push(CaseItem {
                 patterns,
-                body: Self::lower_commands_to_stmt_seq(commands, body_span),
+                body: Self::stmt_seq_with_span(body_span, commands),
                 terminator,
                 terminator_span,
             });
@@ -2395,9 +2388,7 @@ impl<'a> Parser<'a> {
 
         // Parse the command to time (if any)
         // time with no command is valid in bash (just outputs timing header)
-        let command = self
-            .parse_pipeline()?
-            .map(|command| Box::new(Self::lower_non_sequence_command_to_stmt(command)));
+        let command = self.parse_pipeline()?.map(Box::new);
 
         Ok(CompoundCommand::Time(TimeCommand {
             posix_format,
@@ -2445,7 +2436,6 @@ impl<'a> Parser<'a> {
         // Parse the command body (could be simple, compound, or pipeline)
         let body = self.parse_pipeline()?;
         let body = body.ok_or_else(|| self.error("coproc: missing command"))?;
-        let body = Self::lower_non_sequence_command_to_stmt(body);
 
         Ok(CompoundCommand::Coproc(CoprocCommand {
             name,
@@ -2511,7 +2501,7 @@ impl<'a> Parser<'a> {
             ) {
                 break;
             }
-            commands.push(self.parse_command_list_required()?);
+            commands.extend(self.parse_command_list_required()?);
         }
 
         if self.at(TokenKind::DoubleRightParen) {
@@ -2525,9 +2515,9 @@ impl<'a> Parser<'a> {
         }
 
         self.pop_depth();
-        Ok(CompoundCommand::Subshell(Self::lower_commands_to_stmt_seq(
-            commands,
+        Ok(CompoundCommand::Subshell(Self::stmt_seq_with_span(
             Span::from_positions(body_start, self.current_span.start),
+            commands,
         )))
     }
 
@@ -2580,7 +2570,7 @@ impl<'a> Parser<'a> {
             if self.at(TokenKind::RightBrace) {
                 break;
             }
-            commands.push(self.parse_command_list_required()?);
+            commands.extend(self.parse_command_list_required()?);
         }
 
         if !self.at(TokenKind::RightBrace) {
@@ -2604,20 +2594,17 @@ impl<'a> Parser<'a> {
         self.brace_body_stack.pop();
         self.brace_group_depth -= 1;
         Ok((
-            Self::lower_commands_to_stmt_seq(
-                commands,
+            Self::stmt_seq_with_span(
                 Span::from_positions(body_start, right_brace_span.start),
+                commands,
             ),
             left_brace_span,
             right_brace_span,
         ))
     }
 
-    fn parse_if_condition_until_body_start(
-        &mut self,
-        allow_brace_body: bool,
-    ) -> Result<Vec<Command>> {
-        let mut commands = Vec::with_capacity(2);
+    fn parse_if_condition_until_body_start(&mut self, allow_brace_body: bool) -> Result<Vec<Stmt>> {
+        let mut stmts = Vec::with_capacity(2);
 
         loop {
             self.skip_newlines()?;
@@ -2630,7 +2617,7 @@ impl<'a> Parser<'a> {
                     return Err(error);
                 }
                 if self.is_keyword(Keyword::Then)
-                    || (allow_brace_body && !commands.is_empty() && self.at(TokenKind::LeftBrace))
+                    || (allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace))
                 {
                     break;
                 }
@@ -2638,7 +2625,7 @@ impl<'a> Parser<'a> {
             }
 
             if self.is_keyword(Keyword::Then)
-                || (allow_brace_body && !commands.is_empty() && self.at(TokenKind::LeftBrace))
+                || (allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace))
             {
                 break;
             }
@@ -2647,12 +2634,12 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let command = self.parse_command_list_required()?;
-            self.apply_command_effects(&command);
-            commands.push(command);
+            let command_stmts = self.parse_command_list_required()?;
+            self.apply_stmt_list_effects(&command_stmts);
+            stmts.extend(command_stmts);
         }
 
-        Ok(commands)
+        Ok(stmts)
     }
 
     fn has_recorded_comment_between(&self, start_offset: usize, end_offset: usize) -> bool {
@@ -3550,10 +3537,13 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn parse_function_body_command(&mut self, allow_bare_compound: bool) -> Result<Command> {
+    fn parse_function_body_command(&mut self, allow_bare_compound: bool) -> Result<Stmt> {
         if let Some(compound) = self.try_parse_compact_function_brace_body()? {
             let redirects = self.parse_trailing_redirects();
-            return Ok(Command::Compound(Box::new(compound), redirects));
+            return Ok(Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                Box::new(compound),
+                redirects,
+            )));
         }
 
         let compound = match self.current_keyword() {
@@ -3602,7 +3592,10 @@ impl<'a> Parser<'a> {
             },
         };
         let redirects = self.parse_trailing_redirects();
-        Ok(Command::Compound(Box::new(compound), redirects))
+        Ok(Self::lower_non_sequence_command_to_stmt(Command::Compound(
+            Box::new(compound),
+            redirects,
+        )))
     }
 
     fn parse_function_header_entry(&mut self) -> Result<FunctionHeaderEntry> {
@@ -3654,88 +3647,64 @@ impl<'a> Parser<'a> {
             )));
         }
 
-        let command = self.parse_single_stmt_command()?;
-        Ok(Self::lower_non_sequence_command_to_stmt(command))
+        self.parse_single_stmt_command()
     }
 
-    fn parse_single_stmt_command(&mut self) -> Result<Command> {
-        let first = self
+    fn parse_single_stmt_command(&mut self) -> Result<Stmt> {
+        let mut stmt = self
             .parse_pipeline()?
             .ok_or_else(|| self.error("expected command"))?;
 
-        let mut rest = Vec::with_capacity(1);
+        let Some(kind) = self.current_token_kind else {
+            return Ok(stmt);
+        };
+        let operator = match kind {
+            TokenKind::And => Some((Some(BinaryOp::And), None, false)),
+            TokenKind::Or => Some((Some(BinaryOp::Or), None, false)),
+            TokenKind::Semicolon => Some((None, Some(StmtTerminator::Semicolon), true)),
+            TokenKind::Background => Some((
+                None,
+                Some(StmtTerminator::Background(BackgroundOperator::Plain)),
+                true,
+            )),
+            TokenKind::BackgroundPipe => Some((
+                None,
+                Some(StmtTerminator::Background(BackgroundOperator::Pipe)),
+                true,
+            )),
+            TokenKind::BackgroundBang => Some((
+                None,
+                Some(StmtTerminator::Background(BackgroundOperator::Bang)),
+                true,
+            )),
+            _ => None,
+        };
+        let Some((binary_op, terminator, allow_empty_tail)) = operator else {
+            return Ok(stmt);
+        };
+        let operator_span = self.current_span;
+        self.advance();
 
-        'tail: {
-            let Some(kind) = self.current_token_kind else {
-                break 'tail;
-            };
-            let operator = match kind {
-                TokenKind::And => Some((ListOperator::And, false)),
-                TokenKind::Or => Some((ListOperator::Or, false)),
-                TokenKind::Semicolon => Some((ListOperator::Semicolon, true)),
-                TokenKind::Background => {
-                    Some((ListOperator::Background(BackgroundOperator::Plain), true))
-                }
-                TokenKind::BackgroundPipe => {
-                    Some((ListOperator::Background(BackgroundOperator::Pipe), true))
-                }
-                TokenKind::BackgroundBang => {
-                    Some((ListOperator::Background(BackgroundOperator::Bang), true))
-                }
-                _ => None,
-            };
-            let Some((operator, allow_empty_tail)) = operator else {
-                break 'tail;
-            };
-            let operator_span = self.current_span;
+        if let Some(binary_op) = binary_op {
+            self.skip_newlines()?;
+            if let Some(right) = self.parse_pipeline()? {
+                stmt = Self::binary_stmt(stmt, binary_op, operator_span, right);
+            }
+            return Ok(stmt);
+        }
+
+        if allow_empty_tail
+            && matches!(
+                self.current_token_kind,
+                Some(TokenKind::Semicolon | TokenKind::Newline)
+            )
+        {
             self.advance();
-
-            if matches!(operator, ListOperator::And | ListOperator::Or) {
-                self.skip_newlines()?;
-                if let Some(command) = self.parse_pipeline()? {
-                    rest.push(CommandListItem {
-                        operator,
-                        operator_span,
-                        command,
-                    });
-                }
-                break 'tail;
-            }
-
-            if allow_empty_tail
-                && matches!(
-                    self.current_token_kind,
-                    Some(TokenKind::Semicolon | TokenKind::Newline)
-                )
-            {
-                self.advance();
-            }
-
-            rest.push(CommandListItem {
-                operator,
-                operator_span,
-                command: if allow_empty_tail {
-                    Command::Simple(SimpleCommand {
-                        name: Word::literal(""),
-                        args: vec![],
-                        redirects: vec![],
-                        assignments: vec![],
-                        span: self.current_span,
-                    })
-                } else {
-                    unreachable!()
-                },
-            });
         }
 
-        if rest.is_empty() {
-            Ok(first)
-        } else {
-            Ok(Command::List(CommandList {
-                first: Box::new(first),
-                rest,
-            }))
-        }
+        stmt.terminator = terminator;
+        stmt.terminator_span = Some(operator_span);
+        Ok(stmt)
     }
 
     fn parse_anonymous_function_args(&mut self) -> Result<Vec<Word>> {
@@ -3812,7 +3781,6 @@ impl<'a> Parser<'a> {
         };
 
         let body = self.parse_function_body_command(allow_bare_compound)?;
-        let body = Self::lower_non_sequence_command_to_stmt(body);
         let span = start_span.merge(self.current_span);
 
         Ok(Command::Function(FunctionDef {
@@ -3845,8 +3813,7 @@ impl<'a> Parser<'a> {
             self.parse_zsh_function_body_stmt()?
         } else {
             self.skip_newlines()?;
-            let body = self.parse_function_body_command(true)?;
-            Self::lower_non_sequence_command_to_stmt(body)
+            self.parse_function_body_command(true)?
         };
 
         Ok(Command::Function(FunctionDef {
@@ -3919,13 +3886,13 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse commands until a terminating keyword
-    fn parse_compound_list(&mut self, terminator: Keyword) -> Result<Vec<Command>> {
+    fn parse_compound_list(&mut self, terminator: Keyword) -> Result<Vec<Stmt>> {
         self.parse_compound_list_until(KeywordSet::single(terminator))
     }
 
     /// Parse commands until one of the terminating keywords
-    fn parse_compound_list_until(&mut self, terminators: KeywordSet) -> Result<Vec<Command>> {
-        let mut commands = Vec::with_capacity(4);
+    fn parse_compound_list_until(&mut self, terminators: KeywordSet) -> Result<Vec<Stmt>> {
+        let mut stmts = Vec::with_capacity(4);
 
         loop {
             self.skip_command_separators()?;
@@ -3942,12 +3909,12 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let command = self.parse_command_list_required()?;
-            self.apply_command_effects(&command);
-            commands.push(command);
+            let command_stmts = self.parse_command_list_required()?;
+            self.apply_stmt_list_effects(&command_stmts);
+            stmts.extend(command_stmts);
         }
 
-        Ok(commands)
+        Ok(stmts)
     }
 
     /// Reserved words that cannot start a simple command.

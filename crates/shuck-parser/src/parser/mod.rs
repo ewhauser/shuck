@@ -147,41 +147,10 @@ struct DeclClause {
 }
 
 #[derive(Debug, Clone)]
-struct Pipeline {
-    negated: bool,
-    commands: Vec<Command>,
-    operators: Vec<(BinaryOp, Span)>,
-    span: Span,
-}
-
-#[derive(Debug, Clone)]
-struct CommandList {
-    first: Box<Command>,
-    rest: Vec<CommandListItem>,
-}
-
-#[derive(Debug, Clone)]
-struct CommandListItem {
-    operator: ListOperator,
-    operator_span: Span,
-    command: Command,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ListOperator {
-    And,
-    Or,
-    Semicolon,
-    Background(BackgroundOperator),
-}
-
-#[derive(Debug, Clone)]
 enum Command {
     Simple(SimpleCommand),
     Builtin(BuiltinCommand),
     Decl(DeclClause),
-    Pipeline(Pipeline),
-    List(CommandList),
     Compound(Box<CompoundCommand>, Vec<Redirect>),
     Function(FunctionDef),
     AnonymousFunction(AnonymousFunctionCommand, Vec<Redirect>),
@@ -3994,22 +3963,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn is_empty_stmt_placeholder(command: &Command) -> bool {
-        matches!(
-            command,
-            Command::Simple(SimpleCommand {
-                name,
-                args,
-                redirects,
-                assignments,
-                ..
-            }) if name.render("").is_empty()
-                && args.is_empty()
-                && redirects.is_empty()
-                && assignments.is_empty()
-        )
-    }
-
     fn compound_span(compound: &CompoundCommand) -> Span {
         match compound {
             CompoundCommand::If(command) => command.span,
@@ -4039,82 +3992,24 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn lower_commands_to_stmt_seq(commands: Vec<Command>, span: Span) -> StmtSeq {
-        let mut stmts = Vec::new();
-        for command in commands {
-            Self::lower_command_into_stmts(command, &mut stmts);
-        }
-        Self::stmt_seq_with_span(span, stmts)
-    }
-
-    fn lower_command_into_stmts(command: Command, stmts: &mut Vec<Stmt>) {
-        match command {
-            Command::List(list) => Self::lower_list_into_stmts(list, stmts),
-            other => stmts.push(Self::lower_non_sequence_command_to_stmt(other)),
-        }
-    }
-
-    fn lower_list_into_stmts(list: CommandList, stmts: &mut Vec<Stmt>) {
-        let CommandList { first, rest, .. } = list;
-        let mut current = *first;
-        let mut pending = Vec::new();
-
-        for item in rest {
-            match item.operator {
-                ListOperator::And | ListOperator::Or => pending.push(item),
-                ListOperator::Semicolon | ListOperator::Background(_) => {
-                    let terminator = match item.operator {
-                        ListOperator::Semicolon => StmtTerminator::Semicolon,
-                        ListOperator::Background(operator) => StmtTerminator::Background(operator),
-                        ListOperator::And | ListOperator::Or => unreachable!(),
-                    };
-                    let mut stmt =
-                        Self::lower_and_or_segment(current, std::mem::take(&mut pending));
-                    stmt.terminator = Some(terminator);
-                    stmt.terminator_span = Some(item.operator_span);
-                    stmts.push(stmt);
-
-                    if Self::is_empty_stmt_placeholder(&item.command) {
-                        return;
-                    }
-                    current = item.command;
-                }
-            }
-        }
-
-        stmts.push(Self::lower_and_or_segment(current, pending));
-    }
-
-    fn lower_and_or_segment(first: Command, rest: Vec<CommandListItem>) -> Stmt {
-        let mut stmt = Self::lower_non_sequence_command_to_stmt(first);
-
-        for item in rest {
-            let op = match item.operator {
-                ListOperator::And => BinaryOp::And,
-                ListOperator::Or => BinaryOp::Or,
-                ListOperator::Semicolon | ListOperator::Background(_) => unreachable!(),
-            };
-            let right = Self::lower_non_sequence_command_to_stmt(item.command);
-            let span = stmt.span.merge(right.span);
-            stmt = Stmt {
-                leading_comments: Vec::new(),
-                command: AstCommand::Binary(BinaryCommand {
-                    left: Box::new(stmt),
-                    op,
-                    op_span: item.operator_span,
-                    right: Box::new(right),
-                    span,
-                }),
-                negated: false,
-                redirects: Vec::new(),
-                terminator: None,
-                terminator_span: None,
-                inline_comment: None,
+    fn binary_stmt(left: Stmt, op: BinaryOp, op_span: Span, right: Stmt) -> Stmt {
+        let span = left.span.merge(right.span);
+        Stmt {
+            leading_comments: Vec::new(),
+            command: AstCommand::Binary(BinaryCommand {
+                left: Box::new(left),
+                op,
+                op_span,
+                right: Box::new(right),
                 span,
-            };
+            }),
+            negated: false,
+            redirects: Vec::new(),
+            terminator: None,
+            terminator_span: None,
+            inline_comment: None,
+            span,
         }
-
-        stmt
     }
 
     fn lower_builtin_command(builtin: BuiltinCommand) -> (AstBuiltinCommand, Vec<Redirect>, Span) {
@@ -4224,43 +4119,6 @@ impl<'a> Parser<'a> {
                 inline_comment: None,
                 span: command.span,
             },
-            Command::Pipeline(pipeline) => {
-                let Pipeline {
-                    negated,
-                    commands,
-                    operators,
-                    span,
-                } = pipeline;
-                let mut commands = commands.into_iter();
-                let mut stmt = Self::lower_non_sequence_command_to_stmt(
-                    commands
-                        .next()
-                        .expect("pipeline should contain at least one command"),
-                );
-                for ((op, op_span), command) in operators.into_iter().zip(commands) {
-                    let right = Self::lower_non_sequence_command_to_stmt(command);
-                    let binary_span = stmt.span.merge(right.span);
-                    stmt = Stmt {
-                        leading_comments: Vec::new(),
-                        command: AstCommand::Binary(BinaryCommand {
-                            left: Box::new(stmt),
-                            op,
-                            op_span,
-                            right: Box::new(right),
-                            span: binary_span,
-                        }),
-                        negated: false,
-                        redirects: Vec::new(),
-                        terminator: None,
-                        terminator_span: None,
-                        inline_comment: None,
-                        span: binary_span,
-                    };
-                }
-                stmt.negated = negated;
-                stmt.span = span;
-                stmt
-            }
             Command::Compound(compound, redirects) => {
                 let span = Self::compound_span(&compound);
                 Stmt {
@@ -4294,14 +4152,6 @@ impl<'a> Parser<'a> {
                 terminator_span: None,
                 inline_comment: None,
             },
-            Command::List(list) => {
-                let mut stmts = Vec::new();
-                Self::lower_list_into_stmts(list, &mut stmts);
-                stmts
-                    .into_iter()
-                    .next()
-                    .expect("command list should lower to at least one statement")
-            }
         }
     }
 
