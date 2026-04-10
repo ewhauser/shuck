@@ -2,6 +2,7 @@ pub mod common;
 pub mod correctness;
 pub mod performance;
 pub mod portability;
+pub mod security;
 pub mod style;
 
 #[cfg(test)]
@@ -9,7 +10,13 @@ mod architecture_tests {
     use std::fs;
     use std::path::Path;
 
-    const RULE_DIRS: &[&str] = &["correctness", "performance", "portability", "style"];
+    const RULE_DIRS: &[&str] = &[
+        "correctness",
+        "performance",
+        "portability",
+        "security",
+        "style",
+    ];
     const FORBIDDEN_TOKENS: &[&str] = &[
         "WordPart",
         "WordPartNode",

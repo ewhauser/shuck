@@ -220,6 +220,10 @@ declare_rules! {
     ("X074", Category::Portability, Severity::Warning, StickyBitTestInSh),
     ("X075", Category::Portability, Severity::Warning, OwnershipTestInSh),
     ("X080", Category::Portability, Severity::Warning, SourceInsideFunctionInSh),
+    ("K001", Category::Security, Severity::Warning, RmGlobOnVariablePath),
+    ("K002", Category::Security, Severity::Warning, SshLocalExpansion),
+    ("K003", Category::Security, Severity::Warning, EvalOnArray),
+    ("K004", Category::Security, Severity::Warning, FindExecDirWithShell),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
     ("S003", Category::Style, Severity::Warning, LoopFromCommandOutput),
@@ -304,6 +308,9 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
+        "SH-044" => Some(Rule::RmGlobOnVariablePath),
+        "SH-047" => Some(Rule::SshLocalExpansion),
+        "SH-151" => Some(Rule::EvalOnArray),
         "SH-045" => Some(Rule::ChainedTestBranches),
         "SH-046" => Some(Rule::LineOrientedInput),
         "SH-048" => Some(Rule::LeadingGlobArgument),
@@ -394,6 +401,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-280" => Some(Rule::OptionTestInSh),
         "SH-281" => Some(Rule::StickyBitTestInSh),
         "SH-282" => Some(Rule::OwnershipTestInSh),
+        "SH-283" => Some(Rule::FindExecDirWithShell),
         "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
         _ => None,
     })
@@ -462,6 +470,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));
         assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));
+        assert_eq!(code_to_rule("SH-044"), Some(Rule::RmGlobOnVariablePath));
+        assert_eq!(code_to_rule("SH-047"), Some(Rule::SshLocalExpansion));
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
@@ -512,6 +522,7 @@ mod tests {
             Some(Rule::ArithmeticRedirectionTarget)
         );
         assert_eq!(code_to_rule("SH-148"), Some(Rule::BareSlashMarker));
+        assert_eq!(code_to_rule("SH-151"), Some(Rule::EvalOnArray));
         assert_eq!(code_to_rule("SH-152"), Some(Rule::PatternWithVariable));
         assert_eq!(
             code_to_rule("SH-155"),
@@ -546,6 +557,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)

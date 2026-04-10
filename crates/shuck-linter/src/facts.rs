@@ -19,9 +19,10 @@ use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
+    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -47,6 +48,7 @@ use crate::rules::common::expansion::{
     WordExpansionKind, WordLiteralness, WordSubstitutionShape, analyze_literal_runtime,
     analyze_redirect_target, analyze_word,
 };
+use crate::rules::common::span::expansion_part_spans;
 use crate::rules::common::{
     command::{self, NormalizedCommand, WrapperKind},
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
@@ -601,6 +603,7 @@ pub struct WordFact<'a> {
     has_literal_affixes: bool,
     scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
+    all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_array_expansion_spans: Box<[Span]>,
     command_substitution_spans: Box<[Span]>,
     unquoted_command_substitution_spans: Box<[Span]>,
@@ -673,6 +676,10 @@ impl<'a> WordFact<'a> {
 
     pub fn array_expansion_spans(&self) -> &[Span] {
         &self.array_expansion_spans
+    }
+
+    pub fn all_elements_array_expansion_spans(&self) -> &[Span] {
+        &self.all_elements_array_expansion_spans
     }
 
     pub fn unquoted_array_expansion_spans(&self) -> &[Span] {
@@ -1121,9 +1128,42 @@ impl<'a> UnsetCommandFacts<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RmCommandFacts {
+    dangerous_path_spans: Box<[Span]>,
+}
+
+impl RmCommandFacts {
+    pub fn dangerous_path_spans(&self) -> &[Span] {
+        &self.dangerous_path_spans
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SshCommandFacts {
+    local_expansion_spans: Box<[Span]>,
+}
+
+impl SshCommandFacts {
+    pub fn local_expansion_spans(&self) -> &[Span] {
+        &self.local_expansion_spans
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FindCommandFacts {
     pub has_print0: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct FindExecDirCommandFacts {
+    shell_command_spans: Box<[Span]>,
+}
+
+impl FindExecDirCommandFacts {
+    pub fn shell_command_spans(&self) -> &[Span] {
+        &self.shell_command_spans
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1191,10 +1231,13 @@ pub struct SudoFamilyCommandFacts {
 
 #[derive(Debug, Clone, Default)]
 pub struct CommandOptionFacts<'a> {
+    rm: Option<RmCommandFacts>,
+    ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
+    find_execdir: Option<FindExecDirCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
@@ -1205,6 +1248,14 @@ pub struct CommandOptionFacts<'a> {
 }
 
 impl<'a> CommandOptionFacts<'a> {
+    pub fn rm(&self) -> Option<&RmCommandFacts> {
+        self.rm.as_ref()
+    }
+
+    pub fn ssh(&self) -> Option<&SshCommandFacts> {
+        self.ssh.as_ref()
+    }
+
     pub fn read(&self) -> Option<&ReadCommandFacts> {
         self.read.as_ref()
     }
@@ -1219,6 +1270,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn find(&self) -> Option<&FindCommandFacts> {
         self.find.as_ref()
+    }
+
+    pub fn find_execdir(&self) -> Option<&FindExecDirCommandFacts> {
+        self.find_execdir.as_ref()
     }
 
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
@@ -1251,6 +1306,15 @@ impl<'a> CommandOptionFacts<'a> {
 
     fn build(command: &'a Command, normalized: &NormalizedCommand<'a>, source: &str) -> Self {
         Self {
+            rm: normalized
+                .literal_name
+                .as_deref()
+                .is_some_and(|name| name == "rm" && normalized.wrappers.is_empty())
+                .then(|| parse_rm_command(normalized.body_args(), source))
+                .flatten(),
+            ssh: (normalized.effective_name_is("ssh") && normalized.wrappers.is_empty())
+                .then(|| parse_ssh_command(normalized.body_args(), source))
+                .flatten(),
             read: normalized
                 .effective_name_is("read")
                 .then(|| ReadCommandFacts {
@@ -1276,6 +1340,16 @@ impl<'a> CommandOptionFacts<'a> {
                         .filter_map(|word| static_word_text(word, source))
                         .any(|arg| arg == "-print0"),
                 }),
+            find_execdir: normalized
+                .has_wrapper(WrapperKind::FindExecDir)
+                .then(|| {
+                    parse_find_execdir_shell_command(
+                        normalized.effective_name.as_deref(),
+                        normalized.body_args(),
+                        source,
+                    )
+                })
+                .flatten(),
             xargs: normalized
                 .effective_name_is("xargs")
                 .then(|| XargsCommandFacts {
@@ -3748,6 +3822,11 @@ impl<'a> WordFactCollector<'a> {
                 .into_boxed_slice(),
             array_expansion_spans: span::array_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
+            all_elements_array_expansion_spans: span::all_elements_array_expansion_part_spans(
+                word_ref,
+                self.source,
+            )
+            .into_boxed_slice(),
             unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(
                 word_ref,
                 self.source,
@@ -4153,6 +4232,428 @@ fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     )
 }
 
+fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
+    let mut index = 0usize;
+    let mut recursive = false;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        if text == "--recursive"
+            || (text.starts_with('-') && !text.starts_with("--") && text[1..].contains('r'))
+            || (text.starts_with('-') && !text.starts_with("--") && text[1..].contains('R'))
+        {
+            recursive = true;
+        }
+
+        index += 1;
+    }
+
+    if !recursive {
+        return None;
+    }
+
+    let dangerous_path_spans = args[index..]
+        .iter()
+        .filter(|word| rm_path_is_dangerous(word, source))
+        .map(|word| word.span)
+        .collect::<Vec<_>>();
+
+    (!dangerous_path_spans.is_empty()).then_some(RmCommandFacts {
+        dangerous_path_spans: dangerous_path_spans.into_boxed_slice(),
+    })
+}
+
+fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
+    let remote_args = ssh_remote_args(args, source)?;
+    if remote_args.is_empty() {
+        return None;
+    }
+
+    let local_expansion_spans = remote_args
+        .iter()
+        .flat_map(|word| expansion_part_spans(word))
+        .collect::<Vec<_>>();
+
+    Some(SshCommandFacts {
+        local_expansion_spans: local_expansion_spans.into_boxed_slice(),
+    })
+}
+
+fn ssh_remote_args<'a>(args: &'a [&'a Word], source: &str) -> Option<&'a [&'a Word]> {
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        let consumes_next = ssh_option_consumes_next_argument(text.as_str())?;
+        index += 1;
+        if consumes_next {
+            args.get(index)?;
+            index += 1;
+        }
+    }
+
+    let _destination = args.get(index)?;
+    Some(&args[index + 1..])
+}
+
+fn ssh_option_consumes_next_argument(text: &str) -> Option<bool> {
+    if !text.starts_with('-') || text == "-" {
+        return Some(false);
+    }
+    if text == "--" {
+        return Some(false);
+    }
+
+    let bytes = text.as_bytes();
+    let mut index = 1usize;
+    while index < bytes.len() {
+        let flag = bytes[index];
+        if ssh_option_requires_argument(flag) {
+            return Some(index + 1 == bytes.len());
+        }
+        if !ssh_option_is_flag(flag) {
+            return None;
+        }
+        index += 1;
+    }
+
+    Some(false)
+}
+
+fn ssh_option_requires_argument(flag: u8) -> bool {
+    matches!(
+        flag,
+        b'B' | b'b'
+            | b'c'
+            | b'D'
+            | b'E'
+            | b'e'
+            | b'F'
+            | b'I'
+            | b'i'
+            | b'J'
+            | b'L'
+            | b'l'
+            | b'm'
+            | b'O'
+            | b'o'
+            | b'p'
+            | b'P'
+            | b'Q'
+            | b'R'
+            | b'S'
+            | b'W'
+            | b'w'
+    )
+}
+
+fn ssh_option_is_flag(flag: u8) -> bool {
+    ssh_option_requires_argument(flag)
+        || matches!(
+            flag,
+            b'4' | b'6'
+                | b'A'
+                | b'a'
+                | b'C'
+                | b'f'
+                | b'G'
+                | b'g'
+                | b'K'
+                | b'k'
+                | b'M'
+                | b'N'
+                | b'n'
+                | b'q'
+                | b's'
+                | b'T'
+                | b't'
+                | b'V'
+                | b'v'
+                | b'X'
+                | b'x'
+                | b'Y'
+                | b'y'
+        )
+}
+
+fn rm_path_is_dangerous(word: &Word, source: &str) -> bool {
+    let segments = rm_path_segments(word, source);
+    if segments.is_empty() || !segments[0].has_unsafe_param {
+        return false;
+    }
+
+    let brace_expansion_active = word.has_active_brace_expansion();
+    let mut saw_literal_barrier = false;
+    let mut saw_pure_unsafe = false;
+    let mut tail_start = 1usize;
+
+    for (index, segment) in segments.iter().enumerate().skip(1) {
+        if rm_path_segment_is_pure_unsafe_parameter(segment) {
+            if saw_literal_barrier {
+                return false;
+            }
+            saw_pure_unsafe = true;
+            tail_start = index + 1;
+            continue;
+        }
+
+        if segment.has_literal_text || segment.has_other_dynamic || segment.has_unsafe_param {
+            if saw_pure_unsafe {
+                let tail = rm_path_tail_text(&segments[index..]);
+                return rm_path_tail_is_dangerous(&tail, brace_expansion_active);
+            }
+
+            saw_literal_barrier = true;
+        }
+    }
+
+    if saw_pure_unsafe {
+        let tail = rm_path_tail_text(&segments[tail_start..]);
+        return tail.is_empty() || rm_path_tail_is_dangerous(&tail, brace_expansion_active);
+    }
+
+    let tail = rm_path_tail_text(&segments[1..]);
+    !tail.is_empty() && rm_path_tail_is_dangerous(&tail, brace_expansion_active)
+}
+
+#[derive(Debug, Default)]
+struct RmPathSegment {
+    has_unsafe_param: bool,
+    has_literal_text: bool,
+    has_other_dynamic: bool,
+    text: String,
+}
+
+fn rm_path_segments(word: &Word, source: &str) -> Vec<RmPathSegment> {
+    let mut segments = vec![RmPathSegment::default()];
+    append_rm_path_segments(&mut segments, &word.parts, source);
+    segments
+}
+
+fn append_rm_path_segments(
+    segments: &mut Vec<RmPathSegment>,
+    parts: &[WordPartNode],
+    source: &str,
+) {
+    for part in parts {
+        append_rm_path_part(segments, &part.kind, part.span, source);
+    }
+}
+
+fn append_rm_path_part(
+    segments: &mut Vec<RmPathSegment>,
+    part: &WordPart,
+    span: Span,
+    source: &str,
+) {
+    match part {
+        WordPart::Literal(text) => append_rm_path_literal(segments, text.as_str(source, span)),
+        WordPart::SingleQuoted {
+            value,
+            dollar: false,
+        } => append_rm_path_literal(segments, value.slice(source)),
+        WordPart::SingleQuoted { dollar: true, .. } => {
+            current_rm_path_segment(segments).has_other_dynamic = true;
+        }
+        WordPart::DoubleQuoted { parts, .. } => append_rm_path_segments(segments, parts, source),
+        WordPart::Variable(_) => {
+            current_rm_path_segment(segments).has_unsafe_param = true;
+        }
+        WordPart::Parameter(parameter) => {
+            if rm_path_parameter_expansion_is_unsafe(parameter) {
+                current_rm_path_segment(segments).has_unsafe_param = true;
+            }
+        }
+        WordPart::ParameterExpansion {
+            operator,
+            colon_variant: _,
+            ..
+        } => {
+            if rm_path_parameter_op_is_unsafe(operator) {
+                current_rm_path_segment(segments).has_unsafe_param = true;
+            }
+        }
+        WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ZshQualifiedGlob(_) => {
+            current_rm_path_segment(segments).has_other_dynamic = true;
+        }
+    }
+}
+
+fn rm_path_parameter_expansion_is_unsafe(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { .. } => true,
+            BourneParameterExpansion::Indirect {
+                operator,
+                operand: _,
+                colon_variant: _,
+                ..
+            } => operator.as_ref().is_none_or(rm_path_parameter_op_is_unsafe),
+            BourneParameterExpansion::Operation { operator, .. } => {
+                rm_path_parameter_op_is_unsafe(operator)
+            }
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Transformation { .. }
+            | BourneParameterExpansion::PrefixMatch { .. } => false,
+        },
+        ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn rm_path_parameter_op_is_unsafe(operator: &ParameterOp) -> bool {
+    !matches!(
+        operator,
+        ParameterOp::UseDefault | ParameterOp::AssignDefault | ParameterOp::Error
+    )
+}
+
+fn append_rm_path_literal(segments: &mut Vec<RmPathSegment>, text: &str) {
+    for character in text.chars() {
+        if character == '/' {
+            segments.push(RmPathSegment::default());
+            continue;
+        }
+
+        let segment = current_rm_path_segment(segments);
+        segment.has_literal_text = true;
+        segment.text.push(character);
+    }
+}
+
+fn current_rm_path_segment(segments: &mut [RmPathSegment]) -> &mut RmPathSegment {
+    segments
+        .last_mut()
+        .expect("rm path segments always start non-empty")
+}
+
+fn rm_path_segment_is_pure_unsafe_parameter(segment: &RmPathSegment) -> bool {
+    segment.has_unsafe_param && !segment.has_literal_text && !segment.has_other_dynamic
+}
+
+fn rm_path_tail_text(segments: &[RmPathSegment]) -> String {
+    segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+const RM_DANGEROUS_LITERAL_SUFFIXES: &[&str] = &[
+    "bin",
+    "boot",
+    "dev",
+    "etc",
+    "home",
+    "lib",
+    "opt",
+    "usr/bin",
+    "usr/local",
+    "usr/share",
+    "var",
+];
+
+fn rm_path_tail_is_dangerous(tail: &str, brace_expansion_active: bool) -> bool {
+    if brace_expansion_active && let Some((prefix, inner, suffix)) = split_brace_expansion(tail) {
+        return split_brace_alternatives(inner)
+            .into_iter()
+            .any(|alternative| {
+                rm_path_tail_is_dangerous(&format!("{prefix}{alternative}{suffix}"), true)
+            });
+    }
+
+    let tail = tail.trim_start_matches('/');
+    if tail.is_empty() {
+        return false;
+    }
+
+    if let Some(prefix) = tail.strip_suffix('*') {
+        let prefix = prefix.trim_end_matches('/');
+        return prefix.is_empty() || RM_DANGEROUS_LITERAL_SUFFIXES.contains(&prefix);
+    }
+
+    RM_DANGEROUS_LITERAL_SUFFIXES.contains(&tail)
+}
+
+fn split_brace_expansion(text: &str) -> Option<(&str, &str, &str)> {
+    let bytes = text.as_bytes();
+    let open = bytes.iter().position(|byte| *byte == b'{')?;
+    let mut depth = 0usize;
+
+    for (index, byte) in bytes.iter().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some((&text[..open], &text[open + 1..index], &text[index + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn split_brace_alternatives(text: &str) -> Vec<&str> {
+    let mut alternatives = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+
+    for (index, byte) in text.as_bytes().iter().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                alternatives.push(&text[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    alternatives.push(&text[start..]);
+    alternatives
+}
+
 fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
@@ -4359,6 +4860,69 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
         operand_words: operands.into_boxed_slice(),
         options_parseable,
     }
+}
+
+fn parse_find_execdir_shell_command(
+    shell_name: Option<&str>,
+    args: &[&Word],
+    source: &str,
+) -> Option<FindExecDirCommandFacts> {
+    if !matches!(shell_name, Some("sh" | "bash" | "dash" | "ksh")) {
+        return None;
+    }
+
+    let shell_command_spans = args
+        .windows(2)
+        .filter_map(|pair| {
+            let flag = static_word_text(pair[0], source)?;
+            if !shell_flag_contains_command_string(flag.as_str()) {
+                return None;
+            }
+            let script = pair[1];
+            script
+                .span
+                .slice(source)
+                .contains("{}")
+                .then_some(script.span)
+        })
+        .collect::<Vec<_>>();
+
+    (!shell_command_spans.is_empty()).then_some(FindExecDirCommandFacts {
+        shell_command_spans: shell_command_spans.into_boxed_slice(),
+    })
+}
+
+fn shell_flag_contains_command_string(flag: &str) -> bool {
+    let Some(cluster) = flag.strip_prefix('-') else {
+        return false;
+    };
+    !cluster.is_empty()
+        && !cluster.starts_with('-')
+        && cluster.bytes().all(shell_short_flag_is_clusterable)
+        && cluster.bytes().any(|byte| byte == b'c')
+}
+
+fn shell_short_flag_is_clusterable(flag: u8) -> bool {
+    matches!(
+        flag,
+        b'a' | b'b'
+            | b'c'
+            | b'e'
+            | b'f'
+            | b'h'
+            | b'i'
+            | b'k'
+            | b'l'
+            | b'm'
+            | b'n'
+            | b'p'
+            | b'r'
+            | b's'
+            | b't'
+            | b'u'
+            | b'v'
+            | b'x'
+    )
 }
 
 fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
@@ -4911,7 +5475,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -5000,6 +5564,16 @@ mod tests {
             .expect("expected find facts");
         assert!(find.has_print0);
 
+        let find_execdir = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+            .and_then(|fact| fact.options().find_execdir());
+        assert!(
+            find_execdir.is_none(),
+            "fixture without execdir should not match"
+        );
+
         let xargs = facts
             .commands()
             .iter()
@@ -5045,7 +5619,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["pipefail"]
         );
-
+        let rm_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().rm())
+            .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rm_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "\"$dir\"/*",
+                "\"$dir\"/lib",
+                "\"$rootdir/$md_type/$to\"",
+                "\"$md_inst/\"*"
+            ]
+        );
         let grep = facts
             .commands()
             .iter()
@@ -5115,6 +5706,68 @@ echo ${foo:-${1##*/}}
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
 
         assert!(facts.base_prefix_arithmetic_spans().is_empty());
+    }
+
+    #[test]
+    fn builds_find_execdir_command_facts_for_shell_targets() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=2086,2154
+find $dir -type f -name \"rename*\" -execdir sh -c 'mv {} $(echo {} | sed \"s|rename|perl-rename|\")' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let find = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+                .expect("expected find -execdir fact");
+
+            assert_eq!(find.effective_name(), Some("sh"));
+            assert_eq!(find.wrappers(), &[WrapperKind::FindExecDir]);
+
+            let find_execdir = find
+                .options()
+                .find_execdir()
+                .expect("expected shell command fact for find -execdir");
+            assert_eq!(
+                find_execdir
+                    .shell_command_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["'mv {} $(echo {} | sed \"s|rename|perl-rename|\")'"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_execdir_command_facts_for_bundled_shell_c_flags() {
+        let source = "\
+#!/bin/sh
+find . -execdir sh -ec 'mv {} \"$target\"' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let find = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+                .expect("expected find -execdir fact");
+
+            let find_execdir = find
+                .options()
+                .find_execdir()
+                .expect("expected shell command fact for bundled -c flags");
+            assert_eq!(
+                find_execdir
+                    .shell_command_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["'mv {} \"$target\"'"]
+            );
+        });
     }
 
     #[test]

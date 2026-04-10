@@ -1,0 +1,8 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "rvm__rvm__update-remote.sh"
+    line: 11
+    end_line: 11
+    column: 52
+    end_column: 57
+    reason: "this ssh command still assembles a remote command from a locally expanded loop variable, and we keep flagging that shape even though ShellCheck does not emit SC2029 for the pipeline-to-while-read form"

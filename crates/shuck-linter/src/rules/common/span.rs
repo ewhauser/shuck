@@ -1,7 +1,7 @@
 use shuck_ast::{
     Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr, ParameterExpansion,
-    ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Redirect, Span, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionTarget,
+    ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Position, Redirect, Span,
+    SubscriptSelector, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -50,6 +50,12 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
 pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_array_expansion_spans(&word.parts, false, false, &mut spans);
+    spans
+}
+
+pub fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
     spans
 }
 
@@ -417,6 +423,147 @@ fn collect_array_expansion_spans(
             _ => {}
         }
     }
+}
+
+fn collect_all_elements_array_expansion_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_all_elements_array_expansion_spans(parts, source, spans)
+            }
+            WordPart::Variable(name) if name.as_str() == "@" => {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                    spans.push(span);
+                }
+            }
+            WordPart::ArrayAccess(reference)
+                if matches!(
+                    reference
+                        .subscript
+                        .as_ref()
+                        .and_then(|subscript| subscript.selector()),
+                    Some(SubscriptSelector::At)
+                ) =>
+            {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                    spans.push(span);
+                }
+            }
+            WordPart::Parameter(_parameter) => {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                    spans.push(span);
+                }
+            }
+            WordPart::Variable(name) if name.as_str() == "*" => {}
+            _ => {}
+        }
+    }
+}
+
+fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let base_offset = span.start.offset;
+    let mut search_from = 0usize;
+
+    while let Some(found) = text[search_from..].find('$') {
+        let relative_start = search_from + found;
+        let absolute_start = base_offset + relative_start;
+        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+            search_from = relative_start + 1;
+            continue;
+        }
+
+        let start = position_at_offset(source, absolute_start)?;
+        let remainder = &source[absolute_start..];
+
+        if remainder.starts_with("$@") {
+            let end = position_at_offset(source, absolute_start + "$@".len())?;
+            return Some(Span::from_positions(start, end));
+        }
+
+        if remainder.starts_with("${")
+            && let Some(relative_end) = remainder.find('}')
+        {
+            let candidate = &remainder[..=relative_end];
+            if candidate_is_all_elements_array_expansion(candidate) {
+                let end = position_at_offset(source, absolute_start + candidate.len())?;
+                return Some(Span::from_positions(start, end));
+            }
+        }
+
+        search_from = relative_start + 1;
+    }
+
+    widen_all_elements_array_expansion_span(span, source)
+}
+
+fn widen_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    if !text.contains("[@]") {
+        return None;
+    }
+
+    let start_offset = span.start.offset.checked_sub(2)?;
+    if source.as_bytes().get(start_offset..span.start.offset)? != b"${" {
+        return None;
+    }
+
+    let start = position_at_offset(source, start_offset)?;
+    let remainder = &source[start_offset..];
+    let relative_end = remainder.find('}')?;
+    let candidate = &remainder[..=relative_end];
+    if !candidate_is_all_elements_array_expansion(candidate) {
+        return None;
+    }
+
+    let end = position_at_offset(source, start_offset + candidate.len())?;
+    Some(Span::from_positions(start, end))
+}
+
+fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
+    let Some(inner) = candidate
+        .strip_prefix("${")
+        .and_then(|text| text.strip_suffix('}'))
+    else {
+        return false;
+    };
+
+    let Some(first) = inner.as_bytes().first().copied() else {
+        return false;
+    };
+
+    if first == b'@' {
+        return true;
+    }
+
+    if !is_name_start(first) {
+        return false;
+    }
+
+    let bytes = inner.as_bytes();
+    let mut index = 1usize;
+    while index < bytes.len() && is_name_continue(bytes[index]) {
+        index += 1;
+    }
+
+    inner[index..].starts_with("[@]")
+}
+
+fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
+    if target_offset > source.len() {
+        return None;
+    }
+
+    let mut position = Position::new();
+    for ch in source[..target_offset].chars() {
+        position.advance(ch);
+    }
+    Some(position)
 }
 
 fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
@@ -1117,9 +1264,9 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        array_expansion_part_spans, command_substitution_part_spans, find_extglob_bounds,
-        scalar_expansion_part_spans, word_caret_negated_bracket_spans,
-        word_exactly_one_extglob_span,
+        all_elements_array_expansion_part_spans, array_expansion_part_spans,
+        command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
+        word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
     };
 
     #[test]
@@ -1283,6 +1430,114 @@ mod tests {
         };
 
         assert!(word_caret_negated_bracket_spans(&command.args[0], source).is_empty());
+    }
+
+    #[test]
+    fn all_elements_array_expansion_spans_only_return_at_style_parts() {
+        let source =
+            "printf '%s\\n' $@ $* \"$@\" \"$*\" ${arr[@]} ${arr[*]} ${arr[@]:1:2} ${arr[*]:1:2}\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[1], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+        assert!(all_elements_array_expansion_part_spans(&command.args[2], source).is_empty());
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[3], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+        assert!(all_elements_array_expansion_part_spans(&command.args[4], source).is_empty());
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[5], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]}"]
+        );
+        assert!(all_elements_array_expansion_part_spans(&command.args[6], source).is_empty());
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[7], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]:1:2}"]
+        );
+        assert!(all_elements_array_expansion_part_spans(&command.args[8], source).is_empty());
+    }
+
+    #[test]
+    fn all_elements_array_expansion_spans_normalize_parser_misalignment() {
+        let source = "\
+#!/bin/bash
+shims=(a)
+eval \\
+\"conda_shim() {
+  case \\\"\\${1##*/}\\\" in
+    ${shims[@]}
+    *) return 1;;
+  esac
+}\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[1].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = all_elements_array_expansion_part_spans(&command.args[0], source);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].slice(source), "${shims[@]}");
+        assert_eq!(spans[0].start.column, 5);
+        assert_eq!(spans[0].end.column, 16);
+    }
+
+    #[test]
+    fn all_elements_array_expansion_spans_ignore_escaped_literal_expansions() {
+        let source = "\
+#!/bin/bash
+eval command sudo \\\"\\${sudo_args[@]}\\\" \\\"\\$@\\\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(all_elements_array_expansion_part_spans(&command.args[2], source).is_empty());
+    }
+
+    #[test]
+    fn all_elements_array_expansion_spans_ignore_non_selector_at_text() {
+        let source = "\
+printf '%s\\n' ${#arr[@]} ${!arr[@]} ${name:-safe[@]} ${arr[@]}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(all_elements_array_expansion_part_spans(&command.args[1], source).is_empty());
+        assert!(all_elements_array_expansion_part_spans(&command.args[2], source).is_empty());
+        assert!(all_elements_array_expansion_part_spans(&command.args[3], source).is_empty());
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[4], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]}"]
+        );
     }
 
     #[test]

@@ -117,6 +117,7 @@ impl Default for ShellCheckCodeMap {
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
+            (2029, Rule::SshLocalExpansion),
             (3002, Rule::ExtglobInSh),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
@@ -139,10 +140,12 @@ impl Default for ShellCheckCodeMap {
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2086, Rule::UnquotedExpansion),
+            (2115, Rule::RmGlobOnVariablePath),
             (2104, Rule::LoopControlOutsideLoop),
             (2126, Rule::GrepCountPipeline),
             (2112, Rule::FunctionKeyword),
             (2216, Rule::PipeToKill),
+            (2156, Rule::FindExecDirWithShell),
             // ShellCheck 0.11.0 reports C-style `for ((...))` loop portability warnings as SC3005.
             // Keep SC3063 as a suppression alias, but prefer the current code for comparisons.
             (3005, Rule::CStyleForInSh),
@@ -178,6 +181,7 @@ impl Default for ShellCheckCodeMap {
             (3070, Rule::AmpersandRedirectInSh),
             (3073, Rule::PipeStderrInSh),
             (2155, Rule::ExportCommandSubstitution),
+            (2156, Rule::FindExecDirWithShell),
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),
             (2162, Rule::ReadWithoutRaw),
@@ -188,6 +192,7 @@ impl Default for ShellCheckCodeMap {
             (2154, Rule::UndefinedVariable),
             (2239, Rule::NonAbsoluteShebang),
             (2288, Rule::TemplateBraceInCommand),
+            (2294, Rule::EvalOnArray),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
@@ -284,6 +289,7 @@ impl Default for ShellCheckCodeMap {
                 (2045, Rule::LoopFromCommandOutput),
                 (2046, Rule::UnquotedCommandSubstitution),
                 (2059, Rule::PrintfFormatVariable),
+                (2029, Rule::SshLocalExpansion),
                 (3043, Rule::LocalVariableInSh),
                 (3001, Rule::ProcessSubstitution),
                 (3003, Rule::AnsiCQuoting),
@@ -301,6 +307,7 @@ impl Default for ShellCheckCodeMap {
                 (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
+                (2115, Rule::RmGlobOnVariablePath),
                 (2104, Rule::LoopControlOutsideLoop),
                 (2112, Rule::FunctionKeyword),
                 (2216, Rule::PipeToKill),
@@ -329,6 +336,7 @@ impl Default for ShellCheckCodeMap {
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
                 (2155, Rule::ExportCommandSubstitution),
+                (2156, Rule::FindExecDirWithShell),
                 (2157, Rule::ConstantComparisonTest),
                 (2158, Rule::LiteralUnaryStringTest),
                 (2162, Rule::ReadWithoutRaw),
@@ -339,6 +347,7 @@ impl Default for ShellCheckCodeMap {
                 (2154, Rule::UndefinedVariable),
                 (2239, Rule::NonAbsoluteShebang),
                 (2288, Rule::TemplateBraceInCommand),
+                (2294, Rule::EvalOnArray),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -497,6 +506,7 @@ mod tests {
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
+        assert_eq!(map.resolve("SC2115"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
@@ -523,6 +533,7 @@ mod tests {
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
+        assert_eq!(map.resolve("SC2156"), Some(Rule::FindExecDirWithShell));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
         assert_eq!(map.resolve("SC2078"), Some(Rule::TruthyLiteralTest));
@@ -624,6 +635,7 @@ mod tests {
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
+            (2029, Rule::SshLocalExpansion),
             (2064, Rule::TrapStringExpansion),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
@@ -631,10 +643,12 @@ mod tests {
             (2086, Rule::UnquotedExpansion),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
+            (2115, Rule::RmGlobOnVariablePath),
             (2126, Rule::GrepCountPipeline),
             (2127, Rule::BashCaseFallthrough),
             (2154, Rule::UndefinedVariable),
             (2155, Rule::ExportCommandSubstitution),
+            (2156, Rule::FindExecDirWithShell),
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),
             (2162, Rule::ReadWithoutRaw),
@@ -670,6 +684,7 @@ mod tests {
             (2278, Rule::ZshPromptBracket),
             (2279, Rule::CshSyntaxInSh),
             (2288, Rule::TemplateBraceInCommand),
+            (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2321, Rule::FunctionKeywordInSh),

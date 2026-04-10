@@ -3,7 +3,7 @@ legacy_name: find-execdir-with-shell
 new_category: Security
 new_code: K004
 runtime_kind: ast
-shellcheck_code: SC2356
+shellcheck_code: SC2156
 shells:
   - sh
   - bash
