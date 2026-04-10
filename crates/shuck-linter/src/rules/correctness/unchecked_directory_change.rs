@@ -21,10 +21,25 @@ impl Violation for UncheckedDirectoryChange {
 }
 
 pub fn unchecked_directory_change(checker: &mut Checker) {
+    for (command, span) in unchecked_directory_change_impl(checker, false) {
+        checker.report(UncheckedDirectoryChange { command }, span);
+    }
+}
+
+pub(crate) fn unchecked_directory_change_in_function_spans(
+    checker: &mut Checker,
+) -> Vec<(&'static str, Span)> {
+    unchecked_directory_change_impl(checker, true)
+}
+
+fn unchecked_directory_change_impl(
+    checker: &mut Checker,
+    inside_function_only: bool,
+) -> Vec<(&'static str, Span)> {
     let semantic = checker.semantic();
     let source = checker.source();
     let mut errexit_by_scope = FxHashMap::<ScopeId, bool>::default();
-    let violations = checker
+    checker
         .facts()
         .commands()
         .iter()
@@ -50,6 +65,9 @@ pub fn unchecked_directory_change(checker: &mut Checker) {
             }
 
             let command = tracked_directory_command(fact)?;
+            if inside_function_only && !is_within_function_scope(semantic, scope) {
+                return None;
+            }
             let unchecked = semantic
                 .flow_context_at(&fact.stmt().span)
                 .map(|context| !context.exit_status_checked)
@@ -57,11 +75,7 @@ pub fn unchecked_directory_change(checker: &mut Checker) {
 
             (unchecked && !errexit_enabled).then_some((command, report_span(fact, source)))
         })
-        .collect::<Vec<_>>();
-
-    for (command, span) in violations {
-        checker.report(UncheckedDirectoryChange { command }, span);
-    }
+        .collect::<Vec<_>>()
 }
 
 fn report_span(fact: &crate::facts::CommandFact<'_>, source: &str) -> Span {
@@ -92,6 +106,12 @@ fn tracked_directory_command(fact: &crate::facts::CommandFact<'_>) -> Option<&'s
         Some("popd") => "popd",
         _ => return None,
     })
+}
+
+fn is_within_function_scope(semantic: &shuck_semantic::SemanticModel, scope: ScopeId) -> bool {
+    semantic
+        .ancestor_scopes(scope)
+        .any(|ancestor| matches!(semantic.scope_kind(ancestor), ScopeKind::Function(_)))
 }
 
 #[cfg(test)]

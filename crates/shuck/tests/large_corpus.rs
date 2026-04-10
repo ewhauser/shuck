@@ -2275,11 +2275,17 @@ fn validate_selected_rules_for_large_corpus(
 }
 
 fn large_corpus_comparison_mappings(
-    _selected_rules: Option<&shuck_linter::RuleSet>,
+    selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> impl Iterator<Item = (u32, shuck_linter::Rule)> {
-    let mappings: Vec<_> = shuck_linter::ShellCheckCodeMap::default()
+    let mut mappings: Vec<_> = shuck_linter::ShellCheckCodeMap::default()
         .comparison_mappings()
         .collect();
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::UncheckedDirectoryChangeInFunction)
+            && !rules.contains(shuck_linter::Rule::UncheckedDirectoryChange)
+    }) {
+        mappings.push((2164, shuck_linter::Rule::UncheckedDirectoryChangeInFunction));
+    }
 
     mappings.into_iter()
 }

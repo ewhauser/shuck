@@ -377,7 +377,7 @@ require semantic model access for call site analysis.
 
 - [x] **H** C097 (SC2120) `function-called-without-args` — function that reads positional parameters is called with no arguments
 - [x] **H** C123 (SC2364) `function-references-unset-param` — function references unset positional param
-- [ ] **M** C125 (SC2367) `cd-without-error-check-in-func` — cd without error handling in function
+- [x] **M** C125 (SC2367) `cd-without-error-check-in-func` — cd without error handling in function
 - [ ] **M** C126 (SC2368) `continue-outside-loop-in-func` — continue inside function but outside loop
 - [ ] **M** C131 (SC2378) `variable-as-command-name` — unquoted variable as command name
 - [ ] **L** C147 (SC2398) `keyword-function-name` — reserved word as function name

@@ -599,6 +599,7 @@ impl Default for ShellCheckCodeMap {
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
+                (2367, Rule::UncheckedDirectoryChangeInFunction),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
                 (2384, Rule::LocalCrossReference),
@@ -792,6 +793,10 @@ mod tests {
         assert_eq!(map.resolve("SC2371"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
+        assert_eq!(
+            map.resolve("SC2367"),
+            Some(Rule::UncheckedDirectoryChangeInFunction)
+        );
         assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
         assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
         assert_eq!(map.resolve("SC2127"), Some(Rule::BashCaseFallthrough));

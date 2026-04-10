@@ -74,6 +74,7 @@ pub mod template_brace_in_command;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
 pub mod unchecked_directory_change;
+pub mod unchecked_directory_change_in_function;
 pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
@@ -159,6 +160,7 @@ mod tests {
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
     #[test_case(Rule::FunctionReferencesUnsetParam, Path::new("C123.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
+    #[test_case(Rule::UncheckedDirectoryChangeInFunction, Path::new("C125.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]

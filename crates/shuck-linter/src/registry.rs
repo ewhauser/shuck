@@ -167,6 +167,7 @@ declare_rules! {
         Severity::Warning,
         SetFlagsWithoutDashes
     ),
+    (
         "C101",
         Category::Correctness,
         Severity::Warning,
@@ -205,6 +206,12 @@ declare_rules! {
     ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("C127", Category::Correctness, Severity::Warning, UnusedHeredoc),
+    (
+        "C125",
+        Category::Correctness,
+        Severity::Warning,
+        UncheckedDirectoryChangeInFunction
+    ),
     (
         "C130",
         Category::Correctness,
@@ -843,6 +850,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
+        assert_eq!(
+            code_to_rule("C125"),
+            Some(Rule::UncheckedDirectoryChangeInFunction)
+        );
+        assert_eq!(
+            code_to_rule("SH-295"),
+            Some(Rule::UncheckedDirectoryChangeInFunction)
+        );
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
