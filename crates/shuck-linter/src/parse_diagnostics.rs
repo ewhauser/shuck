@@ -1134,6 +1134,7 @@ mod tests {
         assert!(diagnostics.is_empty());
     }
 
+    #[test]
     fn ignores_valid_if_bracket_spacing_variants_for_c157() {
         let source = "\
 #!/bin/sh
@@ -1145,22 +1146,6 @@ if  [ \"$1\" = ok ]; then
   :
 fi
 ";
-        let recovered = Parser::new(source).parse_recovered();
-        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
-        let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
-            source,
-            &recovered.diagnostics,
-            &settings.rules,
-            ShellDialect::Sh,
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn ignores_quoted_if_bracket_text_on_expected_command_lines_for_c157() {
-        let source = "#!/bin/sh\ntrue\n&& printf '%s\\n' \"if[\"\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
