@@ -93,7 +93,8 @@ impl Default for ShellCheckCodeMap {
             (2005, Rule::EchoedCommandSubstitution),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
-            (2009, Rule::DoubleParenGrouping),
+            (2009, Rule::PsGrepPipeline),
+            (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
             // ShellCheck 0.11.0 reports space-indented `<<-` close candidates as SC1040.
             // Keep SC2393 as a suppression alias for compatibility metadata.
@@ -305,7 +306,8 @@ impl Default for ShellCheckCodeMap {
                 (2007, Rule::LegacyArithmeticExpansion),
                 (2003, Rule::ExprArithmetic),
                 (2126, Rule::GrepCountPipeline),
-                (2009, Rule::DoubleParenGrouping),
+                (2009, Rule::PsGrepPipeline),
+                (2283, Rule::DoubleParenGrouping),
                 (2233, Rule::SingleTestSubshell),
                 (2235, Rule::SubshellTestGroup),
                 (2259, Rule::SubshellTestGroup),
@@ -498,6 +500,7 @@ impl Default for ShellCheckCodeMap {
                 (2321, Rule::FunctionKeywordInSh),
                 (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
+                (2009, Rule::DoubleParenGrouping),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -533,7 +536,11 @@ mod tests {
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
         assert_eq!(map.resolve("SC2219"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
-        assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(map.resolve("SC2009"), Some(Rule::PsGrepPipeline));
+        assert_eq!(
+            map.resolve_all("SC2009"),
+            vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
+        );
         assert_eq!(map.resolve("SC2233"), Some(Rule::SingleTestSubshell));
         assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
@@ -871,6 +878,7 @@ mod tests {
             (2005, Rule::EchoedCommandSubstitution),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
+            (2009, Rule::PsGrepPipeline),
             (2009, Rule::DoubleParenGrouping),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
@@ -952,6 +960,7 @@ mod tests {
             (2279, Rule::CshSyntaxInSh),
             (2280, Rule::IfsEqualsAmbiguity),
             (2282, Rule::BadVarName),
+            (2283, Rule::DoubleParenGrouping),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
@@ -1095,6 +1104,8 @@ mod tests {
         assert!(comparison.contains(&(3026, Rule::CaretNegationInBracket)));
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
+        assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
+        assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
@@ -1133,6 +1144,7 @@ mod tests {
         assert!(comparison.contains(&(1044, Rule::HeredocMissingEnd)));
         assert!(comparison.contains(&(1118, Rule::HeredocEndSpace)));
         assert!(comparison.contains(&(1040, Rule::SpacedTabstripClose)));
+        assert!(!comparison.contains(&(2009, Rule::DoubleParenGrouping)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));

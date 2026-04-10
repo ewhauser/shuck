@@ -323,6 +323,7 @@ declare_rules! {
     ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
+    ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
     ("S033", Category::Style, Severity::Warning, EchoHereDoc),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
@@ -505,6 +506,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-318" => Some(Rule::HeredocMissingEnd),
         "SH-310" => Some(Rule::MisspelledOptionName),
         "SH-055" => Some(Rule::ExprArithmetic),
+        "SH-056" => Some(Rule::PsGrepPipeline),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
         "SH-164" => Some(Rule::SubshellTestGroup),
@@ -586,6 +588,7 @@ mod tests {
             Some(Rule::LegacyArithmeticExpansion)
         );
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
+        assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));

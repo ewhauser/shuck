@@ -21,6 +21,7 @@ pub mod literal_braces;
 pub mod loop_from_command_output;
 pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
+pub mod ps_grep_pipeline;
 pub mod read_without_raw;
 pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
@@ -50,6 +51,7 @@ mod tests {
     #[test_case(Rule::UnquotedArrayExpansion, Path::new("S008.sh"))]
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
+    #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
     #[test_case(Rule::EchoHereDoc, Path::new("S033.sh"))]
     #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]

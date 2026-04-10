@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 88 |
+| Implemented | 89 |
 | Scheduled (Tranches 1-3) | 18 |
-| Remaining | 212 |
+| Remaining | 211 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -296,7 +296,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **M** C109 (SC2339) `mapfile-process-substitution` — mapfile from process substitution
 - [x] [x] **M** C113 (SC2348) `find-output-in-loop` — find output captured in word-splitting loop
 - [x] [x] **M** C132 (SC2380) `misspelled-option-name` — configure option name typo
-- [ ] **L** S012 (SC2009) `ps-grep-pipeline` — piping ps into grep
+- [x] [x] **L** S012 (SC2009) `ps-grep-pipeline` — piping ps into grep
 - [ ] **L** S013 (SC2010) `ls-grep-pipeline` — piping ls into grep
 - [ ] **L** S016 (SC2116) `echo-inside-command-substitution` — echo in `$()` is unnecessary
 - [ ] **M** S019 (SC2143) `grep-output-in-test` — grep text as boolean check

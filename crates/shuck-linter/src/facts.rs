@@ -1214,6 +1214,11 @@ pub struct GrepCommandFacts {
     pub uses_only_matching: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PsCommandFacts {
+    pub has_pid_selector: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
@@ -1284,6 +1289,7 @@ pub struct CommandOptionFacts<'a> {
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
+    ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
     configure: Option<ConfigureCommandFacts>,
     expr: Option<ExprCommandFacts>,
@@ -1330,6 +1336,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn grep(&self) -> Option<&GrepCommandFacts> {
         self.grep.as_ref()
+    }
+
+    pub fn ps(&self) -> Option<&PsCommandFacts> {
+        self.ps.as_ref()
     }
 
     pub fn set(&self) -> Option<&SetCommandFacts> {
@@ -1413,6 +1423,9 @@ impl<'a> CommandOptionFacts<'a> {
                 .effective_name_is("grep")
                 .then(|| parse_grep_command(normalized.body_args(), source))
                 .flatten(),
+            ps: normalized
+                .effective_name_is("ps")
+                .then(|| parse_ps_command(normalized.body_args(), source)),
             set: normalized
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
@@ -6582,6 +6595,93 @@ fn grep_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
 }
 
+fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
+    let mut has_pid_selector = false;
+    let mut pending_option_arg = false;
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if word_starts_with_literal_dash(word, source) {
+                pending_option_arg = true;
+                index += 1;
+                continue;
+            }
+
+            if pending_option_arg {
+                pending_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            if pending_option_arg {
+                pending_option_arg = false;
+                index += 1;
+                continue;
+            }
+            break;
+        }
+
+        pending_option_arg = false;
+
+        if text == "-p"
+            || text == "-q"
+            || text == "--pid"
+            || text == "--ppid"
+            || text == "--quick-pid"
+        {
+            has_pid_selector = true;
+            pending_option_arg = true;
+            index += 1;
+            continue;
+        }
+
+        if text.starts_with("--pid=")
+            || text.starts_with("--ppid=")
+            || text.starts_with("--quick-pid=")
+            || (text.starts_with("-p") && text.len() > 2)
+            || (text.starts_with("-q") && text.len() > 2)
+        {
+            has_pid_selector = true;
+            index += 1;
+            continue;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        while let Some(flag) = chars.next() {
+            if flag == 'p' || flag == 'q' {
+                has_pid_selector = true;
+            }
+
+            if ps_option_takes_argument(flag) {
+                if chars.peek().is_none() {
+                    pending_option_arg = true;
+                }
+                break;
+            }
+        }
+
+        index += 1;
+    }
+
+    PsCommandFacts { has_pid_selector }
+}
+
+fn ps_option_takes_argument(flag: char) -> bool {
+    matches!(
+        flag,
+        'C' | 'G' | 'N' | 'O' | 'U' | 'g' | 'o' | 'p' | 'q' | 't' | 'u'
+    )
+}
+
 fn option_takes_argument(flag: char) -> bool {
     matches!(flag, 'a' | 'd' | 'i' | 'n' | 'N' | 'p' | 't' | 'u')
 }
@@ -7551,7 +7651,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -7729,6 +7829,13 @@ mod tests {
             configure_option_spans,
             vec!["--with-optmizer", "--enable-optmizer"]
         );
+        let ps_pid_selector_flags = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ps"))
+            .filter_map(|fact| fact.options().ps().map(|ps| ps.has_pid_selector))
+            .collect::<Vec<_>>();
+        assert_eq!(ps_pid_selector_flags, vec![true, false]);
         let rm_spans = facts
             .commands()
             .iter()

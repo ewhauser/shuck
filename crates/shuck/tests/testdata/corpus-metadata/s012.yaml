@@ -1,0 +1,7 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This fixture uses a top-level ShellCheck disable for SC2009. ShellCheck suppresses the ps|grep findings in this script under that directive context, while Shuck still surfaces the S012 diagnostics."
