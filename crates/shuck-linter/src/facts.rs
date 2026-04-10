@@ -2199,6 +2199,11 @@ fn build_heredoc_fact_summary(
             let Some(heredoc) = redirect.heredoc() else {
                 continue;
             };
+            let reaches_file_end = heredoc.body.span.end.offset == file_end;
+            if reaches_file_end {
+                summary.heredoc_missing_end_spans.push(redirect.span);
+            }
+
             let delimiter = heredoc.delimiter.cooked.as_str();
             if delimiter.is_empty() {
                 continue;
@@ -2223,11 +2228,9 @@ fn build_heredoc_fact_summary(
                     ));
             }
 
-            if heredoc.body.span.end.offset != file_end {
+            if !reaches_file_end {
                 continue;
             }
-
-            summary.heredoc_missing_end_spans.push(redirect.span);
 
             if let Some(span) = heredoc_closer_not_alone_span(
                 heredoc.body.span,

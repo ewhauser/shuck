@@ -38,6 +38,20 @@ line
     }
 
     #[test]
+    fn reports_unclosed_empty_delimiter_heredoc() {
+        let source = "\
+#!/bin/sh
+cat <<''
+line
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocMissingEnd));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.slice(source), "<<''");
+    }
+
+    #[test]
     fn ignores_closed_heredoc_even_when_delimiter_has_no_trailing_newline() {
         let source = "#!/bin/sh\ncat <<MARK\nline\nMARK";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocMissingEnd));
