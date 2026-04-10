@@ -277,8 +277,29 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ReplacementExpansion) {
             rules::portability::replacement_expansion::replacement_expansion(self);
         }
+        if self.is_rule_enabled(Rule::TrapErr) {
+            rules::portability::trap_err::trap_err(self);
+        }
+        if self.is_rule_enabled(Rule::PipefailOption) {
+            rules::portability::pipefail_option::pipefail_option(self);
+        }
+        if self.is_rule_enabled(Rule::WaitOption) {
+            rules::portability::wait_option::wait_option(self);
+        }
         if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
             rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::PrintfQFormatInSh) {
+            rules::portability::printf_q_format_in_sh::printf_q_format_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ErrexitTrapInSh) {
+            rules::portability::errexit_trap_in_sh::errexit_trap_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::SignalNameInTrap) {
+            rules::portability::signal_name_in_trap::signal_name_in_trap(self);
+        }
+        if self.is_rule_enabled(Rule::BasePrefixInArithmetic) {
+            rules::portability::base_prefix_in_arithmetic::base_prefix_in_arithmetic(self);
         }
         if self.is_rule_enabled(Rule::FunctionKeywordInSh) {
             rules::portability::function_keyword_in_sh::function_keyword_in_sh(self);

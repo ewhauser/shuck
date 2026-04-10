@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 106
+---
+X070 base prefixes like `10#` are not portable in `sh` arithmetic
+ --> <source>:2:9
+  |
+2 | echo $((10#123))
+  |
+
+X070 base prefixes like `10#` are not portable in `sh` arithmetic
+ --> <source>:3:9
+  |
+3 | echo $((10#${foo}))
+  |

@@ -3,6 +3,7 @@ pub mod ampersand_redirection;
 pub mod ansi_c_quoting;
 pub mod array_assignment;
 pub mod array_reference;
+pub mod base_prefix_in_arithmetic;
 pub mod bash_case_fallthrough;
 pub mod brace_expansion;
 pub mod brace_fd_redirection;
@@ -12,6 +13,7 @@ pub mod conditional_portability;
 pub mod coproc;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
+pub mod errexit_trap_in_sh;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
 pub mod here_string;
@@ -22,15 +24,20 @@ pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
+pub mod pipefail_option;
+pub mod printf_q_format_in_sh;
 pub mod process_substitution;
 pub mod replacement_expansion;
 pub mod select_loop;
+pub mod signal_name_in_trap;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
 pub mod standalone_arithmetic;
 pub mod substring_expansion;
+pub mod trap_err;
 pub mod uppercase_expansion;
+pub mod wait_option;
 pub mod zsh_always_block;
 pub mod zsh_array_subscript_in_case;
 pub mod zsh_assignment_to_zero;
@@ -78,13 +85,17 @@ mod tests {
     #[test_case(Rule::ArrayAssignment, Path::new("X013.sh"))]
     #[test_case(Rule::LetCommand, Path::new("X015.sh"))]
     #[test_case(Rule::DeclareCommand, Path::new("X016.sh"))]
+    #[test_case(Rule::TrapErr, Path::new("X017.sh"))]
     #[test_case(Rule::IndirectExpansion, Path::new("X018.sh"))]
     #[test_case(Rule::ArrayReference, Path::new("X019.sh"))]
     #[test_case(Rule::BraceFdRedirection, Path::new("X020.sh"))]
+    #[test_case(Rule::PipefailOption, Path::new("X021.sh"))]
+    #[test_case(Rule::WaitOption, Path::new("X022.sh"))]
     #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
     #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
+    #[test_case(Rule::PrintfQFormatInSh, Path::new("X032.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
     #[test_case(Rule::ExtendedGlobInTest, Path::new("X034.sh"))]
     #[test_case(Rule::ExtglobCase, Path::new("X037.sh"))]
@@ -117,6 +128,9 @@ mod tests {
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]
     #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
     #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
+    #[test_case(Rule::ErrexitTrapInSh, Path::new("X068.sh"))]
+    #[test_case(Rule::SignalNameInTrap, Path::new("X069.sh"))]
+    #[test_case(Rule::BasePrefixInArithmetic, Path::new("X070.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]

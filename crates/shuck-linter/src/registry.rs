@@ -169,13 +169,17 @@ declare_rules! {
     ("X013", Category::Portability, Severity::Warning, ArrayAssignment),
     ("X015", Category::Portability, Severity::Warning, LetCommand),
     ("X016", Category::Portability, Severity::Warning, DeclareCommand),
+    ("X017", Category::Portability, Severity::Warning, TrapErr),
     ("X018", Category::Portability, Severity::Warning, IndirectExpansion),
     ("X019", Category::Portability, Severity::Warning, ArrayReference),
     ("X020", Category::Portability, Severity::Warning, BraceFdRedirection),
+    ("X021", Category::Portability, Severity::Warning, PipefailOption),
+    ("X022", Category::Portability, Severity::Warning, WaitOption),
     ("X023", Category::Portability, Severity::Warning, SubstringExpansion),
     ("X024", Category::Portability, Severity::Warning, CaseModificationExpansion),
     ("X025", Category::Portability, Severity::Warning, ReplacementExpansion),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
+    ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
     ("X037", Category::Portability, Severity::Warning, ExtglobCase),
@@ -209,6 +213,9 @@ declare_rules! {
     ("X061", Category::Portability, Severity::Warning, ATestInSh),
     ("X063", Category::Portability, Severity::Warning, AmpersandRedirectInSh),
     ("X066", Category::Portability, Severity::Warning, PipeStderrInSh),
+    ("X068", Category::Portability, Severity::Warning, ErrexitTrapInSh),
+    ("X069", Category::Portability, Severity::Warning, SignalNameInTrap),
+    ("X070", Category::Portability, Severity::Warning, BasePrefixInArithmetic),
     ("X073", Category::Portability, Severity::Warning, OptionTestInSh),
     ("X074", Category::Portability, Severity::Warning, StickyBitTestInSh),
     ("X075", Category::Portability, Severity::Warning, OwnershipTestInSh),
@@ -267,9 +274,16 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-019" => Some(Rule::Coproc),
         "SH-020" => Some(Rule::LetCommand),
         "SH-021" => Some(Rule::DeclareCommand),
+        "SH-029" => Some(Rule::PipefailOption),
+        "SH-030" => Some(Rule::WaitOption),
+        "SH-022" => Some(Rule::TrapErr),
         "SH-080" => Some(Rule::SourceBuiltinInSh),
+        "SH-081" => Some(Rule::PrintfQFormatInSh),
         "SH-226" => Some(Rule::FunctionKeywordInSh),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
+        "SH-275" => Some(Rule::ErrexitTrapInSh),
+        "SH-276" => Some(Rule::SignalNameInTrap),
+        "SH-277" => Some(Rule::BasePrefixInArithmetic),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
         "SH-082" => Some(Rule::EscapedUnderscore),
@@ -457,6 +471,10 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
         assert_eq!(code_to_rule("SH-060"), Some(Rule::SudoRedirectionOrder));
+        assert_eq!(code_to_rule("SH-081"), Some(Rule::PrintfQFormatInSh));
+        assert_eq!(code_to_rule("SH-275"), Some(Rule::ErrexitTrapInSh));
+        assert_eq!(code_to_rule("SH-276"), Some(Rule::SignalNameInTrap));
+        assert_eq!(code_to_rule("SH-277"), Some(Rule::BasePrefixInArithmetic));
         assert_eq!(code_to_rule("SH-069"), Some(Rule::ConstantComparisonTest));
         assert_eq!(code_to_rule("SH-070"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(code_to_rule("SH-072"), Some(Rule::LiteralUnaryStringTest));

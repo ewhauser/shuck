@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X021 the `pipefail` option is not portable in `sh` scripts
+ --> <source>:2:8
+  |
+2 | set -o pipefail
+  |

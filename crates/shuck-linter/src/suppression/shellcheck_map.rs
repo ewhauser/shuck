@@ -41,7 +41,6 @@ impl ShellCheckCodeMap {
         else {
             return Vec::new();
         };
-
         if number == 2262 {
             return vec![Rule::TemplateBraceInCommand];
         }
@@ -118,6 +117,10 @@ impl Default for ShellCheckCodeMap {
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
+            (3002, Rule::ExtglobInSh),
+            (3025, Rule::PrintfQFormatInSh),
+            (3026, Rule::CaretNegationInBracket),
+            (3077, Rule::BasePrefixInArithmetic),
             (3043, Rule::LocalVariableInSh),
             (3001, Rule::ProcessSubstitution),
             (3003, Rule::AnsiCQuoting),
@@ -158,6 +161,9 @@ impl Default for ShellCheckCodeMap {
             // Keep SC3042 as a suppression alias, but prefer the current code for comparisons.
             (3042, Rule::LetCommand),
             (3039, Rule::LetCommand),
+            (3040, Rule::PipefailOption),
+            (3047, Rule::TrapErr),
+            (3048, Rule::WaitOption),
             (3046, Rule::SourceBuiltinInSh),
             (3050, Rule::BraceFdRedirection),
             (3052, Rule::AmpersandRedirection),
@@ -165,6 +171,8 @@ impl Default for ShellCheckCodeMap {
             // Keep SC3058 as a suppression alias, but prefer the current code for comparisons.
             (3058, Rule::BashCaseFallthrough),
             (2127, Rule::BashCaseFallthrough),
+            (3075, Rule::ErrexitTrapInSh),
+            (3076, Rule::SignalNameInTrap),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
             (3051, Rule::SourceInsideFunctionInSh),
             (3070, Rule::AmpersandRedirectInSh),
@@ -199,14 +207,12 @@ impl Default for ShellCheckCodeMap {
             (2277, Rule::ExtglobInCasePattern),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2365, Rule::UnreachableAfterExit),
-            (3002, Rule::ExtglobInSh),
             (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
             (3014, Rule::TestEqualityOperator),
             (3015, Rule::RegexMatchInSh),
             (3016, Rule::VTestInSh),
             (3017, Rule::ATestInSh),
-            (3026, Rule::CaretNegationInBracket),
             (3062, Rule::OptionTestInSh),
             (3065, Rule::StickyBitTestInSh),
             (3067, Rule::OwnershipTestInSh),
@@ -261,8 +267,10 @@ impl Default for ShellCheckCodeMap {
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
+                (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
                 (3050, Rule::BraceFdRedirection),
+                (3077, Rule::BasePrefixInArithmetic),
                 (3070, Rule::AmpersandRedirectInSh),
                 (3073, Rule::PipeStderrInSh),
                 (2016, Rule::SingleQuotedLiteral),
@@ -305,6 +313,9 @@ impl Default for ShellCheckCodeMap {
                 (3033, Rule::SelectLoop),
                 (3039, Rule::LetCommand),
                 (3042, Rule::LetCommand),
+                (3047, Rule::TrapErr),
+                (3040, Rule::PipefailOption),
+                (3048, Rule::WaitOption),
                 (3044, Rule::DeclareCommand),
                 (3046, Rule::SourceBuiltinInSh),
                 (3058, Rule::BashCaseFallthrough),
@@ -312,6 +323,8 @@ impl Default for ShellCheckCodeMap {
                 (3063, Rule::CStyleForInSh),
                 (3064, Rule::LegacyArithmeticInSh),
                 (3069, Rule::CStyleForArithmeticInSh),
+                (3075, Rule::ErrexitTrapInSh),
+                (3076, Rule::SignalNameInTrap),
                 (2321, Rule::FunctionKeywordInSh),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
@@ -467,6 +480,7 @@ mod tests {
             Some(Rule::UnquotedCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
+        assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));
         assert_eq!(map.resolve("SC3001"), Some(Rule::ProcessSubstitution));
         assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
         assert_eq!(map.resolve("SC3009"), Some(Rule::BraceExpansion));
@@ -498,8 +512,13 @@ mod tests {
         assert_eq!(map.resolve("SC3033"), Some(Rule::SelectLoop));
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
+        assert_eq!(map.resolve("SC3040"), Some(Rule::PipefailOption));
+        assert_eq!(map.resolve("SC3048"), Some(Rule::WaitOption));
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
         assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
+        assert_eq!(map.resolve("SC3077"), Some(Rule::BasePrefixInArithmetic));
+        assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
+        assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
@@ -648,7 +667,6 @@ mod tests {
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
             (2275, Rule::MultiVarForLoop),
-            (2277, Rule::ExtglobInCasePattern),
             (2278, Rule::ZshPromptBracket),
             (2279, Rule::CshSyntaxInSh),
             (2288, Rule::TemplateBraceInCommand),
@@ -677,16 +695,20 @@ mod tests {
             (3016, Rule::VTestInSh),
             (3017, Rule::ATestInSh),
             (3018, Rule::CStyleForArithmeticInSh),
-            (3028, Rule::ArrayReference),
+            (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
+            (3028, Rule::ArrayReference),
             (3030, Rule::ArrayAssignment),
             (3032, Rule::Coproc),
             (3033, Rule::SelectLoop),
             (3039, Rule::LetCommand),
+            (3040, Rule::PipefailOption),
             (3042, Rule::LetCommand),
             (3043, Rule::LocalVariableInSh),
             (3044, Rule::DeclareCommand),
             (3046, Rule::SourceBuiltinInSh),
+            (3047, Rule::TrapErr),
+            (3048, Rule::WaitOption),
             (3050, Rule::BraceFdRedirection),
             (3051, Rule::SourceInsideFunctionInSh),
             (3052, Rule::AmpersandRedirection),
@@ -697,7 +719,6 @@ mod tests {
             (3059, Rule::CaseModificationExpansion),
             (3060, Rule::ReplacementExpansion),
             (3061, Rule::ExtglobInSh),
-            (3072, Rule::CaretNegationInBracket),
             (3062, Rule::OptionTestInSh),
             (3063, Rule::CStyleForInSh),
             (3064, Rule::LegacyArithmeticInSh),
@@ -705,8 +726,13 @@ mod tests {
             (3067, Rule::OwnershipTestInSh),
             (3069, Rule::CStyleForArithmeticInSh),
             (3070, Rule::AmpersandRedirectInSh),
+            (3072, Rule::CaretNegationInBracket),
             (3073, Rule::PipeStderrInSh),
+            (3075, Rule::ErrexitTrapInSh),
+            (3076, Rule::SignalNameInTrap),
+            (3077, Rule::BasePrefixInArithmetic),
             (3084, Rule::SourceInsideFunctionInSh),
+            (2277, Rule::ExtglobInCasePattern),
         ]
         .into_iter()
         .collect::<std::collections::HashSet<_>>();
@@ -758,6 +784,9 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
+        assert!(comparison.contains(&(3040, Rule::PipefailOption)));
+        assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
+        assert!(comparison.contains(&(3048, Rule::WaitOption)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
@@ -766,14 +795,19 @@ mod tests {
         assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
         assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
         assert!(comparison.contains(&(3060, Rule::ReplacementExpansion)));
+        assert!(comparison.contains(&(2277, Rule::ExtglobInCasePattern)));
+        assert!(comparison.contains(&(3077, Rule::BasePrefixInArithmetic)));
+        assert!(comparison.contains(&(3075, Rule::ErrexitTrapInSh)));
+        assert!(comparison.contains(&(3076, Rule::SignalNameInTrap)));
         assert!(comparison.contains(&(3050, Rule::BraceFdRedirection)));
         assert!(comparison.contains(&(3052, Rule::AmpersandRedirection)));
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
-        assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
+        assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
+        assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));

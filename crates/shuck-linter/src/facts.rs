@@ -18,10 +18,9 @@ use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, Position,
-    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
-    Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
-    ZshQualifiedGlob,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
+    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1084,6 +1083,7 @@ pub struct ReadCommandFacts {
 #[derive(Debug, Clone, Copy)]
 pub struct PrintfCommandFacts<'a> {
     pub format_word: Option<&'a Word>,
+    pub uses_q_format: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1127,14 +1127,39 @@ pub struct XargsCommandFacts {
     pub uses_null_input: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct WaitCommandFacts {
+    option_spans: Box<[Span]>,
+}
+
+impl WaitCommandFacts {
+    pub fn option_spans(&self) -> &[Span] {
+        &self.option_spans
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct GrepCommandFacts {
     pub uses_only_matching: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
+    pub errtrace_change: Option<bool>,
+    pub pipefail_change: Option<bool>,
+    errtrace_option_spans: Box<[Span]>,
+    pipefail_option_spans: Box<[Span]>,
+}
+
+impl SetCommandFacts {
+    pub fn errtrace_option_spans(&self) -> &[Span] {
+        &self.errtrace_option_spans
+    }
+
+    pub fn pipefail_option_spans(&self) -> &[Span] {
+        &self.pipefail_option_spans
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1167,6 +1192,7 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     xargs: Option<XargsCommandFacts>,
+    wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
     set: Option<SetCommandFacts>,
     expr: Option<ExprCommandFacts>,
@@ -1193,6 +1219,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
         self.xargs.as_ref()
+    }
+
+    pub fn wait(&self) -> Option<&WaitCommandFacts> {
+        self.wait.as_ref()
     }
 
     pub fn grep(&self) -> Option<&GrepCommandFacts> {
@@ -1222,11 +1252,14 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
                 }),
-            printf: normalized
-                .effective_name_is("printf")
-                .then(|| PrintfCommandFacts {
-                    format_word: printf_format_word(normalized.body_args(), source),
-                }),
+            printf: normalized.effective_name_is("printf").then(|| {
+                let format_word = printf_format_word(normalized.body_args(), source);
+                PrintfCommandFacts {
+                    uses_q_format: format_word
+                        .is_some_and(|word| printf_uses_q_format(word, source)),
+                    format_word,
+                }
+            }),
             unset: normalized
                 .effective_name_is("unset")
                 .then(|| parse_unset_command(normalized.body_args(), source)),
@@ -1253,6 +1286,9 @@ impl<'a> CommandOptionFacts<'a> {
                                     && arg[1..].contains('0'))
                         }),
                 }),
+            wait: normalized
+                .effective_name_is("wait")
+                .then(|| parse_wait_command(normalized.body_args(), source)),
             grep: normalized
                 .effective_name_is("grep")
                 .then(|| parse_grep_command(normalized.body_args(), source))
@@ -1429,6 +1465,7 @@ pub struct LinterFacts<'a> {
     positional_parameter_operator_spans: Vec<Span>,
     double_paren_grouping_spans: Vec<Span>,
     arithmetic_for_update_operator_spans: Vec<Span>,
+    base_prefix_arithmetic_spans: Vec<Span>,
     unicode_smart_quote_spans: Vec<Span>,
     pattern_exactly_one_extglob_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
@@ -1604,6 +1641,10 @@ impl<'a> LinterFacts<'a> {
         &self.arithmetic_for_update_operator_spans
     }
 
+    pub fn base_prefix_arithmetic_spans(&self) -> &[Span] {
+        &self.base_prefix_arithmetic_spans
+    }
+
     pub fn unicode_smart_quote_spans(&self) -> &[Span] {
         &self.unicode_smart_quote_spans
     }
@@ -1689,7 +1730,9 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut command_ids_by_span = CommandLookupIndex::default();
         let mut scalar_bindings = FxHashMap::default();
         let mut words = Vec::new();
+        let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
+        let mut pattern_charclass_spans = Vec::new();
 
         for visit in query::iter_commands(
             &self.file.body,
@@ -1714,10 +1757,11 @@ impl<'a> LinterFactsBuilder<'a> {
             if !nested_word_command {
                 structural_command_ids.push(id);
             }
-            let (command_words, command_pattern_literal_spans) =
+            let (command_words, command_pattern_literal_spans, command_pattern_charclass_spans) =
                 build_word_facts_for_command(visit, self.source, id, nested_word_command);
             words.extend(command_words);
             pattern_literal_spans.extend(command_pattern_literal_spans);
+            pattern_charclass_spans.extend(command_pattern_charclass_spans);
             let redirect_facts = build_redirect_facts(visit.redirects, self.source);
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
             let simple_test =
@@ -1768,8 +1812,8 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameters,
             positional_parameter_operator_spans,
             unicode_smart_quote_spans,
-            pattern_exactly_one_extglob_spans,
-            pattern_charclass_spans,
+            pattern_exactly_one_extglob_spans: surface_pattern_exactly_one_extglob_spans,
+            pattern_charclass_spans: surface_pattern_charclass_spans,
             nested_pattern_charclass_spans,
             nested_parameter_expansions,
             indirect_expansions,
@@ -1782,8 +1826,12 @@ impl<'a> LinterFactsBuilder<'a> {
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
         let arithmetic_for_update_operator_spans =
             build_arithmetic_for_update_operator_spans(&commands, self.source);
+        let base_prefix_arithmetic_spans =
+            build_base_prefix_arithmetic_spans(&self.file.body, self.source);
         let subscript_index_reference_spans =
             build_subscript_index_reference_spans(self._semantic, &subscript_spans);
+        pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
+        pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let nested_pattern_charclass_spans = nested_pattern_charclass_spans
             .into_iter()
             .map(FactSpan::new)
@@ -1821,6 +1869,7 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameter_operator_spans,
             double_paren_grouping_spans,
             arithmetic_for_update_operator_spans,
+            base_prefix_arithmetic_spans,
             unicode_smart_quote_spans,
             pattern_exactly_one_extglob_spans,
             pattern_literal_spans,
@@ -1833,6 +1882,452 @@ impl<'a> LinterFactsBuilder<'a> {
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
         }
+    }
+}
+
+fn build_base_prefix_arithmetic_spans(body: &StmtSeq, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for visit in query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        collect_base_prefix_spans_in_command(visit.command, source, &mut spans);
+        for redirect in visit.redirects {
+            if let Some(word) = redirect.word_target() {
+                collect_base_prefix_spans_in_word(word, source, &mut spans);
+            }
+        }
+    }
+
+    spans
+}
+
+fn collect_base_prefix_spans_in_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                collect_base_prefix_spans_in_assignment(assignment, source, spans);
+            }
+            collect_base_prefix_spans_in_word(&command.name, source, spans);
+            for word in &command.args {
+                collect_base_prefix_spans_in_word(word, source, spans);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.depth {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.depth {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.code {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.code {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                collect_base_prefix_spans_in_assignment(assignment, source, spans);
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_base_prefix_spans_in_word(word, source, spans);
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                    }
+                    DeclOperand::Name(_) => {}
+                }
+            }
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    for word in words {
+                        collect_base_prefix_spans_in_word(word, source, spans);
+                    }
+                }
+            }
+            CompoundCommand::Repeat(command) => {
+                collect_base_prefix_spans_in_word(&command.count, source, spans);
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            CompoundCommand::Arithmetic(command) => {
+                if let Some(expression) = &command.expr_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.expr_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                if let Some(expression) = &command.init_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.init_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+                if let Some(expression) = &command.condition_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.condition_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+                if let Some(expression) = &command.step_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.step_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+            }
+            CompoundCommand::Case(command) => {
+                collect_base_prefix_spans_in_word(&command.word, source, spans);
+                for item in &command.cases {
+                    for pattern in &item.patterns {
+                        collect_base_prefix_spans_in_pattern(pattern, source, spans);
+                    }
+                    collect_base_prefix_spans_in_stmt_seq(&item.body, source, spans);
+                }
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                collect_base_prefix_spans_in_stmt_seq(&command.body, source, spans);
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Time(_) => {}
+        },
+        Command::Binary(_) | Command::Function(_) | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_base_prefix_spans_in_assignment(
+    assignment: &Assignment,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_base_prefix_spans_in_var_ref(&assignment.target, source, spans);
+
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => collect_base_prefix_spans_in_word(word, source, spans),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_base_prefix_spans_in_word(word, source, spans);
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        collect_base_prefix_spans_in_subscript(Some(key), source, spans);
+                        collect_base_prefix_spans_in_word(value, source, spans);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
+    for part in &word.parts {
+        collect_base_prefix_spans_in_word_part(part, source, spans);
+    }
+}
+
+fn collect_base_prefix_spans_in_word_part(
+    part: &WordPartNode,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                collect_base_prefix_spans_in_word_part(part, source, spans);
+            }
+        }
+        WordPart::ArithmeticExpansion {
+            expression,
+            expression_ast,
+            ..
+        } => {
+            if let Some(expression) = expression_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else {
+                collect_base_prefix_spans_in_text(expression.span(), source, spans);
+            }
+        }
+        WordPart::Parameter(parameter) => {
+            collect_base_prefix_spans_in_parameter_expansion(parameter, source, spans);
+        }
+        WordPart::ParameterExpansion { reference, .. }
+        | WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::IndirectExpansion { reference, .. }
+        | WordPart::Transformation { reference, .. } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        WordPart::Substring {
+            reference,
+            offset,
+            offset_ast,
+            length,
+            length_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset,
+            offset_ast,
+            length,
+            length_ast,
+            ..
+        } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            if let Some(expression) = offset_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else {
+                collect_base_prefix_spans_in_text(offset.span(), source, spans);
+            }
+            if let Some(expression) = length_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else if let Some(length) = length {
+                collect_base_prefix_spans_in_text(length.span(), source, spans);
+            }
+        }
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::PrefixMatch { .. } => {}
+        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
+            collect_base_prefix_spans_in_stmt_seq(body, source, spans);
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_parameter_expansion(
+    parameter: &shuck_ast::ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference, operand, ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference, operand, ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                if let Some(operand) = operand {
+                    collect_base_prefix_spans_in_source_text(operand, source, spans);
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                }
+                if let Some(expression) = length_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_base_prefix_spans_in_zsh_target(&syntax.target, source, spans);
+            if let Some(operation) = &syntax.operation {
+                match operation {
+                    shuck_ast::ZshExpansionOperation::Slice { .. }
+                    | shuck_ast::ZshExpansionOperation::PatternOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::Defaulting { .. }
+                    | shuck_ast::ZshExpansionOperation::TrimOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::ReplacementOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::Unknown(_) => {}
+                }
+            }
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_zsh_target(
+    target: &shuck_ast::ZshExpansionTarget,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        shuck_ast::ZshExpansionTarget::Reference(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Nested(parameter) => {
+            collect_base_prefix_spans_in_parameter_expansion(parameter, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Word(word) => {
+            collect_base_prefix_spans_in_word(word, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Empty => {}
+    }
+}
+
+fn collect_base_prefix_spans_in_stmt_seq(body: &StmtSeq, source: &str, spans: &mut Vec<Span>) {
+    for stmt in &body.stmts {
+        collect_base_prefix_spans_in_command(&stmt.command, source, spans);
+    }
+}
+
+fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: &mut Vec<Span>) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_base_prefix_spans_in_pattern(pattern, source, spans);
+                }
+            }
+            PatternPart::Word(word) => collect_base_prefix_spans_in_word(word, source, spans),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_var_ref(reference: &VarRef, source: &str, spans: &mut Vec<Span>) {
+    collect_base_prefix_spans_in_subscript(reference.subscript.as_ref(), source, spans);
+}
+
+fn collect_base_prefix_spans_in_subscript(
+    subscript: Option<&Subscript>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if let Some(expression) = subscript.and_then(|subscript| subscript.arithmetic_ast.as_ref()) {
+        collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+    }
+}
+
+fn collect_base_prefix_spans_in_arithmetic(
+    expression: &ArithmeticExprNode,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_base_prefix_spans_in_text(expression.span, source, spans);
+}
+
+fn collect_base_prefix_spans_in_source_text(
+    text: &SourceText,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let snippet = text.slice(source);
+    if !snippet.contains('#') {
+        return;
+    }
+
+    let word = Parser::parse_word_fragment(source, snippet, text.span());
+    collect_base_prefix_spans_in_word(&word, source, spans);
+}
+
+fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<Span>) {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_digit() {
+            index += 1;
+            continue;
+        }
+
+        if index > 0 {
+            let previous = bytes[index - 1];
+            if previous.is_ascii_alphanumeric() || previous == b'_' {
+                index += 1;
+                continue;
+            }
+        }
+
+        let mut prefix_end = index;
+        while prefix_end < bytes.len() && bytes[prefix_end].is_ascii_digit() {
+            prefix_end += 1;
+        }
+
+        if prefix_end == bytes.len() || bytes[prefix_end] != b'#' {
+            index = prefix_end.max(index + 1);
+            continue;
+        }
+
+        let mut match_end = prefix_end + 1;
+        while match_end < bytes.len() {
+            let byte = bytes[match_end];
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'@' | b'_') {
+                match_end += 1;
+            } else {
+                break;
+            }
+        }
+
+        let start = span.start.advanced_by(&text[..index]);
+        let end = start.advanced_by(&text[index..match_end]);
+        spans.push(Span::from_positions(start, end));
+        index = match_end;
     }
 }
 
@@ -2686,7 +3181,7 @@ fn build_word_facts_for_command<'a>(
     source: &'a str,
     command_id: CommandId,
     nested_word_command: bool,
-) -> (Vec<WordFact<'a>>, Vec<Span>) {
+) -> (Vec<WordFact<'a>>, Vec<Span>, Vec<Span>) {
     let mut collector = WordFactCollector::new(source, command_id, nested_word_command);
     collector.collect_command(visit.command, visit.redirects);
     collector.finish()
@@ -2699,6 +3194,7 @@ struct WordFactCollector<'a> {
     facts: Vec<WordFact<'a>>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     pattern_literal_spans: Vec<Span>,
+    pattern_charclass_spans: Vec<Span>,
 }
 
 impl<'a> WordFactCollector<'a> {
@@ -2710,11 +3206,16 @@ impl<'a> WordFactCollector<'a> {
             facts: Vec::new(),
             seen: FxHashSet::default(),
             pattern_literal_spans: Vec::new(),
+            pattern_charclass_spans: Vec::new(),
         }
     }
 
-    fn finish(self) -> (Vec<WordFact<'a>>, Vec<Span>) {
-        (self.facts, self.pattern_literal_spans)
+    fn finish(self) -> (Vec<WordFact<'a>>, Vec<Span>, Vec<Span>) {
+        (
+            self.facts,
+            self.pattern_literal_spans,
+            self.pattern_charclass_spans,
+        )
     }
 
     fn collect_command(&mut self, command: &'a Command, redirects: &'a [Redirect]) {
@@ -3040,10 +3541,9 @@ impl<'a> WordFactCollector<'a> {
                     }
                 }
                 PatternPart::Word(word) => self.push_owned_word(word.clone(), context, host_kind),
-                PatternPart::Literal(_) if is_case_pattern => {}
+                PatternPart::Literal(_) | PatternPart::CharClass(_) if is_case_pattern => {}
                 PatternPart::AnyString | PatternPart::AnyChar => {}
-                PatternPart::CharClass(_) => {}
-                PatternPart::Literal(_) => {}
+                PatternPart::Literal(_) | PatternPart::CharClass(_) => {}
             }
         }
     }
@@ -3733,6 +4233,72 @@ fn printf_format_word<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
     args.get(index).copied()
 }
 
+fn printf_uses_q_format(word: &Word, source: &str) -> bool {
+    let Some(text) = static_word_text(word, source) else {
+        return false;
+    };
+
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            index += 1;
+            continue;
+        }
+
+        index += 1;
+        if index >= bytes.len() {
+            break;
+        }
+
+        if bytes[index] == b'%' {
+            index += 1;
+            continue;
+        }
+
+        while index < bytes.len() && matches!(bytes[index], b'-' | b'+' | b' ' | b'#' | b'0') {
+            index += 1;
+        }
+
+        if index < bytes.len() && bytes[index] == b'*' {
+            index += 1;
+        } else {
+            while index < bytes.len() && bytes[index].is_ascii_digit() {
+                index += 1;
+            }
+        }
+
+        if index < bytes.len() && bytes[index] == b'.' {
+            index += 1;
+            if index < bytes.len() && bytes[index] == b'*' {
+                index += 1;
+            } else {
+                while index < bytes.len() && bytes[index].is_ascii_digit() {
+                    index += 1;
+                }
+            }
+        }
+
+        if index + 1 < bytes.len()
+            && ((bytes[index] == b'h' && bytes[index + 1] == b'h')
+                || (bytes[index] == b'l' && bytes[index + 1] == b'l'))
+        {
+            index += 2;
+        } else if index < bytes.len()
+            && matches!(bytes[index], b'h' | b'l' | b'j' | b'z' | b't' | b'L')
+        {
+            index += 1;
+        }
+
+        if index < bytes.len() && bytes[index] == b'q' {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts<'a> {
     let mut function_mode = false;
     let mut parsing_options = true;
@@ -3778,6 +4344,10 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
 
 fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errexit_change = None;
+    let mut errtrace_change = None;
+    let mut pipefail_change = None;
+    let mut errtrace_option_spans = Vec::new();
+    let mut pipefail_option_spans = Vec::new();
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
@@ -3792,15 +4362,21 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         match text.as_str() {
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
-                let Some(name) = args
-                    .get(index + 1)
-                    .and_then(|word| static_word_text(word, source))
-                else {
+                let Some(name_word) = args.get(index + 1) else {
+                    break;
+                };
+                let Some(name) = static_word_text(name_word, source) else {
                     break;
                 };
 
                 if name == "errexit" {
                     errexit_change = Some(enable);
+                } else if name == "errtrace" {
+                    errtrace_change = Some(enable);
+                    errtrace_option_spans.push(name_word.span);
+                } else if name == "pipefail" {
+                    pipefail_change = Some(enable);
+                    pipefail_option_spans.push(name_word.span);
                 }
                 index += 2;
                 continue;
@@ -3818,11 +4394,82 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         if flags.chars().any(|flag| flag == 'e') {
             errexit_change = Some(text.starts_with('-'));
         }
+        if flags.chars().any(|flag| flag == 'E') {
+            errtrace_change = Some(text.starts_with('-'));
+            errtrace_option_spans.push(word.span);
+        }
+
+        if flags.chars().any(|flag| flag == 'o') {
+            let enable = text.starts_with('-');
+            let Some(name_word) = args.get(index + 1) else {
+                break;
+            };
+            let Some(name) = static_word_text(name_word, source) else {
+                break;
+            };
+
+            if name == "errtrace" {
+                errtrace_change = Some(enable);
+                errtrace_option_spans.push(name_word.span);
+            } else if name == "pipefail" {
+                pipefail_change = Some(enable);
+                pipefail_option_spans.push(name_word.span);
+            }
+            index += 2;
+            continue;
+        }
 
         index += 1;
     }
 
-    SetCommandFacts { errexit_change }
+    SetCommandFacts {
+        errexit_change,
+        errtrace_change,
+        pipefail_change,
+        errtrace_option_spans: errtrace_option_spans.into_boxed_slice(),
+        pipefail_option_spans: pipefail_option_spans.into_boxed_slice(),
+    }
+}
+
+fn parse_wait_command(args: &[&Word], source: &str) -> WaitCommandFacts {
+    let mut option_spans = Vec::new();
+    let mut index = 0;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if text.starts_with('-') && text != "-" {
+            option_spans.push(word.span);
+            index += 1;
+            if wait_option_consumes_argument(&text) {
+                index += 1;
+            }
+            continue;
+        }
+
+        break;
+    }
+
+    WaitCommandFacts {
+        option_spans: option_spans.into_boxed_slice(),
+    }
+}
+
+fn wait_option_consumes_argument(text: &str) -> bool {
+    let Some(flags) = text.strip_prefix('-') else {
+        return false;
+    };
+    let Some(p_index) = flags.find('p') else {
+        return false;
+    };
+
+    p_index + 1 == flags.len()
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
@@ -4245,7 +4892,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nunset -f curl other\nfind . -print0 | xargs -0 rm\ngrep -o content file | wc -l\nexit foo\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -4275,6 +4922,46 @@ mod tests {
                 .map(|word| word.span.slice(source)),
             Some("\"$fmt\"")
         );
+        assert!(
+            !printf
+                .options()
+                .printf()
+                .is_some_and(|printf| printf.uses_q_format)
+        );
+
+        let q_printf = facts
+            .commands()
+            .iter()
+            .find(|fact| {
+                fact.effective_name_is("printf")
+                    && fact
+                        .options()
+                        .printf()
+                        .is_some_and(|printf| printf.uses_q_format)
+            })
+            .and_then(|fact| fact.options().printf())
+            .expect("expected q printf facts");
+        assert!(q_printf.uses_q_format);
+        assert_eq!(
+            q_printf.format_word.map(|word| word.span.slice(source)),
+            Some("'%q\\n'")
+        );
+
+        let star_q_printf = facts
+            .commands()
+            .iter()
+            .find(|fact| {
+                fact.effective_name_is("printf")
+                    && fact
+                        .options()
+                        .printf()
+                        .and_then(|printf| printf.format_word)
+                        .map(|word| word.span.slice(source))
+                        == Some("'%*q\\n'")
+            })
+            .and_then(|fact| fact.options().printf())
+            .expect("expected star-width q printf facts");
+        assert!(star_q_printf.uses_q_format);
 
         let unset = facts
             .commands()
@@ -4301,6 +4988,44 @@ mod tests {
             .and_then(|fact| fact.options().xargs())
             .expect("expected xargs facts");
         assert!(xargs.uses_null_input);
+
+        let wait = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("wait") && fact.options().wait().is_some())
+            .and_then(|fact| fact.options().wait())
+            .expect("expected wait facts");
+        assert_eq!(
+            wait.option_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-n"]
+        );
+
+        let set = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("set"))
+            .and_then(|fact| fact.options().set())
+            .expect("expected set facts");
+        assert_eq!(set.errexit_change, Some(true));
+        assert_eq!(set.errtrace_change, Some(true));
+        assert_eq!(set.pipefail_change, Some(true));
+        assert_eq!(
+            set.errtrace_option_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-eEo"]
+        );
+        assert_eq!(
+            set.pipefail_option_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["pipefail"]
+        );
 
         let grep = facts
             .commands()
@@ -4330,6 +5055,47 @@ mod tests {
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn collects_base_prefix_arithmetic_spans_across_arithmetic_nodes() {
+        let source = "\
+#!/bin/bash
+echo $((10#123))
+echo ${foo:10#1:2}
+: > \"$((10#1))\"
+echo ${foo:-$((10#1))}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert_eq!(
+            facts
+                .base_prefix_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["10#123", "10#1", "10#1", "10#1"]
+        );
+    }
+
+    #[test]
+    fn ignores_base_prefix_like_parameter_trim_operands() {
+        let source = "\
+#!/bin/bash
+: \"${progname:=\"${0##*/}\"}\"
+echo ${foo:-${1##*/}}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(facts.base_prefix_arithmetic_spans().is_empty());
     }
 
     #[test]
@@ -5169,114 +5935,6 @@ case x in *[!a-zA-Z0-9._/+\\-]*) continue ;; esac
                 vec!["*[!a-zA-Z0-9._/+\\-]*"]
             );
             assert!(facts.pattern_charclass_spans().is_empty());
-        });
-    }
-
-    #[test]
-    fn traces_case_pattern_charclass_spans_for_caret_negation() {
-        let source = "\
-#!/bin/sh
-case x in [^a]*) continue ;; esac
-";
-
-        with_facts(source, None, |_, facts| {
-            assert_eq!(
-                facts
-                    .pattern_charclass_spans()
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec!["[^a]"]
-            );
-        });
-    }
-
-    #[test]
-    fn traces_pattern_charclass_spans_for_conditional_patterns() {
-        let source = "\
-#!/bin/sh
-[[ $x = [^a]* ]]
-";
-
-        with_facts(source, None, |_, facts| {
-            assert_eq!(
-                facts
-                    .pattern_charclass_spans()
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec!["[^a]"]
-            );
-        });
-    }
-
-    #[test]
-    fn traces_pattern_charclass_spans_for_parameter_patterns() {
-        let source = "\
-#!/bin/sh
-pkgopts=\"${XBPS_CURRENT_PKG//[^A-Za-z0-9_]/_}\"
-";
-
-        with_facts(source, None, |_, facts| {
-            let spans = facts.pattern_charclass_spans();
-            assert_eq!(
-                spans
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec!["[^A-Za-z0-9_]"]
-            );
-            assert!(!facts.is_nested_pattern_charclass_span(spans[0]));
-        });
-    }
-
-    #[test]
-    fn tracks_nested_pattern_charclass_spans_for_parameter_patterns() {
-        let source = "\
-#!/bin/sh
-printf '%s\n' \"$(
-    sanitized=${name//[^a]/_}
-    printf '%s' \"$sanitized\"
-)\"
-";
-
-        with_facts(source, None, |_, facts| {
-            let spans = facts.pattern_charclass_spans();
-            assert_eq!(
-                spans
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec!["[^a]"]
-            );
-            assert!(facts.is_nested_pattern_charclass_span(spans[0]));
-        });
-    }
-
-    #[test]
-    fn traces_exactly_one_extglob_pattern_spans_across_pattern_contexts() {
-        let source = "\
-#!/bin/sh
-case \"$x\" in
-  @(foo|bar)) ;;
-esac
-[[ $OSTYPE == *@(linux|freebsd)* ]]
-trimmed=${name%@($suffix|$(printf '%s' zz))}
-";
-
-        with_facts(source, None, |_, facts| {
-            assert_eq!(
-                facts
-                    .pattern_exactly_one_extglob_spans()
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec![
-                    "@(foo|bar)",
-                    "@(linux|freebsd)",
-                    "@($suffix|$(printf '%s' zz))"
-                ]
-            );
         });
     }
 

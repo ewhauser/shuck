@@ -30,8 +30,8 @@ pub use facts::{
     PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts, RedirectFact,
     SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
     SingleQuotedFragmentFact, SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts,
-    SudoFamilyInvoker, UnsetCommandFacts, WordFact, WordFactContext, WordFactHostKind,
-    XargsCommandFacts,
+    SudoFamilyInvoker, UnsetCommandFacts, WaitCommandFacts, WordFact, WordFactContext,
+    WordFactHostKind, XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
