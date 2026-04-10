@@ -20,6 +20,13 @@ pub fn plus_equals_append(checker: &mut Checker) {
         return;
     }
 
+    // X064 owns the sh/dash portability wording when both rules are enabled.
+    if matches!(checker.shell(), ShellDialect::Sh | ShellDialect::Dash)
+        && checker.is_rule_enabled(Rule::PlusEqualsInSh)
+    {
+        return;
+    }
+
     let spans = checker.facts().plus_equals_assignment_spans().to_vec();
     checker.report_all_dedup(spans, || PlusEqualsAppend);
 }
@@ -71,5 +78,18 @@ index[1+2]+=3
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::PlusEqualsAppend);
+    }
+
+    #[test]
+    fn defers_to_x064_when_both_plus_equals_rules_are_enabled_in_sh() {
+        let source = "x+=64\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([Rule::PlusEqualsAppend, Rule::PlusEqualsInSh])
+                .with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::PlusEqualsInSh);
     }
 }
