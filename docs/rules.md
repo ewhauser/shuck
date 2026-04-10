@@ -33,16 +33,6 @@ These rules are queued for implementation and tracked separately.
 Review scope: all currently dispatched rule entrypoints under `crates/shuck-linter/src/rules/`, with focus on performance costs, direct AST traversal from rule files, and duplication.
 
 - No direct AST-traversal violations were found in rule files during this pass. The architecture guard `cargo test -p shuck-linter rule_modules_avoid_direct_ast_traversal_tokens` passed.
-- [P2] `crates/shuck-linter/src/rules/portability/conditional_portability.rs`
-  The conditional portability family performs many separate scans over `facts().commands()` and repeats simple-test token decoding across sibling rules. This should be collapsed into a grouped evaluator or precomputed fact set.
-- [P2] `crates/shuck-linter/src/rules/style/escaped_underscore.rs`
-  The S023/S026/S027 escape-style rules are near-copies of the same word and pattern scan pipeline. They should share one engine or fact layer so fixes do not drift and the same inputs are not rescanned multiple times.
-- [P3] `crates/shuck-linter/src/rules/portability/source_builtin_in_sh.rs`
-  `source_builtin_in_sh` and `source_inside_function_in_sh` duplicate scope checks and span anchoring helpers. They should share a helper and differ only in the inside/outside-function predicate.
-- [P3] `crates/shuck-linter/src/rules/portability/trap_err.rs`
-  `trap_err` and `signal_name_in_trap` both reimplement trap argument parsing before applying different predicates. That parsing should live in one shared helper.
-- [P3] `crates/shuck-linter/src/rules/correctness/broken_test_end.rs`
-  `broken_test_end` and `broken_test_parse` currently use the same matcher and only differ in diagnostic wording. They should share a common detection helper.
 
 ---
 
