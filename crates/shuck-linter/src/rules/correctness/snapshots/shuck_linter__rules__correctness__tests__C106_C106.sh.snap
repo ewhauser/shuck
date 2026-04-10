@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 181
+---
+C106 appending a string to an array with `+=` merges into an element; use `+=(...)`
+ --> <source>:5:1
+  |
+5 | items+=" two"
+  |
+
+C106 appending a string to an array with `+=` merges into an element; use `+=(...)`
+ --> <source>:9:1
+  |
+9 | flags+=" ${extra}"
+  |

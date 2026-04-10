@@ -258,6 +258,7 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `set` flag-prefix issues as SC2121.
             // Keep SC2324 as a suppression alias for historical compatibility.
             (2121, Rule::SetFlagsWithoutDashes),
+            (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2115, Rule::RmGlobOnVariablePath),
             (2104, Rule::LoopControlOutsideLoop),
@@ -542,6 +543,7 @@ impl Default for ShellCheckCodeMap {
                     (3075, Rule::ErrexitTrapInSh),
                     (3076, Rule::SignalNameInTrap),
                     (2323, Rule::ArithmeticScoreLine),
+                    (2336, Rule::AppendToArrayAsString),
                     (2339, Rule::MapfileProcessSubstitution),
                     (3051, Rule::SourceInsideFunctionInSh),
                     (3084, Rule::SourceInsideFunctionInSh),
@@ -959,6 +961,7 @@ mod tests {
             Some(Rule::FunctionReferencesUnsetParam)
         );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(map.resolve("SC2336"), Some(Rule::AppendToArrayAsString));
         assert_eq!(
             map.resolve("SC2339"),
             Some(Rule::MapfileProcessSubstitution)
@@ -1195,6 +1198,7 @@ mod tests {
             (2086, Rule::UnquotedExpansion),
             (2146, Rule::FindOrWithoutGrouping),
             (2121, Rule::SetFlagsWithoutDashes),
+            (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
@@ -1445,6 +1449,7 @@ mod tests {
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
+        assert!(comparison.contains(&(2336, Rule::AppendToArrayAsString)));
         assert!(comparison.contains(&(2339, Rule::MapfileProcessSubstitution)));
         assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
         assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));

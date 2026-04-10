@@ -150,6 +150,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnusedAssignment) {
             rules::correctness::unused_assignment::unused_assignment(self);
         }
+        if self.is_rule_enabled(Rule::AppendToArrayAsString) {
+            rules::correctness::append_to_array_as_string::append_to_array_as_string(self);
+        }
     }
 
     fn check_references(&mut self) {

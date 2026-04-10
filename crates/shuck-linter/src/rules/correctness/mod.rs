@@ -158,6 +158,7 @@ mod tests {
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
+    #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]

@@ -7734,7 +7734,7 @@ fn configure_option_misspelling(option_name: &str) -> Option<&'static str> {
     }
 }
 
-fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
+pub(crate) fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
     let mut prefix = String::new();
     collect_leading_literal_word_parts(&word.parts, source, &mut prefix);
     prefix
