@@ -8299,7 +8299,7 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
             assert!(substitutions.contains(&(
                 "$(echo direct)".to_owned(),
                 SubstitutionOutputIntent::Captured,
-                SubstitutionHostKind::CommandArgument,
+                SubstitutionHostKind::Other,
                 true,
                 false,
                 true,
@@ -8307,7 +8307,7 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
             assert!(substitutions.contains(&(
                 "$(foo $(echo nested))".to_owned(),
                 SubstitutionOutputIntent::Captured,
-                SubstitutionHostKind::CommandArgument,
+                SubstitutionHostKind::Other,
                 true,
                 false,
                 false,
@@ -8323,7 +8323,7 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
             assert!(substitutions.contains(&(
                 "$(ls layout.*.h | cut -d. -f2 | xargs echo)".to_owned(),
                 SubstitutionOutputIntent::Captured,
-                SubstitutionHostKind::CommandArgument,
+                SubstitutionHostKind::Other,
                 true,
                 true,
                 false,

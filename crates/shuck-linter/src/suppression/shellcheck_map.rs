@@ -156,7 +156,6 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports alias function-definition issues as SC2142.
             // Keep SC2330 as a suppression alias for the authored S057 rule code.
             (2142, Rule::FunctionInAlias),
-            (2340, Rule::DeprecatedTempfileCommand),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
@@ -308,7 +307,6 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2290 assigned to C077 in comparisons so large-corpus attribution stays stable.
             (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
-            (2294, Rule::EvalOnArray),
             (2297, Rule::DollarInArithmeticContext),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
@@ -439,10 +437,13 @@ impl Default for ShellCheckCodeMap {
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
                 (2263, Rule::RedundantSpacesInEcho),
+                (2143, Rule::GrepOutputInTest),
                 (2294, Rule::LsInSubstitution),
                 (2291, Rule::UnquotedVariableInSed),
                 (2060, Rule::UnquotedTrClass),
                 (2021, Rule::UnquotedTrRange),
+                (2186, Rule::DeprecatedTempfileCommand),
+                (2258, Rule::BareRead),
                 (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
                 (3050, Rule::BraceFdRedirection),
@@ -582,6 +583,14 @@ impl Default for ShellCheckCodeMap {
                 (2321, Rule::FunctionKeywordInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
+                (2294, Rule::LsInSubstitution),
+                (2322, Rule::SuWithoutFlag),
+                (2340, Rule::DeprecatedTempfileCommand),
+                (2342, Rule::EgrepDeprecated),
+                (2328, Rule::CommandSubstitutionInAlias),
+                (2330, Rule::FunctionInAlias),
+                (2298, Rule::UnquotedTrRange),
+                (2303, Rule::UnquotedTrClass),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -1039,8 +1048,10 @@ mod tests {
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            (2143, Rule::GrepOutputInTest),
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
+            (2186, Rule::DeprecatedTempfileCommand),
             (2196, Rule::EgrepDeprecated),
             (2139, Rule::CommandSubstitutionInAlias),
             (2142, Rule::FunctionInAlias),
@@ -1048,10 +1059,12 @@ mod tests {
             (2060, Rule::UnquotedTrClass),
             (2303, Rule::UnquotedTrClass),
             (2322, Rule::SuWithoutFlag),
+            (2340, Rule::DeprecatedTempfileCommand),
             (2342, Rule::EgrepDeprecated),
             (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
             (2298, Rule::UnquotedTrRange),
+            (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
             (2016, Rule::SingleQuotedLiteral),
@@ -1280,6 +1293,7 @@ mod tests {
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
+        assert!(!comparison.contains(&(2294, Rule::EvalOnArray)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
@@ -1292,6 +1306,7 @@ mod tests {
         assert!(!comparison.contains(&(2342, Rule::EgrepDeprecated)));
         assert!(!comparison.contains(&(2328, Rule::CommandSubstitutionInAlias)));
         assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
+        assert!(comparison.contains(&(2258, Rule::BareRead)));
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
