@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X045 `+=` assignment is not portable in `sh` scripts
+ --> <source>:5:1
+  |
+5 | x+=64
+  |
+
+X045 `+=` assignment is not portable in `sh` scripts
+ --> <source>:8:1
+  |
+8 | arr+=(one two)
+  |
+
+X045 `+=` assignment is not portable in `sh` scripts
+  --> <source>:11:10
+   |
+11 | readonly value+=suffix
+   |
+
+X045 `+=` assignment is not portable in `sh` scripts
+  --> <source>:14:1
+   |
+14 | index[1+2]+=3
+   |

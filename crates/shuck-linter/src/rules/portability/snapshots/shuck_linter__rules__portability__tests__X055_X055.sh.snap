@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X055 `$"..."` strings are not portable in `sh`
+ --> <source>:4:6
+  |
+4 | echo $"Usage: $0 {start|stop}"
+  |
+
+X055 `$"..."` strings are not portable in `sh`
+ --> <source>:7:21
+  |
+7 | printf '%s\n' prefix$"translated"suffix
+  |

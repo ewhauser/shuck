@@ -463,6 +463,17 @@ impl SingleQuotedFragmentFact {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct DollarDoubleQuotedFragmentFact {
+    span: Span,
+}
+
+impl DollarDoubleQuotedFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct OpenDoubleQuoteFragmentFact {
     span: Span,
 }
@@ -583,6 +594,17 @@ pub struct ReplacementExpansionFragmentFact {
 }
 
 impl ReplacementExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct StarGlobRemovalFragmentFact {
+    span: Span,
+}
+
+impl StarGlobRemovalFragmentFact {
     pub fn span(&self) -> Span {
         self.span
     }
@@ -738,6 +760,7 @@ pub struct SubstitutionFact {
     body_contains_ls: bool,
     body_contains_echo: bool,
     body_contains_grep: bool,
+    bash_file_slurp: bool,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
     unquoted_in_host: bool,
@@ -772,6 +795,9 @@ impl SubstitutionFact {
         self.body_contains_grep
     }
 
+    pub fn is_bash_file_slurp(&self) -> bool {
+        self.bash_file_slurp
+    }
     pub fn host_word_span(&self) -> Span {
         self.host_word_span
     }
@@ -1667,6 +1693,7 @@ pub struct LinterFacts<'a> {
     heredoc_end_space_spans: Vec<Span>,
     echo_here_doc_spans: Vec<Span>,
     spaced_tabstrip_close_spans: Vec<Span>,
+    plus_equals_assignment_spans: Vec<Span>,
     array_index_arithmetic_spans: Vec<Span>,
     arithmetic_score_line_spans: Vec<Span>,
     dollar_in_arithmetic_spans: Vec<Span>,
@@ -1674,6 +1701,7 @@ pub struct LinterFacts<'a> {
     arithmetic_command_substitution_spans: Vec<Span>,
     function_positional_parameter_facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
+    dollar_double_quoted_fragments: Vec<DollarDoubleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
     suspect_closing_quote_fragments: Vec<SuspectClosingQuoteFragmentFact>,
     literal_brace_spans: Vec<Span>,
@@ -1696,6 +1724,7 @@ pub struct LinterFacts<'a> {
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
     replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
+    star_glob_removal_fragments: Vec<StarGlobRemovalFragmentFact>,
     conditional_portability: ConditionalPortabilityFacts,
 }
 
@@ -1875,6 +1904,10 @@ impl<'a> LinterFacts<'a> {
         &self.spaced_tabstrip_close_spans
     }
 
+    pub fn plus_equals_assignment_spans(&self) -> &[Span] {
+        &self.plus_equals_assignment_spans
+    }
+
     pub fn array_index_arithmetic_spans(&self) -> &[Span] {
         &self.array_index_arithmetic_spans
     }
@@ -1893,6 +1926,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn single_quoted_fragments(&self) -> &[SingleQuotedFragmentFact] {
         &self.single_quoted_fragments
+    }
+
+    pub fn dollar_double_quoted_fragments(&self) -> &[DollarDoubleQuotedFragmentFact] {
+        &self.dollar_double_quoted_fragments
     }
 
     pub fn open_double_quote_fragments(&self) -> &[OpenDoubleQuoteFragmentFact] {
@@ -1985,6 +2022,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn replacement_expansion_fragments(&self) -> &[ReplacementExpansionFragmentFact] {
         &self.replacement_expansion_fragments
+    }
+
+    pub fn star_glob_removal_fragments(&self) -> &[StarGlobRemovalFragmentFact] {
+        &self.star_glob_removal_fragments
     }
 
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
@@ -2157,9 +2198,11 @@ impl<'a> LinterFactsBuilder<'a> {
             build_condition_status_capture_spans(&self.file.body, self.source);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
+        let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
         let literal_brace_spans = build_literal_brace_spans(&words, &commands, self.source);
         let SurfaceFragmentFacts {
             single_quoted,
+            dollar_double_quoted,
             open_double_quotes,
             suspect_closing_quotes,
             backticks,
@@ -2176,6 +2219,7 @@ impl<'a> LinterFactsBuilder<'a> {
             substring_expansions,
             case_modifications,
             replacement_expansions,
+            star_glob_removals,
             subscript_spans,
         } = build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
@@ -2246,6 +2290,7 @@ impl<'a> LinterFactsBuilder<'a> {
             heredoc_end_space_spans: heredoc_summary.heredoc_end_space_spans,
             echo_here_doc_spans: heredoc_summary.echo_here_doc_spans,
             spaced_tabstrip_close_spans: heredoc_summary.spaced_tabstrip_close_spans,
+            plus_equals_assignment_spans,
             array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
             arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
             dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
@@ -2255,6 +2300,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 .arithmetic_command_substitution_spans,
             function_positional_parameter_facts,
             single_quoted_fragments: single_quoted,
+            dollar_double_quoted_fragments: dollar_double_quoted,
             open_double_quote_fragments: open_double_quotes,
             suspect_closing_quote_fragments: suspect_closing_quotes,
             literal_brace_spans,
@@ -2277,6 +2323,7 @@ impl<'a> LinterFactsBuilder<'a> {
             substring_expansion_fragments: substring_expansions,
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
+            star_glob_removal_fragments: star_glob_removals,
             conditional_portability,
         }
     }
@@ -2515,6 +2562,72 @@ fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
     Some(position)
 }
 
+fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in commands {
+        collect_plus_equals_assignment_spans_in_command(fact.command(), &mut spans);
+    }
+
+    spans
+}
+
+fn collect_plus_equals_assignment_spans_in_command(command: &Command, spans: &mut Vec<Span>) {
+    match command {
+        Command::Simple(command) => {
+            collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
+            }
+            BuiltinCommand::Continue(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
+            }
+            BuiltinCommand::Return(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
+            }
+            BuiltinCommand::Exit(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
+            }
+        },
+        Command::Decl(command) => {
+            collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
+            for operand in &command.operands {
+                if let DeclOperand::Assignment(assignment) = operand {
+                    collect_plus_equals_assignment_span(assignment, spans);
+                }
+            }
+        }
+        Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_plus_equals_assignment_spans_in_assignments(
+    assignments: &[Assignment],
+    spans: &mut Vec<Span>,
+) {
+    for assignment in assignments {
+        collect_plus_equals_assignment_span(assignment, spans);
+    }
+}
+
+fn collect_plus_equals_assignment_span(assignment: &Assignment, spans: &mut Vec<Span>) {
+    if !assignment.append {
+        return;
+    }
+
+    let target = &assignment.target;
+    let end = target
+        .subscript
+        .as_ref()
+        .map(|subscript| subscript.syntax_source_text().span().end.advanced_by("]"))
+        .unwrap_or(target.name_span.end);
+    spans.push(Span::from_positions(target.name_span.start, end));
+}
 fn build_base_prefix_arithmetic_spans(body: &StmtSeq, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
 
@@ -8177,6 +8290,30 @@ mod tests {
     }
 
     #[test]
+    fn collects_plus_equals_assignment_spans() {
+        let source = "\
+#!/bin/sh
+x+=64
+arr+=(one two)
+readonly r+=1
+index[1+2]+=3
+complex[$((i+=1))]+=x
+(( i += 1 ))
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .plus_equals_assignment_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["x", "arr", "r", "index[1+2]", "complex[$((i+=1))]"]
+            );
+        });
+    }
+
+    #[test]
     fn summarizes_command_options_and_invokers() {
         let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
@@ -9065,6 +9202,41 @@ legacy=`nvm ls | grep '^ *\\.'`
     }
 
     #[test]
+    fn marks_redirect_only_input_command_substitutions_as_bash_file_slurps() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>/dev/null) $(< muted.txt >/dev/null) $(< closed.txt 0<&-) $(cat < portable.txt) $(> out.txt) $(foo=bar)
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.is_bash_file_slurp(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert!(substitutions.contains(&("$(<input.txt)".to_owned(), true)));
+            assert!(
+                substitutions
+                    .contains(&("\"$( < spaced.txt )\"".trim_matches('"').to_owned(), true))
+            );
+            assert!(substitutions.contains(&("$(0< fd.txt)".to_owned(), true)));
+            assert!(substitutions.contains(&("$(< quiet.txt 2>/dev/null)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(< muted.txt >/dev/null)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(< closed.txt 0<&-)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(cat < portable.txt)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(> out.txt)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(foo=bar)".to_owned(), false)));
+        });
+    }
+
+    #[test]
     fn builds_simple_test_facts_with_shapes_and_closing_bracket_validation() {
         let source = "\
 #!/bin/sh
@@ -9570,6 +9742,7 @@ PS4='$prompt'
 command jq '$__loc__'
 test -v '$name'
 printf '%s\n' $'tab\t'
+echo $\"Usage: $0 {start|stop}\"
 printf '%s\n' \"${!name}\" \"${!arr[*]}\"
 printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
 printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
@@ -9672,6 +9845,14 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     text.starts_with("$'tab") && *dollar_quoted && !variable_set_operand
                 }
             ));
+            assert_eq!(
+                facts
+                    .dollar_double_quoted_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$\"Usage: $0 {start|stop}\""]
+            );
             assert_eq!(
                 facts
                     .indirect_expansion_fragments()

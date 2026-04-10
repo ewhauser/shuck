@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X081 `${*%%pattern}` is not portable in `sh`
+ --> <source>:4:7
+  |
+4 | echo "${*%%dBm*}"
+  |

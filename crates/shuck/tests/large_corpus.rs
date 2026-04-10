@@ -418,6 +418,7 @@ impl DiagnosticRange {
 struct CompatibilityRecord {
     side: CompatibilitySide,
     rule_code: Option<String>,
+    rule_codes: Vec<String>,
     shellcheck_code: String,
     range: DiagnosticRange,
     message: String,
@@ -1001,7 +1002,7 @@ fn evaluate_fixture_compatibility(
     shuck_timeout: Duration,
     linter_settings: &shuck_linter::LinterSettings,
     shellcheck_index: &HashMap<String, String>,
-    shellcheck_rule_index: &HashMap<u32, String>,
+    shellcheck_rule_index: &HashMap<u32, Vec<String>>,
     corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
     shuck_path_resolver: Arc<LargeCorpusPathResolver>,
@@ -1285,28 +1286,43 @@ fn classify_compatibility_record(
     path: &Path,
     corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
 ) -> (CompatibilityClassification, Option<String>) {
-    let Some(rule_code) = record.rule_code.as_deref() else {
+    let rule_codes = compatibility_record_rule_codes(record);
+    if rule_codes.is_empty() {
         return (
             CompatibilityClassification::MappingIssue,
             Some(format!("no Shuck rule maps {}", record.shellcheck_code)),
         );
-    };
+    }
+    let mut reviewed_reason = None;
+    let mut mapping_reason = None;
 
-    let Some(metadata) = corpus_metadata.get(rule_code) else {
+    for rule_code in rule_codes {
+        let Some(metadata) = corpus_metadata.get(rule_code) else {
+            return (CompatibilityClassification::Implementation, None);
+        };
+
+        if let Some(reason) = reviewed_divergence_reason(metadata, record, path) {
+            reviewed_reason.get_or_insert_with(|| reason.to_owned());
+            continue;
+        }
+
+        if let Some(reason) =
+            comparison_target_note_reason(metadata, record.shellcheck_code.as_str())
+        {
+            mapping_reason.get_or_insert_with(|| reason.to_owned());
+            continue;
+        }
+
         return (CompatibilityClassification::Implementation, None);
-    };
-
-    if let Some(reason) = reviewed_divergence_reason(metadata, record, path) {
-        return (
-            CompatibilityClassification::ReviewedDivergence,
-            Some(reason.to_owned()),
-        );
     }
 
-    if let Some(reason) = comparison_target_note_reason(metadata, record.shellcheck_code.as_str()) {
+    if let Some(reason) = mapping_reason {
+        return (CompatibilityClassification::MappingIssue, Some(reason));
+    }
+    if let Some(reason) = reviewed_reason {
         return (
-            CompatibilityClassification::MappingIssue,
-            Some(reason.to_owned()),
+            CompatibilityClassification::ReviewedDivergence,
+            Some(reason),
         );
     }
 
@@ -1315,23 +1331,30 @@ fn classify_compatibility_record(
 
 fn shellcheck_compatibility_records(
     diagnostics: &[ShellCheckDiagnostic],
-    shellcheck_rule_index: &HashMap<u32, String>,
+    shellcheck_rule_index: &HashMap<u32, Vec<String>>,
     labels: &[String],
 ) -> Vec<CompatibilityRecord> {
     diagnostics
         .iter()
-        .map(|diag| CompatibilityRecord {
-            side: CompatibilitySide::ShellcheckOnly,
-            rule_code: shellcheck_rule_index.get(&diag.code).cloned(),
-            shellcheck_code: format!("SC{:04}", diag.code),
-            range: DiagnosticRange {
-                line: diag.line,
-                end_line: diag.end_line,
-                column: diag.column,
-                end_column: diag.end_column,
-            },
-            message: format!("{} {}", diag.level, diag.message),
-            labels: labels.to_vec(),
+        .map(|diag| {
+            let rule_codes = shellcheck_rule_index
+                .get(&diag.code)
+                .cloned()
+                .unwrap_or_default();
+            CompatibilityRecord {
+                side: CompatibilitySide::ShellcheckOnly,
+                rule_code: (rule_codes.len() == 1).then(|| rule_codes[0].clone()),
+                rule_codes,
+                shellcheck_code: format!("SC{:04}", diag.code),
+                range: DiagnosticRange {
+                    line: diag.line,
+                    end_line: diag.end_line,
+                    column: diag.column,
+                    end_column: diag.end_column,
+                },
+                message: format!("{} {}", diag.level, diag.message),
+                labels: labels.to_vec(),
+            }
         })
         .collect()
 }
@@ -1349,6 +1372,7 @@ fn shuck_compatibility_records(
                 .map(|shellcheck_code| CompatibilityRecord {
                     side: CompatibilitySide::ShuckOnly,
                     rule_code: Some(diag.code().to_owned()),
+                    rule_codes: Vec::new(),
                     shellcheck_code: shellcheck_code.clone(),
                     range: DiagnosticRange {
                         line: diag.span.start.line,
@@ -1368,6 +1392,14 @@ fn compatibility_record_key(record: &CompatibilityRecord) -> CompatibilityRecord
         shellcheck_code: record.shellcheck_code.clone(),
         range: record.range.clone(),
     }
+}
+
+fn compatibility_record_rule_codes(record: &CompatibilityRecord) -> Vec<&str> {
+    if !record.rule_codes.is_empty() {
+        return record.rule_codes.iter().map(String::as_str).collect();
+    }
+
+    record.rule_code.iter().map(String::as_str).collect()
 }
 
 fn unmatched_compatibility_records(
@@ -1554,10 +1586,16 @@ fn format_compatibility_record(
     let reason = reason
         .map(|reason| format!(" reason={reason}"))
         .unwrap_or_default();
+    let rule_codes = compatibility_record_rule_codes(record);
+    let rule_code = if rule_codes.is_empty() {
+        "(unmapped)".to_owned()
+    } else {
+        rule_codes.join(",")
+    };
     format!(
         "{} {}/{} {} {}{}{}",
         record.side.as_str(),
-        record.rule_code.as_deref().unwrap_or("(unmapped)"),
+        rule_code,
         record.shellcheck_code,
         record.range.display(),
         record.message,
@@ -2194,17 +2232,61 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
 fn build_rule_to_shellcheck_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> HashMap<String, String> {
-    large_corpus_comparison_mappings(selected_rules)
-        .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
+    if let Some(selected_rules) = selected_rules {
+        return selected_rules
+            .iter()
+            .filter_map(|rule| {
+                selected_rule_shellcheck_code(rule)
+                    .map(|sc_code| (rule.code().to_owned(), format!("SC{sc_code}")))
+            })
+            .collect();
+    }
+
+    let mut index = HashMap::<String, u32>::new();
+    for (sc_code, rule) in large_corpus_comparison_mappings(selected_rules) {
+        index
+            .entry(rule.code().to_owned())
+            .and_modify(|current| *current = (*current).min(sc_code))
+            .or_insert(sc_code);
+    }
+    index
+        .into_iter()
+        .map(|(rule_code, sc_code)| (rule_code, format!("SC{sc_code}")))
         .collect()
 }
 
 fn build_shellcheck_to_rule_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
-) -> HashMap<u32, String> {
-    large_corpus_comparison_mappings(selected_rules)
-        .map(|(sc_code, rule)| (sc_code, rule.code().to_owned()))
-        .collect()
+) -> HashMap<u32, Vec<String>> {
+    if let Some(selected_rules) = selected_rules {
+        let mut index = HashMap::<u32, Vec<String>>::new();
+        for rule in selected_rules.iter() {
+            for sc_code in selected_rule_shellcheck_codes(rule) {
+                index
+                    .entry(sc_code)
+                    .or_default()
+                    .push(rule.code().to_owned());
+            }
+        }
+        for rule_codes in index.values_mut() {
+            rule_codes.sort();
+            rule_codes.dedup();
+        }
+        return index;
+    }
+
+    let mut index = HashMap::<u32, Vec<String>>::new();
+    for (sc_code, rule) in large_corpus_comparison_mappings(selected_rules) {
+        index
+            .entry(sc_code)
+            .or_default()
+            .push(rule.code().to_owned());
+    }
+    for rule_codes in index.values_mut() {
+        rule_codes.sort();
+        rule_codes.dedup();
+    }
+    index
 }
 
 fn build_shellcheck_index() -> HashMap<String, String> {
@@ -2219,8 +2301,9 @@ fn build_large_corpus_linter_settings(
         return shuck_linter::LinterSettings::for_rules(rules.iter());
     }
     if mapped_only {
-        let map = shuck_linter::ShellCheckCodeMap::default();
-        let mapped_rules: Vec<_> = map.mappings().map(|(_, rule)| rule).collect();
+        let mapped_rules: Vec<_> = large_corpus_comparison_mappings(None)
+            .map(|(_, rule)| rule)
+            .collect();
         return shuck_linter::LinterSettings::for_rules(mapped_rules);
     }
     shuck_linter::LinterSettings::default()
@@ -2246,16 +2329,18 @@ fn build_mapped_shellcheck_codes() -> HashSet<u32> {
 }
 
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
-    large_corpus_comparison_mappings(Some(selected_rules))
-        .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
+    selected_rules
+        .iter()
+        .flat_map(selected_rule_shellcheck_codes)
         .collect()
 }
 
 fn validate_selected_rules_for_large_corpus(
     selected_rules: &shuck_linter::RuleSet,
 ) -> Result<(), String> {
-    let comparable_rules: HashSet<_> = large_corpus_comparison_mappings(Some(selected_rules))
-        .map(|(_, rule)| rule)
+    let comparable_rules: HashSet<_> = selected_rules
+        .iter()
+        .filter(|rule| !selected_rule_shellcheck_codes(*rule).is_empty())
         .collect();
     let mut missing_rules: Vec<_> = selected_rules
         .iter()
@@ -2271,6 +2356,51 @@ fn validate_selected_rules_for_large_corpus(
             "selected rules lack large-corpus comparison mappings: {}",
             missing_rules.join(", ")
         ))
+    }
+}
+
+fn selected_rule_shellcheck_code(rule: shuck_linter::Rule) -> Option<u32> {
+    selected_rule_shellcheck_codes(rule).into_iter().next()
+}
+
+fn selected_rule_shellcheck_codes(rule: shuck_linter::Rule) -> Vec<u32> {
+    let metadata = load_rule_corpus_metadata(rule.code());
+    let has_comparison_target_notes = !metadata.comparison_target_notes.is_empty();
+    let excluded_codes = metadata
+        .comparison_target_notes
+        .into_iter()
+        .filter_map(|note| {
+            note.current_shellcheck_code
+                .strip_prefix("SC")
+                .and_then(|code| code.parse().ok())
+        })
+        .collect::<HashSet<u32>>();
+
+    let comparison_candidates = shuck_linter::ShellCheckCodeMap::default()
+        .comparison_mappings()
+        .filter_map(|(sc_code, mapped_rule)| {
+            (mapped_rule == rule && !excluded_codes.contains(&sc_code)).then_some(sc_code)
+        })
+        .collect::<HashSet<_>>();
+
+    if !comparison_candidates.is_empty() {
+        let mut comparison_candidates = comparison_candidates.into_iter().collect::<Vec<_>>();
+        comparison_candidates.sort_unstable();
+        return comparison_candidates;
+    }
+
+    if has_comparison_target_notes {
+        let mut fallback_candidates = shuck_linter::ShellCheckCodeMap::default()
+            .mappings()
+            .filter_map(|(sc_code, mapped_rule)| {
+                (mapped_rule == rule && !excluded_codes.contains(&sc_code)).then_some(sc_code)
+            })
+            .collect::<Vec<_>>();
+        fallback_candidates.sort_unstable();
+        fallback_candidates.dedup();
+        fallback_candidates
+    } else {
+        Vec::new()
     }
 }
 
@@ -3153,12 +3283,12 @@ mod tests {
         assert_eq!(rule_index.get("S045").map(String::as_str), Some("SC2004"));
         assert_eq!(rule_index.get("S048").map(String::as_str), Some("SC2297"));
         assert_eq!(
-            shellcheck_index.get(&2297).map(String::as_str),
-            Some("S048")
+            shellcheck_index.get(&2297).map(Vec::as_slice),
+            Some(&["S048".to_string()][..])
         );
         assert_eq!(
-            shellcheck_index.get(&2004).map(String::as_str),
-            Some("S045")
+            shellcheck_index.get(&2004).map(Vec::as_slice),
+            Some(&["S045".to_string()][..])
         );
     }
 
@@ -3221,6 +3351,69 @@ mod tests {
     }
 
     #[test]
+    fn selected_rule_filter_prefers_first_current_comparison_code() {
+        let rules = parse_large_corpus_rule_set("S074").unwrap();
+        let rule_index = build_rule_to_shellcheck_index(Some(&rules));
+
+        assert_eq!(rule_index.get("S074").map(String::as_str), Some("SC1045"));
+    }
+
+    #[test]
+    fn selected_rule_filter_uses_oracle_codes_for_portability_aliases() {
+        let rules = parse_large_corpus_rule_set("X064,X071,X081").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([3024, 3055, 3058]));
+    }
+
+    #[test]
+    fn selected_rule_filter_preserves_all_comparison_codes_for_multi_code_rules() {
+        let rules = parse_large_corpus_rule_set("P004").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([2235, 2259]));
+    }
+
+    #[test]
+    fn selected_rule_filter_preserves_all_rules_for_shared_shellcheck_codes() {
+        let rules = parse_large_corpus_rule_set("X045,X064").unwrap();
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+
+        assert_eq!(
+            shellcheck_index.get(&3024).map(Vec::as_slice),
+            Some(&["X045".to_string(), "X064".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn selected_rule_filter_preserves_multi_code_shellcheck_entries() {
+        let rules = parse_large_corpus_rule_set("P004").unwrap();
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+
+        assert_eq!(
+            shellcheck_index.get(&2235).map(Vec::as_slice),
+            Some(&["P004".to_string()][..])
+        );
+        assert_eq!(
+            shellcheck_index.get(&2259).map(Vec::as_slice),
+            Some(&["P004".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn full_comparison_index_preserves_all_rules_for_shared_shellcheck_codes() {
+        let rule_index = build_rule_to_shellcheck_index(None);
+        let shellcheck_index = build_shellcheck_to_rule_index(None);
+
+        assert_eq!(rule_index.get("X045").map(String::as_str), Some("SC3024"));
+        assert_eq!(rule_index.get("X064").map(String::as_str), Some("SC3024"));
+        assert_eq!(
+            shellcheck_index.get(&3024).map(Vec::as_slice),
+            Some(&["X045".to_string(), "X064".to_string()][..])
+        );
+    }
+
+    #[test]
     fn selected_rule_filter_builds_matching_linter_settings() {
         let rules = parse_large_corpus_rule_set("S001").unwrap();
         let settings = build_large_corpus_linter_settings(Some(rules), false);
@@ -3238,7 +3431,7 @@ mod tests {
     }
 
     #[test]
-    fn mapped_only_enables_all_mapped_rules_in_linter_settings() {
+    fn mapped_only_enables_all_comparison_mapped_rules_in_linter_settings() {
         let settings = build_large_corpus_linter_settings(None, true);
         // Style rules like S003 (LoopFromCommandOutput) should be included
         assert!(
@@ -3246,12 +3439,12 @@ mod tests {
                 .rules
                 .contains(shuck_linter::Rule::LoopFromCommandOutput)
         );
-        // All mapped rules should be present
+        // All comparison-mapped rules should be present.
         let map = shuck_linter::ShellCheckCodeMap::default();
-        for (_, rule) in map.mappings() {
+        for (_, rule) in map.comparison_mappings() {
             assert!(
                 settings.rules.contains(rule),
-                "mapped rule {:?} missing from mapped_only linter settings",
+                "comparison-mapped rule {:?} missing from mapped_only linter settings",
                 rule
             );
         }
@@ -3401,6 +3594,7 @@ demo() {
         let record = CompatibilityRecord {
             side: CompatibilitySide::ShellcheckOnly,
             rule_code: Some("X004".into()),
+            rule_codes: Vec::new(),
             shellcheck_code: "SC2112".into(),
             range: DiagnosticRange {
                 line: 14,
@@ -3433,6 +3627,7 @@ demo() {
         let record = CompatibilityRecord {
             side: CompatibilitySide::ShellcheckOnly,
             rule_code: Some("C001".into()),
+            rule_codes: Vec::new(),
             shellcheck_code: "SC2034".into(),
             range: DiagnosticRange {
                 line: 19,
@@ -3481,6 +3676,7 @@ demo() {
         let matching = CompatibilityRecord {
             side: CompatibilitySide::ShuckOnly,
             rule_code: Some("C999".into()),
+            rule_codes: Vec::new(),
             shellcheck_code: "SC1090".into(),
             range: DiagnosticRange {
                 line: 20,
@@ -3517,6 +3713,7 @@ demo() {
         let record = CompatibilityRecord {
             side: CompatibilitySide::ShellcheckOnly,
             rule_code: Some("C046".into()),
+            rule_codes: Vec::new(),
             shellcheck_code: "SC2124".into(),
             range: DiagnosticRange {
                 line: 287,

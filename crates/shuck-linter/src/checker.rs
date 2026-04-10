@@ -339,6 +339,18 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArrayAssignment) {
             rules::portability::array_assignment::array_assignment(self);
         }
+        if self.is_rule_enabled(Rule::PlusEqualsAppend) {
+            rules::portability::plus_equals_append::plus_equals_append(self);
+        }
+        if self.is_rule_enabled(Rule::PlusEqualsInSh) {
+            rules::portability::plus_equals_in_sh::plus_equals_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayKeysInSh) {
+            rules::portability::array_keys_in_sh::array_keys_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::StarGlobRemovalInSh) {
+            rules::portability::star_glob_removal_in_sh::star_glob_removal_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::IndirectExpansion) {
             rules::portability::indirect_expansion::indirect_expansion(self);
         }
@@ -539,6 +551,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ProcessSubstitution) {
             rules::portability::process_substitution::process_substitution(self);
         }
+        if self.is_rule_enabled(Rule::BashFileSlurp) {
+            rules::portability::bash_file_slurp::bash_file_slurp(self);
+        }
         if self.is_rule_enabled(Rule::HereString) {
             rules::portability::here_string::here_string(self);
         }
@@ -595,6 +610,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::AnsiCQuoting) {
             rules::portability::ansi_c_quoting::ansi_c_quoting(self);
+        }
+        if self.is_rule_enabled(Rule::DollarStringInSh) {
+            rules::portability::dollar_string_in_sh::dollar_string_in_sh(self);
         }
         if self.is_rule_enabled(Rule::BraceExpansion) {
             rules::portability::brace_expansion::brace_expansion(self);

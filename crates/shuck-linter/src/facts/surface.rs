@@ -4,6 +4,7 @@ use shuck_ast::PatternGroupKind;
 #[derive(Debug, Default)]
 pub(super) struct SurfaceFragmentFacts {
     pub(super) single_quoted: Vec<SingleQuotedFragmentFact>,
+    pub(super) dollar_double_quoted: Vec<DollarDoubleQuotedFragmentFact>,
     pub(super) open_double_quotes: Vec<OpenDoubleQuoteFragmentFact>,
     pub(super) suspect_closing_quotes: Vec<SuspectClosingQuoteFragmentFact>,
     pub(super) backticks: Vec<BacktickFragmentFact>,
@@ -20,6 +21,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
     pub(super) case_modifications: Vec<CaseModificationFragmentFact>,
     pub(super) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
+    pub(super) star_glob_removals: Vec<StarGlobRemovalFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -154,6 +156,20 @@ impl<'a> SurfaceFragmentCollector<'a> {
         self.facts
             .replacement_expansions
             .push(ReplacementExpansionFragmentFact { span });
+    }
+
+    fn record_star_glob_removal(&mut self, span: Span) {
+        if self
+            .facts
+            .star_glob_removals
+            .iter()
+            .any(|fragment| fragment.span() == span)
+        {
+            return;
+        }
+        self.facts
+            .star_glob_removals
+            .push(StarGlobRemovalFragmentFact { span });
     }
 
     fn collect_commands(&mut self, commands: &StmtSeq) {
@@ -495,7 +511,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         variable_set_operand: context.variable_set_operand,
                     });
                 }
-                WordPart::DoubleQuoted { parts, .. } => self.collect_word_parts(parts, context),
+                WordPart::DoubleQuoted { parts, dollar } => {
+                    if *dollar {
+                        self.facts
+                            .dollar_double_quoted
+                            .push(DollarDoubleQuotedFragmentFact { span: part.span });
+                    }
+                    self.collect_word_parts(parts, context);
+                }
                 WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
                 WordPart::ArithmeticExpansion {
                     expression,
@@ -565,6 +588,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     if parameter_has_replacement_expansion(parameter) {
                         self.record_replacement_expansion(parameter.span);
                     }
+                    if parameter_has_star_glob_removal(parameter) {
+                        self.record_star_glob_removal(parameter.span);
+                    }
                     self.record_parameter_subscripts(parameter);
                     if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
                         if matches!(
@@ -617,7 +643,10 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         .push(NestedParameterExpansionFragmentFact { span: part.span });
                 }
                 WordPart::ParameterExpansion {
-                    operator, operand, ..
+                    reference,
+                    operator,
+                    operand,
+                    ..
                 } => {
                     if matches!(
                         operator,
@@ -634,9 +663,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
                     ) {
                         self.record_replacement_expansion(part.span);
                     }
-                    if let WordPart::ParameterExpansion { reference, .. } = &part.kind {
-                        self.record_var_ref_subscript(reference);
+                    if matches!(operator, ParameterOp::RemoveSuffixLong { .. })
+                        && reference.name.as_str() == "*"
+                    {
+                        self.record_star_glob_removal(part.span);
                     }
+                    self.record_var_ref_subscript(reference);
                     self.collect_parameter_operator_patterns(operator, operand.as_ref(), context);
                 }
                 WordPart::Length(reference)
@@ -1068,6 +1100,17 @@ fn parameter_has_replacement_expansion(parameter: &shuck_ast::ParameterExpansion
             | ZshExpansionTarget::Empty => false,
         },
     }
+}
+
+fn parameter_has_star_glob_removal(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    matches!(
+        &parameter.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+            reference,
+            operator: ParameterOp::RemoveSuffixLong { .. },
+            ..
+        }) if reference.name.as_str() == "*"
+    )
 }
 
 fn reference_has_array_subscript(reference: &VarRef) -> bool {

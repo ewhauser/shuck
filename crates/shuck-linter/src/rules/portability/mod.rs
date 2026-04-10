@@ -2,9 +2,11 @@ pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
 pub mod ansi_c_quoting;
 pub mod array_assignment;
+pub mod array_keys_in_sh;
 pub mod array_reference;
 pub mod base_prefix_in_arithmetic;
 pub mod bash_case_fallthrough;
+pub mod bash_file_slurp;
 pub mod brace_expansion;
 pub mod brace_fd_redirection;
 pub mod c_style_for_arithmetic_in_sh;
@@ -13,6 +15,7 @@ pub mod conditional_portability;
 pub mod coproc;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
+pub mod dollar_string_in_sh;
 pub mod errexit_trap_in_sh;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
@@ -25,6 +28,8 @@ pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
 pub mod pipefail_option;
+pub mod plus_equals_append;
+pub mod plus_equals_in_sh;
 pub mod printf_q_format_in_sh;
 pub mod process_substitution;
 pub mod replacement_expansion;
@@ -35,6 +40,7 @@ mod source_common;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
 pub mod standalone_arithmetic;
+pub mod star_glob_removal_in_sh;
 pub mod substring_expansion;
 mod trap_common;
 pub mod trap_err;
@@ -96,6 +102,7 @@ mod tests {
     #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
     #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]
+    #[test_case(Rule::BashFileSlurp, Path::new("X026.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::PrintfQFormatInSh, Path::new("X032.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
@@ -107,16 +114,21 @@ mod tests {
     #[test_case(Rule::SourcedWithArgs, Path::new("X042.sh"))]
     #[test_case(Rule::ZshFlagExpansion, Path::new("X043.sh"))]
     #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
+    #[test_case(Rule::PlusEqualsAppend, Path::new("X045.sh"))]
     #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
     #[test_case(Rule::ZshPromptBracket, Path::new("X049.sh"))]
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
     #[test_case(Rule::ZshAssignmentToZero, Path::new("X053.sh"))]
+    #[test_case(Rule::DollarStringInSh, Path::new("X055.sh"))]
     #[test_case(Rule::ExtglobInSh, Path::new("X054.sh"))]
     #[test_case(Rule::CStyleForInSh, Path::new("X056.sh"))]
     #[test_case(Rule::LegacyArithmeticInSh, Path::new("X057.sh"))]
     #[test_case(Rule::CStyleForArithmeticInSh, Path::new("X062.sh"))]
+    #[test_case(Rule::PlusEqualsInSh, Path::new("X064.sh"))]
+    #[test_case(Rule::ArrayKeysInSh, Path::new("X071.sh"))]
     #[test_case(Rule::CaretNegationInBracket, Path::new("X065.sh"))]
+    #[test_case(Rule::StarGlobRemovalInSh, Path::new("X081.sh"))]
     #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]
     #[test_case(Rule::ZshParameterIndexFlag, Path::new("X079.sh"))]

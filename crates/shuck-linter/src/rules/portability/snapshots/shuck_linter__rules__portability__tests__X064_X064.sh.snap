@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X064 `+=` append assignment is not portable in `sh`
+ --> <source>:4:1
+  |
+4 | x+="hello"
+  |
+
+X064 `+=` append assignment is not portable in `sh`
+ --> <source>:7:10
+  |
+7 | readonly value+="suffix"
+  |
+
+X064 `+=` append assignment is not portable in `sh`
+  --> <source>:10:1
+   |
+10 | index[1+2]+="world"
+   |

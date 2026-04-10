@@ -92,21 +92,18 @@ fn collect_or_update_word_substitution_facts<'a>(
             continue;
         }
 
-        let (stdout_intent, has_stdout_redirect) =
+        let body_facts =
             classify_substitution_body(occurrence.body, commands, command_ids_by_span, source);
         substitution_index.insert(key, substitutions.len());
         substitutions.push(SubstitutionFact {
             span: occurrence.span,
             kind: occurrence.kind,
-            stdout_intent,
-            has_stdout_redirect,
-            body_contains_ls: substitution_body_contains_ls(
-                occurrence.body,
-                commands,
-                command_ids_by_span,
-            ),
-            body_contains_echo: substitution_body_contains_echo(occurrence.body, source),
-            body_contains_grep: substitution_body_contains_grep(occurrence.body, source),
+            stdout_intent: body_facts.stdout_intent,
+            has_stdout_redirect: body_facts.has_stdout_redirect,
+            body_contains_ls: body_facts.body_contains_ls,
+            body_contains_echo: body_facts.body_contains_echo,
+            body_contains_grep: body_facts.body_contains_grep,
+            bash_file_slurp: body_facts.bash_file_slurp,
             host_word_span: word.span,
             host_kind,
             unquoted_in_host: occurrence.unquoted_in_host,
@@ -238,21 +235,33 @@ fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SubstitutionBodyFacts {
+    stdout_intent: SubstitutionOutputIntent,
+    has_stdout_redirect: bool,
+    body_contains_ls: bool,
+    body_contains_echo: bool,
+    body_contains_grep: bool,
+    bash_file_slurp: bool,
+}
+
 fn classify_substitution_body<'a>(
     body: &'a StmtSeq,
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
-) -> (SubstitutionOutputIntent, bool) {
-    let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
-    let mut has_stdout_redirect = false;
-
-    for visit in query::iter_commands(
+) -> SubstitutionBodyFacts {
+    let visits = query::iter_commands(
         body,
         CommandWalkOptions {
             descend_nested_word_commands: false,
         },
-    ) {
+    )
+    .collect::<Vec<_>>();
+    let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
+    let mut has_stdout_redirect = false;
+
+    for visit in &visits {
         let state = if let Some(id) = command_id_for_command(visit.command, command_ids_by_span) {
             classify_redirect_facts(command_fact(commands, id).redirect_facts())
         } else {
@@ -268,10 +277,14 @@ fn classify_substitution_body<'a>(
         });
     }
 
-    (
-        stdout_intent.unwrap_or(SubstitutionOutputIntent::Captured),
+    SubstitutionBodyFacts {
+        stdout_intent: stdout_intent.unwrap_or(SubstitutionOutputIntent::Captured),
         has_stdout_redirect,
-    )
+        body_contains_ls: substitution_body_contains_ls(body, commands, command_ids_by_span),
+        body_contains_echo: substitution_body_contains_echo(body, source),
+        body_contains_grep: substitution_body_contains_grep(body, source),
+        bash_file_slurp: matches!(visits.as_slice(), [visit] if is_bash_file_slurp_command(visit.command, visit.redirects, source)),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -625,6 +638,27 @@ fn visit_command_words_for_substitutions(
     for redirect in redirects {
         visitor(redirect_scan_word(redirect));
     }
+}
+
+fn is_bash_file_slurp_command(command: &Command, redirects: &[Redirect], source: &str) -> bool {
+    let Command::Simple(command) = command else {
+        return false;
+    };
+
+    if !command.assignments.is_empty()
+        || !command.args.is_empty()
+        || !command.name.render(source).is_empty()
+    {
+        return false;
+    }
+
+    matches!(
+        redirects,
+        [redirect]
+            if redirect.kind == RedirectKind::Input
+                && redirect.fd_var.is_none()
+                && redirect.fd.unwrap_or(0) == 0
+    )
 }
 
 fn visit_command_argument_words_for_substitutions(

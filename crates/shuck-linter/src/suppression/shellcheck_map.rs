@@ -216,17 +216,30 @@ impl Default for ShellCheckCodeMap {
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
+            // The pinned ShellCheck oracle reports `+=` assignment portability findings as SC3024.
+            // Keep SC3055/SC3071 as suppression aliases for compatibility with older rule metadata.
+            (3024, Rule::PlusEqualsAppend),
+            (3024, Rule::PlusEqualsInSh),
             (3002, Rule::ExtglobInSh),
+            // The pinned ShellCheck oracle reports `$(< file)` as SC3034.
+            // Keep SC3024 as a legacy alias for suppression compatibility.
+            (3034, Rule::BashFileSlurp),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3077, Rule::BasePrefixInArithmetic),
             (3043, Rule::LocalVariableInSh),
             (3001, Rule::ProcessSubstitution),
             (3003, Rule::AnsiCQuoting),
+            // The pinned ShellCheck oracle reports `$\"...\"` portability findings as SC3004.
+            // Keep SC3062 as a suppression alias for compatibility with older rule metadata.
+            (3004, Rule::DollarStringInSh),
             (3009, Rule::BraceExpansion),
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
             (3053, Rule::IndirectExpansion),
+            // The pinned ShellCheck oracle reports `${!arr[*]}` portability findings as SC3055.
+            // Keep SC3078 as a suppression alias for compatibility with older rule metadata.
+            (3055, Rule::ArrayKeysInSh),
             (2219, Rule::AvoidLetBuiltin),
             // ShellCheck 0.11.0 reports array references as SC3054.
             // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
@@ -281,8 +294,11 @@ impl Default for ShellCheckCodeMap {
             (3052, Rule::AmpersandRedirection),
             // ShellCheck 0.11.0 surfaces `;&` / `;;&` portability findings as SC2127.
             // Keep SC3058 as a suppression alias, but prefer the current code for comparisons.
-            (3058, Rule::BashCaseFallthrough),
             (2127, Rule::BashCaseFallthrough),
+            (3058, Rule::BashCaseFallthrough),
+            // The pinned ShellCheck oracle reports `${*%%pattern}` portability findings as SC3058.
+            // Keep SC3085 as a suppression alias for compatibility with older rule metadata.
+            (3058, Rule::StarGlobRemovalInSh),
             (3075, Rule::ErrexitTrapInSh),
             (3076, Rule::SignalNameInTrap),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
@@ -363,231 +379,252 @@ impl Default for ShellCheckCodeMap {
         ];
 
         Self {
-            map: FxHashMap::from_iter([
-                (1001, Rule::EscapedUnderscore),
-                (1002, Rule::EscapedUnderscoreLiteral),
-                (1003, Rule::SingleQuoteBackslash),
-                (1004, Rule::LiteralBackslash),
-                (1012, Rule::NeedlessBackslashUnderscore),
-                (2267, Rule::LiteralBackslashInSingleQuotes),
-                (2005, Rule::EchoedCommandSubstitution),
-                (2116, Rule::EchoInsideCommandSubstitution),
-                (2006, Rule::LegacyBackticks),
-                (2007, Rule::LegacyArithmeticExpansion),
-                (2003, Rule::ExprArithmetic),
-                (2126, Rule::GrepCountPipeline),
-                (2009, Rule::PsGrepPipeline),
-                (2010, Rule::LsGrepPipeline),
-                (2293, Rule::LsPipedToXargs),
-                (2117, Rule::SuWithoutFlag),
-                (2196, Rule::EgrepDeprecated),
-                (2139, Rule::CommandSubstitutionInAlias),
-                (2142, Rule::FunctionInAlias),
-                (2283, Rule::DoubleParenGrouping),
-                (2233, Rule::SingleTestSubshell),
-                (2235, Rule::SubshellTestGroup),
-                (2259, Rule::SubshellTestGroup),
-                (1037, Rule::PositionalTenBraces),
-                (1040, Rule::SpacedTabstripClose),
-                (1118, Rule::HeredocEndSpace),
-                (1042, Rule::MisquotedHeredocClose),
-                (1041, Rule::HeredocCloserNotAlone),
-                (1044, Rule::HeredocMissingEnd),
-                (1045, Rule::AmpersandSemicolon),
-                (1047, Rule::MissingFi),
-                (1069, Rule::IfBracketGlued),
-                (1070, Rule::ZshRedirPipe),
-                (1072, Rule::BrokenTestParse),
-                (1073, Rule::BrokenTestEnd),
-                (1075, Rule::ElseIf),
-                (1078, Rule::OpenDoubleQuote),
-                (1079, Rule::SuspectClosingQuote),
-                (1080, Rule::LinebreakInTest),
-                (1083, Rule::LiteralBraces),
-                (1090, Rule::DynamicSourcePath),
-                (1091, Rule::UntrackedSourceFile),
-                (1097, Rule::IfsEqualsAmbiguity),
-                (1101, Rule::BackslashBeforeClosingBacktick),
-                (1102, Rule::PositionalParamAsOperator),
-                (1110, Rule::UnicodeQuoteInString),
-                (1126, Rule::TrailingDirective),
-                (1113, Rule::TrailingDirective),
-                (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
-                (2386, Rule::HeredocMissingEnd),
-                (2394, Rule::HeredocCloserNotAlone),
-                (2395, Rule::MisquotedHeredocClose),
-                (3002, Rule::ExtglobInSh),
-                (3061, Rule::ExtglobInSh),
-                (3026, Rule::CaretNegationInBracket),
-                (1127, Rule::CStyleComment),
-                (1129, Rule::ZshBraceIf),
-                (1130, Rule::ZshAlwaysBlock),
-                (1132, Rule::CPrototypeFragment),
-                (2254, Rule::ArrayIndexArithmetic),
-                (2297, Rule::DollarInArithmeticContext),
-                (2240, Rule::SourcedWithArgs),
-                (2251, Rule::ZshFlagExpansion),
-                (2252, Rule::NestedZshSubstitution),
-                (2313, Rule::ZshNestedExpansion),
-                (2275, Rule::MultiVarForLoop),
-                (2278, Rule::ZshPromptBracket),
-                (2279, Rule::CshSyntaxInSh),
-                (2282, Rule::BadVarName),
-                (2355, Rule::ZshAssignmentToZero),
-                (2359, Rule::ZshParameterFlag),
-                (2371, Rule::ZshArraySubscriptInCase),
-                (2375, Rule::ZshParameterIndexFlag),
-                (2164, Rule::UncheckedDirectoryChange),
-                (2263, Rule::RedundantSpacesInEcho),
-                (2143, Rule::GrepOutputInTest),
-                (2294, Rule::LsInSubstitution),
-                (2291, Rule::UnquotedVariableInSed),
-                (2060, Rule::UnquotedTrClass),
-                (2021, Rule::UnquotedTrRange),
-                (2186, Rule::DeprecatedTempfileCommand),
-                (2258, Rule::BareRead),
-                (3025, Rule::PrintfQFormatInSh),
-                (3052, Rule::AmpersandRedirection),
-                (3050, Rule::BraceFdRedirection),
-                (3077, Rule::BasePrefixInArithmetic),
-                (3070, Rule::AmpersandRedirectInSh),
-                (3073, Rule::PipeStderrInSh),
-                (2016, Rule::SingleQuotedLiteral),
-                (2013, Rule::LineOrientedInput),
-                (2015, Rule::ChainedTestBranches),
-                (1019, Rule::EmptyTest),
-                (2024, Rule::SudoRedirectionOrder),
-                (2034, Rule::UnusedAssignment),
-                (2035, Rule::LeadingGlobArgument),
-                (2044, Rule::FindOutputLoop),
-                (2348, Rule::FindOutputLoop),
-                (2380, Rule::MisspelledOptionName),
-                (2045, Rule::LoopFromCommandOutput),
-                (2046, Rule::UnquotedCommandSubstitution),
-                (2059, Rule::PrintfFormatVariable),
-                (2029, Rule::SshLocalExpansion),
-                (3043, Rule::LocalVariableInSh),
-                (3001, Rule::ProcessSubstitution),
-                (3003, Rule::AnsiCQuoting),
-                (3009, Rule::BraceExpansion),
-                (3011, Rule::HereString),
-                (3030, Rule::ArrayAssignment),
-                (3053, Rule::IndirectExpansion),
-                (2219, Rule::AvoidLetBuiltin),
-                (2321, Rule::ArrayIndexArithmetic),
-                (2323, Rule::ArithmeticScoreLine),
-                (3028, Rule::ArrayReference),
-                (3054, Rule::ArrayReference),
-                (3057, Rule::SubstringExpansion),
-                (3059, Rule::CaseModificationExpansion),
-                (3060, Rule::ReplacementExpansion),
-                (2038, Rule::FindOutputToXargs),
-                (2064, Rule::TrapStringExpansion),
-                (2068, Rule::UnquotedArrayExpansion),
-                (2076, Rule::QuotedBashRegex),
-                (2086, Rule::UnquotedExpansion),
-                (2146, Rule::FindOrWithoutGrouping),
-                (2332, Rule::FindOrWithoutGrouping),
-                (2121, Rule::SetFlagsWithoutDashes),
-                (2324, Rule::SetFlagsWithoutDashes),
-                (2115, Rule::RmGlobOnVariablePath),
-                (2104, Rule::LoopControlOutsideLoop),
-                (2112, Rule::FunctionKeyword),
-                (2216, Rule::PipeToKill),
-                (3005, Rule::CStyleForInSh),
-                (3006, Rule::StandaloneArithmetic),
-                (3007, Rule::LegacyArithmeticInSh),
-                (3008, Rule::SelectLoop),
-                (3018, Rule::CStyleForArithmeticInSh),
-                (3032, Rule::Coproc),
-                (3033, Rule::SelectLoop),
-                (3039, Rule::LetCommand),
-                (3042, Rule::LetCommand),
-                (3047, Rule::TrapErr),
-                (3040, Rule::PipefailOption),
-                (3048, Rule::WaitOption),
-                (3044, Rule::DeclareCommand),
-                (3046, Rule::SourceBuiltinInSh),
-                (3058, Rule::BashCaseFallthrough),
-                (2127, Rule::BashCaseFallthrough),
-                (3063, Rule::CStyleForInSh),
-                (3064, Rule::LegacyArithmeticInSh),
-                (3069, Rule::CStyleForArithmeticInSh),
-                (3075, Rule::ErrexitTrapInSh),
-                (3076, Rule::SignalNameInTrap),
-                (2323, Rule::ArithmeticScoreLine),
-                (2339, Rule::MapfileProcessSubstitution),
-                (3051, Rule::SourceInsideFunctionInSh),
-                (3084, Rule::SourceInsideFunctionInSh),
-                (2155, Rule::ExportCommandSubstitution),
-                (2156, Rule::FindExecDirWithShell),
-                (2157, Rule::ConstantComparisonTest),
-                (2158, Rule::LiteralUnaryStringTest),
-                (2162, Rule::ReadWithoutRaw),
-                (2078, Rule::TruthyLiteralTest),
-                (2168, Rule::LocalTopLevel),
-                (2194, Rule::ConstantCaseSubject),
-                (2210, Rule::BadRedirectionFdOrder),
-                (2217, Rule::EchoHereDoc),
-                (2154, Rule::UndefinedVariable),
-                (2239, Rule::NonAbsoluteShebang),
-                (2288, Rule::TemplateBraceInCommand),
-                (2289, Rule::CommentedContinuationLine),
-                (1133, Rule::LinebreakBeforeAnd),
-                (2290, Rule::SubshellInArithmetic),
-                (2292, Rule::DollarInArithmetic),
-                (2294, Rule::EvalOnArray),
-                (2333, Rule::NonShellSyntaxInScript),
-                (2389, Rule::LoopWithoutEnd),
-                (2390, Rule::MissingDoneInForLoop),
-                (2391, Rule::DanglingElse),
-                (2392, Rule::LinebreakBeforeAnd),
-                (2393, Rule::SpacedTabstripClose),
-                (2396, Rule::UntilMissingDo),
-                (2397, Rule::AmpersandSemicolon),
-                (2241, Rule::InvalidExitStatus),
-                (2242, Rule::CasePatternVar),
-                (2248, Rule::BareSlashMarker),
-                (2257, Rule::ArithmeticRedirectionTarget),
-                (2264, Rule::NestedParameterExpansion),
-                (2250, Rule::PatternWithVariable),
-                (2255, Rule::SubstWithRedirect),
-                (2256, Rule::SubstWithRedirectErr),
-                (2089, Rule::AppendWithEscapedQuotes),
-                (2276, Rule::PlusPrefixInAssignment),
-                (2238, Rule::RedirectToCommandName),
-                (2266, Rule::OverwrittenFunction),
-                (2270, Rule::AssignmentToNumericVariable),
-                (2318, Rule::LocalCrossReference),
-                (2271, Rule::ElseWithoutThen),
-                (2272, Rule::MissingSemicolonBeforeBrace),
-                (2273, Rule::EmptyFunctionBody),
-                (2274, Rule::BareClosingBrace),
-                (2120, Rule::FunctionCalledWithoutArgs),
-                (2364, Rule::FunctionReferencesUnsetParam),
-                (2277, Rule::ExtglobInCasePattern),
-                (2100, Rule::AssignmentLooksLikeComparison),
-                (2319, Rule::StatusCaptureAfterBranchTest),
-                (2141, Rule::IfsSetToLiteralBackslashN),
-                (2365, Rule::UnreachableAfterExit),
-                (2370, Rule::UnusedHeredoc),
-                (3010, Rule::DoubleBracketInSh),
-                (3012, Rule::GreaterThanInDoubleBracket),
-                (3014, Rule::TestEqualityOperator),
-                (3015, Rule::RegexMatchInSh),
-                (3016, Rule::VTestInSh),
-                (3017, Rule::ATestInSh),
-                (3062, Rule::OptionTestInSh),
-                (3065, Rule::StickyBitTestInSh),
-                (3067, Rule::OwnershipTestInSh),
-            ]),
+            map: {
+                let mut map = FxHashMap::default();
+                // Preserve the first-listed rule as the primary suppression target when
+                // multiple rules intentionally share a ShellCheck code.
+                for (sc_code, rule) in [
+                    (1001, Rule::EscapedUnderscore),
+                    (1002, Rule::EscapedUnderscoreLiteral),
+                    (1003, Rule::SingleQuoteBackslash),
+                    (1004, Rule::LiteralBackslash),
+                    (1012, Rule::NeedlessBackslashUnderscore),
+                    (2267, Rule::LiteralBackslashInSingleQuotes),
+                    (2005, Rule::EchoedCommandSubstitution),
+                    (2116, Rule::EchoInsideCommandSubstitution),
+                    (2006, Rule::LegacyBackticks),
+                    (2007, Rule::LegacyArithmeticExpansion),
+                    (2003, Rule::ExprArithmetic),
+                    (2126, Rule::GrepCountPipeline),
+                    (2009, Rule::PsGrepPipeline),
+                    (2010, Rule::LsGrepPipeline),
+                    (2293, Rule::LsPipedToXargs),
+                    (2117, Rule::SuWithoutFlag),
+                    (2196, Rule::EgrepDeprecated),
+                    (2139, Rule::CommandSubstitutionInAlias),
+                    (2142, Rule::FunctionInAlias),
+                    (2283, Rule::DoubleParenGrouping),
+                    (2233, Rule::SingleTestSubshell),
+                    (2235, Rule::SubshellTestGroup),
+                    (2259, Rule::SubshellTestGroup),
+                    (1037, Rule::PositionalTenBraces),
+                    (1040, Rule::SpacedTabstripClose),
+                    (1118, Rule::HeredocEndSpace),
+                    (1042, Rule::MisquotedHeredocClose),
+                    (1041, Rule::HeredocCloserNotAlone),
+                    (1044, Rule::HeredocMissingEnd),
+                    (1045, Rule::AmpersandSemicolon),
+                    (1047, Rule::MissingFi),
+                    (1069, Rule::IfBracketGlued),
+                    (1070, Rule::ZshRedirPipe),
+                    (1072, Rule::BrokenTestParse),
+                    (1073, Rule::BrokenTestEnd),
+                    (1075, Rule::ElseIf),
+                    (1078, Rule::OpenDoubleQuote),
+                    (1079, Rule::SuspectClosingQuote),
+                    (1080, Rule::LinebreakInTest),
+                    (1083, Rule::LiteralBraces),
+                    (1090, Rule::DynamicSourcePath),
+                    (1091, Rule::UntrackedSourceFile),
+                    (1097, Rule::IfsEqualsAmbiguity),
+                    (1101, Rule::BackslashBeforeClosingBacktick),
+                    (1102, Rule::PositionalParamAsOperator),
+                    (1110, Rule::UnicodeQuoteInString),
+                    (1126, Rule::TrailingDirective),
+                    (1113, Rule::TrailingDirective),
+                    (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+                    (2386, Rule::HeredocMissingEnd),
+                    (2394, Rule::HeredocCloserNotAlone),
+                    (2395, Rule::MisquotedHeredocClose),
+                    (3002, Rule::ExtglobInSh),
+                    (3061, Rule::ExtglobInSh),
+                    (3026, Rule::CaretNegationInBracket),
+                    (1127, Rule::CStyleComment),
+                    (1129, Rule::ZshBraceIf),
+                    (1130, Rule::ZshAlwaysBlock),
+                    (1132, Rule::CPrototypeFragment),
+                    (2254, Rule::ArrayIndexArithmetic),
+                    (2297, Rule::DollarInArithmeticContext),
+                    (2240, Rule::SourcedWithArgs),
+                    (2251, Rule::ZshFlagExpansion),
+                    (2252, Rule::NestedZshSubstitution),
+                    (2313, Rule::ZshNestedExpansion),
+                    (2275, Rule::MultiVarForLoop),
+                    (2278, Rule::ZshPromptBracket),
+                    (2279, Rule::CshSyntaxInSh),
+                    (2282, Rule::BadVarName),
+                    (2355, Rule::ZshAssignmentToZero),
+                    (2359, Rule::ZshParameterFlag),
+                    (2371, Rule::ZshArraySubscriptInCase),
+                    (2375, Rule::ZshParameterIndexFlag),
+                    (2164, Rule::UncheckedDirectoryChange),
+                    (2263, Rule::RedundantSpacesInEcho),
+                    (2143, Rule::GrepOutputInTest),
+                    (2294, Rule::LsInSubstitution),
+                    (2291, Rule::UnquotedVariableInSed),
+                    (2060, Rule::UnquotedTrClass),
+                    (2021, Rule::UnquotedTrRange),
+                    (2186, Rule::DeprecatedTempfileCommand),
+                    (2258, Rule::BareRead),
+                    (3024, Rule::PlusEqualsAppend),
+                    (3071, Rule::PlusEqualsInSh),
+                    (3034, Rule::BashFileSlurp),
+                    (3025, Rule::PrintfQFormatInSh),
+                    (3052, Rule::AmpersandRedirection),
+                    (3050, Rule::BraceFdRedirection),
+                    (3077, Rule::BasePrefixInArithmetic),
+                    (3070, Rule::AmpersandRedirectInSh),
+                    (3073, Rule::PipeStderrInSh),
+                    (2016, Rule::SingleQuotedLiteral),
+                    (2013, Rule::LineOrientedInput),
+                    (2015, Rule::ChainedTestBranches),
+                    (1019, Rule::EmptyTest),
+                    (2024, Rule::SudoRedirectionOrder),
+                    (2034, Rule::UnusedAssignment),
+                    (2035, Rule::LeadingGlobArgument),
+                    (2044, Rule::FindOutputLoop),
+                    (2348, Rule::FindOutputLoop),
+                    (2380, Rule::MisspelledOptionName),
+                    (2045, Rule::LoopFromCommandOutput),
+                    (2046, Rule::UnquotedCommandSubstitution),
+                    (2059, Rule::PrintfFormatVariable),
+                    (2029, Rule::SshLocalExpansion),
+                    (3043, Rule::LocalVariableInSh),
+                    (3001, Rule::ProcessSubstitution),
+                    (3003, Rule::AnsiCQuoting),
+                    (3004, Rule::DollarStringInSh),
+                    (3009, Rule::BraceExpansion),
+                    (3011, Rule::HereString),
+                    (3030, Rule::ArrayAssignment),
+                    (3053, Rule::IndirectExpansion),
+                    (3078, Rule::ArrayKeysInSh),
+                    (2219, Rule::AvoidLetBuiltin),
+                    (2321, Rule::ArrayIndexArithmetic),
+                    (2323, Rule::ArithmeticScoreLine),
+                    (3028, Rule::ArrayReference),
+                    (3054, Rule::ArrayReference),
+                    (3057, Rule::SubstringExpansion),
+                    (3059, Rule::CaseModificationExpansion),
+                    (3060, Rule::ReplacementExpansion),
+                    (2038, Rule::FindOutputToXargs),
+                    (2064, Rule::TrapStringExpansion),
+                    (2068, Rule::UnquotedArrayExpansion),
+                    (2076, Rule::QuotedBashRegex),
+                    (2086, Rule::UnquotedExpansion),
+                    (2146, Rule::FindOrWithoutGrouping),
+                    (2332, Rule::FindOrWithoutGrouping),
+                    (2121, Rule::SetFlagsWithoutDashes),
+                    (2324, Rule::SetFlagsWithoutDashes),
+                    (2115, Rule::RmGlobOnVariablePath),
+                    (2104, Rule::LoopControlOutsideLoop),
+                    (2112, Rule::FunctionKeyword),
+                    (2216, Rule::PipeToKill),
+                    (3005, Rule::CStyleForInSh),
+                    (3006, Rule::StandaloneArithmetic),
+                    (3007, Rule::LegacyArithmeticInSh),
+                    (3008, Rule::SelectLoop),
+                    (3018, Rule::CStyleForArithmeticInSh),
+                    (3032, Rule::Coproc),
+                    (3033, Rule::SelectLoop),
+                    (3039, Rule::LetCommand),
+                    (3042, Rule::LetCommand),
+                    (3047, Rule::TrapErr),
+                    (3040, Rule::PipefailOption),
+                    (3048, Rule::WaitOption),
+                    (3044, Rule::DeclareCommand),
+                    (3046, Rule::SourceBuiltinInSh),
+                    (3058, Rule::BashCaseFallthrough),
+                    (2127, Rule::BashCaseFallthrough),
+                    (3085, Rule::StarGlobRemovalInSh),
+                    (3063, Rule::CStyleForInSh),
+                    (3064, Rule::LegacyArithmeticInSh),
+                    (3069, Rule::CStyleForArithmeticInSh),
+                    (3075, Rule::ErrexitTrapInSh),
+                    (3076, Rule::SignalNameInTrap),
+                    (2323, Rule::ArithmeticScoreLine),
+                    (2339, Rule::MapfileProcessSubstitution),
+                    (3051, Rule::SourceInsideFunctionInSh),
+                    (3084, Rule::SourceInsideFunctionInSh),
+                    (2155, Rule::ExportCommandSubstitution),
+                    (2156, Rule::FindExecDirWithShell),
+                    (2157, Rule::ConstantComparisonTest),
+                    (2158, Rule::LiteralUnaryStringTest),
+                    (2162, Rule::ReadWithoutRaw),
+                    (2078, Rule::TruthyLiteralTest),
+                    (2168, Rule::LocalTopLevel),
+                    (2194, Rule::ConstantCaseSubject),
+                    (2210, Rule::BadRedirectionFdOrder),
+                    (2217, Rule::EchoHereDoc),
+                    (2154, Rule::UndefinedVariable),
+                    (2239, Rule::NonAbsoluteShebang),
+                    (2288, Rule::TemplateBraceInCommand),
+                    (2289, Rule::CommentedContinuationLine),
+                    (1133, Rule::LinebreakBeforeAnd),
+                    (2290, Rule::SubshellInArithmetic),
+                    (2292, Rule::DollarInArithmetic),
+                    (2294, Rule::EvalOnArray),
+                    (2333, Rule::NonShellSyntaxInScript),
+                    (2389, Rule::LoopWithoutEnd),
+                    (2390, Rule::MissingDoneInForLoop),
+                    (2391, Rule::DanglingElse),
+                    (2392, Rule::LinebreakBeforeAnd),
+                    (2393, Rule::SpacedTabstripClose),
+                    (2396, Rule::UntilMissingDo),
+                    (2397, Rule::AmpersandSemicolon),
+                    (2241, Rule::InvalidExitStatus),
+                    (2242, Rule::CasePatternVar),
+                    (2248, Rule::BareSlashMarker),
+                    (2257, Rule::ArithmeticRedirectionTarget),
+                    (2264, Rule::NestedParameterExpansion),
+                    (2250, Rule::PatternWithVariable),
+                    (2255, Rule::SubstWithRedirect),
+                    (2256, Rule::SubstWithRedirectErr),
+                    (2089, Rule::AppendWithEscapedQuotes),
+                    (2276, Rule::PlusPrefixInAssignment),
+                    (2238, Rule::RedirectToCommandName),
+                    (2266, Rule::OverwrittenFunction),
+                    (2270, Rule::AssignmentToNumericVariable),
+                    (2318, Rule::LocalCrossReference),
+                    (2271, Rule::ElseWithoutThen),
+                    (2272, Rule::MissingSemicolonBeforeBrace),
+                    (2273, Rule::EmptyFunctionBody),
+                    (2274, Rule::BareClosingBrace),
+                    (2120, Rule::FunctionCalledWithoutArgs),
+                    (2364, Rule::FunctionReferencesUnsetParam),
+                    (2277, Rule::ExtglobInCasePattern),
+                    (2100, Rule::AssignmentLooksLikeComparison),
+                    (2319, Rule::StatusCaptureAfterBranchTest),
+                    (2141, Rule::IfsSetToLiteralBackslashN),
+                    (2365, Rule::UnreachableAfterExit),
+                    (2370, Rule::UnusedHeredoc),
+                    (3010, Rule::DoubleBracketInSh),
+                    (3012, Rule::GreaterThanInDoubleBracket),
+                    (3014, Rule::TestEqualityOperator),
+                    (3015, Rule::RegexMatchInSh),
+                    (3016, Rule::VTestInSh),
+                    (3017, Rule::ATestInSh),
+                    (3062, Rule::OptionTestInSh),
+                    (3065, Rule::StickyBitTestInSh),
+                    (3067, Rule::OwnershipTestInSh),
+                ] {
+                    map.entry(sc_code).or_insert(rule);
+                }
+                map
+            },
             aliases: vec![
                 (1040, Rule::HeredocEndSpace),
                 (1075, Rule::ExtglobCase),
                 (2321, Rule::FunctionKeywordInSh),
+                (3024, Rule::BashFileSlurp),
+                (3055, Rule::PlusEqualsAppend),
+                (3055, Rule::ArrayKeysInSh),
+                (3058, Rule::StarGlobRemovalInSh),
+                (3024, Rule::PlusEqualsInSh),
+                (3062, Rule::DollarStringInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
+                (2294, Rule::EvalOnArray),
                 (2322, Rule::SuWithoutFlag),
                 (2340, Rule::DeprecatedTempfileCommand),
                 (2342, Rule::EgrepDeprecated),
@@ -811,6 +848,11 @@ mod tests {
             map.resolve_all("SC2127"),
             vec![Rule::BashCaseFallthrough, Rule::EchoHereDoc]
         );
+        assert_eq!(map.resolve("SC3085"), Some(Rule::StarGlobRemovalInSh));
+        assert_eq!(
+            map.resolve_all("SC3058"),
+            vec![Rule::BashCaseFallthrough, Rule::StarGlobRemovalInSh]
+        );
         assert_eq!(map.resolve("SC3050"), Some(Rule::BraceFdRedirection));
         assert_eq!(map.resolve("SC3070"), Some(Rule::AmpersandRedirectInSh));
         assert_eq!(map.resolve("SC3073"), Some(Rule::PipeStderrInSh));
@@ -831,13 +873,32 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
         assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));
+        assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
+        assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
+        assert_eq!(map.resolve("SC3055"), Some(Rule::PlusEqualsAppend));
+        assert_eq!(map.resolve("SC3071"), Some(Rule::PlusEqualsInSh));
+        assert_eq!(
+            map.resolve_all("SC3024"),
+            vec![
+                Rule::PlusEqualsAppend,
+                Rule::BashFileSlurp,
+                Rule::PlusEqualsInSh
+            ]
+        );
+        assert_eq!(map.resolve_all("SC3071"), vec![Rule::PlusEqualsInSh]);
         assert_eq!(map.resolve("SC3001"), Some(Rule::ProcessSubstitution));
         assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
+        assert_eq!(map.resolve("SC3004"), Some(Rule::DollarStringInSh));
         assert_eq!(map.resolve("SC3009"), Some(Rule::BraceExpansion));
         assert_eq!(map.resolve("SC3011"), Some(Rule::HereString));
         assert_eq!(map.resolve("SC3028"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC3030"), Some(Rule::ArrayAssignment));
         assert_eq!(map.resolve("SC3053"), Some(Rule::IndirectExpansion));
+        assert_eq!(map.resolve("SC3078"), Some(Rule::ArrayKeysInSh));
+        assert_eq!(
+            map.resolve_all("SC3055"),
+            vec![Rule::PlusEqualsAppend, Rule::ArrayKeysInSh]
+        );
         assert_eq!(map.resolve("SC3054"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC3057"), Some(Rule::SubstringExpansion));
         assert_eq!(map.resolve("SC3059"), Some(Rule::CaseModificationExpansion));
@@ -875,6 +936,11 @@ mod tests {
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3040"), Some(Rule::PipefailOption));
+        assert_eq!(map.resolve("SC3062"), Some(Rule::OptionTestInSh));
+        assert_eq!(
+            map.resolve_all("SC3062"),
+            vec![Rule::OptionTestInSh, Rule::DollarStringInSh]
+        );
         assert_eq!(map.resolve("SC3048"), Some(Rule::WaitOption));
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
         assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
@@ -1011,6 +1077,27 @@ mod tests {
         assert_eq!(map.resolve("SC2141"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC2329"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC7777"), None);
+    }
+
+    #[test]
+    fn shared_comparison_codes_keep_legacy_primary_suppressions() {
+        let map = ShellCheckCodeMap::default();
+
+        assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
+        assert_eq!(
+            map.resolve_all("SC3024"),
+            vec![
+                Rule::PlusEqualsAppend,
+                Rule::BashFileSlurp,
+                Rule::PlusEqualsInSh
+            ]
+        );
+
+        assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
+        assert_eq!(
+            map.resolve_all("SC3058"),
+            vec![Rule::BashCaseFallthrough, Rule::StarGlobRemovalInSh]
+        );
     }
 
     #[test]
@@ -1215,6 +1302,7 @@ mod tests {
             (3001, Rule::ProcessSubstitution),
             (3002, Rule::ExtglobInSh),
             (3003, Rule::AnsiCQuoting),
+            (3004, Rule::DollarStringInSh),
             (3005, Rule::CStyleForInSh),
             (3006, Rule::StandaloneArithmetic),
             (3007, Rule::LegacyArithmeticInSh),
@@ -1228,6 +1316,11 @@ mod tests {
             (3016, Rule::VTestInSh),
             (3017, Rule::ATestInSh),
             (3018, Rule::CStyleForArithmeticInSh),
+            (3024, Rule::PlusEqualsAppend),
+            (3071, Rule::PlusEqualsInSh),
+            (3024, Rule::BashFileSlurp),
+            (3024, Rule::PlusEqualsInSh),
+            (3034, Rule::BashFileSlurp),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3028, Rule::ArrayReference),
@@ -1246,13 +1339,19 @@ mod tests {
             (3051, Rule::SourceInsideFunctionInSh),
             (3052, Rule::AmpersandRedirection),
             (3053, Rule::IndirectExpansion),
+            (3078, Rule::ArrayKeysInSh),
             (3054, Rule::ArrayReference),
+            (3055, Rule::PlusEqualsAppend),
+            (3055, Rule::ArrayKeysInSh),
             (3057, Rule::SubstringExpansion),
             (3058, Rule::BashCaseFallthrough),
+            (3085, Rule::StarGlobRemovalInSh),
+            (3058, Rule::StarGlobRemovalInSh),
             (3059, Rule::CaseModificationExpansion),
             (3060, Rule::ReplacementExpansion),
             (3061, Rule::ExtglobInSh),
             (3062, Rule::OptionTestInSh),
+            (3062, Rule::DollarStringInSh),
             (3063, Rule::CStyleForInSh),
             (3064, Rule::LegacyArithmeticInSh),
             (3065, Rule::StickyBitTestInSh),
@@ -1308,6 +1407,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(comparison.contains(&(3002, Rule::ExtglobInSh)));
+        assert!(comparison.contains(&(3004, Rule::DollarStringInSh)));
         assert!(comparison.contains(&(3006, Rule::StandaloneArithmetic)));
         assert!(comparison.contains(&(3007, Rule::LegacyArithmeticInSh)));
         assert!(comparison.contains(&(3008, Rule::SelectLoop)));
@@ -1349,14 +1449,19 @@ mod tests {
         assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
         assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
+        assert!(comparison.contains(&(3058, Rule::StarGlobRemovalInSh)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
         assert!(comparison.contains(&(3048, Rule::WaitOption)));
         assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
+        assert!(comparison.contains(&(3024, Rule::PlusEqualsAppend)));
+        assert!(comparison.contains(&(3024, Rule::PlusEqualsInSh)));
+        assert!(comparison.contains(&(3034, Rule::BashFileSlurp)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
         assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
+        assert!(comparison.contains(&(3055, Rule::ArrayKeysInSh)));
         assert!(comparison.contains(&(3054, Rule::ArrayReference)));
         assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
         assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
@@ -1403,7 +1508,13 @@ mod tests {
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
         assert!(!comparison.contains(&(3061, Rule::BareRead)));
+        assert!(!comparison.contains(&(3062, Rule::DollarStringInSh)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
+        assert!(!comparison.contains(&(3055, Rule::PlusEqualsAppend)));
+        assert!(!comparison.contains(&(3078, Rule::ArrayKeysInSh)));
+        assert!(!comparison.contains(&(3085, Rule::StarGlobRemovalInSh)));
+        assert!(!comparison.contains(&(3071, Rule::PlusEqualsInSh)));
+        assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));
@@ -1414,17 +1525,5 @@ mod tests {
         assert!(!comparison.contains(&(2386, Rule::HeredocMissingEnd)));
         assert!(!comparison.contains(&(2393, Rule::SpacedTabstripClose)));
         assert!(!comparison.contains(&(1040, Rule::HeredocEndSpace)));
-    }
-
-    #[test]
-    fn comparison_mappings_do_not_assign_multiple_rules_to_one_shellcheck_code() {
-        let mut seen = std::collections::HashMap::new();
-
-        for (sc_code, rule) in ShellCheckCodeMap::default().comparison_mappings() {
-            assert!(
-                seen.insert(sc_code, rule).is_none_or(|prior| prior == rule),
-                "ambiguous comparison mapping for SC{sc_code}: {rule:?}"
-            );
-        }
     }
 }
