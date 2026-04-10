@@ -207,6 +207,9 @@ impl Default for ShellCheckCodeMap {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
+            // ShellCheck 0.11.0 reuses SC2290 for declaration spacing warnings.
+            // Keep SC2290 assigned to C077 in comparisons so large-corpus attribution stays stable.
+            (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
             (2294, Rule::EvalOnArray),
             (2297, Rule::DollarInArithmeticContext),
@@ -232,9 +235,6 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports declaration cross-reference warnings as SC2318.
             // Keep SC2384 as a suppression alias, but prefer the current code for comparisons.
             (2318, Rule::LocalCrossReference),
-            // ShellCheck 0.11.0 reports declaration spacing warnings as SC2290.
-            // Keep SC2387 as a suppression alias, but prefer the current code for comparisons.
-            (2290, Rule::SpacedAssignment),
             (2276, Rule::PlusPrefixInAssignment),
             // ShellCheck 0.11.0 reports digit-prefixed assignment names as SC2282.
             // Keep SC2388 as a suppression alias, but prefer the current code for comparisons.
@@ -458,6 +458,8 @@ impl Default for ShellCheckCodeMap {
                 (2388, Rule::BadVarName),
                 (2384, Rule::LocalCrossReference),
                 (2377, Rule::AppendWithEscapedQuotes),
+                // Preserve SC2290 for suppressing C139 without taking over the large-corpus
+                // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
@@ -1017,12 +1019,13 @@ mod tests {
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
         assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
         assert!(comparison.contains(&(2318, Rule::LocalCrossReference)));
-        assert!(comparison.contains(&(2290, Rule::SpacedAssignment)));
+        assert!(comparison.contains(&(2290, Rule::SubshellInArithmetic)));
         assert!(comparison.contains(&(2282, Rule::BadVarName)));
         assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
         assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
+        assert!(!comparison.contains(&(2290, Rule::SpacedAssignment)));
         assert!(!comparison.contains(&(2387, Rule::SpacedAssignment)));
         assert!(!comparison.contains(&(2280, Rule::IfsEqualsAmbiguity)));
         assert!(!comparison.contains(&(2388, Rule::BadVarName)));
@@ -1037,5 +1040,17 @@ mod tests {
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));
         assert!(!comparison.contains(&(3064, Rule::LegacyArithmeticInSh)));
         assert!(!comparison.contains(&(3069, Rule::CStyleForArithmeticInSh)));
+    }
+
+    #[test]
+    fn comparison_mappings_do_not_assign_multiple_rules_to_one_shellcheck_code() {
+        let mut seen = std::collections::HashMap::new();
+
+        for (sc_code, rule) in ShellCheckCodeMap::default().comparison_mappings() {
+            assert!(
+                seen.insert(sc_code, rule).is_none_or(|prior| prior == rule),
+                "ambiguous comparison mapping for SC{sc_code}: {rule:?}"
+            );
+        }
     }
 }
