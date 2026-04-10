@@ -38,10 +38,8 @@ mod tests {
 #!/bin/sh
 printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${name%%dBm*}\"
 ";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::StarGlobRemovalInSh),
-        );
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::StarGlobRemovalInSh));
 
         assert_eq!(
             diagnostics
@@ -57,8 +55,7 @@ printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${name%%dBm*}\"
         let source = "printf '%s\\n' \"${*%%dBm*}\"\n";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::StarGlobRemovalInSh)
-                .with_shell(ShellDialect::Bash),
+            &LinterSettings::for_rule(Rule::StarGlobRemovalInSh).with_shell(ShellDialect::Bash),
         );
 
         assert!(diagnostics.is_empty());
