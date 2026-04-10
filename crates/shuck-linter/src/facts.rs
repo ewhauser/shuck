@@ -4907,7 +4907,10 @@ fn collect_wrapped_arithmetic_command_substitution_spans(
     let mut index = 0usize;
 
     while index + 1 < bytes.len() {
-        if bytes[index] != b'$' || bytes[index + 1] != b'(' || bytes.get(index + 2) == Some(&b'(') {
+        if !is_unescaped_dollar(bytes, index)
+            || bytes[index + 1] != b'('
+            || bytes.get(index + 2) == Some(&b'(')
+        {
             index += 1;
             continue;
         }
@@ -4923,6 +4926,21 @@ fn collect_wrapped_arithmetic_command_substitution_spans(
     }
 }
 
+fn is_unescaped_dollar(bytes: &[u8], index: usize) -> bool {
+    if bytes.get(index) != Some(&b'$') {
+        return false;
+    }
+
+    let mut backslash_count = 0usize;
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslash_count += 1;
+        cursor -= 1;
+    }
+
+    backslash_count % 2 == 0
+}
+
 fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
     let mut paren_depth = 0usize;
     let mut cursor = start + 2;
@@ -4934,7 +4952,7 @@ fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
         }
 
         if cursor + 2 < bytes.len()
-            && bytes[cursor] == b'$'
+            && is_unescaped_dollar(bytes, cursor)
             && bytes[cursor + 1] == b'('
             && bytes[cursor + 2] == b'('
         {
@@ -4942,7 +4960,10 @@ fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
-        if cursor + 1 < bytes.len() && bytes[cursor] == b'$' && bytes[cursor + 1] == b'(' {
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'('
+        {
             cursor = find_command_substitution_end(bytes, cursor)?;
             continue;
         }
@@ -4978,7 +4999,7 @@ fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
         }
 
         if cursor + 2 < bytes.len()
-            && bytes[cursor] == b'$'
+            && is_unescaped_dollar(bytes, cursor)
             && bytes[cursor + 1] == b'('
             && bytes[cursor + 2] == b'('
         {
@@ -4986,7 +5007,10 @@ fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
-        if cursor + 1 < bytes.len() && bytes[cursor] == b'$' && bytes[cursor + 1] == b'(' {
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'('
+        {
             cursor = find_command_substitution_end(bytes, cursor)?;
             continue;
         }
@@ -5034,7 +5058,7 @@ fn skip_double_quoted(bytes: &[u8], start: usize) -> Option<usize> {
         }
 
         if cursor + 2 < bytes.len()
-            && bytes[cursor] == b'$'
+            && is_unescaped_dollar(bytes, cursor)
             && bytes[cursor + 1] == b'('
             && bytes[cursor + 2] == b'('
         {
@@ -5042,7 +5066,10 @@ fn skip_double_quoted(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
-        if cursor + 1 < bytes.len() && bytes[cursor] == b'$' && bytes[cursor + 1] == b'(' {
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'('
+        {
             cursor = find_command_substitution_end(bytes, cursor)?;
             continue;
         }
@@ -8497,6 +8524,21 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                 .collect::<Vec<_>>();
 
             assert_eq!(spans, vec!["$(printf 1)"]);
+        });
+    }
+
+    #[test]
+    fn ignores_escaped_command_substitution_tokens_in_wrapped_substring_offset_arithmetic() {
+        let source = "#!/bin/bash\ns=abcdef\ni=1\nprintf '%s\\n' \"${s:$(($i+\\$(printf 1)))}\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .arithmetic_command_substitution_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert!(spans.is_empty(), "unexpected spans: {spans:?}");
         });
     }
 
