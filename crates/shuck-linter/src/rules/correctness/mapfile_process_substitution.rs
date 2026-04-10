@@ -21,10 +21,13 @@ pub fn mapfile_process_substitution(checker: &mut Checker) {
         .iter()
         .filter(|fact| fact.effective_name_is("mapfile") || fact.effective_name_is("readarray"))
         .flat_map(|fact| {
-            let input_fd = fact
+            let Some(input_fd) = fact
                 .options()
                 .mapfile()
-                .map_or(0, |mapfile| mapfile.input_fd());
+                .and_then(|mapfile| mapfile.input_fd())
+            else {
+                return Vec::new();
+            };
             let stdin_redirect_spans = fact
                 .redirect_facts()
                 .iter()
@@ -40,6 +43,7 @@ pub fn mapfile_process_substitution(checker: &mut Checker) {
                     stdin_redirect_spans.contains(&substitution.host_word_span())
                 })
                 .map(|substitution| substitution.span())
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
 
@@ -115,6 +119,20 @@ readarray -u4 -t files 4< <(find . -name '*.log')
         let source = "\
 mapfile -t files 3< <(find . -name '*.pyc') < input.txt
 readarray -u 4 -t files 3< <(find . -name '*.log')
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::MapfileProcessSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_process_substitution_when_mapfile_fd_is_dynamic() {
+        let source = "\
+mapfile -u \"$fd\" -t files < <(find . -name '*.pyc')
+readarray -u \"${fd}\" -t files 3< <(find . -name '*.log')
 ";
         let diagnostics = test_snippet(
             source,

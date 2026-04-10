@@ -1210,11 +1210,11 @@ impl FindExecDirCommandFacts {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MapfileCommandFacts {
-    input_fd: i32,
+    input_fd: Option<i32>,
 }
 
 impl MapfileCommandFacts {
-    pub fn input_fd(self) -> i32 {
+    pub fn input_fd(self) -> Option<i32> {
         self.input_fd
     }
 }
@@ -7336,7 +7336,7 @@ fn wait_option_consumes_argument(text: &str) -> bool {
 }
 
 fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileCommandFacts {
-    let mut input_fd = 0;
+    let mut input_fd = Some(0);
     let mut index = 0;
 
     while let Some(word) = args.get(index) {
@@ -7370,10 +7370,8 @@ fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileCommandFacts {
                 Some(remainder.to_owned())
             };
 
-            if flag == 'u'
-                && let Some(fd) = argument.and_then(|value| value.parse::<i32>().ok())
-            {
-                input_fd = fd;
+            if flag == 'u' {
+                input_fd = argument.and_then(|value| value.parse::<i32>().ok());
             }
 
             break;
@@ -8061,7 +8059,29 @@ mod tests {
             .find(|fact| fact.effective_name_is("mapfile"))
             .and_then(|fact| fact.options().mapfile())
             .expect("expected mapfile facts");
-        assert_eq!(mapfile.input_fd(), 3);
+        assert_eq!(mapfile.input_fd(), Some(3));
+
+        let dynamic_source = "#!/bin/bash\nmapfile -u \"$fd\" -t files < <(printf '%s\\n' hi)\n";
+        let dynamic_output = Parser::new(dynamic_source).parse().unwrap();
+        let dynamic_indexer = Indexer::new(dynamic_source, &dynamic_output);
+        let dynamic_semantic =
+            SemanticModel::build(&dynamic_output.file, dynamic_source, &dynamic_indexer);
+        let dynamic_file_context = classify_file_context(dynamic_source, None, ShellDialect::Bash);
+        let dynamic_facts = LinterFacts::build(
+            &dynamic_output.file,
+            dynamic_source,
+            &dynamic_semantic,
+            &dynamic_indexer,
+            &dynamic_file_context,
+        );
+
+        let dynamic_mapfile = dynamic_facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("mapfile"))
+            .and_then(|fact| fact.options().mapfile())
+            .expect("expected dynamic mapfile facts");
+        assert_eq!(dynamic_mapfile.input_fd(), None);
 
         let find_or_without_grouping_spans = facts
             .commands()

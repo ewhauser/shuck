@@ -86,7 +86,7 @@ fn is_definition_after_function_keyword(text: &str, mut index: usize) -> bool {
     let Some(end) = parse_identifier(text, index) else {
         return false;
     };
-    is_definition_suffix(text, end)
+    is_definition_suffix(text, end, false)
 }
 
 fn is_definition_after_name(text: &str, index: usize, len: usize) -> bool {
@@ -96,19 +96,23 @@ fn is_definition_after_name(text: &str, index: usize, len: usize) -> bool {
     if end >= len {
         return false;
     }
-    is_definition_suffix(text, end)
+    is_definition_suffix(text, end, true)
 }
 
-fn is_definition_suffix(text: &str, mut index: usize) -> bool {
+fn is_definition_suffix(text: &str, mut index: usize, require_parens: bool) -> bool {
     let bytes = text.as_bytes();
     while index < bytes.len() && bytes[index].is_ascii_whitespace() {
         index += 1;
     }
 
-    if bytes
+    let has_parens = bytes
         .get(index..)
-        .is_some_and(|rest| rest.starts_with(b"()"))
-    {
+        .is_some_and(|rest| rest.starts_with(b"()"));
+    if require_parens && !has_parens {
+        return false;
+    }
+
+    if has_parens {
         index += 2;
         while index < bytes.len() && bytes[index].is_ascii_whitespace() {
             index += 1;
@@ -175,6 +179,8 @@ alias h='function h { echo hi; }'
 alias foo=$BAR
 alias bar='$(printf hi)'
 alias baz='noglob gtl'
+alias brace='echo {a,b}'
+alias not_fn='helper { echo hi; }'
 alias -p
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
