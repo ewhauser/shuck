@@ -1,4 +1,6 @@
-use crate::{Checker, CommandSubstitutionKind, Rule, SubstitutionHostKind, Violation};
+use shuck_ast::RedirectKind;
+
+use crate::{Checker, CommandSubstitutionKind, Rule, Violation};
 
 pub struct MapfileProcessSubstitution;
 
@@ -19,11 +21,17 @@ pub fn mapfile_process_substitution(checker: &mut Checker) {
         .iter()
         .filter(|fact| fact.effective_name_is("mapfile") || fact.effective_name_is("readarray"))
         .flat_map(|fact| {
+            let stdin_redirect_spans = fact
+                .redirect_facts()
+                .iter()
+                .filter(|redirect| redirect.redirect().kind == RedirectKind::Input)
+                .filter_map(|redirect| redirect.target_span())
+                .collect::<Vec<_>>();
             fact.substitution_facts()
                 .iter()
                 .filter(|substitution| substitution.kind() == CommandSubstitutionKind::ProcessInput)
-                .filter(|substitution| {
-                    matches!(substitution.host_kind(), SubstitutionHostKind::Other)
+                .filter(move |substitution| {
+                    stdin_redirect_spans.contains(&substitution.host_word_span())
                 })
                 .map(|substitution| substitution.span())
         })
@@ -64,6 +72,8 @@ readarray -t files < <(find . -name '*.log')
 find . -name '*.pyc' | mapfile -t files
 mapfile -t files < input.txt
 mapfile -t files >(wc -l)
+tmp=<(find . -name '*.tmp') mapfile -t files < input.txt
+tmp=<(find . -name '*.tmp') readarray -t files < input.txt
 ";
         let diagnostics = test_snippet(
             source,
