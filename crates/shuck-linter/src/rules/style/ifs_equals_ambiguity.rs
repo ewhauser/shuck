@@ -59,7 +59,8 @@ fn ifs_equals_ambiguity_span(assignment: &Assignment, source: &str) -> Option<Sp
         return None;
     }
 
-    (assignment.span.slice(source) == "IFS==").then(|| Span::at(assignment.span.start.advanced_by("IFS=")))
+    (assignment.span.slice(source) == "IFS==")
+        .then(|| Span::at(assignment.span.start.advanced_by("IFS=")))
 }
 
 #[cfg(test)]
@@ -85,7 +86,11 @@ done < /dev/null
                 .collect::<Vec<_>>(),
             vec![(2, 5), (3, 11)]
         );
-        assert!(diagnostics.iter().all(|diagnostic| diagnostic.span.start == diagnostic.span.end));
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.span.start == diagnostic.span.end)
+        );
     }
 
     #[test]

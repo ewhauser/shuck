@@ -102,9 +102,7 @@ fn assignment_value_looks_like_comparison(
 
     let target = assignment.target.name.as_str();
     let value = static_word_text(word, source)?;
-    let Some(remainder) = value.strip_prefix(target) else {
-        return None;
-    };
+    let remainder = value.strip_prefix(target)?;
     if !remainder.starts_with('-') || remainder == "-" {
         return None;
     }
