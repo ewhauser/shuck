@@ -602,13 +602,6 @@ impl Default for ShellCheckCodeMap {
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
-                (2294, Rule::LsInSubstitution),
-                (2322, Rule::SuWithoutFlag),
-                (2342, Rule::EgrepDeprecated),
-                (2328, Rule::CommandSubstitutionInAlias),
-                (2330, Rule::FunctionInAlias),
-                (2298, Rule::UnquotedTrRange),
-                (2303, Rule::UnquotedTrClass),
                 (2060, Rule::UnquotedTrRange),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
@@ -1057,6 +1050,7 @@ mod tests {
             (2142, Rule::FunctionInAlias),
             (2021, Rule::UnquotedTrRange),
             (2060, Rule::UnquotedTrClass),
+            (2060, Rule::UnquotedTrRange),
             (2303, Rule::UnquotedTrClass),
             (2322, Rule::SuWithoutFlag),
             (2340, Rule::DeprecatedTempfileCommand),

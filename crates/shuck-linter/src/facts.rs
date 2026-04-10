@@ -1209,6 +1209,17 @@ impl FindExecDirCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct MapfileCommandFacts {
+    input_fd: i32,
+}
+
+impl MapfileCommandFacts {
+    pub fn input_fd(self) -> i32 {
+        self.input_fd
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct XargsCommandFacts {
     pub uses_null_input: bool,
 }
@@ -1301,6 +1312,7 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     find_execdir: Option<FindExecDirCommandFacts>,
+    mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
@@ -1339,6 +1351,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn find_execdir(&self) -> Option<&FindExecDirCommandFacts> {
         self.find_execdir.as_ref()
+    }
+
+    pub fn mapfile(&self) -> Option<&MapfileCommandFacts> {
+        self.mapfile.as_ref()
     }
 
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
@@ -1417,6 +1433,9 @@ impl<'a> CommandOptionFacts<'a> {
                     )
                 })
                 .flatten(),
+            mapfile: (normalized.effective_name_is("mapfile")
+                || normalized.effective_name_is("readarray"))
+            .then(|| parse_mapfile_command(normalized.body_args(), source)),
             xargs: normalized
                 .effective_name_is("xargs")
                 .then(|| XargsCommandFacts {
@@ -6874,12 +6893,8 @@ fn parse_find_execdir_shell_command(
 
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
-    let mut saw_or = false;
-    let mut grouping_depth = 0usize;
-    let mut saw_action_before_current_branch = false;
-    let mut current_branch_has_predicate = false;
-    let mut current_branch_has_explicit_and = false;
     let mut or_without_grouping_spans = Vec::new();
+    let mut group_stack = vec![FindGroupState::default()];
 
     for word in args {
         let Some(text) = static_word_text(word, source) else {
@@ -6891,54 +6906,117 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
         }
 
         if is_find_group_open_token(text.as_str()) {
-            grouping_depth += 1;
+            group_stack.push(FindGroupState::default());
             continue;
         }
 
         if is_find_group_close_token(text.as_str()) {
-            grouping_depth = grouping_depth.saturating_sub(1);
-            continue;
-        }
-
-        if grouping_depth == 0 && is_find_or_token(text.as_str()) {
-            saw_or = true;
-            current_branch_has_predicate = false;
-            current_branch_has_explicit_and = false;
-            continue;
-        }
-
-        if !saw_or {
-            if is_find_branch_action_token(text.as_str()) {
-                saw_action_before_current_branch = true;
+            if let Some(child) = (group_stack.len() > 1).then(|| group_stack.pop()).flatten() {
+                group_stack
+                    .last_mut()
+                    .expect("group stack retains the root frame")
+                    .incorporate_group(child, &mut or_without_grouping_spans);
             }
+            continue;
+        }
+
+        let state = group_stack
+            .last_mut()
+            .expect("group stack retains the root frame");
+
+        if is_find_or_token(text.as_str()) {
+            state.note_or();
             continue;
         }
 
         if is_find_and_token(text.as_str()) {
-            current_branch_has_explicit_and = true;
+            state.note_and();
             continue;
         }
 
         if is_find_branch_action_token(text.as_str()) {
-            if is_find_reportable_action_token(text.as_str())
-                && !saw_action_before_current_branch
-                && current_branch_has_predicate
-                && !current_branch_has_explicit_and
-            {
-                or_without_grouping_spans.push(word.span);
-            }
-            saw_action_before_current_branch = true;
+            state.note_action(
+                word.span,
+                is_find_reportable_action_token(text.as_str()),
+                &mut or_without_grouping_spans,
+            );
             continue;
         }
 
         if is_find_predicate_token(text.as_str()) {
-            current_branch_has_predicate = true;
+            state.note_predicate();
         }
     }
 
     FindCommandFacts {
         has_print0,
         or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct FindGroupState {
+    saw_or: bool,
+    saw_action_before_current_branch: bool,
+    current_branch_has_predicate: bool,
+    current_branch_has_explicit_and: bool,
+    has_any_predicate: bool,
+    has_any_action: bool,
+    first_action_span_for_parent: Option<Span>,
+}
+
+impl FindGroupState {
+    fn note_or(&mut self) {
+        self.saw_or = true;
+        self.current_branch_has_predicate = false;
+        self.current_branch_has_explicit_and = false;
+    }
+
+    fn note_and(&mut self) {
+        self.current_branch_has_explicit_and = true;
+    }
+
+    fn note_predicate(&mut self) {
+        self.current_branch_has_predicate = true;
+        self.has_any_predicate = true;
+    }
+
+    fn note_action(&mut self, span: Span, reportable: bool, spans: &mut Vec<Span>) {
+        if reportable
+            && self.saw_or
+            && !self.saw_action_before_current_branch
+            && self.current_branch_has_predicate
+            && !self.current_branch_has_explicit_and
+        {
+            spans.push(span);
+        }
+
+        if reportable
+            && self.first_action_span_for_parent.is_none()
+            && self.current_branch_has_predicate
+            && !self.current_branch_has_explicit_and
+        {
+            self.first_action_span_for_parent = Some(span);
+        }
+
+        self.saw_action_before_current_branch = true;
+        self.has_any_action = true;
+    }
+
+    fn incorporate_group(&mut self, child: Self, spans: &mut Vec<Span>) {
+        if child.has_any_predicate {
+            self.note_predicate();
+        }
+
+        if let Some(span) = child.first_action_span_for_parent {
+            self.note_action(span, true, spans);
+            return;
+        }
+
+        if child.has_any_action {
+            self.saw_action_before_current_branch = true;
+            self.has_any_action = true;
+        }
     }
 }
 
@@ -7255,6 +7333,64 @@ fn wait_option_consumes_argument(text: &str) -> bool {
     };
 
     p_index + 1 == flags.len()
+}
+
+fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileCommandFacts {
+    let mut input_fd = 0;
+    let mut index = 0;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" || !text.starts_with('-') || text == "-" || text.starts_with("--") {
+            break;
+        }
+
+        let flags = &text[1..];
+        let mut recognized = true;
+
+        for (offset, flag) in flags.char_indices() {
+            if !matches!(flag, 't' | 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's') {
+                recognized = false;
+                break;
+            }
+
+            if !mapfile_option_takes_argument(flag) {
+                continue;
+            }
+
+            let remainder = &flags[offset + flag.len_utf8()..];
+            let argument = if remainder.is_empty() {
+                index += 1;
+                args.get(index)
+                    .and_then(|next| static_word_text(next, source))
+            } else {
+                Some(remainder.to_owned())
+            };
+
+            if flag == 'u'
+                && let Some(fd) = argument.and_then(|value| value.parse::<i32>().ok())
+            {
+                input_fd = fd;
+            }
+
+            break;
+        }
+
+        if !recognized {
+            break;
+        }
+
+        index += 1;
+    }
+
+    MapfileCommandFacts { input_fd }
+}
+
+fn mapfile_option_takes_argument(flag: char) -> bool {
+    matches!(flag, 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's')
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
@@ -7908,6 +8044,34 @@ mod tests {
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
+        let source = "#!/bin/bash\nmapfile -u 3 -t files 3< <(printf '%s\\n' hi)\nfind . \\( -name a -o -name b -print \\)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let mapfile = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("mapfile"))
+            .and_then(|fact| fact.options().mapfile())
+            .expect("expected mapfile facts");
+        assert_eq!(mapfile.input_fd(), 3);
+
+        let find_or_without_grouping_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.or_without_grouping_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
     }
 
     #[test]
