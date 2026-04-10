@@ -252,6 +252,7 @@ impl Default for ShellCheckCodeMap {
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2141, Rule::IfsSetToLiteralBackslashN),
             (2365, Rule::UnreachableAfterExit),
+            (2370, Rule::UnusedHeredoc),
             (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
             (3014, Rule::TestEqualityOperator),
@@ -435,6 +436,7 @@ impl Default for ShellCheckCodeMap {
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2141, Rule::IfsSetToLiteralBackslashN),
                 (2365, Rule::UnreachableAfterExit),
+                (2370, Rule::UnusedHeredoc),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),
                 (3014, Rule::TestEqualityOperator),
@@ -633,6 +635,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(map.resolve("SC2370"), Some(Rule::UnusedHeredoc));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
@@ -885,6 +888,7 @@ mod tests {
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),
+            (2370, Rule::UnusedHeredoc),
             (2371, Rule::ZshArraySubscriptInCase),
             (2375, Rule::ZshParameterIndexFlag),
             (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
@@ -1020,6 +1024,7 @@ mod tests {
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
+        assert!(comparison.contains(&(2370, Rule::UnusedHeredoc)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));

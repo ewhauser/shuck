@@ -175,6 +175,7 @@ declare_rules! {
         PlusPrefixInAssignment
     ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
+    ("C127", Category::Correctness, Severity::Warning, UnusedHeredoc),
     (
         "C130",
         Category::Correctness,
@@ -457,6 +458,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
+        "SH-298" => Some(Rule::UnusedHeredoc),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -690,6 +692,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(code_to_rule("C127"), Some(Rule::UnusedHeredoc));
+        assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

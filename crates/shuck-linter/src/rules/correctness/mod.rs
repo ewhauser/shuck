@@ -72,6 +72,7 @@ pub mod unreachable_after_exit;
 pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
+pub mod unused_heredoc;
 
 #[cfg(test)]
 mod tests {
@@ -148,6 +149,7 @@ mod tests {
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
     #[test_case(Rule::BadVarName, Path::new("C140.sh"))]
+    #[test_case(Rule::UnusedHeredoc, Path::new("C127.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]

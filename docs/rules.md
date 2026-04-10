@@ -383,7 +383,7 @@ propagate. Require semantic scope analysis and are high complexity.
 Rules about heredoc structure: missing/mismatched markers, whitespace, and
 misuse.
 
-- [ ] **M** C127 (SC2370) `unused-heredoc` — heredoc opened without consuming command
+- [x] **M** C127 (SC2370) `unused-heredoc` — heredoc opened without consuming command
 - [ ] **M** C138 (SC2386) `heredoc-missing-end` — heredoc never gets closing marker
 - [ ] **L** C144 (SC2394) `heredoc-closer-not-alone` — closer on same line as content
 - [ ] **M** C145 (SC2395) `misquoted-heredoc-close` — closing marker is only a near match

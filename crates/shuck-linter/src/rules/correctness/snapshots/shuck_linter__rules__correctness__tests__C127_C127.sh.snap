@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 149
+---
+C127 this here-document has no command to consume it
+ --> <source>:2:1
+  |
+2 | <<'DOC'
+  |
