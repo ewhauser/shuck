@@ -3,6 +3,7 @@ pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
 pub mod bare_closing_brace;
 pub mod bare_slash_marker;
+mod broken_test_common;
 pub mod broken_test_end;
 pub mod broken_test_parse;
 pub mod c_prototype_fragment;
