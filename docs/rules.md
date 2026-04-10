@@ -37,15 +37,33 @@ Review scope: all currently dispatched rule entrypoints under `crates/shuck-lint
 ---
 
 
+## Validation Review (2026-04-10)
+
+The remaining implemented-but-unvetted rules were reviewed against three gates:
+
+1. rule logic uses facts APIs only (no direct AST walks or traversal helpers in rule modules)
+2. rule logic avoids duplicating command/AST extraction work that belongs in facts
+3. test coverage includes both triggering and non-trigger/edge scenarios
+
+| Rule | Facts-only / no walks | Duplication | Coverage status | Outcome |
+|---|---|---|---|---|
+| C141 `loop-without-end` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
+| C142 `missing-done-in-for-loop` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
+| C143 `dangling-else` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
+| C146 `until-missing-do` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
+| C157 `if-bracket-glued` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
+| K001 `rm-glob-on-variable-path` | ✅ | ✅ | ❌ lacks non-trigger and precision edge fixtures | keep unvetted |
+| K004 `find-execdir-with-shell` | ✅ | ✅ | ❌ lacks non-trigger and shell-variant fixtures | keep unvetted |
+
 ## Validation TODOs
 
-- **C141 `loop-without-end`**: add explicit non-trigger coverage for balanced `while`/`until` loops and nested loops to prove the parse-error mapping does not over-fire.
+- **C141 `loop-without-end`**: add explicit non-trigger coverage for balanced `while`/`until` loops and nested loops to prove parse-error mapping does not over-fire.
 - **C142 `missing-done-in-for-loop`**: add edge-case fixtures for `for` loops with heredocs/line continuations near EOF and a negative case with a valid trailing `done`.
 - **C143 `dangling-else`**: add cases that distinguish parse-recovery noise from true empty `else` branches, including nested `if` blocks.
 - **C146 `until-missing-do`**: add coverage for multiline `until` headers and ensure no finding when `do` appears after comments/blank lines.
 - **C157 `if-bracket-glued`**: add negative tests for valid `if [` formatting variants and quoted strings starting with `if[` to avoid accidental token-text matching.
 - **K001 `rm-glob-on-variable-path`**: add safety-oriented negatives (`rm -rf -- "$dir"`, literal paths, no glob) and cases with indirect/parameter-expanded targets to verify rule precision.
-- **K004 `find-execdir-with-shell`**: add variants for `sh -c`, `bash -c`, and safe `-execdir` forms without shell interpolation to prove the matcher is neither under- nor over-broad.
+- **K004 `find-execdir-with-shell`**: add variants for `sh -c`, `bash -c`, and safe `-execdir` forms without shell interpolation to prove matcher breadth is correct.
 
 ## Remaining Rules
 
