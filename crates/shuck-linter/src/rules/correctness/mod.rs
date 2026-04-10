@@ -1,6 +1,10 @@
+pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
+pub mod assignment_looks_like_comparison;
+pub mod assignment_to_numeric_variable;
 pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
+pub mod bad_var_name;
 pub mod bare_closing_brace;
 pub mod bare_slash_marker;
 mod broken_test_common;
@@ -24,11 +28,13 @@ pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod if_bracket_glued;
 pub mod if_missing_then;
+pub mod ifs_set_to_literal_backslash_n;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
 pub mod linebreak_in_test;
 pub mod literal_unary_string_test;
+pub mod local_cross_reference;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
 pub mod missing_done_in_for_loop;
@@ -41,12 +47,14 @@ pub mod open_double_quote;
 pub mod overwritten_function;
 pub mod pattern_with_variable;
 pub mod pipe_to_kill;
+pub mod plus_prefix_in_assignment;
 pub mod positional_param_as_operator;
 pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod single_quoted_literal;
+pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
 pub mod subshell_in_arithmetic;
 pub mod subst_with_redirect;
@@ -130,8 +138,16 @@ mod tests {
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
+    #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
+    #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
+    #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
+    #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
+    #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
+    #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
+    #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
+    #[test_case(Rule::BadVarName, Path::new("C140.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]

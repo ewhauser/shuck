@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C095 assignment value looks like arithmetic subtraction
+ --> <source>:3:4
+  |
+3 | qt=qt-unicode-3.2
+  |

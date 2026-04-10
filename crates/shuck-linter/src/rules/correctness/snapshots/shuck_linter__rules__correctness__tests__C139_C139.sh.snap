@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 144
+---
+C139 remove spaces around `=` in this assignment
+ --> <source>:2:12
+  |
+2 | export foo =bar
+  |

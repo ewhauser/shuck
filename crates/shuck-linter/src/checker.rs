@@ -513,6 +513,9 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::IfsEqualsAmbiguity) {
+            rules::style::ifs_equals_ambiguity::ifs_equals_ambiguity(self);
+        }
         if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
             rules::correctness::single_quoted_literal::single_quoted_literal(self);
         }
@@ -544,6 +547,36 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::UnicodeQuoteInString) {
             rules::correctness::unicode_quote_in_string::unicode_quote_in_string(self);
+        }
+        if self.is_rule_enabled(Rule::AssignmentLooksLikeComparison) {
+            rules::correctness::assignment_looks_like_comparison::assignment_looks_like_comparison(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::AssignmentToNumericVariable) {
+            rules::correctness::assignment_to_numeric_variable::assignment_to_numeric_variable(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::PlusPrefixInAssignment) {
+            rules::correctness::plus_prefix_in_assignment::plus_prefix_in_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::IfsSetToLiteralBackslashN) {
+            rules::correctness::ifs_set_to_literal_backslash_n::ifs_set_to_literal_backslash_n(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::AppendWithEscapedQuotes) {
+            rules::correctness::append_with_escaped_quotes::append_with_escaped_quotes(self);
+        }
+        if self.is_rule_enabled(Rule::LocalCrossReference) {
+            rules::correctness::local_cross_reference::local_cross_reference(self);
+        }
+        if self.is_rule_enabled(Rule::SpacedAssignment) {
+            rules::correctness::spaced_assignment::spaced_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::BadVarName) {
+            rules::correctness::bad_var_name::bad_var_name(self);
         }
         if self.is_rule_enabled(Rule::CommentedContinuationLine) {
             rules::correctness::commented_continuation_line::commented_continuation_line(self);

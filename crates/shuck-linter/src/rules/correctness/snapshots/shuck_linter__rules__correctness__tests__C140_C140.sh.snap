@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 146
+---
+C140 assignment target starts with an invalid character
+ --> <source>:2:1
+  |
+2 | 9var=ok
+  |

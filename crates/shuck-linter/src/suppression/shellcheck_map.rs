@@ -57,7 +57,7 @@ impl ShellCheckCodeMap {
             return vec![Rule::BackslashBeforeClosingBacktick];
         }
         if number == 2282 {
-            return vec![Rule::PositionalParamAsOperator];
+            return vec![Rule::BadVarName, Rule::PositionalParamAsOperator];
         }
         if number == 2283 {
             return vec![Rule::DoubleParenGrouping];
@@ -109,6 +109,7 @@ impl Default for ShellCheckCodeMap {
             (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
+            (1097, Rule::IfsEqualsAmbiguity),
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
@@ -206,7 +207,6 @@ impl Default for ShellCheckCodeMap {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
-            (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
             (2294, Rule::EvalOnArray),
             (2297, Rule::DollarInArithmeticContext),
@@ -228,16 +228,29 @@ impl Default for ShellCheckCodeMap {
             (2250, Rule::PatternWithVariable),
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
+            (2089, Rule::AppendWithEscapedQuotes),
+            // ShellCheck 0.11.0 reports declaration cross-reference warnings as SC2318.
+            // Keep SC2384 as a suppression alias, but prefer the current code for comparisons.
+            (2318, Rule::LocalCrossReference),
+            // ShellCheck 0.11.0 reports declaration spacing warnings as SC2290.
+            // Keep SC2387 as a suppression alias, but prefer the current code for comparisons.
+            (2290, Rule::SpacedAssignment),
+            (2276, Rule::PlusPrefixInAssignment),
+            // ShellCheck 0.11.0 reports digit-prefixed assignment names as SC2282.
+            // Keep SC2388 as a suppression alias, but prefer the current code for comparisons.
+            (2282, Rule::BadVarName),
             (2238, Rule::RedirectToCommandName),
             (2259, Rule::SubshellTestGroup),
             (2266, Rule::OverwrittenFunction),
-            (2270, Rule::IfMissingThen),
+            (2270, Rule::AssignmentToNumericVariable),
             (2271, Rule::ElseWithoutThen),
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
             (2277, Rule::ExtglobInCasePattern),
+            (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
+            (2141, Rule::IfsSetToLiteralBackslashN),
             (2365, Rule::UnreachableAfterExit),
             (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
@@ -281,6 +294,7 @@ impl Default for ShellCheckCodeMap {
                 (1083, Rule::LiteralBraces),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1097, Rule::IfsEqualsAmbiguity),
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
@@ -302,6 +316,7 @@ impl Default for ShellCheckCodeMap {
                 (2275, Rule::MultiVarForLoop),
                 (2278, Rule::ZshPromptBracket),
                 (2279, Rule::CshSyntaxInSh),
+                (2282, Rule::BadVarName),
                 (2355, Rule::ZshAssignmentToZero),
                 (2359, Rule::ZshParameterFlag),
                 (2371, Rule::ZshArraySubscriptInCase),
@@ -406,15 +421,20 @@ impl Default for ShellCheckCodeMap {
                 (2250, Rule::PatternWithVariable),
                 (2255, Rule::SubstWithRedirect),
                 (2256, Rule::SubstWithRedirectErr),
+                (2089, Rule::AppendWithEscapedQuotes),
+                (2276, Rule::PlusPrefixInAssignment),
                 (2238, Rule::RedirectToCommandName),
                 (2266, Rule::OverwrittenFunction),
-                (2270, Rule::IfMissingThen),
+                (2270, Rule::AssignmentToNumericVariable),
+                (2318, Rule::LocalCrossReference),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
                 (2277, Rule::ExtglobInCasePattern),
+                (2100, Rule::AssignmentLooksLikeComparison),
                 (2319, Rule::StatusCaptureAfterBranchTest),
+                (2141, Rule::IfsSetToLiteralBackslashN),
                 (2365, Rule::UnreachableAfterExit),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),
@@ -430,6 +450,17 @@ impl Default for ShellCheckCodeMap {
                 (1075, Rule::ExtglobCase),
                 (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
+                (2319, Rule::AssignmentLooksLikeComparison),
+                (2329, Rule::IfsSetToLiteralBackslashN),
+                (2353, Rule::AssignmentToNumericVariable),
+                (2354, Rule::PlusPrefixInAssignment),
+                (2387, Rule::SpacedAssignment),
+                (2388, Rule::BadVarName),
+                (2384, Rule::LocalCrossReference),
+                (2377, Rule::AppendWithEscapedQuotes),
+                (2290, Rule::SpacedAssignment),
+                (2280, Rule::IfsEqualsAmbiguity),
+                (2270, Rule::IfMissingThen),
             ],
             comparison,
         }
@@ -498,6 +529,7 @@ mod tests {
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
+        assert_eq!(map.resolve("SC1097"), Some(Rule::IfsEqualsAmbiguity));
         assert_eq!(
             map.resolve("SC1101"),
             Some(Rule::BackslashBeforeClosingBacktick)
@@ -507,6 +539,10 @@ mod tests {
         assert_eq!(map.resolve("SC1113"), Some(Rule::TrailingDirective));
         assert_eq!(map.resolve("SC1126"), Some(Rule::TrailingDirective));
         assert_eq!(map.resolve("SC2290"), Some(Rule::SubshellInArithmetic));
+        assert_eq!(
+            map.resolve_all("SC2290"),
+            vec![Rule::SubshellInArithmetic, Rule::SpacedAssignment]
+        );
         assert_eq!(
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
@@ -615,8 +651,19 @@ mod tests {
             Some(Rule::StatusCaptureAfterBranchTest)
         );
         assert_eq!(
+            map.resolve("SC2100"),
+            Some(Rule::AssignmentLooksLikeComparison)
+        );
+        assert_eq!(
             map.resolve("SC2319"),
             Some(Rule::StatusCaptureAfterBranchTest)
+        );
+        assert_eq!(
+            map.resolve_all("SC2319"),
+            vec![
+                Rule::StatusCaptureAfterBranchTest,
+                Rule::AssignmentLooksLikeComparison,
+            ]
         );
         assert_eq!(
             map.resolve("SC2257"),
@@ -634,7 +681,13 @@ mod tests {
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
-        assert_eq!(map.resolve("SC2270"), Some(Rule::IfMissingThen));
+        assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
+        assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
+        assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
+        assert_eq!(
+            map.resolve("SC2270"),
+            Some(Rule::AssignmentToNumericVariable)
+        );
         assert_eq!(map.resolve("SC2271"), Some(Rule::ElseWithoutThen));
         assert_eq!(
             map.resolve("SC2272"),
@@ -647,7 +700,11 @@ mod tests {
             map.resolve("SC2281"),
             Some(Rule::BackslashBeforeClosingBacktick)
         );
-        assert_eq!(map.resolve("SC2282"), Some(Rule::PositionalParamAsOperator));
+        assert_eq!(map.resolve("SC2282"), Some(Rule::BadVarName));
+        assert_eq!(
+            map.resolve_all("SC2282"),
+            vec![Rule::BadVarName, Rule::PositionalParamAsOperator]
+        );
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
@@ -660,8 +717,25 @@ mod tests {
         assert_eq!(map.resolve("SC2392"), Some(Rule::LinebreakBeforeAnd));
         assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(map.resolve("SC2280"), Some(Rule::IfsEqualsAmbiguity));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(
+            map.resolve("SC2353"),
+            Some(Rule::AssignmentToNumericVariable)
+        );
+        assert_eq!(map.resolve("SC2354"), Some(Rule::PlusPrefixInAssignment));
+        assert_eq!(map.resolve("SC2387"), Some(Rule::SpacedAssignment));
+        assert_eq!(map.resolve("SC2388"), Some(Rule::BadVarName));
+        assert_eq!(map.resolve("SC2384"), Some(Rule::LocalCrossReference));
+        assert_eq!(map.resolve("SC2377"), Some(Rule::AppendWithEscapedQuotes));
+        assert_eq!(
+            map.resolve_all("SC2270"),
+            vec![Rule::AssignmentToNumericVariable, Rule::IfMissingThen]
+        );
+        assert_eq!(map.resolve_all("SC2384"), vec![Rule::LocalCrossReference]);
+        assert_eq!(map.resolve("SC2141"), Some(Rule::IfsSetToLiteralBackslashN));
+        assert_eq!(map.resolve("SC2329"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC7777"), None);
     }
 
@@ -692,6 +766,7 @@ mod tests {
             (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
+            (1097, Rule::IfsEqualsAmbiguity),
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
@@ -723,6 +798,7 @@ mod tests {
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2078, Rule::TruthyLiteralTest),
+            (2089, Rule::AppendWithEscapedQuotes),
             (2086, Rule::UnquotedExpansion),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
@@ -755,6 +831,7 @@ mod tests {
             (2252, Rule::NestedZshSubstitution),
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
+            (2276, Rule::PlusPrefixInAssignment),
             (2257, Rule::ArithmeticRedirectionTarget),
             (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
@@ -763,7 +840,12 @@ mod tests {
             (2264, Rule::NestedParameterExpansion),
             (2266, Rule::OverwrittenFunction),
             (2267, Rule::LiteralBackslashInSingleQuotes),
+            (2270, Rule::AssignmentToNumericVariable),
             (2270, Rule::IfMissingThen),
+            (2318, Rule::LocalCrossReference),
+            (2290, Rule::SpacedAssignment),
+            (2384, Rule::LocalCrossReference),
+            (2387, Rule::SpacedAssignment),
             (2271, Rule::ElseWithoutThen),
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
@@ -771,12 +853,18 @@ mod tests {
             (2275, Rule::MultiVarForLoop),
             (2278, Rule::ZshPromptBracket),
             (2279, Rule::CshSyntaxInSh),
+            (2280, Rule::IfsEqualsAmbiguity),
+            (2282, Rule::BadVarName),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
-            (2323, Rule::ArithmeticScoreLine),
+            (2141, Rule::IfsSetToLiteralBackslashN),
+            (2353, Rule::AssignmentToNumericVariable),
+            (2354, Rule::PlusPrefixInAssignment),
+            (2377, Rule::AppendWithEscapedQuotes),
+            (2329, Rule::IfsSetToLiteralBackslashN),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
             (2333, Rule::NonShellSyntaxInScript),
@@ -792,6 +880,7 @@ mod tests {
             (2371, Rule::ZshArraySubscriptInCase),
             (2375, Rule::ZshParameterIndexFlag),
             (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+            (2388, Rule::BadVarName),
             (3001, Rule::ProcessSubstitution),
             (3002, Rule::ExtglobInSh),
             (3003, Rule::AnsiCQuoting),
@@ -845,6 +934,8 @@ mod tests {
             (3076, Rule::SignalNameInTrap),
             (3077, Rule::BasePrefixInArithmetic),
             (3084, Rule::SourceInsideFunctionInSh),
+            (2100, Rule::AssignmentLooksLikeComparison),
+            (2319, Rule::AssignmentLooksLikeComparison),
             (2277, Rule::ExtglobInCasePattern),
         ]
         .into_iter()
@@ -922,6 +1013,21 @@ mod tests {
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
+        assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
+        assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
+        assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
+        assert!(comparison.contains(&(2318, Rule::LocalCrossReference)));
+        assert!(comparison.contains(&(2290, Rule::SpacedAssignment)));
+        assert!(comparison.contains(&(2282, Rule::BadVarName)));
+        assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
+        assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
+        assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
+        assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
+        assert!(!comparison.contains(&(2387, Rule::SpacedAssignment)));
+        assert!(!comparison.contains(&(2280, Rule::IfsEqualsAmbiguity)));
+        assert!(!comparison.contains(&(2388, Rule::BadVarName)));
+        assert!(!comparison.contains(&(2384, Rule::LocalCrossReference)));
+        assert!(!comparison.contains(&(2377, Rule::AppendWithEscapedQuotes)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));

@@ -248,15 +248,15 @@ Rules about array assignment, conversion, and element access patterns.
 
 Rules about assignment syntax, variable naming, and value issues.
 
-- [ ] **M** C095 (SC2319) `assignment-looks-like-comparison` — assignment value with dash may be typo
-- [ ] **M** C101 (SC2329) `ifs-set-to-literal-backslash-n` — IFS set to literal `\n` not newline
-- [ ] **L** C116 (SC2353) `assignment-to-numeric-variable` — numeric string as variable name
-- [ ] **L** C117 (SC2354) `plus-prefix-in-assignment` — `+` before variable assignment
-- [ ] **M** C130 (SC2377) `append-with-escaped-quotes` — `+=` with escaped quotes
-- [ ] **M** C136 (SC2384) `local-cross-reference` — local assigns from same-line variable
-- [ ] **L** C139 (SC2387) `spaced-assignment` — assignment-like word with stray spaces
-- [ ] **L** C140 (SC2388) `bad-var-name` — variable name starts with invalid character
-- [ ] **L** S042 (SC2280) `ifs-equals-ambiguity` — `IFS==` looks like comparison
+- [x] **M** C095 (SC2319) `assignment-looks-like-comparison` — assignment value with dash may be typo
+- [x] **M** C101 (SC2329) `ifs-set-to-literal-backslash-n` — IFS set to literal `\n` not newline
+- [x] **L** C116 (SC2353) `assignment-to-numeric-variable` — numeric string as variable name
+- [x] **L** C117 (SC2354) `plus-prefix-in-assignment` — `+` before variable assignment
+- [x] **M** C130 (SC2377) `append-with-escaped-quotes` — `+=` with escaped quotes
+- [x] **M** C136 (SC2384) `local-cross-reference` — local assigns from same-line variable
+- [x] **L** C139 (SC2387) `spaced-assignment` — assignment-like word with stray spaces
+- [x] **L** C140 (SC2388) `bad-var-name` — variable name starts with invalid character
+- [x] **L** S042 (SC2280) `ifs-equals-ambiguity` — `IFS==` looks like comparison
 
 ### Command-Specific Checks
 

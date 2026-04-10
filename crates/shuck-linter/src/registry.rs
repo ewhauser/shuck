@@ -149,8 +149,46 @@ declare_rules! {
         CommentedContinuationLine
     ),
     ("C077", Category::Correctness, Severity::Warning, SubshellInArithmetic),
+    (
+        "C095",
+        Category::Correctness,
+        Severity::Warning,
+        AssignmentLooksLikeComparison
+    ),
+    (
+        "C101",
+        Category::Correctness,
+        Severity::Warning,
+        IfsSetToLiteralBackslashN
+    ),
     ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
+    (
+        "C116",
+        Category::Correctness,
+        Severity::Warning,
+        AssignmentToNumericVariable
+    ),
+    (
+        "C117",
+        Category::Correctness,
+        Severity::Warning,
+        PlusPrefixInAssignment
+    ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
+    (
+        "C130",
+        Category::Correctness,
+        Severity::Warning,
+        AppendWithEscapedQuotes
+    ),
+    (
+        "C136",
+        Category::Correctness,
+        Severity::Warning,
+        LocalCrossReference
+    ),
+    ("C139", Category::Correctness, Severity::Warning, SpacedAssignment),
+    ("C140", Category::Correctness, Severity::Warning, BadVarName),
     (
         "C137",
         Category::Correctness,
@@ -282,6 +320,7 @@ declare_rules! {
         LiteralBackslashInSingleQuotes
     ),
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
+    ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
 }
@@ -318,6 +357,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-080" => Some(Rule::SourceBuiltinInSh),
         "SH-081" => Some(Rule::PrintfQFormatInSh),
         "SH-226" => Some(Rule::FunctionKeywordInSh),
+        "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
         "SH-275" => Some(Rule::ErrexitTrapInSh),
         "SH-276" => Some(Rule::SignalNameInTrap),
@@ -333,8 +373,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
         "SH-173" => Some(Rule::BackslashBeforeCommand),
+        "SH-185" => Some(Rule::IfsEqualsAmbiguity),
         "SH-088" => Some(Rule::LiteralBackslash),
         "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
+        "SH-258" => Some(Rule::AssignmentToNumericVariable),
+        "SH-259" => Some(Rule::PlusPrefixInAssignment),
+        "SH-307" => Some(Rule::AppendWithEscapedQuotes),
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),
@@ -408,6 +452,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-187" => Some(Rule::PositionalParamAsOperator),
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
+        "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
@@ -448,7 +493,10 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-281" => Some(Rule::StickyBitTestInSh),
         "SH-282" => Some(Rule::OwnershipTestInSh),
         "SH-283" => Some(Rule::FindExecDirWithShell),
+        "SH-314" => Some(Rule::LocalCrossReference),
         "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
+        "SH-319" => Some(Rule::SpacedAssignment),
+        "SH-320" => Some(Rule::BadVarName),
         "SH-321" => Some(Rule::LoopWithoutEnd),
         "SH-322" => Some(Rule::MissingDoneInForLoop),
         "SH-327" => Some(Rule::DanglingElse),
@@ -626,6 +674,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-188"), Some(Rule::DoubleParenGrouping));
         assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(code_to_rule("SH-079"), Some(Rule::AvoidLetBuiltin));
+        assert_eq!(
+            code_to_rule("SH-224"),
+            Some(Rule::AssignmentLooksLikeComparison)
+        );
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
