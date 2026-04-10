@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X054 extended glob syntax is not available in POSIX sh
+ --> <source>:2:6
+  |
+2 | echo @(foo|bar)
+  |
+
+X054 extended glob syntax is not available in POSIX sh
+ --> <source>:4:3
+  |
+4 |   @(foo|bar)) : ;;
+  |
+
+X054 extended glob syntax is not available in POSIX sh
+ --> <source>:6:16
+  |
+6 | trimmed=${name%@($suffix|$(printf '%s' zz))}
+  |

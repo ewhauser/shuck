@@ -155,7 +155,13 @@ fn parse_shellcheck_directive(
     let mut codes = Vec::new();
     for part in remainder.split_ascii_whitespace() {
         if let Some(group) = strip_prefix_ignore_ascii_case(part, "disable=") {
-            codes.extend(parse_codes(group, |code| shellcheck_map.resolve(code)));
+            for code in group.split(',') {
+                let code = code.trim();
+                if code.is_empty() {
+                    continue;
+                }
+                codes.extend(shellcheck_map.resolve_all(code));
+            }
         }
     }
 

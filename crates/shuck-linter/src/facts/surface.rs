@@ -9,6 +9,9 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
     pub(super) positional_parameter_operator_spans: Vec<Span>,
     pub(super) unicode_smart_quote_spans: Vec<Span>,
+    pub(super) pattern_exactly_one_extglob_spans: Vec<Span>,
+    pub(super) pattern_charclass_spans: Vec<Span>,
+    pub(super) nested_pattern_charclass_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
@@ -22,14 +25,17 @@ pub(super) struct SurfaceFragmentFacts {
 struct SurfaceScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
+    nested_word_command: bool,
     variable_set_operand: bool,
     collect_open_double_quotes: bool,
+    collect_pattern_charclasses: bool,
 }
 
 impl<'a> SurfaceScanContext<'a> {
     fn new() -> Self {
         Self {
             collect_open_double_quotes: true,
+            collect_pattern_charclasses: false,
             ..Self::default()
         }
     }
@@ -51,6 +57,13 @@ impl<'a> SurfaceScanContext<'a> {
     fn without_open_double_quote_scan(self) -> Self {
         Self {
             collect_open_double_quotes: false,
+            ..self
+        }
+    }
+
+    fn with_pattern_charclass_scan(self) -> Self {
+        Self {
+            collect_pattern_charclasses: true,
             ..self
         }
     }
@@ -153,8 +166,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
             .and_then(CommandFact::effective_or_literal_name)
             .map(str::to_owned)
             .map(String::into_boxed_str);
+        let nested_word_command = self
+            .command_fact_for_command(&stmt.command)
+            .is_some_and(CommandFact::is_nested_word_command);
         let context = SurfaceScanContext {
             command_name: command_name_storage.as_deref(),
+            nested_word_command,
             ..SurfaceScanContext::new()
         };
 
@@ -181,7 +198,13 @@ impl<'a> SurfaceFragmentCollector<'a> {
             }
         }
 
-        self.collect_redirects(&stmt.redirects, SurfaceScanContext::new());
+        self.collect_redirects(
+            &stmt.redirects,
+            SurfaceScanContext {
+                nested_word_command,
+                ..SurfaceScanContext::new()
+            },
+        );
     }
 
     fn collect_simple_command(&mut self, command: &SimpleCommand, context: SurfaceScanContext<'_>) {
@@ -302,7 +325,10 @@ impl<'a> SurfaceFragmentCollector<'a> {
             CompoundCommand::Case(command) => {
                 self.collect_word(&command.word, SurfaceScanContext::new());
                 for case in &command.cases {
-                    self.collect_patterns(&case.patterns, SurfaceScanContext::new());
+                    self.collect_patterns(
+                        &case.patterns,
+                        SurfaceScanContext::new().with_pattern_charclass_scan(),
+                    );
                     self.collect_commands(&case.body);
                 }
             }
@@ -685,14 +711,25 @@ impl<'a> SurfaceFragmentCollector<'a> {
     }
 
     fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
-        for (part, _) in pattern.parts_with_spans() {
+        for (part, span) in pattern.parts_with_spans() {
             match part {
-                PatternPart::Group { patterns, .. } => self.collect_patterns(patterns, context),
+                PatternPart::Group { kind, patterns } => {
+                    if *kind == PatternGroupKind::ExactlyOne {
+                        self.facts.pattern_exactly_one_extglob_spans.push(span);
+                    }
+                    self.collect_patterns(patterns, context);
+                }
                 PatternPart::Word(word) => self.collect_word(word, context),
-                PatternPart::Literal(_)
+                PatternPart::CharClass(_) if context.collect_pattern_charclasses => {
+                    self.facts.pattern_charclass_spans.push(span);
+                    if context.nested_word_command {
+                        self.facts.nested_pattern_charclass_spans.push(span);
+                    }
+                }
+                PatternPart::CharClass(_)
+                | PatternPart::Literal(_)
                 | PatternPart::AnyString
-                | PatternPart::AnyChar
-                | PatternPart::CharClass(_) => {}
+                | PatternPart::AnyChar => {}
             }
         }
     }
@@ -824,7 +861,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
             ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
                 self.collect_word(word, context)
             }
-            ConditionalExpr::Pattern(pattern) => self.collect_pattern(pattern, context),
+            ConditionalExpr::Pattern(pattern) => {
+                self.collect_pattern(pattern, context.with_pattern_charclass_scan())
+            }
             ConditionalExpr::VarRef(reference) => {
                 self.record_var_ref_subscript(reference);
                 query::visit_var_ref_subscript_words_with_source(
@@ -846,7 +885,9 @@ impl<'a> SurfaceFragmentCollector<'a> {
             ParameterOp::RemovePrefixShort { pattern }
             | ParameterOp::RemovePrefixLong { pattern }
             | ParameterOp::RemoveSuffixShort { pattern }
-            | ParameterOp::RemoveSuffixLong { pattern } => self.collect_pattern(pattern, context),
+            | ParameterOp::RemoveSuffixLong { pattern } => {
+                self.collect_pattern(pattern, context.with_pattern_charclass_scan())
+            }
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
@@ -855,7 +896,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 pattern,
                 replacement,
             } => {
-                self.collect_pattern(pattern, context);
+                self.collect_pattern(pattern, context.with_pattern_charclass_scan());
                 self.collect_source_text_word(replacement, context);
             }
             ParameterOp::UseDefault

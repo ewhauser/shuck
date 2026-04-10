@@ -1,5 +1,10 @@
 use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span};
 
+use crate::rules::common::expansion::ExpansionContext;
+use crate::rules::common::span::{
+    text_looks_like_caret_negated_bracket, word_caret_negated_bracket_spans,
+    word_exactly_one_extglob_span,
+};
 use crate::{
     Checker, ConditionalNodeFact, Rule, ShellDialect, SimpleTestFact, SimpleTestSyntax, Violation,
     conditional_array_subscript_span, conditional_extglob_span, static_word_text,
@@ -10,6 +15,8 @@ pub struct DoubleBracketInSh;
 pub struct TestEqualityOperator;
 pub struct IfElifBashTest;
 pub struct ExtendedGlobInTest;
+pub struct ExtglobInSh;
+pub struct CaretNegationInBracket;
 pub struct ArraySubscriptTest;
 pub struct ArraySubscriptCondition;
 pub struct ExtglobInTest;
@@ -58,6 +65,26 @@ impl Violation for ExtendedGlobInTest {
 
     fn message(&self) -> String {
         "extended glob patterns in `[[` matches are not portable to POSIX sh".to_owned()
+    }
+}
+
+impl Violation for ExtglobInSh {
+    fn rule() -> Rule {
+        Rule::ExtglobInSh
+    }
+
+    fn message(&self) -> String {
+        "extended glob syntax is not available in POSIX sh".to_owned()
+    }
+}
+
+impl Violation for CaretNegationInBracket {
+    fn rule() -> Rule {
+        Rule::CaretNegationInBracket
+    }
+
+    fn message(&self) -> String {
+        "caret negation in bracket expressions is not portable to POSIX sh".to_owned()
     }
 }
 
@@ -252,6 +279,50 @@ pub fn extended_glob_in_test(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ExtendedGlobInTest);
+}
+
+pub fn extglob_in_sh(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let source = checker.source();
+    let mut spans = checker.facts().pattern_exactly_one_extglob_spans().to_vec();
+    spans.extend(
+        checker
+            .facts()
+            .word_facts()
+            .iter()
+            .filter(|fact| supports_extglob_portability_context(fact.expansion_context()))
+            .filter_map(|fact| word_exactly_one_extglob_span(fact.word(), source)),
+    );
+    checker.report_all_dedup(spans, || ExtglobInSh);
+}
+
+pub fn caret_negation_in_bracket(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let source = checker.source();
+    let mut spans = checker
+        .facts()
+        .pattern_charclass_spans()
+        .iter()
+        .filter(|span| !checker.facts().is_nested_pattern_charclass_span(**span))
+        .filter(|span| text_looks_like_caret_negated_bracket(span.slice(source)))
+        .copied()
+        .collect::<Vec<_>>();
+    spans.extend(
+        checker
+            .facts()
+            .word_facts()
+            .iter()
+            .filter(|fact| supports_bracket_glob_portability_context(fact.expansion_context()))
+            .flat_map(|fact| word_caret_negated_bracket_spans(fact.word(), source)),
+    );
+
+    checker.report_all_dedup(spans, || CaretNegationInBracket);
 }
 
 pub fn array_subscript_test(checker: &mut Checker) {
@@ -462,6 +533,29 @@ fn is_posix_sh_shell(shell: ShellDialect) -> bool {
     matches!(shell, ShellDialect::Sh | ShellDialect::Dash)
 }
 
+fn supports_extglob_portability_context(context: Option<ExpansionContext>) -> bool {
+    matches!(
+        context,
+        Some(
+            ExpansionContext::CommandName
+                | ExpansionContext::CommandArgument
+                | ExpansionContext::ForList
+                | ExpansionContext::SelectList
+        )
+    )
+}
+
+fn supports_bracket_glob_portability_context(context: Option<ExpansionContext>) -> bool {
+    matches!(
+        context,
+        Some(
+            ExpansionContext::CommandArgument
+                | ExpansionContext::ForList
+                | ExpansionContext::SelectList
+        )
+    )
+}
+
 fn simple_test_binary_operator_token_spans(
     fact: &SimpleTestFact<'_>,
     source: &str,
@@ -663,6 +757,170 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
+    fn reports_at_extglob_in_posix_shells() {
+        let source = "#!/bin/sh\necho @(foo|bar)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
+    }
+
+    #[test]
+    fn reports_at_extglob_in_conditional_patterns_in_posix_shells() {
+        let source = "#!/bin/sh\n[[ $OSTYPE == *@(linux|freebsd)* ]] || exit 1\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "@(linux|freebsd)");
+    }
+
+    #[test]
+    fn reports_at_extglob_in_case_patterns_in_posix_shells() {
+        let source = "#!/bin/sh\ncase \"$x\" in @(foo|bar)) : ;; esac\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "@(foo|bar)");
+    }
+
+    #[test]
+    fn reports_at_extglob_in_parameter_patterns_in_posix_shells() {
+        let source = "#!/bin/sh\ntrimmed=${name%@($suffix|$(printf '%s' zz))}\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "@($suffix|$(printf '%s' zz))"
+        );
+    }
+
+    #[test]
+    fn reports_at_extglob_spanning_mixed_word_parts_in_posix_shells() {
+        let source = "#!/bin/sh\necho @($choice|bar)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "@($choice|bar)");
+    }
+
+    #[test]
+    fn ignores_at_extglob_literals_in_assignment_values() {
+        let source = "#!/bin/sh\nname=@(foo|bar)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_caret_negation_in_bracket_in_posix_shells() {
+        let source = "\
+#!/bin/sh
+echo [^a]*
+case x in
+  [^a]*) : ;;
+esac
+[[ $x = [^a]* ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 3);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule == Rule::CaretNegationInBracket)
+        );
+    }
+
+    #[test]
+    fn reports_caret_negation_in_parameter_patterns_in_posix_shells() {
+        let source = "\
+#!/bin/sh
+trimmed=${value#[^a]*}
+pkgopts=\"${XBPS_CURRENT_PKG//[^A-Za-z0-9_]/_}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "[^a]");
+        assert_eq!(diagnostics[1].span.slice(source), "[^A-Za-z0-9_]");
+    }
+
+    #[test]
+    fn reports_caret_negation_spanning_mixed_word_parts_in_posix_shells() {
+        let source = "#!/bin/sh\necho [^$chars]*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::CaretNegationInBracket);
+        assert_eq!(diagnostics[0].span.slice(source), "[^$chars]");
+    }
+
+    #[test]
+    fn reports_caret_negation_in_for_and_select_lists_in_posix_shells() {
+        let source = "\
+#!/bin/sh
+for f in [^a]*; do
+  :
+done
+select f in [^b]*; do
+  break
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "[^a]");
+        assert_eq!(diagnostics[1].span.slice(source), "[^b]");
+    }
+
+    #[test]
+    fn reports_caret_negation_in_nested_command_substitutions_in_posix_shells() {
+        let source = "#!/bin/sh\necho \"$(printf '%s\\n' [^a]*)\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::CaretNegationInBracket);
+        assert_eq!(diagnostics[0].span.slice(source), "[^a]");
+    }
+
+    #[test]
+    fn ignores_caret_negation_in_nested_parameter_patterns_in_posix_shells() {
+        let source = "\
+#!/bin/sh
+printf '%s\n' \"$(
+    sanitized=${name//[^a]/_}
+    printf '%s' \"$sanitized\"
+)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn sh_portability_rules_ignore_bash_shells() {
         let source = "\
 #!/bin/bash
@@ -680,6 +938,8 @@ fi
                 Rule::TestEqualityOperator,
                 Rule::IfElifBashTest,
                 Rule::ExtendedGlobInTest,
+                Rule::ExtglobInSh,
+                Rule::CaretNegationInBracket,
                 Rule::ArraySubscriptTest,
                 Rule::ArraySubscriptCondition,
                 Rule::ExtglobInTest,

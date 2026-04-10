@@ -1,7 +1,7 @@
 use shuck_ast::{
     Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr, ParameterExpansion,
-    ParameterExpansionSyntax, Pattern, PatternPart, Redirect, Span, VarRef, Word, WordPart,
-    WordPartNode, ZshExpansionTarget,
+    ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Redirect, Span, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -256,15 +256,101 @@ pub fn word_array_subscript_span(word: &Word, source: &str) -> Option<Span> {
 }
 
 pub fn word_extglob_span(word: &Word, source: &str) -> Option<Span> {
-    word_extglob_span_from_parts(&word.parts, source).or_else(|| {
-        (!word.has_quoted_parts()
-            && word
-                .parts
-                .iter()
-                .all(|part| matches!(part.kind, WordPart::Literal(_)))
-            && text_looks_like_extglob(word.span.slice(source)))
-        .then_some(word.span)
+    word_extglob_span_from_literal_parts(&word.parts, source).or_else(|| {
+        if word_has_only_literal_parts(&word.parts) {
+            return find_extglob_bounds(word.span.slice(source).as_bytes()).map(|_| word.span);
+        }
+
+        let (surface, source_offsets) = word_surface_bytes(word, source)?;
+        let (start, end) = find_extglob_bounds(&surface)?;
+        word_surface_span_from_bounds(word, source, &source_offsets, start, end)
     })
+}
+
+pub fn word_exactly_one_extglob_span(word: &Word, source: &str) -> Option<Span> {
+    word_exactly_one_extglob_span_from_literal_parts(&word.parts, source).or_else(|| {
+        if word_has_only_literal_parts(&word.parts) {
+            return find_exactly_one_extglob_bounds(word.span.slice(source).as_bytes())
+                .map(|_| word.span);
+        }
+
+        let (surface, source_offsets) = word_surface_bytes(word, source)?;
+        let (start, end) = find_exactly_one_extglob_bounds(&surface)?;
+        word_surface_span_from_bounds(word, source, &source_offsets, start, end)
+    })
+}
+
+pub fn conditional_exactly_one_extglob_span(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> Option<Span> {
+    match expression {
+        ConditionalExpr::Binary(expr) => conditional_exactly_one_extglob_span(&expr.left, source)
+            .or_else(|| conditional_exactly_one_extglob_span(&expr.right, source)),
+        ConditionalExpr::Unary(expr) => conditional_exactly_one_extglob_span(&expr.expr, source),
+        ConditionalExpr::Parenthesized(expr) => {
+            conditional_exactly_one_extglob_span(&expr.expr, source)
+        }
+        ConditionalExpr::Pattern(pattern) => pattern_exactly_one_extglob_span(pattern, source),
+        ConditionalExpr::Word(_) | ConditionalExpr::Regex(_) | ConditionalExpr::VarRef(_) => None,
+    }
+}
+
+pub fn text_looks_like_caret_negated_bracket(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'['
+            || byte_is_backslash_escaped(bytes, index)
+            || bytes[index + 1] != b'^'
+            || byte_is_backslash_escaped(bytes, index + 1)
+        {
+            index += 1;
+            continue;
+        }
+
+        for close in index + 2..bytes.len() {
+            if bytes[close] == b']' && !byte_is_backslash_escaped(bytes, close) {
+                return true;
+            }
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+pub fn word_caret_negated_bracket_spans(word: &Word, source: &str) -> Vec<Span> {
+    if word_has_only_literal_parts(&word.parts) {
+        let spans = word_caret_negated_bracket_spans_from_literal_parts(&word.parts, source);
+        if !spans.is_empty() {
+            return spans;
+        }
+
+        let text = word.span.slice(source);
+        return find_caret_negated_bracket_bounds(text.as_bytes())
+            .into_iter()
+            .map(|(start, end)| {
+                Span::from_positions(
+                    word.span.start.advanced_by(&text[..start]),
+                    word.span.start.advanced_by(&text[..end + 1]),
+                )
+            })
+            .collect();
+    }
+
+    let Some((surface, source_offsets)) = word_surface_bytes(word, source) else {
+        return Vec::new();
+    };
+
+    find_caret_negated_bracket_bounds(&surface)
+        .into_iter()
+        .filter_map(|(start, end)| {
+            word_surface_span_from_bounds(word, source, &source_offsets, start, end)
+        })
+        .collect()
 }
 
 fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
@@ -645,15 +731,26 @@ fn var_ref_subscript_span(reference: &VarRef) -> Option<Span> {
         .map(|_| reference.span)
 }
 
-fn word_extglob_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<Span> {
-    for part in parts {
+fn word_surface_bytes(word: &Word, source: &str) -> Option<(Vec<u8>, Vec<Option<usize>>)> {
+    if word.has_quoted_parts() {
+        return None;
+    }
+
+    let word_start = word.span.start.offset;
+    let mut surface = Vec::new();
+    let mut source_offsets = Vec::new();
+
+    for part in &word.parts {
         match &part.kind {
             WordPart::Literal(_) => {
-                if text_looks_like_extglob(part.span.slice(source)) {
-                    return Some(part.span);
+                let part_text = part.span.slice(source);
+                let relative_start = part.span.start.offset.checked_sub(word_start)?;
+                for (index, byte) in part_text.as_bytes().iter().copied().enumerate() {
+                    surface.push(byte);
+                    source_offsets.push(Some(relative_start + index));
                 }
             }
-            WordPart::DoubleQuoted { .. } | WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { .. } | WordPart::SingleQuoted { .. } => return None,
             WordPart::ZshQualifiedGlob(_)
             | WordPart::Variable(_)
             | WordPart::CommandSubstitution { .. }
@@ -669,7 +766,111 @@ fn word_extglob_span_from_parts(parts: &[WordPartNode], source: &str) -> Option<
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
-            | WordPart::Transformation { .. } => {}
+            | WordPart::Transformation { .. } => {
+                surface.push(b'_');
+                source_offsets.push(None);
+            }
+        }
+    }
+
+    Some((surface, source_offsets))
+}
+
+fn word_extglob_span_from_literal_parts(parts: &[WordPartNode], source: &str) -> Option<Span> {
+    for part in parts {
+        if matches!(part.kind, WordPart::Literal(_))
+            && find_extglob_bounds(part.span.slice(source).as_bytes()).is_some()
+        {
+            return Some(part.span);
+        }
+    }
+
+    None
+}
+
+fn word_exactly_one_extglob_span_from_literal_parts(
+    parts: &[WordPartNode],
+    source: &str,
+) -> Option<Span> {
+    for part in parts {
+        if matches!(part.kind, WordPart::Literal(_))
+            && find_exactly_one_extglob_bounds(part.span.slice(source).as_bytes()).is_some()
+        {
+            return Some(part.span);
+        }
+    }
+
+    None
+}
+
+fn word_caret_negated_bracket_spans_from_literal_parts(
+    parts: &[WordPartNode],
+    source: &str,
+) -> Vec<Span> {
+    parts
+        .iter()
+        .filter(|part| matches!(part.kind, WordPart::Literal(_)))
+        .flat_map(|part| {
+            let text = part.span.slice(source);
+            find_caret_negated_bracket_bounds(text.as_bytes())
+                .into_iter()
+                .map(move |(start, end)| {
+                    Span::from_positions(
+                        part.span.start.advanced_by(&text[..start]),
+                        part.span.start.advanced_by(&text[..end + 1]),
+                    )
+                })
+        })
+        .collect()
+}
+
+fn word_surface_span_from_bounds(
+    word: &Word,
+    source: &str,
+    source_offsets: &[Option<usize>],
+    start: usize,
+    end: usize,
+) -> Option<Span> {
+    let start_offset = source_offsets.get(start).copied().flatten()?;
+    let end_offset = source_offsets.get(end).copied().flatten()?;
+    let word_text = word.span.slice(source);
+
+    Some(Span::from_positions(
+        word.span.start.advanced_by(&word_text[..start_offset]),
+        word.span.start.advanced_by(&word_text[..end_offset + 1]),
+    ))
+}
+
+fn word_has_only_literal_parts(parts: &[WordPartNode]) -> bool {
+    parts
+        .iter()
+        .all(|part| matches!(part.kind, WordPart::Literal(_)))
+}
+
+fn pattern_exactly_one_extglob_span(pattern: &Pattern, source: &str) -> Option<Span> {
+    for part in &pattern.parts {
+        match &part.kind {
+            PatternPart::Group { kind, patterns } => {
+                if *kind == PatternGroupKind::ExactlyOne {
+                    return Some(part.span);
+                }
+
+                if let Some(span) = patterns
+                    .iter()
+                    .find_map(|pattern| pattern_exactly_one_extglob_span(pattern, source))
+                {
+                    return Some(span);
+                }
+            }
+            PatternPart::Word(word) => {
+                if let Some(span) = word_exactly_one_extglob_span(word, source) {
+                    return Some(span);
+                }
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
         }
     }
 
@@ -726,30 +927,7 @@ fn text_has_variable_subscript(text: &str) -> bool {
     false
 }
 
-fn text_looks_like_extglob(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    if text_has_parenthesized_alternation(bytes) {
-        return true;
-    }
-
-    let mut index = 0usize;
-
-    while index + 1 < bytes.len() {
-        if !is_extglob_operator(bytes[index])
-            || bytes[index + 1] != b'('
-            || byte_is_backslash_escaped(bytes, index)
-        {
-            index += 1;
-            continue;
-        }
-
-        return matching_group_end(bytes, index + 1).is_some();
-    }
-
-    false
-}
-
-fn text_has_parenthesized_alternation(bytes: &[u8]) -> bool {
+fn find_parenthesized_alternation_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
     let mut index = 0usize;
 
     while index < bytes.len() {
@@ -770,13 +948,87 @@ fn text_has_parenthesized_alternation(bytes: &[u8]) -> bool {
                 *byte == b'|' && !byte_is_backslash_escaped(bytes, index + 1 + offset)
             })
         {
-            return true;
+            return Some((index, close));
         }
 
         index = close + 1;
     }
 
-    false
+    None
+}
+
+fn find_extglob_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
+    let mut index = 0usize;
+    while index + 1 < bytes.len() {
+        if !is_extglob_operator(bytes[index])
+            || bytes[index + 1] != b'('
+            || byte_is_backslash_escaped(bytes, index)
+        {
+            index += 1;
+            continue;
+        }
+
+        if let Some(close) = matching_group_end(bytes, index + 1) {
+            return Some((index, close));
+        }
+
+        index += 1;
+    }
+
+    find_parenthesized_alternation_bounds(bytes)
+}
+
+fn find_exactly_one_extglob_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
+    let mut index = 0usize;
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'@'
+            || bytes[index + 1] != b'('
+            || byte_is_backslash_escaped(bytes, index)
+        {
+            index += 1;
+            continue;
+        }
+
+        if let Some(close) = matching_group_end(bytes, index + 1) {
+            return Some((index, close));
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn find_caret_negated_bracket_bounds(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'['
+            || byte_is_backslash_escaped(bytes, index)
+            || bytes[index + 1] != b'^'
+            || byte_is_backslash_escaped(bytes, index + 1)
+        {
+            index += 1;
+            continue;
+        }
+
+        let mut close = index + 2;
+        while close < bytes.len() {
+            if bytes[close] == b']' && !byte_is_backslash_escaped(bytes, close) {
+                spans.push((index, close));
+                index = close + 1;
+                break;
+            }
+            close += 1;
+        }
+
+        if close >= bytes.len() {
+            break;
+        }
+    }
+
+    spans
 }
 
 fn matching_group_end(bytes: &[u8], open_index: usize) -> Option<usize> {
@@ -865,7 +1117,9 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        array_expansion_part_spans, command_substitution_part_spans, scalar_expansion_part_spans,
+        array_expansion_part_spans, command_substitution_part_spans, find_extglob_bounds,
+        scalar_expansion_part_spans, word_caret_negated_bracket_spans,
+        word_exactly_one_extglob_span,
     };
 
     #[test]
@@ -972,6 +1226,63 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["${assoc[\"key\"]}"]
         );
+    }
+
+    #[test]
+    fn word_exactly_one_extglob_span_tracks_mixed_parts() {
+        let source = "echo @($choice|bar)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let span = word_exactly_one_extglob_span(&command.args[0], source)
+            .expect("expected mixed-part extglob span");
+        assert_eq!(span.slice(source), "@($choice|bar)");
+    }
+
+    #[test]
+    fn find_extglob_bounds_detects_parenthesized_alternation() {
+        assert_eq!(find_extglob_bounds(b"(foo|bar)*"), Some((0, 8)));
+    }
+
+    #[test]
+    fn word_exactly_one_extglob_span_ignores_nested_command_source_text() {
+        let source = "echo $(printf '@(foo|bar)')\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(word_exactly_one_extglob_span(&command.args[0], source).is_none());
+    }
+
+    #[test]
+    fn word_caret_negated_bracket_spans_track_mixed_parts() {
+        let source = "echo [^$chars]*\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = word_caret_negated_bracket_spans(&command.args[0], source);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].slice(source), "[^$chars]");
+    }
+
+    #[test]
+    fn word_caret_negated_bracket_spans_ignore_nested_command_source_text() {
+        let source = "echo $(printf '[^a]*')\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(word_caret_negated_bracket_spans(&command.args[0], source).is_empty());
     }
 
     #[test]

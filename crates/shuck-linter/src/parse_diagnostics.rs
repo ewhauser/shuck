@@ -1,4 +1,6 @@
-use shuck_ast::{Command, CompoundCommand, File, IfSyntax, Position, Span};
+use shuck_ast::{
+    Command, CompoundCommand, File, IfSyntax, PatternGroupKind, PatternPart, Position, Span,
+};
 use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDialect};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
@@ -7,7 +9,30 @@ use crate::rules::correctness::missing_fi::MissingFi;
 use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
-use crate::{Diagnostic, RuleSet, ShellDialect};
+use crate::{Diagnostic, Rule, RuleSet, ShellDialect, Violation};
+
+pub struct ExtglobCase;
+pub struct ExtglobInCasePattern;
+
+impl Violation for ExtglobCase {
+    fn rule() -> Rule {
+        Rule::ExtglobCase
+    }
+
+    fn message(&self) -> String {
+        "grouped case patterns are not portable to POSIX sh".to_owned()
+    }
+}
+
+impl Violation for ExtglobInCasePattern {
+    fn rule() -> Rule {
+        Rule::ExtglobInCasePattern
+    }
+
+    fn message(&self) -> String {
+        "extended glob alternation in a case pattern is not portable to POSIX sh".to_owned()
+    }
+}
 
 pub(crate) fn collect_parse_rule_diagnostics(
     file: &File,
@@ -45,12 +70,36 @@ pub(crate) fn collect_parse_rule_diagnostics(
             diagnostics.push(Diagnostic::new(ZshAlwaysBlock, span));
         }
     }
+    if enabled_rules.contains(crate::Rule::ExtglobCase) && is_x037_shell(shell) {
+        for span in zsh_case_leading_group_spans(source) {
+            diagnostics.push(Diagnostic::new(ExtglobCase, span));
+        }
+    }
+    if enabled_rules.contains(crate::Rule::ExtglobInCasePattern) && is_x048_shell(shell) {
+        for span in zsh_case_embedded_group_spans(source) {
+            diagnostics.push(Diagnostic::new(ExtglobInCasePattern, span));
+        }
+    }
 
     diagnostics
 }
 
 fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
+}
+
+fn is_x037_shell(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+    )
+}
+
+fn is_x048_shell(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+    )
 }
 
 fn eof_point(file: &File) -> Span {
@@ -111,6 +160,59 @@ fn zsh_always_block_spans(source: &str) -> Vec<Span> {
             )
             .or(Some(visit.stmt.span))
         })
+        .collect()
+}
+
+fn zsh_case_group_spans(source: &str) -> Vec<(usize, Span)> {
+    let parsed = Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered();
+
+    query::iter_commands(&parsed.file.body, CommandWalkOptions::default())
+        .flat_map(|visit| {
+            let Command::Compound(CompoundCommand::Case(command)) = visit.command else {
+                return Vec::new();
+            };
+
+            command
+                .cases
+                .iter()
+                .flat_map(|case| {
+                    case.patterns.iter().flat_map(|pattern| {
+                        pattern
+                            .parts
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(index, part)| match &part.kind {
+                                PatternPart::Group {
+                                    kind: PatternGroupKind::ExactlyOne,
+                                    ..
+                                } if part.span.slice(source).starts_with('(') => {
+                                    Some((index, part.span))
+                                }
+                                PatternPart::Word(_)
+                                | PatternPart::Literal(_)
+                                | PatternPart::AnyString
+                                | PatternPart::AnyChar
+                                | PatternPart::CharClass(_)
+                                | PatternPart::Group { .. } => None,
+                            })
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn zsh_case_leading_group_spans(source: &str) -> Vec<Span> {
+    zsh_case_group_spans(source)
+        .into_iter()
+        .filter_map(|(index, span)| (index == 0).then_some(span))
+        .collect()
+}
+
+fn zsh_case_embedded_group_spans(source: &str) -> Vec<Span> {
+    zsh_case_group_spans(source)
+        .into_iter()
+        .filter_map(|(index, span)| (index > 0).then_some(span))
         .collect()
 }
 
@@ -356,6 +458,82 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::ZshAlwaysBlock);
         assert_eq!(diagnostics[0].span.slice(source), "always");
+    }
+
+    #[test]
+    fn maps_zsh_case_group_recovery_to_x037() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "case \"$OSTYPE\" in\n",
+            "  (darwin|freebsd)*) print ok ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::ExtglobCase);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobCase);
+        assert_eq!(diagnostics[0].span.slice(source), "(darwin|freebsd)");
+    }
+
+    #[test]
+    fn maps_zsh_case_group_recovery_to_x037_for_bash_and_ksh_targets() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "case \"$OSTYPE\" in\n",
+            "  (darwin|freebsd)*) print ok ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::ExtglobCase);
+
+        for shell in [ShellDialect::Bash, ShellDialect::Ksh] {
+            let diagnostics = collect_parse_rule_diagnostics(
+                &recovered.file,
+                source,
+                &recovered.diagnostics,
+                &settings.rules,
+                shell,
+            );
+
+            assert_eq!(
+                diagnostics.len(),
+                1,
+                "expected one diagnostic for {shell:?}"
+            );
+            assert_eq!(diagnostics[0].rule, Rule::ExtglobCase);
+            assert_eq!(diagnostics[0].span.slice(source), "(darwin|freebsd)");
+        }
+    }
+
+    #[test]
+    fn maps_embedded_zsh_case_group_recovery_to_x048() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "case \"$x\" in\n",
+            "  foo_(a|b)_*) echo match ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::ExtglobInCasePattern);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInCasePattern);
+        assert_eq!(diagnostics[0].span.slice(source), "(a|b)");
     }
 
     #[test]
