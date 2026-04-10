@@ -70,20 +70,20 @@ pub(crate) fn collect_parse_rule_diagnostics(
     {
         diagnostics.push(Diagnostic::new(MissingDoneInForLoop, eof_point(file)));
     }
-    if enabled_rules.contains(crate::Rule::DanglingElse) {
-        if let Some(span) = dangling_else_span(parse_diagnostics) {
-            diagnostics.push(Diagnostic::new(DanglingElse, span));
-        }
+    if enabled_rules.contains(crate::Rule::DanglingElse)
+        && let Some(span) = dangling_else_span(parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(DanglingElse, span));
     }
-    if enabled_rules.contains(crate::Rule::UntilMissingDo) {
-        if let Some(span) = until_missing_do_span(source, parse_diagnostics) {
-            diagnostics.push(Diagnostic::new(UntilMissingDo, span));
-        }
+    if enabled_rules.contains(crate::Rule::UntilMissingDo)
+        && let Some(span) = until_missing_do_span(source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(UntilMissingDo, span));
     }
-    if enabled_rules.contains(crate::Rule::IfBracketGlued) {
-        if let Some(span) = if_bracket_glued_span(source, parse_diagnostics) {
-            diagnostics.push(Diagnostic::new(IfBracketGlued, span));
-        }
+    if enabled_rules.contains(crate::Rule::IfBracketGlued)
+        && let Some(span) = if_bracket_glued_span(source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(IfBracketGlued, span));
     }
     if enabled_rules.contains(crate::Rule::LinebreakBeforeAnd) {
         for span in linebreak_before_and_spans(source, parse_diagnostics) {
@@ -258,7 +258,7 @@ fn is_done_line(source: &str, line_number: usize) -> bool {
     line_text_at(source, line_number)
         .map(|line| {
             let text = line.split_once('#').map_or(line, |(before, _)| before);
-            shell_like_words(text).iter().any(|word| *word == "done")
+            shell_like_words(text).contains(&"done")
         })
         .unwrap_or(false)
 }
@@ -276,16 +276,24 @@ fn has_pending_until_without_do_before_line(source: &str, line_number: usize) ->
         }
 
         let text = line.split_once('#').map_or(line, |(before, _)| before);
-        for word in shell_like_words(text) {
-            match word {
-                "until" => pending_until_depth += 1,
-                "do" | "done" if pending_until_depth > 0 => pending_until_depth -= 1,
-                _ => {}
-            }
+        if line_has_command_leading_word(text, "until") {
+            pending_until_depth += 1;
+        }
+        if pending_until_depth > 0
+            && (line_has_command_leading_word(text, "do")
+                || line_has_command_leading_word(text, "done"))
+        {
+            pending_until_depth -= 1;
         }
     }
 
     pending_until_depth > 0
+}
+
+fn line_has_command_leading_word(line: &str, word: &str) -> bool {
+    line.split([';', '|', '&'])
+        .filter_map(|segment| shell_like_words(segment.trim_start()).into_iter().next())
+        .any(|candidate| candidate == word)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,9 +361,9 @@ fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
             continue;
         }
 
-        let has_do = words.iter().any(|word| *word == "do");
+        let has_do = words.contains(&"do");
         if has_do {
-            if words.iter().any(|word| *word == "for") {
+            if words.contains(&"for") {
                 loop_stack.push(true);
             } else if words.iter().any(|word| matches!(*word, "while" | "until")) {
                 loop_stack.push(false);
@@ -779,6 +787,22 @@ mod tests {
     #[test]
     fn ignores_non_until_expected_command_parse_errors_for_c146() {
         let source = "#!/bin/sh\nwhile :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_plain_until_word_before_done_for_c146() {
+        let source = "#!/bin/sh\necho until\ndone\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(

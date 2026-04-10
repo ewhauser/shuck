@@ -56,6 +56,18 @@ fi
     }
 
     #[test]
+    fn reports_literal_braces_for_non_find_exec_forms() {
+        let source = "\
+#!/bin/bash
+echo {} +
+myfind -exec echo {} \\;
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert_eq!(diagnostics.len(), 4);
+    }
+
+    #[test]
     fn reports_escaped_dollar_literal_braces() {
         let source = "\
 #!/bin/bash

@@ -22,8 +22,8 @@ pub mod empty_function_body;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
-pub mod if_missing_then;
 pub mod if_bracket_glued;
+pub mod if_missing_then;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
@@ -60,8 +60,8 @@ pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unreachable_after_exit;
-pub mod untracked_source_file;
 pub mod until_missing_do;
+pub mod untracked_source_file;
 pub mod unused_assignment;
 
 #[cfg(test)]

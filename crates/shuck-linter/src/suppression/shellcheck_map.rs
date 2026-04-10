@@ -66,7 +66,7 @@ impl ShellCheckCodeMap {
             return vec![Rule::UnicodeQuoteInString];
         }
         if number == 1126 {
-            return Some(Rule::TrailingDirective);
+            return vec![Rule::TrailingDirective];
         }
         if number == 2385 {
             return vec![Rule::UnicodeSingleQuoteInSingleQuotes];

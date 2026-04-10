@@ -2536,8 +2536,9 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
         .iter()
         .filter_map(|&line_start_offset| {
             let line = line_index.line_number(line_start_offset);
-            let line_text = line_index.line_range(line, source)?.slice(source);
-            if !line_text.trim_end().ends_with('\\') {
+            let previous_line = line.checked_sub(1)?;
+            let previous_line_text = line_index.line_range(previous_line, source)?.slice(source);
+            if continued_comment_line_is_safe(previous_line_text) {
                 return None;
             }
             let comment = comment_index
@@ -2560,6 +2561,15 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
             Some(Span::from_positions(start, end))
         })
         .collect()
+}
+
+fn continued_comment_line_is_safe(previous_line_text: &str) -> bool {
+    let text = previous_line_text
+        .trim_end()
+        .strip_suffix('\\')
+        .unwrap_or(previous_line_text.trim_end())
+        .trim_end();
+    matches!(text.chars().last(), Some('|')) || text.ends_with("&&") || text.ends_with("||")
 }
 
 fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
@@ -2660,26 +2670,98 @@ fn is_find_exec_placeholder(
         return false;
     }
 
-    let has_exec_terminator = command
-        .body_args()
-        .iter()
-        .any(|arg| matches!(arg.span.slice(source), "+" | "\\;"));
-    if has_exec_terminator {
-        return true;
+    commands.iter().any(|command| {
+        command.stmt().span.start.offset <= brace_span.start.offset
+            && command.stmt().span.end.offset >= brace_span.end.offset
+            && is_find_exec_command(command, source)
+    }) || line_has_find_exec_placeholder_context(source, brace_span)
+}
+
+fn is_find_exec_command(command: &CommandFact<'_>, source: &str) -> bool {
+    let is_find = command.static_utility_name_is("find")
+        || command.body_name_word().is_some_and(|name_word| {
+            name_word
+                .span
+                .slice(source)
+                .rsplit('/')
+                .next()
+                .is_some_and(|name| name == "find")
+        });
+    if !is_find {
+        return false;
     }
 
-    let is_find = command.static_utility_name_is("find")
-        || command
-            .body_name_word()
-            .is_some_and(|name_word| name_word.span.slice(source).ends_with("find"));
     let has_exec_flag = command.body_args().iter().any(|arg| {
         matches!(
             arg.span.slice(source),
             "-exec" | "-execdir" | "-ok" | "-okdir"
         )
     });
+    let has_exec_terminator = command
+        .body_args()
+        .iter()
+        .any(|arg| matches!(arg.span.slice(source), "+" | "\\;"));
 
-    is_find && has_exec_flag
+    has_exec_flag && has_exec_terminator
+}
+
+fn line_has_find_exec_placeholder_context(source: &str, brace_span: Span) -> bool {
+    let Some(line_text) = source.lines().nth(brace_span.start.line.saturating_sub(1)) else {
+        return false;
+    };
+    let line_start_offset = source
+        .lines()
+        .take(brace_span.start.line.saturating_sub(1))
+        .map(|line| line.len() + '\n'.len_utf8())
+        .sum::<usize>();
+    let Some(relative_start) = brace_span.start.offset.checked_sub(line_start_offset) else {
+        return false;
+    };
+    let Some(relative_end) = brace_span.end.offset.checked_sub(line_start_offset) else {
+        return false;
+    };
+    if relative_end > line_text.len() {
+        return false;
+    }
+
+    let prefix = &line_text[..relative_start];
+    let suffix = &line_text[relative_end..];
+    let first_word = shellish_words(prefix).into_iter().next();
+    let has_exec_flag_before = shellish_words(prefix)
+        .into_iter()
+        .any(|word| matches!(word, "-exec" | "-execdir" | "-ok" | "-okdir"));
+    let has_exec_terminator_after = shellish_words(suffix)
+        .into_iter()
+        .any(|word| matches!(word, "+" | "\\;"));
+
+    first_word
+        .and_then(|word| word.rsplit('/').next())
+        .is_some_and(|word| word == "find")
+        && has_exec_flag_before
+        && has_exec_terminator_after
+}
+
+fn shellish_words(text: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = None;
+
+    for (index, ch) in text.char_indices() {
+        let is_word =
+            ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '+' | '/' | '\\' | ';' | '.');
+        if is_word {
+            if start.is_none() {
+                start = Some(index);
+            }
+        } else if let Some(word_start) = start.take() {
+            words.push(&text[word_start..index]);
+        }
+    }
+
+    if let Some(word_start) = start {
+        words.push(&text[word_start..]);
+    }
+
+    words
 }
 
 fn brace_literal_edge_spans(span: Span, source: &str) -> Vec<Span> {
@@ -2808,15 +2890,13 @@ fn escaped_parameter_expansion_brace_edge_spans(word: &Word, source: &str) -> Ve
             });
         } else if ch == '}'
             && let Some(candidate) = literal_stack.pop()
+            && index > candidate.open_offset + 1
+            && (candidate.after_escaped_dollar || candidate.has_runtime_shell_sigil_inside)
         {
-            if index > candidate.open_offset + 1
-                && (candidate.after_escaped_dollar || candidate.has_runtime_shell_sigil_inside)
-            {
-                let open = span.start.advanced_by(&text[..candidate.open_offset]);
-                let close = span.start.advanced_by(&text[..index]);
-                spans.push(Span::from_positions(open, open));
-                spans.push(Span::from_positions(close, close));
-            }
+            let open = span.start.advanced_by(&text[..candidate.open_offset]);
+            let close = span.start.advanced_by(&text[..index]);
+            spans.push(Span::from_positions(open, open));
+            spans.push(Span::from_positions(close, close));
         }
 
         previous_char = Some(ch);

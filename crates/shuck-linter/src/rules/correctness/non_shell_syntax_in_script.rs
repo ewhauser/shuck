@@ -30,7 +30,10 @@ pub fn non_shell_syntax_in_script(checker: &mut Checker) {
     checker.report_all_dedup(spans, || NonShellSyntaxInScript);
 }
 
-fn non_shell_syntax_span(command: &crate::CommandFact<'_>, source: &str) -> Option<shuck_ast::Span> {
+fn non_shell_syntax_span(
+    command: &crate::CommandFact<'_>,
+    source: &str,
+) -> Option<shuck_ast::Span> {
     if command.stmt().terminator != Some(StmtTerminator::Semicolon) {
         return None;
     }
