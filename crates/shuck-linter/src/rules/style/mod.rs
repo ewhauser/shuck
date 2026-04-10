@@ -10,6 +10,7 @@ pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod ifs_equals_ambiguity;
+pub mod heredoc_end_space;
 pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
 pub mod linebreak_before_and;
@@ -62,6 +63,7 @@ mod tests {
     #[test_case(Rule::IfsEqualsAmbiguity, Path::new("S042.sh"))]
     #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
     #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
+    #[test_case(Rule::HeredocEndSpace, Path::new("S030.sh"))]
     #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]
     #[test_case(Rule::LinebreakBeforeAnd, Path::new("S072.sh"))]
     #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]

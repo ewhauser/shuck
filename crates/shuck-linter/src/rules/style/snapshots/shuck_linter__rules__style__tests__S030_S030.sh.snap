@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+assertion_line: 74
+---
+S030 remove trailing whitespace after this here-document terminator
+ --> <source>:4:4
+  |
+4 | EOF 
+  |
+
+S030 remove trailing whitespace after this here-document terminator
+ --> <source>:9:4
+  |
+9 | TAG  
+  |

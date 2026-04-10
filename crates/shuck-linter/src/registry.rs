@@ -321,6 +321,7 @@ declare_rules! {
     ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
     ("S028", Category::Style, Severity::Warning, SuspectClosingQuote),
     ("S029", Category::Style, Severity::Warning, LiteralBraces),
+    ("S030", Category::Style, Severity::Warning, HeredocEndSpace),
     ("S031", Category::Style, Severity::Warning, TrailingDirective),
     (
         "S039",
@@ -429,6 +430,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-114" => Some(Rule::SuspectClosingQuote),
         "SH-115" => Some(Rule::LinebreakInTest),
         "SH-116" => Some(Rule::LiteralBraces),
+        "SH-119" => Some(Rule::HeredocEndSpace),
         "SH-120" => Some(Rule::TrailingDirective),
         "SH-329" => Some(Rule::LinebreakBeforeAnd),
         "SH-335" => Some(Rule::AmpersandSemicolon),
@@ -634,6 +636,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-114"), Some(Rule::SuspectClosingQuote));
         assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
+        assert_eq!(code_to_rule("S030"), Some(Rule::HeredocEndSpace));
+        assert_eq!(code_to_rule("SH-119"), Some(Rule::HeredocEndSpace));
         assert_eq!(code_to_rule("S031"), Some(Rule::TrailingDirective));
         assert_eq!(code_to_rule("SH-120"), Some(Rule::TrailingDirective));
         assert_eq!(code_to_rule("S072"), Some(Rule::LinebreakBeforeAnd));

@@ -493,6 +493,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::MisquotedHeredocClose) {
             rules::correctness::misquoted_heredoc_close::misquoted_heredoc_close(self);
         }
+        if self.is_rule_enabled(Rule::HeredocEndSpace) {
+            rules::style::heredoc_end_space::heredoc_end_space(self);
+        }
     }
 
     fn check_surface_fragment_facts(&mut self) {
