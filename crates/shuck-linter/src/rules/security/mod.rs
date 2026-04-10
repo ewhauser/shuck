@@ -1,3 +1,4 @@
+pub mod eval_on_array;
 pub mod rm_glob_on_variable_path;
 pub mod ssh_local_expansion;
 
@@ -12,6 +13,7 @@ mod tests {
 
     #[test_case(Rule::RmGlobOnVariablePath, Path::new("K001.sh"))]
     #[test_case(Rule::SshLocalExpansion, Path::new("K002.sh"))]
+    #[test_case(Rule::EvalOnArray, Path::new("K003.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

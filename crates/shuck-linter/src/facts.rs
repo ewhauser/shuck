@@ -603,6 +603,7 @@ pub struct WordFact<'a> {
     has_literal_affixes: bool,
     scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
+    all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_array_expansion_spans: Box<[Span]>,
     command_substitution_spans: Box<[Span]>,
     unquoted_command_substitution_spans: Box<[Span]>,
@@ -675,6 +676,10 @@ impl<'a> WordFact<'a> {
 
     pub fn array_expansion_spans(&self) -> &[Span] {
         &self.array_expansion_spans
+    }
+
+    pub fn all_elements_array_expansion_spans(&self) -> &[Span] {
+        &self.all_elements_array_expansion_spans
     }
 
     pub fn unquoted_array_expansion_spans(&self) -> &[Span] {
@@ -3791,6 +3796,9 @@ impl<'a> WordFactCollector<'a> {
                 .into_boxed_slice(),
             array_expansion_spans: span::array_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
+            all_elements_array_expansion_spans:
+                span::all_elements_array_expansion_part_spans(word_ref, self.source)
+                    .into_boxed_slice(),
             unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(
                 word_ref,
                 self.source,
@@ -6698,4 +6706,5 @@ printf '%s\\n' $0 $1 $* $@
             assert!(argument_words.contains(&"$@".to_owned()));
         });
     }
+
 }

@@ -426,7 +426,7 @@ injection.
 
 - [x] **M** K001 (SC2115) `rm-glob-on-variable-path` — variable+glob in `rm -rf`
 - [x] **M** K002 (SC2029) `ssh-local-expansion` — ssh command expanded by local shell
-- [ ] **M** K003 (SC2249) `eval-on-array` — eval used to execute composed command text
+- [x] **M** K003 (SC2294) `eval-on-array` — eval used to execute composed command text
 - [ ] **M** K004 (SC2356) `find-execdir-with-shell` — find -execdir passes `{}` to shell
 
 ### Performance

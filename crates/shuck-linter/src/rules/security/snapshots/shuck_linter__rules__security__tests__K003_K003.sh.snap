@@ -1,0 +1,33 @@
+---
+source: crates/shuck-linter/src/rules/security/mod.rs
+assertion_line: 23
+---
+K003 array expansion passed to `eval` is reinterpreted as shell text
+ --> <source>:3:7
+  |
+3 | eval "${args[@]}"
+  |
+
+K003 array expansion passed to `eval` is reinterpreted as shell text
+ --> <source>:4:7
+  |
+4 | eval "$@"
+  |
+
+K003 array expansion passed to `eval` is reinterpreted as shell text
+ --> <source>:5:15
+  |
+5 | command eval "${args[@]}"
+  |
+
+K003 array expansion passed to `eval` is reinterpreted as shell text
+ --> <source>:6:15
+  |
+6 | builtin eval "${args[@]}"
+  |
+
+K003 array expansion passed to `eval` is reinterpreted as shell text
+ --> <source>:7:12
+  |
+7 | sudo eval "${args[@]}"
+  |
