@@ -291,6 +291,7 @@ declare_rules! {
     ("C145", Category::Correctness, Severity::Warning, MisquotedHeredocClose),
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
     ("C147", Category::Correctness, Severity::Warning, KeywordFunctionName),
+    ("C148", Category::Correctness, Severity::Warning, BrokenAssocKey),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
@@ -510,6 +511,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-308" => Some(Rule::VariableAsCommandName),
         "SH-311" => Some(Rule::ArrayToStringConversion),
         "SH-336" => Some(Rule::KeywordFunctionName),
+        "SH-337" => Some(Rule::BrokenAssocKey),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -941,6 +943,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-311"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
+        assert_eq!(code_to_rule("C148"), Some(Rule::BrokenAssocKey));
+        assert_eq!(code_to_rule("SH-337"), Some(Rule::BrokenAssocKey));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

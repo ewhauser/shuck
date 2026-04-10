@@ -16,9 +16,9 @@ mod surface;
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
-    ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, Assignment, AssignmentValue, BinaryCommand,
-    BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind, BuiltinCommand,
-    CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax, CompoundCommand,
+    ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
+    BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
+    BuiltinCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax, CompoundCommand,
     ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
     ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
     Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand, SimpleCommand,
@@ -1670,6 +1670,7 @@ pub struct LinterFacts<'a> {
     command_ids_by_span: CommandLookupIndex,
     elif_condition_command_ids: FxHashSet<CommandId>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
+    broken_assoc_key_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
@@ -1780,6 +1781,10 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn scalar_binding_values(&self) -> &FxHashMap<FactSpan, &'a Word> {
         &self.scalar_bindings
+    }
+
+    pub fn broken_assoc_key_spans(&self) -> &[Span] {
+        &self.broken_assoc_key_spans
     }
 
     pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
@@ -2091,6 +2096,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut structural_command_ids = Vec::new();
         let mut command_ids_by_span = CommandLookupIndex::default();
         let mut scalar_bindings = FxHashMap::default();
+        let mut broken_assoc_key_spans = Vec::new();
         let mut words = Vec::new();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
@@ -2115,6 +2121,7 @@ impl<'a> LinterFactsBuilder<'a> {
             });
 
             collect_scalar_bindings(visit.command, &mut scalar_bindings);
+            collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
             let normalized = command::normalize_command(visit.command, self.source);
             let nested_word_command = !structural_commands.contains(&key);
             if !nested_word_command {
@@ -2267,6 +2274,7 @@ impl<'a> LinterFactsBuilder<'a> {
             command_ids_by_span,
             elif_condition_command_ids,
             scalar_bindings,
+            broken_assoc_key_spans,
             presence_tested_names,
             subscript_index_reference_spans,
             words,
@@ -7992,6 +8000,94 @@ fn collect_scalar_bindings<'a>(
     }
 }
 
+fn collect_broken_assoc_key_spans(command: &Command, source: &str, spans: &mut Vec<Span>) {
+    for assignment in query::command_assignments(command) {
+        collect_broken_assoc_key_spans_in_assignment(assignment, source, spans);
+    }
+
+    for operand in query::declaration_operands(command) {
+        let DeclOperand::Assignment(assignment) = operand else {
+            continue;
+        };
+        collect_broken_assoc_key_spans_in_assignment(assignment, source, spans);
+    }
+}
+
+fn collect_broken_assoc_key_spans_in_assignment(
+    assignment: &Assignment,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        return;
+    };
+    if array.kind == ArrayKind::Indexed {
+        return;
+    }
+
+    for element in &array.elements {
+        let ArrayElem::Sequential(word) = element else {
+            continue;
+        };
+        if has_unclosed_assoc_key_prefix(word.span.slice(source)) {
+            spans.push(word.span);
+        }
+    }
+}
+
+fn has_unclosed_assoc_key_prefix(text: &str) -> bool {
+    if !text.starts_with('[') {
+        return false;
+    }
+
+    let mut bracket_depth = 0_i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut saw_equals = false;
+
+    for ch in text.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !in_single => {
+                escaped = true;
+                continue;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+                continue;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                continue;
+            }
+            _ => {}
+        }
+
+        if in_single || in_double {
+            continue;
+        }
+
+        match ch {
+            '[' => bracket_depth += 1,
+            ']' if bracket_depth > 0 => {
+                bracket_depth -= 1;
+                if bracket_depth == 0 {
+                    return false;
+                }
+            }
+            '=' if bracket_depth > 0 => saw_equals = true,
+            _ => {}
+        }
+    }
+
+    saw_equals
+}
+
 fn command_span(command: &Command) -> Span {
     match command {
         Command::Simple(command) => command.span,
@@ -8311,6 +8407,25 @@ complex[$((i+=1))]+=x
                 vec!["x", "arr", "r", "index[1+2]", "complex[$((i+=1))]"]
             );
         });
+    }
+
+    #[test]
+    fn collects_broken_assoc_key_spans_from_compound_array_assignments() {
+        let source = "#!/bin/bash\ndeclare -A table=([left]=1 [right=2)\nother=([ok]=1 [broken=2)\ndeclare -a nums=([0]=1 [1=2)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert_eq!(
+            facts
+                .broken_assoc_key_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["[right=2", "[broken=2"]
+        );
     }
 
     #[test]

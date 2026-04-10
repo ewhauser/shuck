@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C148 associative array keys in compound assignments need a closing `]` before `=`
+ --> <source>:4:28
+  |
+4 | declare -A table=([left]=1 [right=2)
+  |

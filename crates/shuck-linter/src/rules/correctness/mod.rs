@@ -8,6 +8,7 @@ pub mod bad_redirection_fd_order;
 pub mod bad_var_name;
 pub mod bare_closing_brace;
 pub mod bare_slash_marker;
+pub mod broken_assoc_key;
 mod broken_test_common;
 pub mod broken_test_end;
 pub mod broken_test_parse;
@@ -186,6 +187,7 @@ mod tests {
     #[test_case(Rule::MisquotedHeredocClose, Path::new("C145.sh"))]
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     #[test_case(Rule::KeywordFunctionName, Path::new("C147.sh"))]
+    #[test_case(Rule::BrokenAssocKey, Path::new("C148.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

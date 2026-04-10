@@ -335,6 +335,7 @@ impl Default for ShellCheckCodeMap {
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
+            (2399, Rule::BrokenAssocKey),
             (2392, Rule::LinebreakBeforeAnd),
             (2396, Rule::UntilMissingDo),
             (2397, Rule::AmpersandSemicolon),
@@ -551,6 +552,7 @@ impl Default for ShellCheckCodeMap {
                     (3075, Rule::ErrexitTrapInSh),
                     (3076, Rule::SignalNameInTrap),
                     (2323, Rule::ArithmeticScoreLine),
+                    (2399, Rule::BrokenAssocKey),
                     (2336, Rule::AppendToArrayAsString),
                     (2339, Rule::MapfileProcessSubstitution),
                     (3051, Rule::SourceInsideFunctionInSh),
@@ -986,6 +988,7 @@ mod tests {
             map.resolve("SC2339"),
             Some(Rule::MapfileProcessSubstitution)
         );
+        assert_eq!(map.resolve("SC2399"), Some(Rule::BrokenAssocKey));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC2370"), Some(Rule::UnusedHeredoc));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
@@ -1220,6 +1223,7 @@ mod tests {
             (2086, Rule::UnquotedExpansion),
             (2146, Rule::FindOrWithoutGrouping),
             (2121, Rule::SetFlagsWithoutDashes),
+            (2399, Rule::BrokenAssocKey),
             (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2104, Rule::LoopControlOutsideLoop),
@@ -1302,6 +1306,7 @@ mod tests {
             (2120, Rule::FunctionCalledWithoutArgs),
             (2323, Rule::ArithmeticScoreLine),
             (2332, Rule::FindOrWithoutGrouping),
+            (2399, Rule::BrokenAssocKey),
             (2339, Rule::MapfileProcessSubstitution),
             (2324, Rule::SetFlagsWithoutDashes),
             (2333, Rule::NonShellSyntaxInScript),
@@ -1475,6 +1480,7 @@ mod tests {
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
+        assert!(comparison.contains(&(2399, Rule::BrokenAssocKey)));
         assert!(comparison.contains(&(2336, Rule::AppendToArrayAsString)));
         assert!(comparison.contains(&(2339, Rule::MapfileProcessSubstitution)));
         assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));

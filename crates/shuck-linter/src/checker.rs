@@ -156,6 +156,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArrayToStringConversion) {
             rules::correctness::array_to_string_conversion::array_to_string_conversion(self);
         }
+        if self.is_rule_enabled(Rule::BrokenAssocKey) {
+            rules::correctness::broken_assoc_key::broken_assoc_key(self);
+        }
     }
 
     fn check_references(&mut self) {
