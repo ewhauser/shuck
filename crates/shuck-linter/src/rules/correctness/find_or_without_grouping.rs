@@ -43,6 +43,18 @@ mod tests {
     }
 
     #[test]
+    fn reports_ungrouped_or_when_right_branch_is_action_only() {
+        let source = "find . -name a -o -print\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "-print");
+    }
+
+    #[test]
     fn reports_top_level_or_even_when_one_branch_uses_grouping() {
         let source = "find . \\( -name a \\) -o -name b -print\n";
         let diagnostics = test_snippet(

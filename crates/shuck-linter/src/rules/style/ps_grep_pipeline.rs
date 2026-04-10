@@ -102,6 +102,8 @@ ps aux | command grep foo
 ps aux | egrep foo
 ps aux | fgrep foo
 ps aux | awk '/foo/'
+ps aux -p 1 -o comm= | grep -q systemd
+ps ax -q 1 -o comm= | grep -q systemd
 ps -p 1 -o comm= | grep -q systemd
 ps p 123 -o comm= | grep -q systemd
 ps 1 | grep -q systemd
