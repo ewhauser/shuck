@@ -7113,7 +7113,7 @@ fn is_find_or_token(token: &str) -> bool {
 }
 
 fn is_find_and_token(token: &str) -> bool {
-    matches!(token, "-a" | "-and")
+    matches!(token, "-a" | "-and" | ",")
 }
 
 fn is_find_action_token(token: &str) -> bool {

@@ -29,6 +29,7 @@ pub fn ls_in_substitution(checker: &mut Checker) {
         .filter(|substitution| {
             substitution.kind() == CommandSubstitutionKind::Command
                 && substitution.body_contains_ls()
+                && substitution.stdout_is_captured()
         })
         .map(|substitution| substitution.span())
         .collect::<Vec<_>>();
@@ -61,6 +62,7 @@ LAYOUTS=\"$(ls layout.*.h | cut -d. -f2 | xargs echo)\"
         let source = "\
 #!/bin/sh
 plain=\"$(command ls)\"
+quiet=\"$(ls >/dev/null)\"
 empty=\"$(printf foo)\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LsInSubstitution));

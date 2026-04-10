@@ -112,4 +112,15 @@ find . -name a -o -name b -a -exec rm -f {} \\;
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_actions_after_find_comma_operator() {
+        let source = "find . -name a -o -name b , -print\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

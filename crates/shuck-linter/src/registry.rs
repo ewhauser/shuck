@@ -426,8 +426,10 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-197" => Some(Rule::DollarInArithmetic),
         "SH-198" => Some(Rule::LsPipedToXargs),
         "SH-202" => Some(Rule::DollarInArithmeticContext),
+        "SH-203" => Some(Rule::UnquotedTrRange),
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
+        "SH-208" => Some(Rule::UnquotedTrClass),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
         "SH-173" => Some(Rule::BackslashBeforeCommand),
@@ -523,9 +525,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
+        "SH-227" => Some(Rule::SuWithoutFlag),
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-229" => Some(Rule::SetFlagsWithoutDashes),
+        "SH-233" => Some(Rule::CommandSubstitutionInAlias),
+        "SH-235" => Some(Rule::FunctionInAlias),
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
@@ -642,8 +647,10 @@ mod tests {
             code_to_rule("SH-202"),
             Some(Rule::DollarInArithmeticContext)
         );
+        assert_eq!(code_to_rule("SH-203"), Some(Rule::UnquotedTrRange));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
+        assert_eq!(code_to_rule("SH-208"), Some(Rule::UnquotedTrClass));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(
             code_to_rule("S039"),
@@ -785,6 +792,7 @@ mod tests {
             code_to_rule("SH-224"),
             Some(Rule::AssignmentLooksLikeComparison)
         );
+        assert_eq!(code_to_rule("SH-227"), Some(Rule::SuWithoutFlag));
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
@@ -795,6 +803,11 @@ mod tests {
         );
         assert_eq!(code_to_rule("C098"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(code_to_rule("SH-229"), Some(Rule::SetFlagsWithoutDashes));
+        assert_eq!(
+            code_to_rule("SH-233"),
+            Some(Rule::CommandSubstitutionInAlias)
+        );
+        assert_eq!(code_to_rule("SH-235"), Some(Rule::FunctionInAlias));
         assert_eq!(code_to_rule("C103"), Some(Rule::FindOrWithoutGrouping));
         assert_eq!(code_to_rule("SH-237"), Some(Rule::FindOrWithoutGrouping));
         assert_eq!(code_to_rule("C109"), Some(Rule::MapfileProcessSubstitution));

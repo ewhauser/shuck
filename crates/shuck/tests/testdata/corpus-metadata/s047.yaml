@@ -1,4 +1,16 @@
 reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__appendtest"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__pyenv.d__rehash__conda.bash"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
   - side: shuck-only
     path_suffix: "acmesh-official__acme.sh__deploy__unifi.sh"
     reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
