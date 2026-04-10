@@ -239,7 +239,7 @@ contexts. Use word facts and expansion word facts.
 - [ ] **M** C105 (SC2334) `export-with-positional-params` — export with `$@`
 - [ ] **M** C111 (SC2344) `at-sign-in-string-compare` — `$@` in string comparison folds args
 - [ ] **M** C112 (SC2345) `array-slice-in-comparison` — array slice in string comparison
-- [ ] **M** S014 (SC2048) `unquoted-dollar-star` — `$*` without quotes
+- [x] **M** S014 (SC2048) `unquoted-dollar-star` — `$*` without quotes
 - [ ] **M** S015 (SC2066) `quoted-dollar-star-loop` — `"$*"` in loop turns args into one item
 - [ ] **M** S017 (SC2206) `unquoted-array-split` — unquoted value split into array
 - [ ] **M** S018 (SC2207) `command-output-array-split` — raw command output into array

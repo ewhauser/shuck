@@ -184,6 +184,12 @@ pub fn word_unquoted_star_parameter_spans(word: &Word, unquoted_array_spans: &[S
         .collect()
 }
 
+pub fn word_unquoted_star_splat_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_unquoted_star_splat_spans(&word.parts, false, &mut spans);
+    spans
+}
+
 pub fn word_zsh_flag_modifier_spans(word: &Word) -> Vec<Span> {
     word.parts
         .iter()
@@ -1506,6 +1512,51 @@ fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
     }
 }
 
+fn part_uses_star_splat(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "*",
+        WordPart::ArrayAccess(reference) => var_ref_uses_star_splat(reference),
+        WordPart::Parameter(parameter) => parameter_uses_star_splat(parameter),
+        _ => false,
+    }
+}
+
+fn var_ref_uses_star_splat(reference: &VarRef) -> bool {
+    reference.name.as_str() == "*"
+        || matches!(
+            reference
+                .subscript
+                .as_ref()
+                .and_then(|subscript| subscript.selector()),
+            Some(SubscriptSelector::Star)
+        )
+}
+
+fn parameter_uses_star_splat(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Slice { reference, .. } => var_ref_uses_star_splat(reference),
+        _ => false,
+    }
+}
+
+fn collect_unquoted_star_splat_spans(parts: &[WordPartNode], quoted: bool, spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unquoted_star_splat_spans(parts, true, spans);
+            }
+            _ if !quoted && part_uses_star_splat(&part.kind) => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_parser::parser::Parser;
@@ -1515,6 +1566,7 @@ mod tests {
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
+        word_unquoted_star_splat_spans,
     };
 
     #[test]
@@ -1895,6 +1947,30 @@ printf '%s\\n' ${#arr[@]} ${!arr[@]} ${name:-safe[@]} ${arr[@]}
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$*"]
+        );
+    }
+
+    #[test]
+    fn word_unquoted_star_splat_spans_tracks_star_selector_forms_only() {
+        let source = "\
+printf '%s\\n' $* ${*} ${*:1} ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr[0]} \"$*\" \"${arr[*]}\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(word_unquoted_star_splat_spans)
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans,
+            vec!["$*", "${*}", "${*:1}", "${arr[*]}", "${arr[*]:1:2}"]
         );
     }
 }

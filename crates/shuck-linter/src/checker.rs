@@ -431,6 +431,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedExpansion) {
             rules::style::unquoted_expansion::unquoted_expansion(self);
         }
+        if self.is_rule_enabled(Rule::UnquotedDollarStar) {
+            rules::style::unquoted_dollar_star::unquoted_dollar_star(self);
+        }
         if self.is_rule_enabled(Rule::EscapedUnderscore) {
             rules::style::escaped_underscore::escaped_underscore(self);
         }

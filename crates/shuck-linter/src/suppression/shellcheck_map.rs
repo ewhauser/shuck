@@ -242,6 +242,7 @@ impl Default for ShellCheckCodeMap {
             (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
+            (2048, Rule::UnquotedDollarStar),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
             (2352, Rule::DefaultElseInShortCircuit),
@@ -534,6 +535,7 @@ impl Default for ShellCheckCodeMap {
                     (2380, Rule::MisspelledOptionName),
                     (2045, Rule::LoopFromCommandOutput),
                     (2046, Rule::UnquotedCommandSubstitution),
+                    (2048, Rule::UnquotedDollarStar),
                     (2059, Rule::PrintfFormatVariable),
                     (2029, Rule::SshLocalExpansion),
                     (2352, Rule::DefaultElseInShortCircuit),
@@ -751,6 +753,8 @@ mod tests {
         assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
+        assert_eq!(map.resolve("2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -853,6 +857,8 @@ mod tests {
             map.resolve_all("SC2294"),
             vec![Rule::LsInSubstitution, Rule::EvalOnArray]
         );
+        assert_eq!(map.resolve_all("SC2048"), vec![Rule::UnquotedDollarStar]);
+        assert_eq!(map.resolve_all("2048"), vec![Rule::UnquotedDollarStar]);
         assert_eq!(map.resolve_all("SC2263"), vec![Rule::RedundantSpacesInEcho]);
         assert_eq!(
             map.resolve_all("SC3026"),
@@ -1003,6 +1009,7 @@ mod tests {
             map.resolve("SC2046"),
             Some(Rule::UnquotedCommandSubstitution)
         );
+        assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
         assert_eq!(
             map.resolve("SC2114"),
@@ -1347,6 +1354,7 @@ mod tests {
             (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
+            (2048, Rule::UnquotedDollarStar),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
             (2209, Rule::ConditionalAssignmentShortcut),
@@ -1637,6 +1645,7 @@ mod tests {
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
+        assert!(comparison.contains(&(2048, Rule::UnquotedDollarStar)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));

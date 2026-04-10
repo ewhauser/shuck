@@ -1,0 +1,15 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    line: 5
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This project-closure bootstrap fixture is shell-collapsed by the oracle, so SC2048 is not surfaced at this unquoted star-splat callsite."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 314
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This helper-library fixture falls into a project-closure path where the oracle does not emit SC2048 for this forwarding form, while shuck still reports the star-splat expansion."

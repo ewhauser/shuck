@@ -45,6 +45,7 @@ pub mod syntax;
 pub mod trailing_directive;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
+pub mod unquoted_dollar_star;
 pub mod unquoted_expansion;
 pub mod unquoted_tr_class;
 pub mod unquoted_tr_range;
@@ -77,6 +78,7 @@ mod tests {
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
+    #[test_case(Rule::UnquotedDollarStar, Path::new("S014.sh"))]
     #[test_case(Rule::SingleIterationLoop, Path::new("S020.sh"))]
     #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
