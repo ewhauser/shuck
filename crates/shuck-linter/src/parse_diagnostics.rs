@@ -5,6 +5,7 @@ use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDi
 
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
+use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_fi::MissingFi;
 use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
@@ -50,6 +51,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
     {
         diagnostics.push(Diagnostic::new(MissingFi, eof_point(file)));
     }
+    if enabled_rules.contains(crate::Rule::LoopWithoutEnd)
+        && has_loop_without_end_error(file, source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(LoopWithoutEnd, eof_point(file)));
+    }
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
         for diagnostic in parse_diagnostics {
@@ -88,6 +94,106 @@ fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
 }
 
+fn is_loop_without_end_error(message: &str) -> bool {
+    message.starts_with("expected 'done'")
+}
+
+fn has_loop_without_end_error(
+    file: &File,
+    source: &str,
+    parse_diagnostics: &[ParseDiagnostic],
+) -> bool {
+    if !parse_diagnostics
+        .iter()
+        .any(|diagnostic| is_loop_without_end_error(&diagnostic.message))
+    {
+        return false;
+    }
+
+    !missing_done_belongs_to_for_loop(file, source)
+}
+
+fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {
+    let eof_offset = file.span.end.offset;
+    let mut trailing_loop_kind = None;
+
+    for visit in query::iter_commands(&file.body, CommandWalkOptions::default()) {
+        if visit.stmt.span.end.offset != eof_offset {
+            continue;
+        }
+
+        let is_for_loop = match visit.command {
+            Command::Compound(CompoundCommand::For(_)) => true,
+            Command::Compound(CompoundCommand::While(_) | CompoundCommand::Until(_)) => false,
+            _ => continue,
+        };
+
+        let start_offset = visit.stmt.span.start.offset;
+        if trailing_loop_kind
+            .as_ref()
+            .is_none_or(|(best_start, _)| start_offset >= *best_start)
+        {
+            trailing_loop_kind = Some((start_offset, is_for_loop));
+        }
+    }
+
+    trailing_loop_kind
+        .map(|(_, is_for_loop)| is_for_loop)
+        .or_else(|| missing_done_loop_kind_from_source(source))
+        .unwrap_or(false)
+}
+
+fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
+    let mut loop_stack = Vec::new();
+
+    for line in source.lines() {
+        let text = line.split_once('#').map_or(line, |(before, _)| before);
+        let words = shell_like_words(text);
+        if words.is_empty() {
+            continue;
+        }
+
+        let has_do = words.iter().any(|word| *word == "do");
+        if has_do {
+            if words.iter().any(|word| *word == "for") {
+                loop_stack.push(true);
+            } else if words.iter().any(|word| matches!(*word, "while" | "until")) {
+                loop_stack.push(false);
+            }
+        }
+
+        let done_count = words.iter().filter(|word| **word == "done").count();
+        for _ in 0..done_count {
+            if loop_stack.pop().is_none() {
+                break;
+            }
+        }
+    }
+
+    loop_stack.last().copied()
+}
+
+fn shell_like_words(line: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = None;
+
+    for (index, ch) in line.char_indices() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            if start.is_none() {
+                start = Some(index);
+            }
+        } else if let Some(word_start) = start.take() {
+            words.push(&line[word_start..index]);
+        }
+    }
+
+    if let Some(word_start) = start {
+        words.push(&line[word_start..]);
+    }
+
+    words
+}
+
 fn is_x037_shell(shell: ShellDialect) -> bool {
     matches!(
         shell,
@@ -101,7 +207,6 @@ fn is_x048_shell(shell: ShellDialect) -> bool {
         ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
     )
 }
-
 fn eof_point(file: &File) -> Span {
     Span::from_positions(file.span.end, file.span.end)
 }
@@ -326,6 +431,57 @@ mod tests {
         let source = "#!/bin/sh\nif true; then\n  :\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_loop_without_end_parse_error_to_c141_at_end_of_file() {
+        let source = "#!/bin/sh\nwhile true; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LoopWithoutEnd);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn ignores_loop_without_end_parse_error_when_rule_is_not_enabled() {
+        let source = "#!/bin/sh\nwhile true; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_for_loop_missing_done_for_c141() {
+        let source = "#!/bin/sh\nfor x in a; do\n  :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,

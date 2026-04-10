@@ -1,0 +1,7 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C141 this loop is missing a closing `done`
+ --> <source>:4:1
+  |
+  |
