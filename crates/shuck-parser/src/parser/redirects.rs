@@ -52,7 +52,7 @@ impl<'a> Parser<'a> {
             return Some(fd_var);
         }
 
-        let word = self.current_word()?;
+        let word = self.current_word_ref()?.clone();
         let text = self.literal_word_text(&word)?;
         Self::fd_var_from_text(&text, word.span)
     }

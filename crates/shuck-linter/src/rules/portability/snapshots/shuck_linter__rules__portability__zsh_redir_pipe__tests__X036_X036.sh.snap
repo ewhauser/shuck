@@ -1,8 +1,15 @@
 ---
 source: crates/shuck-linter/src/rules/portability/zsh_redir_pipe.rs
+assertion_line: 54
 ---
 X036 `&|` is zsh-only syntax and is not portable to this shell
  --> <source>:4:14
   |
 4 | echo "first" &|
+  |
+
+X036 `&|` is zsh-only syntax and is not portable to this shell
+ --> <source>:5:3
+  |
+5 | : &|
   |

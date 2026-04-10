@@ -2120,26 +2120,25 @@ impl<'a> Parser<'a> {
         // Empty value — check for arr=(...) syntax with separate tokens
         if value_str.is_empty() {
             let assignment_span = self.current_span;
-            let (target, is_append, value_start) = self.current_word().and_then(|word| {
-                let ParsedWordTarget {
-                    name,
-                    name_span,
-                    subscript,
-                    boundary,
-                } = self.parse_word_target(&word, SubscriptInterpretation::Contextual, true)?;
-                let WordTargetBoundary::Assignment {
-                    append,
-                    value_start,
-                } = boundary
-                else {
-                    return None;
-                };
-                Some((
-                    self.var_ref(name, name_span, subscript, assignment_span),
-                    append,
-                    value_start,
-                ))
-            })?;
+            let word = self.current_word_ref()?.clone();
+            let ParsedWordTarget {
+                name,
+                name_span,
+                subscript,
+                boundary,
+            } = self.parse_word_target(&word, SubscriptInterpretation::Contextual, true)?;
+            let WordTargetBoundary::Assignment {
+                append,
+                value_start,
+            } = boundary
+            else {
+                return None;
+            };
+            let (target, is_append, value_start) = (
+                self.var_ref(name, name_span, subscript, assignment_span),
+                append,
+                value_start,
+            );
             self.advance();
             if self.at(TokenKind::LeftParen) {
                 let open_paren_span = self.current_span;
@@ -2298,9 +2297,8 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 let word = self
-                    .current_word()
+                    .take_current_word_and_advance()
                     .ok_or_else(|| self.error("expected word"))?;
-                self.advance_past_word(&word);
                 Ok(word)
             }
         }

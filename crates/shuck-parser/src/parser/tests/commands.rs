@@ -109,6 +109,42 @@ fn test_parse_recovered_skips_invalid_command_and_continues() {
     assert_eq!(second.args[0].render(input), "two");
 }
 
+#[test]
+fn test_disabled_repeat_probe_restores_checkpoint_when_newline_skip_errors() {
+    let input = "repeat 3\ndo echo hi; done\n";
+    let mut parser = Parser::with_fuel(input, 0);
+    let original_span = parser.current_span();
+
+    assert_eq!(parser.current_keyword(), Some(Keyword::Repeat));
+
+    let error = parser.looks_like_disabled_repeat_loop().unwrap_err();
+
+    assert!(matches!(
+        error,
+        Error::Parse { ref message, .. } if message.contains("parser fuel exhausted")
+    ));
+    assert_eq!(parser.current_keyword(), Some(Keyword::Repeat));
+    assert_eq!(parser.current_span(), original_span);
+}
+
+#[test]
+fn test_disabled_foreach_probe_restores_checkpoint_when_newline_skip_errors() {
+    let input = "foreach item in a\ndo echo hi; done\n";
+    let mut parser = Parser::with_fuel(input, 0);
+    let original_span = parser.current_span();
+
+    assert_eq!(parser.current_keyword(), Some(Keyword::Foreach));
+
+    let error = parser.looks_like_disabled_foreach_loop().unwrap_err();
+
+    assert!(matches!(
+        error,
+        Error::Parse { ref message, .. } if message.contains("parser fuel exhausted")
+    ));
+    assert_eq!(parser.current_keyword(), Some(Keyword::Foreach));
+    assert_eq!(parser.current_span(), original_span);
+}
+
 #[cfg(feature = "benchmarking")]
 #[test]
 fn test_parse_with_benchmark_counters_is_repeatable() {
