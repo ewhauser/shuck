@@ -1,4 +1,4 @@
-.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
+.PHONY: build test run check setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security release
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -194,6 +194,9 @@ harden-release:
 
 check-release-security:
 	python3 scripts/check-release-security.py check
+
+release:
+	./scripts/release.sh $(VERSION)
 
 check:
 	cargo fmt -- --check
