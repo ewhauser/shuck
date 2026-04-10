@@ -56,6 +56,9 @@ impl ShellCheckCodeMap {
         if number == 2291 {
             return vec![Rule::UnquotedVariableInSed];
         }
+        if number == 2117 {
+            return vec![Rule::SuWithoutFlag];
+        }
         if number == 2303 {
             return vec![Rule::UnquotedTrClass];
         }
@@ -122,6 +125,7 @@ impl Default for ShellCheckCodeMap {
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
+            (2117, Rule::SuWithoutFlag),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
@@ -344,6 +348,7 @@ impl Default for ShellCheckCodeMap {
                 (2009, Rule::PsGrepPipeline),
                 (2010, Rule::LsGrepPipeline),
                 (2293, Rule::LsPipedToXargs),
+                (2117, Rule::SuWithoutFlag),
                 (2283, Rule::DoubleParenGrouping),
                 (2233, Rule::SingleTestSubshell),
                 (2235, Rule::SubshellTestGroup),
@@ -555,6 +560,7 @@ impl Default for ShellCheckCodeMap {
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
                 (2294, Rule::LsInSubstitution),
+                (2322, Rule::SuWithoutFlag),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
                 (2060, Rule::UnquotedTrRange),
@@ -635,6 +641,8 @@ mod tests {
         assert_eq!(map.resolve("SC3061"), Some(Rule::ExtglobInSh));
         assert_eq!(map.resolve("SC2258"), Some(Rule::BareRead));
         assert_eq!(map.resolve("SC2291"), Some(Rule::UnquotedVariableInSed));
+        assert_eq!(map.resolve("SC2322"), Some(Rule::SuWithoutFlag));
+        assert_eq!(map.resolve("SC2117"), Some(Rule::SuWithoutFlag));
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
@@ -651,6 +659,8 @@ mod tests {
             map.resolve_all("SC2291"),
             vec![Rule::UnquotedVariableInSed]
         );
+        assert_eq!(map.resolve_all("SC2322"), vec![Rule::SuWithoutFlag]);
+        assert_eq!(map.resolve_all("SC2117"), vec![Rule::SuWithoutFlag]);
         assert_eq!(map.resolve_all("SC2303"), vec![Rule::UnquotedTrClass]);
         assert_eq!(map.resolve_all("SC2298"), vec![Rule::UnquotedTrRange]);
         assert_eq!(map.resolve_all("SC2021"), vec![Rule::UnquotedTrRange]);
@@ -970,9 +980,11 @@ mod tests {
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
+            (2117, Rule::SuWithoutFlag),
             (2021, Rule::UnquotedTrRange),
             (2060, Rule::UnquotedTrClass),
             (2303, Rule::UnquotedTrClass),
+            (2322, Rule::SuWithoutFlag),
             (2298, Rule::UnquotedTrRange),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
@@ -1204,6 +1216,8 @@ mod tests {
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
+        assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
+        assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));

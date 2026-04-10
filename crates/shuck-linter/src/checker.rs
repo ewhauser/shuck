@@ -245,6 +245,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedTrClass) {
             rules::style::unquoted_tr_class::unquoted_tr_class(self);
         }
+        if self.is_rule_enabled(Rule::SuWithoutFlag) {
+            rules::style::su_without_flag::su_without_flag(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedTrRange) {
             rules::style::unquoted_tr_range::unquoted_tr_range(self);
         }

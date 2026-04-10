@@ -35,6 +35,7 @@ pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
 pub mod suspect_closing_quote;
 pub mod syntax;
+pub mod su_without_flag;
 pub mod trailing_directive;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
@@ -69,6 +70,7 @@ mod tests {
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]
+    #[test_case(Rule::SuWithoutFlag, Path::new("S054.sh"))]
     #[test_case(Rule::UnquotedTrRange, Path::new("S049.sh"))]
     #[test_case(Rule::LsPipedToXargs, Path::new("S046.sh"))]
     #[test_case(Rule::LsInSubstitution, Path::new("S047.sh"))]
