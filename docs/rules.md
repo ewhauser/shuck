@@ -36,6 +36,17 @@ Review scope: all currently dispatched rule entrypoints under `crates/shuck-lint
 
 ---
 
+
+## Validation TODOs
+
+- **C141 `loop-without-end`**: add explicit non-trigger coverage for balanced `while`/`until` loops and nested loops to prove the parse-error mapping does not over-fire.
+- **C142 `missing-done-in-for-loop`**: add edge-case fixtures for `for` loops with heredocs/line continuations near EOF and a negative case with a valid trailing `done`.
+- **C143 `dangling-else`**: add cases that distinguish parse-recovery noise from true empty `else` branches, including nested `if` blocks.
+- **C146 `until-missing-do`**: add coverage for multiline `until` headers and ensure no finding when `do` appears after comments/blank lines.
+- **C157 `if-bracket-glued`**: add negative tests for valid `if [` formatting variants and quoted strings starting with `if[` to avoid accidental token-text matching.
+- **K001 `rm-glob-on-variable-path`**: add safety-oriented negatives (`rm -rf -- "$dir"`, literal paths, no glob) and cases with indirect/parameter-expanded targets to verify rule precision.
+- **K004 `find-execdir-with-shell`**: add variants for `sh -c`, `bash -c`, and safe `-execdir` forms without shell interpolation to prove the matcher is neither under- nor over-broad.
+
 ## Remaining Rules
 
 ### Portability — Bash Conditionals in sh
@@ -248,15 +259,15 @@ Rules about array assignment, conversion, and element access patterns.
 
 Rules about assignment syntax, variable naming, and value issues.
 
-- [x] **M** C095 (SC2319) `assignment-looks-like-comparison` — assignment value with dash may be typo
-- [x] **M** C101 (SC2329) `ifs-set-to-literal-backslash-n` — IFS set to literal `\n` not newline
-- [x] **L** C116 (SC2353) `assignment-to-numeric-variable` — numeric string as variable name
-- [x] **L** C117 (SC2354) `plus-prefix-in-assignment` — `+` before variable assignment
-- [x] **M** C130 (SC2377) `append-with-escaped-quotes` — `+=` with escaped quotes
-- [x] **M** C136 (SC2384) `local-cross-reference` — local assigns from same-line variable
-- [x] **L** C139 (SC2387) `spaced-assignment` — assignment-like word with stray spaces
-- [x] **L** C140 (SC2388) `bad-var-name` — variable name starts with invalid character
-- [x] **L** S042 (SC2280) `ifs-equals-ambiguity` — `IFS==` looks like comparison
+- [x] [x] **M** C095 (SC2319) `assignment-looks-like-comparison` — assignment value with dash may be typo
+- [x] [x] **M** C101 (SC2329) `ifs-set-to-literal-backslash-n` — IFS set to literal `\n` not newline
+- [x] [x] **L** C116 (SC2353) `assignment-to-numeric-variable` — numeric string as variable name
+- [x] [x] **L** C117 (SC2354) `plus-prefix-in-assignment` — `+` before variable assignment
+- [x] [x] **M** C130 (SC2377) `append-with-escaped-quotes` — `+=` with escaped quotes
+- [x] [x] **M** C136 (SC2384) `local-cross-reference` — local assigns from same-line variable
+- [x] [x] **L** C139 (SC2387) `spaced-assignment` — assignment-like word with stray spaces
+- [x] [x] **L** C140 (SC2388) `bad-var-name` — variable name starts with invalid character
+- [x] [x] **L** S042 (SC2280) `ifs-equals-ambiguity` — `IFS==` looks like comparison
 
 ### Command-Specific Checks
 
@@ -317,12 +328,12 @@ facts or word facts for single-quoted strings.
 
 Rules about arithmetic expansion and arithmetic-context issues.
 
-- [x] **M** C077 (SC2290) `subshell-in-arithmetic` — command substitution in arithmetic
-- [x] **L** S022 (SC2219) `avoid-let-builtin` — `let` is unnecessarily indirect
-- [x] **L** S034 (SC2254) `array-index-arithmetic` — arithmetic expansion in array subscript
-- [x] **L** S035 (SC2257) `arithmetic-score-line` — long arithmetic expansion in assignment
-- [x] **L** S045 (SC2292) `dollar-in-arithmetic` — `$` before variable in `$(( ))`
-- [x] **L** S048 (SC2297) `dollar-in-arithmetic-context` — `$` in double-paren context
+- [x] [x] **M** C077 (SC2290) `subshell-in-arithmetic` — command substitution in arithmetic
+- [x] [x] **L** S022 (SC2219) `avoid-let-builtin` — `let` is unnecessarily indirect
+- [x] [x] **L** S034 (SC2254) `array-index-arithmetic` — arithmetic expansion in array subscript
+- [x] [x] **L** S035 (SC2257) `arithmetic-score-line` — long arithmetic expansion in assignment
+- [x] [x] **L** S045 (SC2292) `dollar-in-arithmetic` — `$` before variable in `$(( ))`
+- [x] [x] **L** S048 (SC2297) `dollar-in-arithmetic-context` — `$` in double-paren context
 
 ### Redirection and Pipe Issues
 
@@ -396,18 +407,18 @@ misuse.
 Rules about control flow structure, continuation lines, braces, and syntax
 oddities. Mostly AST-level checks.
 
-- [x] **M** C076 (SC2289) `commented-continuation-line` — line continuation followed by comment
-- [x] **M** C104 (SC2333) `non-shell-syntax-in-script` — C or other non-shell code in script
+- [x] [x] **M** C076 (SC2289) `commented-continuation-line` — line continuation followed by comment
+- [x] [x] **M** C104 (SC2333) `non-shell-syntax-in-script` — C or other non-shell code in script
 - [x] **L** C141 (SC2389) `loop-without-end` — loop body never closed
 - [x] **L** C142 (SC2390) `missing-done-in-for-loop` — for loop reaches EOF without `done`
 - [x] **L** C143 (SC2391) `dangling-else` — else branch has no body
 - [x] **L** C146 (SC2396) `until-missing-do` — until loop skips `do`
 - [x] **L** C157 (SC1069) `if-bracket-glued` — `if` concatenated with `[`
-- [x] **M** S028 (SC1079) `suspect-closing-quote` — quote closed but next char is suspicious
-- [x] **M** S029 (SC1083) `literal-braces` — literal braces may be treated as expansion
-- [x] **L** S031 (SC1113) `trailing-directive` — directive after code is ignored
-- [x] **L** S072 (SC2392) `linebreak-before-and` — control operator starts new line
-- [x] **L** S074 (SC2397) `ampersand-semicolon` — backgrounded command followed by `;`
+- [x] [x] **M** S028 (SC1079) `suspect-closing-quote` — quote closed but next char is suspicious
+- [x] [x] **M** S029 (SC1083) `literal-braces` — literal braces may be treated as expansion
+- [x] [x] **L** S031 (SC1113) `trailing-directive` — directive after code is ignored
+- [x] [x] **L** S072 (SC2392) `linebreak-before-and` — control operator starts new line
+- [x] [x] **L** S074 (SC2397) `ampersand-semicolon` — backgrounded command followed by `;`
 
 ### Security
 
@@ -415,8 +426,8 @@ Rules about dangerous patterns that could lead to data loss or command
 injection.
 
 - [x] **M** K001 (SC2115) `rm-glob-on-variable-path` — variable+glob in `rm -rf`
-- [x] **M** K002 (SC2029) `ssh-local-expansion` — ssh command expanded by local shell
-- [x] **M** K003 (SC2294) `eval-on-array` — eval used to execute composed command text
+- [x] [x] **M** K002 (SC2029) `ssh-local-expansion` — ssh command expanded by local shell
+- [x] [x] **M** K003 (SC2294) `eval-on-array` — eval used to execute composed command text
 - [x] **M** K004 (SC2156) `find-execdir-with-shell` — find -execdir passes `{}` to shell
 
 ### Performance
