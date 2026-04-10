@@ -609,6 +609,7 @@ pub struct WordFact<'a> {
     word: Cow<'a, Word>,
     command_id: CommandId,
     nested_word_command: bool,
+    from_arithmetic_expansion: bool,
     context: WordFactContext,
     host_kind: WordFactHostKind,
     analysis: ExpansionAnalysis,
@@ -645,6 +646,24 @@ impl<'a> WordFact<'a> {
 
     pub fn is_nested_word_command(&self) -> bool {
         self.nested_word_command
+    }
+
+    pub fn is_from_arithmetic_expansion(&self) -> bool {
+        self.from_arithmetic_expansion
+    }
+
+    pub fn is_arithmetic_variable_reference(&self) -> bool {
+        self.from_arithmetic_expansion
+            && matches!(self.word.parts.as_slice(), [part] if match &part.kind {
+                WordPart::Variable(name) => is_shell_variable_name(name.as_str()),
+                WordPart::Parameter(parameter) => matches!(
+                    parameter.bourne(),
+                    Some(BourneParameterExpansion::Access { reference })
+                        if is_shell_variable_name(reference.name.as_str())
+                            && reference.subscript.is_none()
+                ),
+                _ => false,
+            })
     }
 
     pub fn context(&self) -> WordFactContext {
@@ -4501,7 +4520,7 @@ impl<'a> WordFactCollector<'a> {
     }
 
     fn push_word(&mut self, word: &'a Word, context: WordFactContext, host_kind: WordFactHostKind) {
-        self.push_cow_word(Cow::Borrowed(word), context, host_kind);
+        self.push_cow_word(Cow::Borrowed(word), context, host_kind, false);
     }
 
     fn push_owned_word(
@@ -4510,7 +4529,16 @@ impl<'a> WordFactCollector<'a> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) {
-        self.push_cow_word(Cow::Owned(word), context, host_kind);
+        self.push_cow_word(Cow::Owned(word), context, host_kind, false);
+    }
+
+    fn push_arithmetic_word(
+        &mut self,
+        word: Word,
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+    ) {
+        self.push_cow_word(Cow::Owned(word), context, host_kind, true);
     }
 
     fn push_cow_word(
@@ -4518,6 +4546,7 @@ impl<'a> WordFactCollector<'a> {
         word: Cow<'a, Word>,
         context: WordFactContext,
         host_kind: WordFactHostKind,
+        from_arithmetic_expansion: bool,
     ) {
         let word_ref = word.as_ref();
         let key = FactSpan::new(word_ref.span);
@@ -4526,6 +4555,8 @@ impl<'a> WordFactCollector<'a> {
         }
 
         self.collect_word_parameter_patterns(&word_ref.parts, host_kind);
+
+        self.collect_arithmetic_words(word_ref, context, host_kind);
 
         let analysis = analyze_word(word_ref, self.source);
         let operand_class = match context {
@@ -4577,11 +4608,68 @@ impl<'a> WordFactCollector<'a> {
             word,
             command_id: self.command_id,
             nested_word_command: self.nested_word_command,
+            from_arithmetic_expansion,
             context,
             host_kind,
             analysis,
             operand_class,
         });
+    }
+
+    fn collect_arithmetic_words(
+        &mut self,
+        word: &Word,
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+    ) {
+        for part in &word.parts {
+            match &part.kind {
+                WordPart::DoubleQuoted { parts, .. } => {
+                    self.collect_arithmetic_words_in_parts(parts, context, host_kind);
+                }
+                WordPart::ArithmeticExpansion {
+                    expression_ast: Some(expression),
+                    ..
+                } => {
+                    query::visit_arithmetic_words(expression, &mut |nested_word| {
+                        self.push_arithmetic_word(nested_word.clone(), context, host_kind);
+                    });
+                }
+                WordPart::ArithmeticExpansion {
+                    expression_ast: None,
+                    ..
+                } => {}
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_arithmetic_words_in_parts(
+        &mut self,
+        parts: &[WordPartNode],
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+    ) {
+        for part in parts {
+            match &part.kind {
+                WordPart::DoubleQuoted { parts, .. } => {
+                    self.collect_arithmetic_words_in_parts(parts, context, host_kind);
+                }
+                WordPart::ArithmeticExpansion {
+                    expression_ast: Some(expression),
+                    ..
+                } => {
+                    query::visit_arithmetic_words(expression, &mut |nested_word| {
+                        self.push_arithmetic_word(nested_word.clone(), context, host_kind);
+                    });
+                }
+                WordPart::ArithmeticExpansion {
+                    expression_ast: None,
+                    ..
+                } => {}
+                _ => {}
+            }
+        }
     }
 }
 
@@ -4619,6 +4707,16 @@ fn word_has_literal_affixes(word: &Word) -> bool {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
         )
     })
+}
+
+fn is_shell_variable_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
+            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        }
+        _ => false,
+    }
 }
 
 fn word_classification_from_analysis(analysis: ExpansionAnalysis) -> WordClassification {

@@ -207,6 +207,7 @@ impl Default for ShellCheckCodeMap {
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
             (2290, Rule::SubshellInArithmetic),
+            (2292, Rule::DollarInArithmetic),
             (2294, Rule::EvalOnArray),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
@@ -219,6 +220,7 @@ impl Default for ShellCheckCodeMap {
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
             (2257, Rule::ArithmeticRedirectionTarget),
+            (2004, Rule::DollarInArithmetic),
             (2321, Rule::ArrayIndexArithmetic),
             (2323, Rule::ArithmeticScoreLine),
             (2264, Rule::NestedParameterExpansion),
@@ -385,6 +387,7 @@ impl Default for ShellCheckCodeMap {
                 (2289, Rule::CommentedContinuationLine),
                 (1133, Rule::LinebreakBeforeAnd),
                 (2290, Rule::SubshellInArithmetic),
+                (2292, Rule::DollarInArithmetic),
                 (2294, Rule::EvalOnArray),
                 (2333, Rule::NonShellSyntaxInScript),
                 (2389, Rule::LoopWithoutEnd),
@@ -617,6 +620,7 @@ mod tests {
             map.resolve("SC2257"),
             Some(Rule::ArithmeticRedirectionTarget)
         );
+        assert_eq!(map.resolve("SC2292"), Some(Rule::DollarInArithmetic));
         assert_eq!(map.resolve("SC2250"), Some(Rule::PatternWithVariable));
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
@@ -747,6 +751,7 @@ mod tests {
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
             (2257, Rule::ArithmeticRedirectionTarget),
+            (2292, Rule::DollarInArithmetic),
             (2259, Rule::SubshellTestGroup),
             (2264, Rule::NestedParameterExpansion),
             (2266, Rule::OverwrittenFunction),
@@ -905,6 +910,7 @@ mod tests {
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
+        assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));

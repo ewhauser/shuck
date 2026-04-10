@@ -1,6 +1,7 @@
 pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod ampersand_semicolon;
+pub mod dollar_in_arithmetic;
 pub mod backslash_before_command;
 pub mod avoid_let_builtin;
 pub mod echoed_command_substitution;
@@ -47,6 +48,7 @@ mod tests {
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
     #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]
     #[test_case(Rule::ArithmeticScoreLine, Path::new("S035.sh"))]
+    #[test_case(Rule::DollarInArithmetic, Path::new("S045.sh"))]
     #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
     #[test_case(Rule::EscapedUnderscoreLiteral, Path::new("S027.sh"))]
     #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]

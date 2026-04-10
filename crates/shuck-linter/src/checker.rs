@@ -209,6 +209,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArithmeticScoreLine) {
             rules::style::arithmetic_score_line::arithmetic_score_line(self);
         }
+        if self.is_rule_enabled(Rule::DollarInArithmetic) {
+            rules::style::dollar_in_arithmetic::dollar_in_arithmetic(self);
+        }
         if self.is_rule_enabled(Rule::ExprArithmetic) {
             rules::performance::expr_arithmetic::expr_arithmetic(self);
         }

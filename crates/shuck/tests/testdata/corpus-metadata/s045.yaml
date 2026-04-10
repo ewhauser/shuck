@@ -1,0 +1,6 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    reason: "This helper script uses arithmetic updates in generated option-parsing and version-formatting code, and the current ShellCheck oracle does not emit SC2004 for those sites even though Shuck keeps the warning for the same `$((...))` pattern elsewhere."
+  - side: shellcheck-only
+    reason: "The current ShellCheck build reports SC2004 for command-context `((...))` arithmetic, but S045 is intentionally limited to `$((...))` arithmetic expansion so the `((...))` form remains reserved for S048."
