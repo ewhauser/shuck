@@ -114,7 +114,7 @@ pub struct FormatCommand {
     /// Omit files or directories matching the provided glob patterns.
     #[arg(long, value_delimiter = ',', value_name = "GLOB")]
     pub exclude: Vec<String>,
-    /// Select the shell dialect used for parsing and formatting.
+    /// Override the auto-discovered shell dialect used for parsing and formatting.
     #[arg(long, value_enum)]
     pub dialect: Option<FormatDialectArg>,
     /// Choose the indentation style.

@@ -2,15 +2,14 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 
 use crate::discover::normalize_path;
-use crate::format_settings::{
-    FormatSettingsPatch, parse_config_dialect, parse_config_indent_style,
-};
+use crate::format_settings::{FormatSettingsPatch, parse_config_indent_style};
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
+pub(crate) const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -21,7 +20,7 @@ pub(crate) struct ShuckConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub(crate) struct FormatConfig {
-    pub dialect: Option<String>,
+    pub dialect: Option<toml::Value>,
     pub indent_style: Option<String>,
     pub indent_width: Option<u8>,
     pub binary_next_line: Option<bool>,
@@ -60,12 +59,12 @@ pub(crate) fn load_project_config(project_root: &Path) -> Result<ShuckConfig> {
 
 impl FormatConfig {
     pub(crate) fn to_patch(&self) -> Result<FormatSettingsPatch> {
+        if self.dialect.is_some() {
+            return Err(anyhow!(CONFIG_DIALECT_UNSUPPORTED_ERROR));
+        }
+
         Ok(FormatSettingsPatch {
-            dialect: self
-                .dialect
-                .as_deref()
-                .map(parse_config_dialect)
-                .transpose()?,
+            dialect: None,
             indent_style: self
                 .indent_style
                 .as_deref()

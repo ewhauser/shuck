@@ -158,7 +158,6 @@ Create a `.shuck.toml` or `shuck.toml` at your project root:
 
 ```toml
 [format]
-dialect = "bash"           # auto | bash | posix | mksh | zsh
 indent-style = "space"     # tab | space
 indent-width = 4           # 1-255, used when indent-style = "space"
 binary-next-line = false   # place binary operators on the next line
@@ -168,6 +167,8 @@ keep-padding = false       # preserve original source padding
 function-next-line = false # opening brace on its own line
 never-split = false        # compact single-line layouts
 ```
+
+Formatter dialect is auto-discovered from the filename or shebang. Use `shuck format --dialect <shell>` when you need an explicit override, especially for stdin input.
 
 ## File discovery
 
