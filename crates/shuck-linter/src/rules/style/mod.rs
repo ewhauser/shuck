@@ -1,5 +1,6 @@
 pub mod ampersand_semicolon;
 pub mod backslash_before_command;
+pub mod avoid_let_builtin;
 pub mod echoed_command_substitution;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
@@ -41,6 +42,7 @@ mod tests {
     #[test_case(Rule::UnquotedArrayExpansion, Path::new("S008.sh"))]
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
+    #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
     #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
     #[test_case(Rule::EscapedUnderscoreLiteral, Path::new("S027.sh"))]
     #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]

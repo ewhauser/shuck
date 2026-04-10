@@ -318,7 +318,7 @@ facts or word facts for single-quoted strings.
 Rules about arithmetic expansion and arithmetic-context issues.
 
 - [x] **M** C077 (SC2290) `subshell-in-arithmetic` — command substitution in arithmetic
-- [ ] **L** S022 (SC2219) `avoid-let-builtin` — `let` is unnecessarily indirect
+- [x] **L** S022 (SC2219) `avoid-let-builtin` — `let` is unnecessarily indirect
 - [ ] **L** S034 (SC2254) `array-index-arithmetic` — arithmetic expansion in array subscript
 - [ ] **L** S035 (SC2257) `arithmetic-score-line` — long arithmetic expansion in assignment
 - [ ] **L** S045 (SC2292) `dollar-in-arithmetic` — `$` before variable in `$(( ))`

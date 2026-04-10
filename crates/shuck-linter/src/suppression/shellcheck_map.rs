@@ -140,6 +140,7 @@ impl Default for ShellCheckCodeMap {
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
             (3053, Rule::IndirectExpansion),
+            (2219, Rule::AvoidLetBuiltin),
             // ShellCheck 0.11.0 reports array references as SC3054.
             // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
             (3054, Rule::ArrayReference),
@@ -324,6 +325,7 @@ impl Default for ShellCheckCodeMap {
                 (3011, Rule::HereString),
                 (3030, Rule::ArrayAssignment),
                 (3053, Rule::IndirectExpansion),
+                (2219, Rule::AvoidLetBuiltin),
                 (3028, Rule::ArrayReference),
                 (3054, Rule::ArrayReference),
                 (3057, Rule::SubstringExpansion),
@@ -436,6 +438,7 @@ mod tests {
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
+        assert_eq!(map.resolve("SC2219"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2233"), Some(Rule::SingleTestSubshell));
@@ -870,6 +873,7 @@ mod tests {
         assert!(comparison.contains(&(3026, Rule::CaretNegationInBracket)));
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
+        assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));

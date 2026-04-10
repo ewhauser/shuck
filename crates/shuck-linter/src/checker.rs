@@ -200,6 +200,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }
+        if self.is_rule_enabled(Rule::AvoidLetBuiltin) {
+            rules::style::avoid_let_builtin::avoid_let_builtin(self);
+        }
         if self.is_rule_enabled(Rule::ExprArithmetic) {
             rules::performance::expr_arithmetic::expr_arithmetic(self);
         }
