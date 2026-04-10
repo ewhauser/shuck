@@ -207,7 +207,6 @@ impl Default for ShellCheckCodeMap {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
-            (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
             (2294, Rule::EvalOnArray),
             (2297, Rule::DollarInArithmeticContext),
@@ -428,7 +427,6 @@ impl Default for ShellCheckCodeMap {
                 (2266, Rule::OverwrittenFunction),
                 (2270, Rule::AssignmentToNumericVariable),
                 (2318, Rule::LocalCrossReference),
-                (2290, Rule::SpacedAssignment),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
@@ -460,6 +458,7 @@ impl Default for ShellCheckCodeMap {
                 (2388, Rule::BadVarName),
                 (2384, Rule::LocalCrossReference),
                 (2377, Rule::AppendWithEscapedQuotes),
+                (2290, Rule::SpacedAssignment),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
             ],
@@ -540,6 +539,10 @@ mod tests {
         assert_eq!(map.resolve("SC1113"), Some(Rule::TrailingDirective));
         assert_eq!(map.resolve("SC1126"), Some(Rule::TrailingDirective));
         assert_eq!(map.resolve("SC2290"), Some(Rule::SubshellInArithmetic));
+        assert_eq!(
+            map.resolve_all("SC2290"),
+            vec![Rule::SubshellInArithmetic, Rule::SpacedAssignment]
+        );
         assert_eq!(
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
@@ -680,7 +683,6 @@ mod tests {
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
         assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
-        assert_eq!(map.resolve("SC2290"), Some(Rule::SpacedAssignment));
         assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve("SC2270"),

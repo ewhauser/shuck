@@ -1,11 +1,7 @@
-use shuck_ast::{
-    Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command, DeclOperand,
-    ParameterExpansion, Span, WordPart, ZshExpansionTarget,
-};
+use shuck_ast::{Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span};
+use shuck_semantic::ReferenceKind;
 
-use crate::facts::WordFact;
-use crate::rules::common::word::{ExpansionContext, WordQuote};
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
 
 pub struct AppendWithEscapedQuotes;
 
@@ -36,11 +32,25 @@ fn command_assignment_spans(checker: &Checker<'_>, command: &Command, source: &s
         Command::Simple(command) => command
             .assignments
             .iter()
-            .filter_map(|assignment| escaped_quote_append_span(checker, assignment, source))
+            .filter_map(|assignment| {
+                escaped_quote_append_span(
+                    checker,
+                    assignment,
+                    source,
+                    WordFactContext::Expansion(ExpansionContext::AssignmentValue),
+                )
+            })
             .collect(),
         Command::Builtin(command) => builtin_assignments(command)
             .iter()
-            .filter_map(|assignment| escaped_quote_append_span(checker, assignment, source))
+            .filter_map(|assignment| {
+                escaped_quote_append_span(
+                    checker,
+                    assignment,
+                    source,
+                    WordFactContext::Expansion(ExpansionContext::AssignmentValue),
+                )
+            })
             .collect(),
         Command::Decl(command) => command
             .assignments
@@ -49,7 +59,14 @@ fn command_assignment_spans(checker: &Checker<'_>, command: &Command, source: &s
                 DeclOperand::Assignment(assignment) => Some(assignment),
                 DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
             }))
-            .filter_map(|assignment| escaped_quote_append_span(checker, assignment, source))
+            .filter_map(|assignment| {
+                escaped_quote_append_span(
+                    checker,
+                    assignment,
+                    source,
+                    WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue),
+                )
+            })
             .collect(),
         Command::Binary(_)
         | Command::Compound(_)
@@ -71,6 +88,7 @@ fn escaped_quote_append_span(
     checker: &Checker<'_>,
     assignment: &Assignment,
     source: &str,
+    context: WordFactContext,
 ) -> Option<Span> {
     if !assignment.append || assignment.target.subscript.is_some() {
         return None;
@@ -80,9 +98,11 @@ fn escaped_quote_append_span(
         return None;
     };
 
+    let fact = checker.facts().word_fact(word.span, context)?;
+    let classification = fact.classification();
     let text = word.span.slice(source);
     let first = text.find("\\\"")?;
-    if !word_has_parameter_like_part(&word.parts) || word_has_command_substitution(&word.parts) {
+    if !classification.has_scalar_expansion() || classification.has_command_substitution() {
         return None;
     }
     if !has_later_unquoted_command_argument_use(checker, assignment) {
@@ -93,89 +113,23 @@ fn escaped_quote_append_span(
     Some(Span::from_positions(word.span.start, end))
 }
 
-fn word_has_parameter_like_part(parts: &[shuck_ast::WordPartNode]) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::Variable(_)
-        | WordPart::Parameter(_)
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::Length(_)
-        | WordPart::ArrayAccess(_)
-        | WordPart::ArrayLength(_)
-        | WordPart::ArrayIndices(_)
-        | WordPart::Substring { .. }
-        | WordPart::ArraySlice { .. }
-        | WordPart::IndirectExpansion { .. }
-        | WordPart::PrefixMatch { .. }
-        | WordPart::Transformation { .. } => true,
-        WordPart::DoubleQuoted { parts, .. } => word_has_parameter_like_part(parts),
-        _ => false,
-    })
-}
-
-fn word_has_command_substitution(parts: &[shuck_ast::WordPartNode]) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::CommandSubstitution { .. } => true,
-        WordPart::DoubleQuoted { parts, .. } => word_has_command_substitution(parts),
-        _ => false,
-    })
-}
-
 fn has_later_unquoted_command_argument_use(checker: &Checker<'_>, assignment: &Assignment) -> bool {
     checker
         .facts()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| fact.classification().quote == WordQuote::Unquoted)
         .filter(|fact| fact.span().start.offset > assignment.target.name_span.start.offset)
-        .any(|fact| word_references_name(fact, assignment.target.name.as_str()))
+        .any(|fact| {
+            checker.semantic().references().iter().any(|reference| {
+                reference.kind != ReferenceKind::DeclarationName
+                    && reference.name.as_str() == assignment.target.name.as_str()
+                    && contains_span(fact.span(), reference.span)
+            })
+        })
 }
 
-fn word_references_name(fact: &WordFact<'_>, target_name: &str) -> bool {
-    word_parts_reference_name(&fact.word().parts, target_name)
-}
-
-fn word_parts_reference_name(parts: &[shuck_ast::WordPartNode], target_name: &str) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::Variable(name) => name.as_str() == target_name,
-        WordPart::Parameter(expansion) => {
-            parameter_expansion_references_name(expansion, target_name)
-        }
-        WordPart::ParameterExpansion { reference, .. }
-        | WordPart::Length(reference)
-        | WordPart::ArrayAccess(reference)
-        | WordPart::ArrayLength(reference)
-        | WordPart::ArrayIndices(reference)
-        | WordPart::Substring { reference, .. }
-        | WordPart::ArraySlice { reference, .. }
-        | WordPart::IndirectExpansion { reference, .. }
-        | WordPart::Transformation { reference, .. } => reference.name.as_str() == target_name,
-        WordPart::DoubleQuoted { parts, .. } => word_parts_reference_name(parts, target_name),
-        _ => false,
-    })
-}
-
-fn parameter_expansion_references_name(expansion: &ParameterExpansion, target_name: &str) -> bool {
-    match expansion.bourne() {
-        Some(BourneParameterExpansion::Access { reference })
-        | Some(BourneParameterExpansion::Length { reference })
-        | Some(BourneParameterExpansion::Indices { reference })
-        | Some(BourneParameterExpansion::Indirect { reference, .. })
-        | Some(BourneParameterExpansion::Slice { reference, .. })
-        | Some(BourneParameterExpansion::Operation { reference, .. })
-        | Some(BourneParameterExpansion::Transformation { reference, .. }) => {
-            reference.name.as_str() == target_name
-        }
-        Some(BourneParameterExpansion::PrefixMatch { prefix, .. }) => {
-            prefix.as_str() == target_name
-        }
-        None => expansion.zsh().is_some_and(|zsh| match &zsh.target {
-            ZshExpansionTarget::Reference(reference) => reference.name.as_str() == target_name,
-            ZshExpansionTarget::Nested(expansion) => {
-                parameter_expansion_references_name(expansion, target_name)
-            }
-            ZshExpansionTarget::Word(word) => word_parts_reference_name(&word.parts, target_name),
-            ZshExpansionTarget::Empty => false,
-        }),
-    }
+fn contains_span(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 #[cfg(test)]
