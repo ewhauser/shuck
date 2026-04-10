@@ -1267,6 +1267,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::ParameterExpansion {
                 reference,
                 operator,
+                operand,
                 ..
             } => {
                 let reference_id = self.visit_var_ref_reference(
@@ -1288,24 +1289,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if matches!(operator, ParameterOp::AssignDefault) {
                     self.add_parameter_default_binding(reference);
                 }
-                match operator {
-                    ParameterOp::RemovePrefixShort { pattern }
-                    | ParameterOp::RemovePrefixLong { pattern }
-                    | ParameterOp::RemoveSuffixShort { pattern }
-                    | ParameterOp::RemoveSuffixLong { pattern }
-                    | ParameterOp::ReplaceFirst { pattern, .. }
-                    | ParameterOp::ReplaceAll { pattern, .. } => {
-                        self.visit_pattern_into(pattern, kind, flow, nested_regions);
-                    }
-                    ParameterOp::UseDefault
-                    | ParameterOp::AssignDefault
-                    | ParameterOp::UseReplacement
-                    | ParameterOp::Error
-                    | ParameterOp::UpperFirst
-                    | ParameterOp::UpperAll
-                    | ParameterOp::LowerFirst
-                    | ParameterOp::LowerAll => {}
-                }
+                self.visit_parameter_operator_operand(
+                    operator,
+                    operand.as_ref(),
+                    kind,
+                    flow,
+                    nested_regions,
+                );
             }
             WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
                 self.visit_var_ref_reference(
@@ -1476,7 +1466,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                 }
-                BourneParameterExpansion::Indirect { reference, .. } => {
+                BourneParameterExpansion::Indirect {
+                    reference,
+                    operator,
+                    operand,
+                    ..
+                } => {
                     let id = self.visit_var_ref_reference(
                         reference,
                         if matches!(kind, WordVisitKind::Conditional) {
@@ -1489,6 +1484,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                     self.indirect_expansion_refs.insert(id);
+                    if let Some(operator) = operator {
+                        self.visit_parameter_operator_operand(
+                            operator,
+                            operand.as_ref(),
+                            kind,
+                            flow,
+                            nested_regions,
+                        );
+                    }
                 }
                 BourneParameterExpansion::PrefixMatch { prefix, .. } => {
                     self.add_reference(
@@ -1532,6 +1536,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Operation {
                     reference,
                     operator,
+                    operand,
                     ..
                 } => {
                     let reference_id = self.visit_var_ref_reference(
@@ -1553,24 +1558,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     if matches!(operator, ParameterOp::AssignDefault) {
                         self.add_parameter_default_binding(reference);
                     }
-                    match operator {
-                        ParameterOp::RemovePrefixShort { pattern }
-                        | ParameterOp::RemovePrefixLong { pattern }
-                        | ParameterOp::RemoveSuffixShort { pattern }
-                        | ParameterOp::RemoveSuffixLong { pattern }
-                        | ParameterOp::ReplaceFirst { pattern, .. }
-                        | ParameterOp::ReplaceAll { pattern, .. } => {
-                            self.visit_pattern_into(pattern, kind, flow, nested_regions);
-                        }
-                        ParameterOp::UseDefault
-                        | ParameterOp::AssignDefault
-                        | ParameterOp::UseReplacement
-                        | ParameterOp::Error
-                        | ParameterOp::UpperFirst
-                        | ParameterOp::UpperAll
-                        | ParameterOp::LowerFirst
-                        | ParameterOp::LowerAll => {}
-                    }
+                    self.visit_parameter_operator_operand(
+                        operator,
+                        operand.as_ref(),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
                 }
                 BourneParameterExpansion::Transformation { reference, .. } => {
                     self.visit_var_ref_reference(
@@ -1660,6 +1654,47 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
         self.visit_word_into(&word, kind, flow, nested_regions);
+    }
+
+    fn visit_parameter_operator_operand(
+        &mut self,
+        operator: &ParameterOp,
+        operand: Option<&shuck_ast::SourceText>,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => {
+                self.visit_pattern_into(pattern, kind, flow, nested_regions);
+            }
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement,
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement,
+            } => {
+                self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                self.visit_source_text_as_word(replacement, kind, flow, nested_regions);
+            }
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error => {
+                if let Some(operand) = operand {
+                    self.visit_source_text_as_word(operand, kind, flow, nested_regions);
+                }
+            }
+            ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => {}
+        }
     }
 
     fn visit_pattern_part(

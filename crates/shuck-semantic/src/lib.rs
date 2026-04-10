@@ -2114,6 +2114,30 @@ download() {
     }
 
     #[test]
+    fn case_without_matching_arm_keeps_initializer_live() {
+        let source = "\
+value=''
+case \"$kind\" in
+  one)
+    value=1
+    ;;
+  two)
+    value=2
+    ;;
+esac
+printf '%s\\n' \"$value\"
+";
+        let model = model_with_dialect(source, ShellDialect::Posix);
+        let unused = reportable_unused_names(&model);
+
+        assert!(
+            !unused.contains(&Name::from("value")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
     fn function_global_assignments_read_later_by_caller_are_live() {
         let source = "\
 pass_args() {
@@ -2741,6 +2765,33 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
             })
             .unwrap();
         assert_eq!(binding.span.slice(source), "config_path");
+    }
+
+    #[test]
+    fn default_parameter_operand_reads_are_tracked() {
+        let source = "\
+repo_root=$(pwd)
+cache_dir=${1:-\"$repo_root/.cache\"}
+printf '%s\\n' \"$cache_dir\"
+";
+        let model = model_with_dialect(source, ShellDialect::Posix);
+        let unused = reportable_unused_names(&model);
+
+        assert!(
+            !unused.contains(&Name::from("repo_root")),
+            "unused bindings: {:?}",
+            unused
+        );
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::Expansion && reference.name == "repo_root"
+            })
+            .unwrap();
+        let binding = model.resolved_binding(reference.id).unwrap();
+        assert_eq!(binding.name, "repo_root");
     }
 
     #[test]

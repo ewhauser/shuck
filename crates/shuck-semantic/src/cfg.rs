@@ -644,9 +644,7 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        if arms.is_empty() {
-            self.add_edge(head, exit_block, EdgeKind::Sequential);
-        }
+        self.add_edge(head, exit_block, EdgeKind::Sequential);
 
         SequenceResult {
             entry: Some(head),

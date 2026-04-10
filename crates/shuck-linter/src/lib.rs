@@ -1291,6 +1291,24 @@ printf '%s\\n' \"${!args_var}\"
     }
 
     #[test]
+    fn parameter_default_operand_usage_is_not_flagged() {
+        let source = "\
+#!/bin/sh
+repo_root=$(pwd)
+cache_dir=${1:-\"$repo_root/.cache\"}
+printf '%s\\n' \"$cache_dir\"
+";
+        let diagnostics = lint_named_source_with_parse_dialect(
+            Path::new("/tmp/parameter-default.sh"),
+            source,
+            ParseDialect::Posix,
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn local_at_script_scope_is_flagged() {
         let diagnostics = lint(
             "#!/bin/bash\nlocal foo=bar\nprintf '%s\\n' \"$foo\"\n",
@@ -1665,6 +1683,31 @@ download() {
   echo \"$core_arch\"
 }
 ",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn case_without_matching_arm_keeps_initializer_live() {
+        let source = "\
+#!/bin/sh
+value=''
+case \"$kind\" in
+  one)
+    value=1
+    ;;
+  two)
+    value=2
+    ;;
+esac
+printf '%s\\n' \"$value\"
+";
+        let diagnostics = lint_named_source_with_parse_dialect(
+            Path::new("/tmp/case-no-match.sh"),
+            source,
+            ParseDialect::Posix,
             &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
