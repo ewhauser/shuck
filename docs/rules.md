@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 90 |
+| Implemented | 91 |
 | Scheduled (Tranches 1-3) | 18 |
-| Remaining | 210 |
+| Remaining | 209 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -298,7 +298,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **M** C132 (SC2380) `misspelled-option-name` — configure option name typo
 - [x] [x] **L** S012 (SC2009) `ps-grep-pipeline` — piping ps into grep
 - [x] [x] **L** S013 (SC2010) `ls-grep-pipeline` — piping ls into grep
-- [ ] **L** S016 (SC2116) `echo-inside-command-substitution` — echo in `$()` is unnecessary
+- [x] [x] **L** S016 (SC2116) `echo-inside-command-substitution` — echo in `$()` is unnecessary
 - [ ] **M** S019 (SC2143) `grep-output-in-test` — grep text as boolean check
 - [ ] **L** S036 (SC2258) `bare-read` — `read` without options
 - [ ] **L** S037 (SC2263) `redundant-spaces-in-echo` — extra spaces in echo collapsed

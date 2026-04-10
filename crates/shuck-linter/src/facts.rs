@@ -735,6 +735,7 @@ pub struct SubstitutionFact {
     kind: CommandSubstitutionKind,
     stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
+    body_contains_echo: bool,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
     unquoted_in_host: bool,
@@ -755,6 +756,10 @@ impl SubstitutionFact {
 
     pub fn has_stdout_redirect(&self) -> bool {
         self.has_stdout_redirect
+    }
+
+    pub fn body_contains_echo(&self) -> bool {
+        self.body_contains_echo
     }
 
     pub fn host_word_span(&self) -> Span {
@@ -8176,6 +8181,8 @@ declare -A map=([$(printf key)]=1)
 out=$(printf hi > out.txt)
 drop=$(printf hi >/dev/null 2>&1)
 mixed=$(jq -r . <<< \"$status\" || die >&2)
+x=$(echo direct)
+y=$(foo $(echo nested))
 ";
 
         with_facts(source, None, |_, facts| {
@@ -8189,6 +8196,7 @@ mixed=$(jq -r . <<< \"$status\" || die >&2)
                         fact.stdout_intent(),
                         fact.host_kind(),
                         fact.unquoted_in_host(),
+                        fact.body_contains_echo(),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -8198,17 +8206,20 @@ mixed=$(jq -r . <<< \"$status\" || die >&2)
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
                 true,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf decl-assign)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::DeclarationAssignmentValue,
                 true,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf quoted)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
+                false,
                 false,
             )));
             assert!(substitutions.contains(&(
@@ -8216,37 +8227,102 @@ mixed=$(jq -r . <<< \"$status\" || die >&2)
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::AssignmentTargetSubscript,
                 true,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf decl-name)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::DeclarationNameSubscript,
                 true,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf key)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::ArrayKeySubscript,
                 true,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf hi > out.txt)".to_owned(),
                 SubstitutionOutputIntent::Rerouted,
                 SubstitutionHostKind::Other,
                 true,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf hi >/dev/null 2>&1)".to_owned(),
                 SubstitutionOutputIntent::Discarded,
                 SubstitutionHostKind::Other,
                 true,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(jq -r . <<< \"$status\" || die >&2)".to_owned(),
                 SubstitutionOutputIntent::Mixed,
                 SubstitutionHostKind::Other,
                 true,
+                false,
             )));
+            assert!(substitutions.contains(&(
+                "$(echo direct)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::CommandArgument,
+                true,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(foo $(echo nested))".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::CommandArgument,
+                true,
+                false,
+            )));
+            assert!(substitutions.contains(&(
+                "$(echo nested)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::CommandArgument,
+                true,
+                true,
+            )));
+        });
+    }
+
+    #[test]
+    fn identifies_command_substitutions_that_echo_plain_text_or_expansions() {
+        let source = "\
+#!/bin/sh
+plain=$(echo foo)
+expanded=$(echo $foo)
+quoted=$(echo \"$foo\")
+var_suffix=$(echo foo$foo)
+command_subst=$(echo foo $(date))
+option_like=$(echo -en \"\\001\")
+glob_like=$(echo O*)
+brace_like=$(echo {a,b})
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.body_contains_echo(),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+
+            assert_eq!(substitutions.get("$(echo foo)"), Some(&true));
+            assert_eq!(substitutions.get("$(echo $foo)"), Some(&true));
+            assert_eq!(substitutions.get("$(echo \"$foo\")"), Some(&true));
+            assert_eq!(substitutions.get("$(echo foo$foo)"), Some(&true));
+            assert_eq!(substitutions.get("$(echo foo $(date))"), Some(&true));
+            assert_eq!(substitutions.get("$(echo -en \"\\001\")"), Some(&false));
+            assert_eq!(substitutions.get("$(echo O*)"), Some(&false));
+            assert_eq!(substitutions.get("$(echo {a,b})"), Some(&false));
         });
     }
 

@@ -100,6 +100,7 @@ fn collect_or_update_word_substitution_facts<'a>(
             kind: occurrence.kind,
             stdout_intent,
             has_stdout_redirect,
+            body_contains_echo: substitution_body_contains_echo(occurrence.body, source),
             host_word_span: word.span,
             host_kind,
             unquoted_in_host: occurrence.unquoted_in_host,
@@ -329,6 +330,86 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
         stdout_intent,
         has_stdout_redirect,
     }
+}
+
+fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
+    let mut visits = query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    );
+    let Some(visit) = visits.next() else {
+        return false;
+    };
+    if visits.next().is_some() {
+        return false;
+    }
+
+    let normalized = command::normalize_command(visit.command, source);
+    if !normalized.effective_name_is("echo") {
+        return false;
+    }
+
+    if normalized.body_args().first().is_some_and(|word| {
+        static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
+    }) {
+        return false;
+    }
+
+    normalized
+        .body_args()
+        .iter()
+        .all(|word| !word_contains_unquoted_glob_or_brace(word, source))
+}
+
+fn word_contains_unquoted_glob_or_brace(word: &Word, source: &str) -> bool {
+    word_parts_contain_unquoted_glob_or_brace(&word.parts, source, false)
+}
+
+fn word_parts_contain_unquoted_glob_or_brace(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                if word_parts_contain_unquoted_glob_or_brace(parts, source, true) {
+                    return true;
+                }
+            }
+            WordPart::Literal(text) => {
+                if !in_double_quotes
+                    && text
+                        .as_str(source, part.span)
+                        .chars()
+                        .any(|ch| matches!(ch, '*' | '?' | '[' | ']' | '{' | '}'))
+                {
+                    return true;
+                }
+            }
+            WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+            WordPart::SingleQuoted { .. } => {}
+        }
+    }
+
+    false
 }
 
 fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {

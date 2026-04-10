@@ -6,6 +6,7 @@ pub mod backslash_before_command;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
 pub mod echo_here_doc;
+pub mod echo_inside_command_substitution;
 pub mod echoed_command_substitution;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
@@ -52,6 +53,7 @@ mod tests {
     #[test_case(Rule::UnquotedArrayExpansion, Path::new("S008.sh"))]
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
+    #[test_case(Rule::EchoInsideCommandSubstitution, Path::new("S016.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]

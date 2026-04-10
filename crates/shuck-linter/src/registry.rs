@@ -325,6 +325,12 @@ declare_rules! {
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
     ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
+    (
+        "S016",
+        Category::Style,
+        Severity::Warning,
+        EchoInsideCommandSubstitution
+    ),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
     ("S033", Category::Style, Severity::Warning, EchoHereDoc),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
@@ -425,6 +431,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
+        "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
@@ -631,6 +638,10 @@ mod tests {
         assert_eq!(
             code_to_rule("SH-040"),
             Some(Rule::EchoedCommandSubstitution)
+        );
+        assert_eq!(
+            code_to_rule("SH-066"),
+            Some(Rule::EchoInsideCommandSubstitution)
         );
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));

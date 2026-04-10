@@ -463,6 +463,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedCommandSubstitution) {
             rules::style::unquoted_command_substitution::unquoted_command_substitution(self);
         }
+        if self.is_rule_enabled(Rule::EchoInsideCommandSubstitution) {
+            rules::style::echo_inside_command_substitution::echo_inside_command_substitution(self);
+        }
         if self.is_rule_enabled(Rule::SudoRedirectionOrder) {
             rules::correctness::sudo_redirection_order::sudo_redirection_order(self);
         }

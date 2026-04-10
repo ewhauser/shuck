@@ -91,6 +91,7 @@ impl Default for ShellCheckCodeMap {
         let comparison = vec![
             (2003, Rule::ExprArithmetic),
             (2005, Rule::EchoedCommandSubstitution),
+            (2116, Rule::EchoInsideCommandSubstitution),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
@@ -303,6 +304,7 @@ impl Default for ShellCheckCodeMap {
                 (1012, Rule::NeedlessBackslashUnderscore),
                 (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2005, Rule::EchoedCommandSubstitution),
+                (2116, Rule::EchoInsideCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
                 (2003, Rule::ExprArithmetic),
@@ -533,6 +535,10 @@ mod tests {
 
         assert_eq!(map.resolve("SC2034"), Some(Rule::UnusedAssignment));
         assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
+        assert_eq!(
+            map.resolve("SC2116"),
+            Some(Rule::EchoInsideCommandSubstitution)
+        );
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
@@ -879,6 +885,7 @@ mod tests {
             (1132, Rule::CPrototypeFragment),
             (2003, Rule::ExprArithmetic),
             (2005, Rule::EchoedCommandSubstitution),
+            (2116, Rule::EchoInsideCommandSubstitution),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
