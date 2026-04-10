@@ -1,6 +1,6 @@
-pub mod ansi_c_quoting;
 pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
+pub mod ansi_c_quoting;
 pub mod array_assignment;
 pub mod array_reference;
 pub mod bash_case_fallthrough;
@@ -8,8 +8,6 @@ pub mod brace_expansion;
 pub mod brace_fd_redirection;
 pub mod c_style_for_arithmetic_in_sh;
 pub mod c_style_for_in_sh;
-pub mod replacement_expansion;
-pub mod uppercase_expansion;
 pub mod conditional_portability;
 pub mod coproc;
 pub mod csh_syntax_in_sh;
@@ -25,22 +23,14 @@ pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
 pub mod process_substitution;
-<<<<<<< HEAD
-pub mod select_loop;
-||||||| parent of 69963bd (Implement X025 replacement expansion portability rule)
-=======
 pub mod replacement_expansion;
->>>>>>> 69963bd (Implement X025 replacement expansion portability rule)
+pub mod select_loop;
 pub mod source_builtin_in_sh;
 pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
-<<<<<<< HEAD
 pub mod standalone_arithmetic;
-||||||| parent of 69963bd (Implement X025 replacement expansion portability rule)
-=======
 pub mod substring_expansion;
 pub mod uppercase_expansion;
->>>>>>> 69963bd (Implement X025 replacement expansion portability rule)
 pub mod zsh_always_block;
 pub mod zsh_array_subscript_in_case;
 pub mod zsh_assignment_to_zero;
