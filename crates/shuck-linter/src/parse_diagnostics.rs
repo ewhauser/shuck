@@ -48,6 +48,10 @@ pub(crate) fn collect_parse_rule_diagnostics(
     shell: ShellDialect,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    let missing_done_loop_kind = (enabled_rules.contains(crate::Rule::LoopWithoutEnd)
+        || enabled_rules.contains(crate::Rule::MissingDoneInForLoop))
+    .then(|| missing_done_loop_kind(file, source, parse_diagnostics))
+    .flatten();
 
     if enabled_rules.contains(crate::Rule::MissingFi)
         && parse_diagnostics
@@ -57,12 +61,12 @@ pub(crate) fn collect_parse_rule_diagnostics(
         diagnostics.push(Diagnostic::new(MissingFi, eof_point(file)));
     }
     if enabled_rules.contains(crate::Rule::LoopWithoutEnd)
-        && has_loop_without_end_error(file, source, parse_diagnostics)
+        && missing_done_loop_kind == Some(MissingDoneLoopKind::NonFor)
     {
         diagnostics.push(Diagnostic::new(LoopWithoutEnd, eof_point(file)));
     }
     if enabled_rules.contains(crate::Rule::MissingDoneInForLoop)
-        && has_missing_done_in_for_loop_error(file, source, parse_diagnostics)
+        && missing_done_loop_kind == Some(MissingDoneLoopKind::For)
     {
         diagnostics.push(Diagnostic::new(MissingDoneInForLoop, eof_point(file)));
     }
@@ -159,17 +163,29 @@ fn leading_control_operator_span(source: &str, line_number: usize) -> Option<Spa
     let trimmed = &text[leading_bytes..];
 
     let operator = if let Some(rest) = trimmed.strip_prefix("&&") {
-        if rest.chars().next().is_some_and(|ch| !ch.is_ascii_whitespace()) {
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_whitespace())
+        {
             return None;
         }
         "&&"
     } else if let Some(rest) = trimmed.strip_prefix("||") {
-        if rest.chars().next().is_some_and(|ch| !ch.is_ascii_whitespace()) {
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_whitespace())
+        {
             return None;
         }
         "||"
     } else if let Some(rest) = trimmed.strip_prefix('|') {
-        if rest.chars().next().is_some_and(|ch| !ch.is_ascii_whitespace()) {
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_whitespace())
+        {
             return None;
         }
         "|"
@@ -272,34 +288,29 @@ fn has_pending_until_without_do_before_line(source: &str, line_number: usize) ->
     pending_until_depth > 0
 }
 
-fn has_loop_without_end_error(
-    file: &File,
-    source: &str,
-    parse_diagnostics: &[ParseDiagnostic],
-) -> bool {
-    if !parse_diagnostics
-        .iter()
-        .any(|diagnostic| is_loop_without_end_error(&diagnostic.message))
-    {
-        return false;
-    }
-
-    !missing_done_belongs_to_for_loop(file, source)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MissingDoneLoopKind {
+    For,
+    NonFor,
 }
 
-fn has_missing_done_in_for_loop_error(
+fn missing_done_loop_kind(
     file: &File,
     source: &str,
     parse_diagnostics: &[ParseDiagnostic],
-) -> bool {
+) -> Option<MissingDoneLoopKind> {
     if !parse_diagnostics
         .iter()
         .any(|diagnostic| is_loop_without_end_error(&diagnostic.message))
     {
-        return false;
+        return None;
     }
 
-    missing_done_belongs_to_for_loop(file, source)
+    Some(if missing_done_belongs_to_for_loop(file, source) {
+        MissingDoneLoopKind::For
+    } else {
+        MissingDoneLoopKind::NonFor
+    })
 }
 
 fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {

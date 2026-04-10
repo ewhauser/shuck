@@ -17,13 +17,13 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
     ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, Assignment, AssignmentValue, BinaryCommand,
-    BinaryOp, BourneParameterExpansion, BuiltinCommand, CaseItem, CaseTerminator, Command,
-    CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
-    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
-    Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
-    ZshQualifiedGlob,
+    BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind, BuiltinCommand,
+    CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax, CompoundCommand,
+    ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
+    ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
+    Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand, SimpleCommand,
+    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
+    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1554,6 +1554,7 @@ pub struct LinterFacts<'a> {
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
     suspect_closing_quote_fragments: Vec<SuspectClosingQuoteFragmentFact>,
+    literal_brace_spans: Vec<Span>,
     backtick_fragments: Vec<BacktickFragmentFact>,
     legacy_arithmetic_fragments: Vec<LegacyArithmeticFragmentFact>,
     positional_parameter_fragments: Vec<PositionalParameterFragmentFact>,
@@ -1724,6 +1725,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn suspect_closing_quote_fragments(&self) -> &[SuspectClosingQuoteFragmentFact] {
         &self.suspect_closing_quote_fragments
+    }
+
+    pub fn literal_brace_spans(&self) -> &[Span] {
+        &self.literal_brace_spans
     }
 
     pub fn backtick_fragments(&self) -> &[BacktickFragmentFact] {
@@ -1925,6 +1930,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_trailing_directive_comment_spans(self.source, self._indexer);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
+        let literal_brace_spans = build_literal_brace_spans(&words, &commands, self.source);
         let SurfaceFragmentFacts {
             single_quoted,
             open_double_quotes,
@@ -2009,6 +2015,7 @@ impl<'a> LinterFactsBuilder<'a> {
             single_quoted_fragments: single_quoted,
             open_double_quote_fragments: open_double_quotes,
             suspect_closing_quote_fragments: suspect_closing_quotes,
+            literal_brace_spans,
             backtick_fragments: backticks,
             legacy_arithmetic_fragments: legacy_arithmetic,
             positional_parameter_fragments: positional_parameters,
@@ -2598,6 +2605,397 @@ fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Ve
         .collect()
 }
 
+fn build_literal_brace_spans(
+    words: &[WordFact<'_>],
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in words {
+        if fact.expansion_context() == Some(ExpansionContext::RegexOperand) {
+            continue;
+        }
+
+        spans.extend(
+            fact.word()
+                .brace_syntax()
+                .iter()
+                .copied()
+                .filter(|brace| {
+                    brace.kind == BraceSyntaxKind::Literal
+                        && brace.quote_context == BraceQuoteContext::Unquoted
+                })
+                .filter(|brace| !is_find_exec_placeholder(commands, fact, brace.span, source))
+                .flat_map(|brace| brace_literal_edge_spans(brace.span, source)),
+        );
+
+        spans.extend(escaped_parameter_expansion_brace_edge_spans(
+            fact.word(),
+            source,
+        ));
+    }
+
+    spans
+}
+
+fn is_find_exec_placeholder(
+    commands: &[CommandFact<'_>],
+    fact: &WordFact<'_>,
+    brace_span: Span,
+    source: &str,
+) -> bool {
+    if brace_span.slice(source) != "{}" {
+        return false;
+    }
+    if fact.expansion_context() != Some(ExpansionContext::CommandArgument) {
+        return false;
+    }
+
+    let command = &commands[fact.command_id().index()];
+    if command
+        .body_name_word()
+        .is_some_and(|name_word| name_word.span == fact.span())
+    {
+        return false;
+    }
+
+    let has_exec_terminator = command
+        .body_args()
+        .iter()
+        .any(|arg| matches!(arg.span.slice(source), "+" | "\\;"));
+    if has_exec_terminator {
+        return true;
+    }
+
+    let is_find = command.static_utility_name_is("find")
+        || command
+            .body_name_word()
+            .is_some_and(|name_word| name_word.span.slice(source).ends_with("find"));
+    let has_exec_flag = command.body_args().iter().any(|arg| {
+        matches!(
+            arg.span.slice(source),
+            "-exec" | "-execdir" | "-ok" | "-okdir"
+        )
+    });
+
+    is_find && has_exec_flag
+}
+
+fn brace_literal_edge_spans(span: Span, source: &str) -> Vec<Span> {
+    let text = span.slice(source);
+    let Some(open_offset) = text.find('{') else {
+        return Vec::new();
+    };
+    let Some(close_offset) = text.rfind('}') else {
+        return Vec::new();
+    };
+
+    let open = span.start.advanced_by(&text[..open_offset]);
+    let close = span.start.advanced_by(&text[..close_offset]);
+    vec![
+        Span::from_positions(open, open),
+        Span::from_positions(close, close),
+    ]
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LiteralBraceCandidate {
+    open_offset: usize,
+    after_escaped_dollar: bool,
+    has_runtime_shell_sigil_inside: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DynamicBraceExcludedSpanKind {
+    Quoted,
+    RuntimeShellSyntax,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DynamicBraceExcludedSpan {
+    start_offset: usize,
+    end_offset: usize,
+    kind: DynamicBraceExcludedSpanKind,
+}
+
+fn escaped_parameter_expansion_brace_edge_spans(word: &Word, source: &str) -> Vec<Span> {
+    let span = word.span;
+    let text = span.slice(source);
+    let mut spans = Vec::new();
+    let mut literal_stack: Vec<LiteralBraceCandidate> = Vec::new();
+    let mut excluded = Vec::new();
+    collect_dynamic_brace_exclusions(&word.parts, span.start.offset, source, &mut excluded);
+    excluded.sort_by_key(|span| (span.start_offset, span.end_offset));
+    let mut excluded_index = 0usize;
+    let mut index = 0usize;
+    let mut previous_char = None;
+    let mut previous_char_escaped = false;
+
+    while index < text.len() {
+        while let Some(excluded_span) = excluded.get(excluded_index).copied() {
+            if excluded_span.end_offset <= index {
+                excluded_index += 1;
+                continue;
+            }
+
+            if excluded_span.start_offset > index {
+                break;
+            }
+
+            if excluded_span.kind == DynamicBraceExcludedSpanKind::RuntimeShellSyntax
+                && let Some(current) = literal_stack.last_mut()
+            {
+                current.has_runtime_shell_sigil_inside = true;
+            }
+            if excluded_span.kind == DynamicBraceExcludedSpanKind::RuntimeShellSyntax
+                && previous_char == Some('$')
+                && previous_char_escaped
+            {
+                let excluded_text = &text[excluded_span.start_offset..excluded_span.end_offset];
+                let open_offset = if excluded_text.starts_with("${") {
+                    Some(excluded_span.start_offset + '$'.len_utf8())
+                } else if excluded_text.starts_with('{') {
+                    Some(excluded_span.start_offset)
+                } else {
+                    None
+                };
+                if let Some(open_offset) = open_offset
+                    && excluded_text.ends_with('}')
+                    && excluded_span.end_offset > open_offset + 1
+                {
+                    let open = span.start.advanced_by(&text[..open_offset]);
+                    let close = span
+                        .start
+                        .advanced_by(&text[..excluded_span.end_offset - '}'.len_utf8()]);
+                    spans.push(Span::from_positions(open, open));
+                    spans.push(Span::from_positions(close, close));
+                }
+            }
+            previous_char = None;
+            previous_char_escaped = false;
+            index = excluded_span.end_offset;
+            excluded_index += 1;
+        }
+
+        if index >= text.len() {
+            break;
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                previous_char = Some(escaped);
+                previous_char_escaped = true;
+                index += escaped.len_utf8();
+            } else {
+                previous_char = Some('\\');
+                previous_char_escaped = false;
+            }
+            continue;
+        }
+
+        if ch == '{' {
+            literal_stack.push(LiteralBraceCandidate {
+                open_offset: index,
+                after_escaped_dollar: previous_char == Some('$') && previous_char_escaped,
+                has_runtime_shell_sigil_inside: false,
+            });
+        } else if ch == '}'
+            && let Some(candidate) = literal_stack.pop()
+        {
+            if index > candidate.open_offset + 1
+                && (candidate.after_escaped_dollar || candidate.has_runtime_shell_sigil_inside)
+            {
+                let open = span.start.advanced_by(&text[..candidate.open_offset]);
+                let close = span.start.advanced_by(&text[..index]);
+                spans.push(Span::from_positions(open, open));
+                spans.push(Span::from_positions(close, close));
+            }
+        }
+
+        previous_char = Some(ch);
+        previous_char_escaped = false;
+        index += ch_len;
+    }
+
+    spans.extend(raw_escaped_parameter_brace_edge_spans(word, source));
+    spans
+}
+
+fn collect_dynamic_brace_exclusions(
+    parts: &[WordPartNode],
+    word_base_offset: usize,
+    source: &str,
+    out: &mut Vec<DynamicBraceExcludedSpan>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) => {}
+            WordPart::DoubleQuoted { .. } if !part.span.slice(source).starts_with("\\\"") => {
+                out.push(DynamicBraceExcludedSpan {
+                    start_offset: part.span.start.offset - word_base_offset,
+                    end_offset: part.span.end.offset - word_base_offset,
+                    kind: DynamicBraceExcludedSpanKind::Quoted,
+                });
+            }
+            WordPart::DoubleQuoted { .. } => {}
+            WordPart::SingleQuoted { .. } => {
+                out.push(DynamicBraceExcludedSpan {
+                    start_offset: part.span.start.offset - word_base_offset,
+                    end_offset: part.span.end.offset - word_base_offset,
+                    kind: DynamicBraceExcludedSpanKind::Quoted,
+                });
+            }
+            WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => out.push(DynamicBraceExcludedSpan {
+                start_offset: part.span.start.offset - word_base_offset,
+                end_offset: part.span.end.offset - word_base_offset,
+                kind: DynamicBraceExcludedSpanKind::RuntimeShellSyntax,
+            }),
+        }
+    }
+}
+
+fn raw_escaped_parameter_brace_edge_spans(word: &Word, source: &str) -> Vec<Span> {
+    let span = word.span;
+    let text = span.slice(source);
+    let mut excluded = Vec::new();
+    collect_raw_escaped_parameter_exclusions(&word.parts, span.start.offset, source, &mut excluded);
+    excluded.sort_by_key(|span| (span.start_offset, span.end_offset));
+
+    let mut spans = Vec::new();
+    let mut excluded_index = 0usize;
+    let mut index = 0usize;
+    let mut previous_char = None;
+    let mut previous_char_escaped = false;
+    let mut escaped_parameter_stack = Vec::new();
+    let mut parameter_depth = 0usize;
+
+    while index < text.len() {
+        while let Some(excluded_span) = excluded.get(excluded_index).copied() {
+            if excluded_span.end_offset <= index {
+                excluded_index += 1;
+                continue;
+            }
+            if excluded_span.start_offset > index {
+                break;
+            }
+
+            previous_char = None;
+            previous_char_escaped = false;
+            index = excluded_span.end_offset;
+            excluded_index += 1;
+        }
+
+        if index >= text.len() {
+            break;
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                previous_char = Some(escaped);
+                previous_char_escaped = true;
+                index += escaped.len_utf8();
+            } else {
+                previous_char = Some('\\');
+                previous_char_escaped = false;
+            }
+            continue;
+        }
+
+        if ch == '{' {
+            if previous_char == Some('$') && previous_char_escaped {
+                escaped_parameter_stack.push(index);
+            } else if previous_char == Some('$') && !previous_char_escaped {
+                parameter_depth += 1;
+            }
+        } else if ch == '}' {
+            if parameter_depth > 0 {
+                parameter_depth -= 1;
+            } else if let Some(open_offset) = escaped_parameter_stack.pop() {
+                let open = span.start.advanced_by(&text[..open_offset]);
+                let close = span.start.advanced_by(&text[..index]);
+                spans.push(Span::from_positions(open, open));
+                spans.push(Span::from_positions(close, close));
+            }
+        }
+
+        previous_char = Some(ch);
+        previous_char_escaped = false;
+        index += ch_len;
+    }
+
+    spans
+}
+
+fn collect_raw_escaped_parameter_exclusions(
+    parts: &[WordPartNode],
+    word_base_offset: usize,
+    source: &str,
+    out: &mut Vec<DynamicBraceExcludedSpan>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_)
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+            WordPart::DoubleQuoted { .. } if !part.span.slice(source).starts_with("\\\"") => {
+                out.push(DynamicBraceExcludedSpan {
+                    start_offset: part.span.start.offset - word_base_offset,
+                    end_offset: part.span.end.offset - word_base_offset,
+                    kind: DynamicBraceExcludedSpanKind::Quoted,
+                });
+            }
+            WordPart::DoubleQuoted { .. } => {}
+            WordPart::SingleQuoted { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. } => out.push(DynamicBraceExcludedSpan {
+                start_offset: part.span.start.offset - word_base_offset,
+                end_offset: part.span.end.offset - word_base_offset,
+                kind: DynamicBraceExcludedSpanKind::Quoted,
+            }),
+        }
+    }
+}
+
 fn directive_can_apply_to_following_command(prefix: &str) -> bool {
     let trimmed = prefix.trim_end();
     trimmed.ends_with(';')
@@ -2609,7 +3007,10 @@ fn directive_can_apply_to_following_command(prefix: &str) -> bool {
 }
 
 fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
-    let body = comment_text.trim_start().trim_start_matches('#').trim_start();
+    let body = comment_text
+        .trim_start()
+        .trim_start_matches('#')
+        .trim_start();
     let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shellcheck") else {
         return false;
     };
