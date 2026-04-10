@@ -17,5 +17,9 @@ find "$repo_root" -name AGENTS.md -not -path '*/.git/*' | while read -r agents_f
     fi
 
     ln -s AGENTS.md "$claude_file"
-    echo "Created symlink: ${claude_file#"$repo_root"/}"
+    relative_path="$claude_file"
+    if [[ $claude_file == "$repo_root/"* ]]; then
+        relative_path=${claude_file:$(( ${#repo_root} + 1 ))}
+    fi
+    echo "Created symlink: $relative_path"
 done
