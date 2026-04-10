@@ -32,6 +32,7 @@ pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
 pub mod needless_backslash_underscore;
+pub mod positional_args_in_string;
 pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
 pub mod quoted_dollar_star_loop;
@@ -81,6 +82,7 @@ mod tests {
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
     #[test_case(Rule::UnquotedDollarStar, Path::new("S014.sh"))]
     #[test_case(Rule::QuotedDollarStarLoop, Path::new("S015.sh"))]
+    #[test_case(Rule::PositionalArgsInString, Path::new("S021.sh"))]
     #[test_case(Rule::SingleIterationLoop, Path::new("S020.sh"))]
     #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]

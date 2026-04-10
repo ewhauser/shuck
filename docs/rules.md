@@ -243,7 +243,7 @@ contexts. Use word facts and expansion word facts.
 - [x] **M** S015 (SC2066) `quoted-dollar-star-loop` — `"$*"` in loop turns args into one item
 - [ ] **M** S017 (SC2206) `unquoted-array-split` — unquoted value split into array
 - [ ] **M** S018 (SC2207) `command-output-array-split` — raw command output into array
-- [ ] **M** S021 (SC2145) `positional-args-in-string` — positional params folded into string
+- [x] **M** S021 (SC2145) `positional-args-in-string` — positional params folded into string
 - [ ] **L** S050 (SC2300) `unquoted-word-between-quotes` — unquoted word between single-quoted segments
 - [ ] **M** S052 (SC2307) `unquoted-variable-in-test` — unquoted variable in `[ -n ]`
 - [ ] **M** S058 (SC2335) `unquoted-path-in-mkdir` — unquoted variable in mkdir

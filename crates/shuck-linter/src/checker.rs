@@ -440,6 +440,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::QuotedDollarStarLoop) {
             rules::style::quoted_dollar_star_loop::quoted_dollar_star_loop(self);
         }
+        if self.is_rule_enabled(Rule::PositionalArgsInString) {
+            rules::style::positional_args_in_string::positional_args_in_string(self);
+        }
         if self.is_rule_enabled(Rule::EscapedUnderscore) {
             rules::style::escaped_underscore::escaped_underscore(self);
         }

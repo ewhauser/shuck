@@ -206,6 +206,38 @@ pub fn word_is_pure_positional_at_splat(word: &Word) -> bool {
     parts_are_pure_positional_at_splat(&word.parts)
 }
 
+pub fn word_folded_positional_at_splat_span(word: &Word) -> Option<Span> {
+    let spans = word_positional_at_splat_spans(word);
+    if spans.is_empty() {
+        return None;
+    }
+    if word_is_pure_positional_at_splat(word) && spans.len() == 1 {
+        return None;
+    }
+
+    spans.into_iter().next()
+}
+
+pub fn word_has_folded_positional_at_splat(word: &Word) -> bool {
+    word_folded_positional_at_splat_span(word).is_some()
+}
+
+pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
+    let spans = word_positional_at_splat_spans(word)
+        .into_iter()
+        .filter(|span| !span_is_escaped(*span, source))
+        .collect::<Vec<_>>();
+    let Some(first) = spans.first().copied() else {
+        return None;
+    };
+
+    if spans.len() == 1 && positional_at_splat_is_standalone(word, first, source) {
+        return None;
+    }
+
+    Some(first)
+}
+
 pub fn word_zsh_flag_modifier_spans(word: &Word) -> Vec<Span> {
     word.parts
         .iter()
@@ -1644,6 +1676,38 @@ fn parts_are_pure_positional_at_splat(parts: &[WordPartNode]) -> bool {
     saw_splat
 }
 
+fn positional_at_splat_is_standalone(word: &Word, _splat: Span, source: &str) -> bool {
+    let text = word.span.slice(source);
+    let body = if word.is_fully_double_quoted() {
+        let Some(unquoted) = text
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+        else {
+            return false;
+        };
+        unquoted
+    } else {
+        text
+    };
+
+    if body == "$@" {
+        return true;
+    }
+    if !body.starts_with("${@") || !body.ends_with('}') {
+        return false;
+    }
+
+    matches!(body.as_bytes().get(3), Some(b'}' | b':'))
+}
+
+fn span_is_escaped(span: Span, source: &str) -> bool {
+    if span.start.offset == 0 {
+        return false;
+    }
+
+    source.as_bytes()[span.start.offset - 1] == b'\\'
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_parser::parser::Parser;
@@ -1652,9 +1716,11 @@ mod tests {
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
-        word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
-        word_is_pure_positional_at_splat, word_positional_at_splat_spans,
-        word_quoted_star_splat_spans, word_unquoted_star_splat_spans,
+        word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
+        word_has_folded_positional_at_splat, word_is_pure_positional_at_splat,
+        word_positional_at_splat_spans, word_has_unquoted_brace_expansion,
+        word_unquoted_glob_pattern_spans, word_quoted_star_splat_spans,
+        word_unquoted_star_splat_spans,
     };
 
     #[test]
@@ -2130,5 +2196,59 @@ printf '%s\\n' \"$@\" ${@} \"${@:1}\" \"$@$@\" \"prefix$@suffix\" ${array[@]} \"
                 false, true, true, true, true, false, false, false, false, false
             ]
         );
+    }
+
+    #[test]
+    fn word_folded_positional_at_splat_span_tracks_only_folding_forms() {
+        let source = "\
+printf '%s\\n' \"$@\" \"${@}\" \"${@:1}\" \"$@$@\" \"$@\"\"$@\" \"x$@y\" x$@y ${@} ${@:1} ${@:-fallback}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let folded = command
+            .args
+            .iter()
+            .filter_map(word_folded_positional_at_splat_span)
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(folded, vec!["$@", "$@", "$@", "$@"]);
+        assert!(!word_has_folded_positional_at_splat(&command.args[1]));
+        assert!(word_has_folded_positional_at_splat(&command.args[4]));
+    }
+
+    #[test]
+    fn word_folded_positional_at_splat_span_in_source_ignores_standalone_slice_forwarding() {
+        let source = "\
+exec \"${@:${args_offset}}\"\nset -- \"${@:${args_offset}}\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let first = &output.file.body[0].command;
+        let second = &output.file.body[1].command;
+        let shuck_ast::Command::Simple(first) = first else {
+            panic!("expected simple command");
+        };
+        let shuck_ast::Command::Simple(second) = second else {
+            panic!("expected simple command");
+        };
+
+        assert!(word_folded_positional_at_splat_span_in_source(&first.args[0], source).is_none());
+        assert!(word_folded_positional_at_splat_span_in_source(&second.args[0], source).is_none());
+    }
+
+    #[test]
+    fn word_folded_positional_at_splat_span_in_source_ignores_escaped_positional_markers() {
+        let source = "eval command \"\\$@\" \"x\\$@y\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(word_folded_positional_at_splat_span_in_source(&command.args[0], source).is_none());
+        assert!(word_folded_positional_at_splat_span_in_source(&command.args[1], source).is_none());
     }
 }
