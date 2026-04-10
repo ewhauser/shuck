@@ -517,4 +517,28 @@ greet
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn pipeline_set_does_not_reset_outer_function_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() {
+  printf '%s\n' hello | while read -r word; do
+    set -- \"$word\"
+  done
+  echo \"$1\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() {\n  printf '%s\n' hello | while read -r word; do\n    set -- \"$word\"\n  done\n  echo \"$1\"\n}"
+        );
+    }
 }

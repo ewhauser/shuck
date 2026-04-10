@@ -440,4 +440,28 @@ greet
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn pipeline_set_does_not_reset_outer_function_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() {
+  printf '%s\n' 'hello world' | while read -r first second; do
+    set -- \"$first\" \"$second\"
+  done
+  echo \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() {\n  printf '%s\n' 'hello world' | while read -r first second; do\n    set -- \"$first\" \"$second\"\n  done\n  echo \"$2\"\n}"
+        );
+    }
 }

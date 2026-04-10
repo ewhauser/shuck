@@ -3090,8 +3090,9 @@ fn enclosing_function_scope_for_positional_reset(
         match semantic.scope_kind(scope) {
             shuck_semantic::ScopeKind::Function(_) => return Some(scope),
             shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution => return None,
-            shuck_semantic::ScopeKind::File | shuck_semantic::ScopeKind::Pipeline => {}
+            | shuck_semantic::ScopeKind::CommandSubstitution
+            | shuck_semantic::ScopeKind::Pipeline => return None,
+            shuck_semantic::ScopeKind::File => {}
         }
     }
 
@@ -3107,9 +3108,10 @@ fn innermost_nonpersistent_scope_within_function(
     for scope in semantic.ancestor_scopes(scope) {
         match semantic.scope_kind(scope) {
             shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution => return Some(scope),
+            | shuck_semantic::ScopeKind::CommandSubstitution
+            | shuck_semantic::ScopeKind::Pipeline => return Some(scope),
             shuck_semantic::ScopeKind::Function(_) => return None,
-            shuck_semantic::ScopeKind::File | shuck_semantic::ScopeKind::Pipeline => {}
+            shuck_semantic::ScopeKind::File => {}
         }
     }
 
@@ -3126,7 +3128,8 @@ fn reference_has_local_positional_reset(
     for scope in semantic.ancestor_scopes(scope) {
         match semantic.scope_kind(scope) {
             shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution => {
+            | shuck_semantic::ScopeKind::CommandSubstitution
+            | shuck_semantic::ScopeKind::Pipeline => {
                 if local_reset_offsets_by_scope
                     .get(&scope)
                     .is_some_and(|offsets| {
@@ -3137,7 +3140,7 @@ fn reference_has_local_positional_reset(
                 }
             }
             shuck_semantic::ScopeKind::Function(_) => return false,
-            shuck_semantic::ScopeKind::File | shuck_semantic::ScopeKind::Pipeline => {}
+            shuck_semantic::ScopeKind::File => {}
         }
     }
 
