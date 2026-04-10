@@ -32,16 +32,22 @@ fn trap_err_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_a
     let signal_words = match args.first().and_then(|word| static_word_text(word, source)) {
         Some(first) if matches!(first.as_str(), "-p" | "-l") => &args[1..],
         Some(first) if first == "--" => {
-            if args.len() <= 2 {
+            if args.len() == 2 {
+                &args[1..]
+            } else if args.len() > 2 {
+                &args[2..]
+            } else {
                 return Vec::new();
             }
-            &args[2..]
         }
         _ => {
-            if args.len() <= 1 {
+            if args.len() == 1 {
+                args
+            } else if args.len() > 1 {
+                &args[1..]
+            } else {
                 return Vec::new();
             }
-            &args[1..]
         }
     };
 
@@ -92,14 +98,22 @@ trap -l ERR
     }
 
     #[test]
-    fn ignores_lone_err_action() {
+    fn reports_lone_err_signal_reset() {
         let source = "\
 #!/bin/sh
 trap ERR
+trap -- ERR
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ERR", "ERR"]
+        );
     }
 
     #[test]

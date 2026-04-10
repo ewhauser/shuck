@@ -31,21 +31,29 @@ pub fn signal_name_in_trap(checker: &mut Checker) {
 }
 
 fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
-    let mut start = 0usize;
-
-    if let Some(first) = args.first().and_then(|word| static_word_text(word, source)) {
-        match first.as_str() {
-            "-p" | "-l" => return Vec::new(),
-            "--" => start = 1,
-            _ => {}
+    let signal_words = match args.first().and_then(|word| static_word_text(word, source)) {
+        Some(first) if matches!(first.as_str(), "-p" | "-l") => return Vec::new(),
+        Some(first) if first == "--" => {
+            if args.len() == 2 {
+                &args[1..]
+            } else if args.len() > 2 {
+                &args[2..]
+            } else {
+                return Vec::new();
+            }
         }
-    }
+        _ => {
+            if args.len() == 1 {
+                args
+            } else if args.len() > 1 {
+                &args[1..]
+            } else {
+                return Vec::new();
+            }
+        }
+    };
 
-    if args.len() <= start + 1 {
-        return Vec::new();
-    }
-
-    args[start + 1..]
+    signal_words
         .iter()
         .filter_map(|word| {
             let text = static_word_text(word, source)?;
@@ -94,5 +102,24 @@ trap '' SIGINT
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SignalNameInTrap));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_actionless_sig_prefixed_signal_names() {
+        let source = "\
+#!/bin/sh
+trap SIGHUP
+trap -- SIGINT
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SignalNameInTrap));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["SIGHUP", "SIGINT"]
+        );
     }
 }
