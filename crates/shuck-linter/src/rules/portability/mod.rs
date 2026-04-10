@@ -26,6 +26,7 @@ pub mod multi_var_for_loop;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
 pub mod pipefail_option;
+pub mod plus_equals_append;
 pub mod printf_q_format_in_sh;
 pub mod process_substitution;
 pub mod replacement_expansion;
@@ -109,6 +110,7 @@ mod tests {
     #[test_case(Rule::SourcedWithArgs, Path::new("X042.sh"))]
     #[test_case(Rule::ZshFlagExpansion, Path::new("X043.sh"))]
     #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
+    #[test_case(Rule::PlusEqualsAppend, Path::new("X045.sh"))]
     #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
     #[test_case(Rule::ZshPromptBracket, Path::new("X049.sh"))]
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]

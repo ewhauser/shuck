@@ -315,6 +315,7 @@ declare_rules! {
     ("X042", Category::Portability, Severity::Warning, SourcedWithArgs),
     ("X043", Category::Portability, Severity::Warning, ZshFlagExpansion),
     ("X044", Category::Portability, Severity::Warning, NestedZshSubstitution),
+    ("X045", Category::Portability, Severity::Warning, PlusEqualsAppend),
     ("X051", Category::Portability, Severity::Warning, ZshNestedExpansion),
     ("X047", Category::Portability, Severity::Warning, MultiVarForLoop),
     ("X049", Category::Portability, Severity::Warning, ZshPromptBracket),
@@ -594,6 +595,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-140" => Some(Rule::SourcedWithArgs),
         "SH-153" => Some(Rule::ZshFlagExpansion),
         "SH-154" => Some(Rule::NestedZshSubstitution),
+        "SH-158" => Some(Rule::PlusEqualsAppend),
         "SH-180" => Some(Rule::MultiVarForLoop),
         "SH-183" => Some(Rule::ZshPromptBracket),
         "SH-184" => Some(Rule::CshSyntaxInSh),
@@ -932,6 +934,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-153"), Some(Rule::ZshFlagExpansion));
         assert_eq!(code_to_rule("X044"), Some(Rule::NestedZshSubstitution));
         assert_eq!(code_to_rule("SH-154"), Some(Rule::NestedZshSubstitution));
+        assert_eq!(code_to_rule("X045"), Some(Rule::PlusEqualsAppend));
+        assert_eq!(code_to_rule("SH-158"), Some(Rule::PlusEqualsAppend));
         assert_eq!(code_to_rule("X047"), Some(Rule::MultiVarForLoop));
         assert_eq!(code_to_rule("SH-180"), Some(Rule::MultiVarForLoop));
         assert_eq!(code_to_rule("X049"), Some(Rule::ZshPromptBracket));

@@ -339,6 +339,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ArrayAssignment) {
             rules::portability::array_assignment::array_assignment(self);
         }
+        if self.is_rule_enabled(Rule::PlusEqualsAppend) {
+            rules::portability::plus_equals_append::plus_equals_append(self);
+        }
         if self.is_rule_enabled(Rule::IndirectExpansion) {
             rules::portability::indirect_expansion::indirect_expansion(self);
         }

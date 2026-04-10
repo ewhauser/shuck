@@ -1671,6 +1671,7 @@ pub struct LinterFacts<'a> {
     heredoc_end_space_spans: Vec<Span>,
     echo_here_doc_spans: Vec<Span>,
     spaced_tabstrip_close_spans: Vec<Span>,
+    plus_equals_assignment_spans: Vec<Span>,
     array_index_arithmetic_spans: Vec<Span>,
     arithmetic_score_line_spans: Vec<Span>,
     dollar_in_arithmetic_spans: Vec<Span>,
@@ -1877,6 +1878,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn spaced_tabstrip_close_spans(&self) -> &[Span] {
         &self.spaced_tabstrip_close_spans
+    }
+
+    pub fn plus_equals_assignment_spans(&self) -> &[Span] {
+        &self.plus_equals_assignment_spans
     }
 
     pub fn array_index_arithmetic_spans(&self) -> &[Span] {
@@ -2161,6 +2166,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_condition_status_capture_spans(&self.file.body, self.source);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
+        let plus_equals_assignment_spans =
+            build_plus_equals_assignment_spans(&commands, self.source);
         let literal_brace_spans = build_literal_brace_spans(&words, &commands, self.source);
         let SurfaceFragmentFacts {
             single_quoted,
@@ -2250,6 +2257,7 @@ impl<'a> LinterFactsBuilder<'a> {
             heredoc_end_space_spans: heredoc_summary.heredoc_end_space_spans,
             echo_here_doc_spans: heredoc_summary.echo_here_doc_spans,
             spaced_tabstrip_close_spans: heredoc_summary.spaced_tabstrip_close_spans,
+            plus_equals_assignment_spans,
             array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
             arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
             dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
@@ -2519,6 +2527,111 @@ fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
     Some(position)
 }
 
+fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in commands {
+        collect_plus_equals_assignment_spans_in_command(fact.command(), source, &mut spans);
+    }
+
+    spans
+}
+
+fn collect_plus_equals_assignment_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            collect_plus_equals_assignment_spans_in_assignments(
+                &command.assignments,
+                source,
+                spans,
+            );
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(
+                    &command.assignments,
+                    source,
+                    spans,
+                );
+            }
+            BuiltinCommand::Continue(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(
+                    &command.assignments,
+                    source,
+                    spans,
+                );
+            }
+            BuiltinCommand::Return(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(
+                    &command.assignments,
+                    source,
+                    spans,
+                );
+            }
+            BuiltinCommand::Exit(command) => {
+                collect_plus_equals_assignment_spans_in_assignments(
+                    &command.assignments,
+                    source,
+                    spans,
+                );
+            }
+        },
+        Command::Decl(command) => {
+            collect_plus_equals_assignment_spans_in_assignments(
+                &command.assignments,
+                source,
+                spans,
+            );
+            for operand in &command.operands {
+                if let DeclOperand::Assignment(assignment) = operand {
+                    collect_plus_equals_assignment_span(assignment, source, spans);
+                }
+            }
+        }
+        Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_plus_equals_assignment_spans_in_assignments(
+    assignments: &[Assignment],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for assignment in assignments {
+        collect_plus_equals_assignment_span(assignment, source, spans);
+    }
+}
+
+fn collect_plus_equals_assignment_span(
+    assignment: &Assignment,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if !assignment.append {
+        return;
+    }
+
+    let snippet = assignment.span.slice(source);
+    let Some(operator_offset) = snippet.find("+=") else {
+        return;
+    };
+    if operator_offset == 0 {
+        return;
+    }
+
+    let target_end = assignment
+        .span
+        .start
+        .advanced_by(&snippet[..operator_offset]);
+    spans.push(Span::from_positions(assignment.span.start, target_end));
+}
 fn build_base_prefix_arithmetic_spans(body: &StmtSeq, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
 
@@ -8178,6 +8291,29 @@ mod tests {
                 .map(|word| word.span.slice(source)),
             Some("2")
         );
+    }
+
+    #[test]
+    fn collects_plus_equals_assignment_spans() {
+        let source = "\
+#!/bin/sh
+x+=64
+arr+=(one two)
+readonly r+=1
+index[1+2]+=3
+(( i += 1 ))
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .plus_equals_assignment_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["x", "arr", "r", "index[1+2]"]
+            );
+        });
     }
 
     #[test]
