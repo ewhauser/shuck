@@ -100,4 +100,22 @@ wait -pn name -f
             vec!["-p", "-n", "-pn", "-f"]
         );
     }
+
+    #[test]
+    fn reports_attached_wait_p_argument_without_skipping_later_options() {
+        let source = "\
+#!/bin/sh
+wait -pjob -n
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-pjob", "-n"]
+        );
+    }
 }

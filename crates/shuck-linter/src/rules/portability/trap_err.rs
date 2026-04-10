@@ -55,7 +55,7 @@ fn trap_err_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_a
         .iter()
         .filter_map(|word| {
             static_word_text(word, source)
-                .is_some_and(|text| text == "ERR")
+                .is_some_and(|text| text.eq_ignore_ascii_case("ERR"))
                 .then_some(word.span)
         })
         .collect()
@@ -113,6 +113,25 @@ trap -- ERR
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["ERR", "ERR"]
+        );
+    }
+
+    #[test]
+    fn reports_case_insensitive_err_signal_names() {
+        let source = "\
+#!/bin/sh
+trap 'echo hi' err
+trap -- ErR
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["err", "ErR"]
         );
     }
 

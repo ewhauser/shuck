@@ -58,7 +58,9 @@ fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
         .filter_map(|word| {
             let text = static_word_text(word, source)?;
             (text.len() > 3
-                && text.starts_with("SIG")
+                && text
+                    .get(..3)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("SIG"))
                 && text[3..]
                     .chars()
                     .all(|character| character.is_ascii_alphanumeric()))
@@ -138,6 +140,25 @@ trap -- SIGINT
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["SIGHUP", "SIGINT"]
+        );
+    }
+
+    #[test]
+    fn reports_case_insensitive_sig_prefixes() {
+        let source = "\
+#!/bin/sh
+trap '' sigint
+trap -- '' SigTerm
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SignalNameInTrap));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["sigint", "SigTerm"]
         );
     }
 }
