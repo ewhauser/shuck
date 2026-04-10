@@ -36,7 +36,7 @@ use self::{
         build_subshell_test_group_spans, build_substitution_facts,
     },
     conditional_portability::build_conditional_portability_facts,
-    escape_scan::{EscapeScanMatch, build_escape_scan_matches},
+    escape_scan::{EscapeScanContext, EscapeScanMatch, build_escape_scan_matches},
     presence::build_presence_tested_names,
     surface::{
         SurfaceFragmentFacts, build_subscript_index_reference_spans, build_surface_fragment_facts,
@@ -1856,8 +1856,10 @@ impl<'a> LinterFactsBuilder<'a> {
             &pattern_charclass_spans,
             &single_quoted,
             &backticks,
-            self.source,
-            self._file_context,
+            EscapeScanContext {
+                source: self.source,
+                file_context: self._file_context,
+            },
         );
         let nested_pattern_charclass_spans = nested_pattern_charclass_spans
             .into_iter()

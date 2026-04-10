@@ -9,6 +9,11 @@ use crate::rules::common::span::{
     word_literal_scan_segments_excluding_expansions,
 };
 
+pub(super) struct EscapeScanContext<'a> {
+    pub(super) source: &'a str,
+    pub(super) file_context: &'a FileContext,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscapeScanSourceKind {
     WordLiteralPart,
@@ -63,10 +68,9 @@ pub(super) fn build_escape_scan_matches(
     pattern_charclass_spans: &[Span],
     single_quoted_fragments: &[SingleQuotedFragmentFact],
     backtick_fragments: &[BacktickFragmentFact],
-    source: &str,
-    file_context: &FileContext,
+    context: EscapeScanContext<'_>,
 ) -> Vec<EscapeScanMatch> {
-    if file_context.has_tag(FileContextTag::PatchFile) {
+    if context.file_context.has_tag(FileContextTag::PatchFile) {
         return Vec::new();
     }
 
@@ -84,12 +88,13 @@ pub(super) fn build_escape_scan_matches(
         let host_contains_single_quoted_fragment =
             span_contains_single_quoted_fragment(fact.span(), single_quoted_fragments);
 
-        for span in word_literal_part_spans_excluding_parameter_operator_tails(fact.word(), source)
+        for span in
+            word_literal_part_spans_excluding_parameter_operator_tails(fact.word(), context.source)
         {
             append_escape_scan_matches(
                 &mut matches,
                 span,
-                source,
+                context.source,
                 EscapeScanSourceKind::WordLiteralPart,
                 fact.is_nested_word_command(),
                 host_contains_single_quoted_fragment,
@@ -109,7 +114,7 @@ pub(super) fn build_escape_scan_matches(
         append_escape_scan_matches(
             &mut matches,
             fact.span(),
-            source,
+            context.source,
             EscapeScanSourceKind::SingleLiteralAssignmentWord,
             fact.is_nested_word_command(),
             span_contains_single_quoted_fragment(fact.span(), single_quoted_fragments),
@@ -131,11 +136,11 @@ pub(super) fn build_escape_scan_matches(
         let host_contains_single_quoted_fragment =
             span_contains_single_quoted_fragment(fact.span(), single_quoted_fragments);
 
-        for span in word_literal_scan_segments_excluding_expansions(fact.word(), source) {
+        for span in word_literal_scan_segments_excluding_expansions(fact.word(), context.source) {
             append_escape_scan_matches(
                 &mut matches,
                 span,
-                source,
+                context.source,
                 EscapeScanSourceKind::RedirectLiteralSegment,
                 fact.is_nested_word_command(),
                 host_contains_single_quoted_fragment,
@@ -147,7 +152,7 @@ pub(super) fn build_escape_scan_matches(
     for command in commands {
         let Some(span) = command
             .body_word_span()
-            .filter(|span| span.slice(source).contains('/'))
+            .filter(|span| span.slice(context.source).contains('/'))
         else {
             continue;
         };
@@ -155,7 +160,7 @@ pub(super) fn build_escape_scan_matches(
         append_escape_scan_matches(
             &mut matches,
             span,
-            source,
+            context.source,
             EscapeScanSourceKind::DynamicPathCommandName,
             command.is_nested_word_command(),
             span_contains_single_quoted_fragment(span, single_quoted_fragments),
@@ -167,7 +172,7 @@ pub(super) fn build_escape_scan_matches(
         append_escape_scan_matches(
             &mut matches,
             *span,
-            source,
+            context.source,
             EscapeScanSourceKind::PatternLiteral,
             false,
             span_contains_single_quoted_fragment(*span, single_quoted_fragments),
@@ -179,7 +184,7 @@ pub(super) fn build_escape_scan_matches(
         append_escape_scan_matches(
             &mut matches,
             *span,
-            source,
+            context.source,
             EscapeScanSourceKind::PatternCharClass,
             false,
             span_contains_single_quoted_fragment(*span, single_quoted_fragments),
@@ -191,7 +196,7 @@ pub(super) fn build_escape_scan_matches(
         append_escape_scan_matches(
             &mut matches,
             fragment.span(),
-            source,
+            context.source,
             EscapeScanSourceKind::BacktickFragment,
             false,
             span_contains_single_quoted_fragment(fragment.span(), single_quoted_fragments),
