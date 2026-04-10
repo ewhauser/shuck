@@ -712,8 +712,8 @@ fn large_corpus_conforms_with_shellcheck() {
         .expect("shellcheck not found on PATH; install it to run the large corpus test");
 
     let supported_shells = shellcheck_supported_shells(&shellcheck.command);
-    let shellcheck_index = build_rule_to_shellcheck_index();
-    let shellcheck_rule_index = build_shellcheck_to_rule_index();
+    let shellcheck_index = build_rule_to_shellcheck_index(cfg.selected_rules.as_ref());
+    let shellcheck_rule_index = build_shellcheck_to_rule_index(cfg.selected_rules.as_ref());
     let corpus_metadata = load_all_rule_corpus_metadata();
     let shellcheck_filter_codes =
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
@@ -2191,22 +2191,24 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
     })
 }
 
-fn build_rule_to_shellcheck_index() -> HashMap<String, String> {
-    shuck_linter::ShellCheckCodeMap::default()
-        .comparison_mappings()
+fn build_rule_to_shellcheck_index(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+) -> HashMap<String, String> {
+    large_corpus_comparison_mappings(selected_rules)
         .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
         .collect()
 }
 
-fn build_shellcheck_to_rule_index() -> HashMap<u32, String> {
-    shuck_linter::ShellCheckCodeMap::default()
-        .comparison_mappings()
+fn build_shellcheck_to_rule_index(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+) -> HashMap<u32, String> {
+    large_corpus_comparison_mappings(selected_rules)
         .map(|(sc_code, rule)| (sc_code, rule.code().to_owned()))
         .collect()
 }
 
 fn build_shellcheck_index() -> HashMap<String, String> {
-    build_rule_to_shellcheck_index()
+    build_rule_to_shellcheck_index(None)
 }
 
 fn build_large_corpus_linter_settings(
@@ -2238,15 +2240,13 @@ fn build_shellcheck_filter_codes(
 }
 
 fn build_mapped_shellcheck_codes() -> HashSet<u32> {
-    shuck_linter::ShellCheckCodeMap::default()
-        .comparison_mappings()
+    large_corpus_comparison_mappings(None)
         .map(|(sc_code, _)| sc_code)
         .collect()
 }
 
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
-    shuck_linter::ShellCheckCodeMap::default()
-        .comparison_mappings()
+    large_corpus_comparison_mappings(Some(selected_rules))
         .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
         .collect()
 }
@@ -2254,8 +2254,7 @@ fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> Ha
 fn validate_selected_rules_for_large_corpus(
     selected_rules: &shuck_linter::RuleSet,
 ) -> Result<(), String> {
-    let comparable_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
-        .comparison_mappings()
+    let comparable_rules: HashSet<_> = large_corpus_comparison_mappings(Some(selected_rules))
         .map(|(_, rule)| rule)
         .collect();
     let mut missing_rules: Vec<_> = selected_rules
@@ -2273,6 +2272,16 @@ fn validate_selected_rules_for_large_corpus(
             missing_rules.join(", ")
         ))
     }
+}
+
+fn large_corpus_comparison_mappings(
+    _selected_rules: Option<&shuck_linter::RuleSet>,
+) -> impl Iterator<Item = (u32, shuck_linter::Rule)> {
+    let mappings: Vec<_> = shuck_linter::ShellCheckCodeMap::default()
+        .comparison_mappings()
+        .collect();
+
+    mappings.into_iter()
 }
 
 // ---------------------------------------------------------------------------
@@ -3076,6 +3085,7 @@ mod tests {
         assert_eq!(index.get("X056").map(String::as_str), Some("SC3005"));
         assert_eq!(index.get("X057").map(String::as_str), Some("SC3007"));
         assert_eq!(index.get("X062").map(String::as_str), Some("SC3018"));
+        assert_eq!(index.get("S035").map(String::as_str), Some("SC2323"));
         assert_eq!(index.get("X016"), None);
         assert_eq!(index.get("X052"), None);
         assert_eq!(index.get("X080").map(String::as_str), Some("SC3051"));
@@ -3106,6 +3116,24 @@ mod tests {
         let codes = build_selected_shellcheck_codes(&rules);
 
         assert_eq!(codes, HashSet::from([2034, 2086]));
+    }
+
+    #[test]
+    fn selected_rule_filter_keeps_stable_arithmetic_comparison_targets() {
+        let rules = parse_large_corpus_rule_set("S045,S048").unwrap();
+        let rule_index = build_rule_to_shellcheck_index(Some(&rules));
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+
+        assert_eq!(rule_index.get("S045").map(String::as_str), Some("SC2004"));
+        assert_eq!(rule_index.get("S048").map(String::as_str), Some("SC2297"));
+        assert_eq!(
+            shellcheck_index.get(&2297).map(String::as_str),
+            Some("S048")
+        );
+        assert_eq!(
+            shellcheck_index.get(&2004).map(String::as_str),
+            Some("S045")
+        );
     }
 
     #[test]

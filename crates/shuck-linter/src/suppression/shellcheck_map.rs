@@ -140,6 +140,7 @@ impl Default for ShellCheckCodeMap {
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
             (3053, Rule::IndirectExpansion),
+            (2219, Rule::AvoidLetBuiltin),
             // ShellCheck 0.11.0 reports array references as SC3054.
             // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
             (3054, Rule::ArrayReference),
@@ -205,18 +206,24 @@ impl Default for ShellCheckCodeMap {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
+            (2290, Rule::SubshellInArithmetic),
+            (2292, Rule::DollarInArithmetic),
             (2294, Rule::EvalOnArray),
+            (2297, Rule::DollarInArithmeticContext),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
             (2392, Rule::LinebreakBeforeAnd),
-            (2397, Rule::AmpersandSemicolon),
             (2396, Rule::UntilMissingDo),
+            (2397, Rule::AmpersandSemicolon),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
             (2257, Rule::ArithmeticRedirectionTarget),
+            (2004, Rule::DollarInArithmetic),
+            (2321, Rule::ArrayIndexArithmetic),
+            (2323, Rule::ArithmeticScoreLine),
             (2264, Rule::NestedParameterExpansion),
             (2250, Rule::PatternWithVariable),
             (2255, Rule::SubstWithRedirect),
@@ -286,6 +293,8 @@ impl Default for ShellCheckCodeMap {
                 (1129, Rule::ZshBraceIf),
                 (1130, Rule::ZshAlwaysBlock),
                 (1132, Rule::CPrototypeFragment),
+                (2254, Rule::ArrayIndexArithmetic),
+                (2297, Rule::DollarInArithmeticContext),
                 (2240, Rule::SourcedWithArgs),
                 (2251, Rule::ZshFlagExpansion),
                 (2252, Rule::NestedZshSubstitution),
@@ -323,6 +332,9 @@ impl Default for ShellCheckCodeMap {
                 (3011, Rule::HereString),
                 (3030, Rule::ArrayAssignment),
                 (3053, Rule::IndirectExpansion),
+                (2219, Rule::AvoidLetBuiltin),
+                (2321, Rule::ArrayIndexArithmetic),
+                (2323, Rule::ArithmeticScoreLine),
                 (3028, Rule::ArrayReference),
                 (3054, Rule::ArrayReference),
                 (3057, Rule::SubstringExpansion),
@@ -359,6 +371,7 @@ impl Default for ShellCheckCodeMap {
                 (3075, Rule::ErrexitTrapInSh),
                 (3076, Rule::SignalNameInTrap),
                 (2321, Rule::FunctionKeywordInSh),
+                (2323, Rule::ArithmeticScoreLine),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
                 (2155, Rule::ExportCommandSubstitution),
@@ -375,14 +388,16 @@ impl Default for ShellCheckCodeMap {
                 (2288, Rule::TemplateBraceInCommand),
                 (2289, Rule::CommentedContinuationLine),
                 (1133, Rule::LinebreakBeforeAnd),
+                (2290, Rule::SubshellInArithmetic),
+                (2292, Rule::DollarInArithmetic),
                 (2294, Rule::EvalOnArray),
                 (2333, Rule::NonShellSyntaxInScript),
                 (2389, Rule::LoopWithoutEnd),
                 (2390, Rule::MissingDoneInForLoop),
                 (2391, Rule::DanglingElse),
                 (2392, Rule::LinebreakBeforeAnd),
-                (2397, Rule::AmpersandSemicolon),
                 (2396, Rule::UntilMissingDo),
+                (2397, Rule::AmpersandSemicolon),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -434,6 +449,7 @@ mod tests {
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
+        assert_eq!(map.resolve("SC2219"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2233"), Some(Rule::SingleTestSubshell));
@@ -490,6 +506,7 @@ mod tests {
         assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC1113"), Some(Rule::TrailingDirective));
         assert_eq!(map.resolve("SC1126"), Some(Rule::TrailingDirective));
+        assert_eq!(map.resolve("SC2290"), Some(Rule::SubshellInArithmetic));
         assert_eq!(
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
@@ -567,10 +584,12 @@ mod tests {
         assert_eq!(map.resolve("SC3048"), Some(Rule::WaitOption));
         assert_eq!(map.resolve("SC3044"), Some(Rule::DeclareCommand));
         assert_eq!(map.resolve("SC3046"), Some(Rule::SourceBuiltinInSh));
+        assert_eq!(map.resolve("SC2254"), Some(Rule::ArrayIndexArithmetic));
         assert_eq!(map.resolve("SC3077"), Some(Rule::BasePrefixInArithmetic));
         assert_eq!(map.resolve("SC3075"), Some(Rule::ErrexitTrapInSh));
         assert_eq!(map.resolve("SC3076"), Some(Rule::SignalNameInTrap));
         assert_eq!(map.resolve("SC2321"), Some(Rule::FunctionKeywordInSh));
+        assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
@@ -603,6 +622,8 @@ mod tests {
             map.resolve("SC2257"),
             Some(Rule::ArithmeticRedirectionTarget)
         );
+        assert_eq!(map.resolve("SC2292"), Some(Rule::DollarInArithmetic));
+        assert_eq!(map.resolve("SC2297"), Some(Rule::DollarInArithmeticContext));
         assert_eq!(map.resolve("SC2250"), Some(Rule::PatternWithVariable));
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
@@ -717,6 +738,7 @@ mod tests {
             (2164, Rule::UncheckedDirectoryChange),
             (2168, Rule::LocalTopLevel),
             (2194, Rule::ConstantCaseSubject),
+            (2219, Rule::AvoidLetBuiltin),
             (2210, Rule::BadRedirectionFdOrder),
             (2216, Rule::PipeToKill),
             (2233, Rule::SingleTestSubshell),
@@ -727,12 +749,16 @@ mod tests {
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
+            (2254, Rule::ArrayIndexArithmetic),
             (2250, Rule::PatternWithVariable),
             (2251, Rule::ZshFlagExpansion),
             (2252, Rule::NestedZshSubstitution),
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
             (2257, Rule::ArithmeticRedirectionTarget),
+            (2290, Rule::SubshellInArithmetic),
+            (2292, Rule::DollarInArithmetic),
+            (2297, Rule::DollarInArithmeticContext),
             (2259, Rule::SubshellTestGroup),
             (2264, Rule::NestedParameterExpansion),
             (2266, Rule::OverwrittenFunction),
@@ -750,7 +776,9 @@ mod tests {
             (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
+            (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
+            (2323, Rule::ArithmeticScoreLine),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
@@ -867,6 +895,7 @@ mod tests {
         assert!(comparison.contains(&(3026, Rule::CaretNegationInBracket)));
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
+        assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
@@ -889,6 +918,10 @@ mod tests {
         assert!(comparison.contains(&(3051, Rule::SourceInsideFunctionInSh)));
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
+        assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
+        assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
+        assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
+        assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));

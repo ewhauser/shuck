@@ -317,12 +317,12 @@ facts or word facts for single-quoted strings.
 
 Rules about arithmetic expansion and arithmetic-context issues.
 
-- [ ] **M** C077 (SC2290) `subshell-in-arithmetic` — command substitution in arithmetic
-- [ ] **L** S022 (SC2219) `avoid-let-builtin` — `let` is unnecessarily indirect
-- [ ] **L** S034 (SC2254) `array-index-arithmetic` — arithmetic expansion in array subscript
-- [ ] **L** S035 (SC2257) `arithmetic-score-line` — long arithmetic expansion in assignment
-- [ ] **L** S045 (SC2292) `dollar-in-arithmetic` — `$` before variable in `$(( ))`
-- [ ] **L** S048 (SC2297) `dollar-in-arithmetic-context` — `$` in double-paren context
+- [x] **M** C077 (SC2290) `subshell-in-arithmetic` — command substitution in arithmetic
+- [x] **L** S022 (SC2219) `avoid-let-builtin` — `let` is unnecessarily indirect
+- [x] **L** S034 (SC2254) `array-index-arithmetic` — arithmetic expansion in array subscript
+- [x] **L** S035 (SC2257) `arithmetic-score-line` — long arithmetic expansion in assignment
+- [x] **L** S045 (SC2292) `dollar-in-arithmetic` — `$` before variable in `$(( ))`
+- [x] **L** S048 (SC2297) `dollar-in-arithmetic-context` — `$` in double-paren context
 
 ### Redirection and Pipe Issues
 

@@ -1,7 +1,7 @@
 use shuck_ast::{
-    Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr, ParameterExpansion,
-    ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Position, Redirect, Span,
-    SubscriptSelector, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget,
+    ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr,
+    ParameterExpansion, ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Position,
+    Redirect, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -38,6 +38,18 @@ pub fn heredoc_body_span(redirect: &Redirect) -> Span {
 pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_command_substitution_spans(&word.parts, &mut spans);
+    spans
+}
+
+pub fn arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_arithmetic_expansion_spans(&word.parts, &mut spans);
+    spans
+}
+
+pub fn parenthesized_arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_parenthesized_arithmetic_expansion_spans(&word.parts, &mut spans);
     spans
 }
 
@@ -366,6 +378,41 @@ fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Sp
                 collect_command_substitution_spans(parts, spans)
             }
             WordPart::CommandSubstitution { .. } => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
+fn collect_arithmetic_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_arithmetic_expansion_spans(parts, spans)
+            }
+            WordPart::ArithmeticExpansion { .. } => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
+fn collect_parenthesized_arithmetic_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_parenthesized_arithmetic_expansion_spans(parts, spans)
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast: Some(expression),
+                ..
+            } => {
+                if matches!(expression.kind, ArithmeticExpr::Parenthesized { .. }) {
+                    spans.push(expression.span);
+                }
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast: None,
+                ..
+            } => {}
             _ => {}
         }
     }

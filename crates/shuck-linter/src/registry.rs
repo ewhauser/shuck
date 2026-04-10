@@ -148,6 +148,7 @@ declare_rules! {
         Severity::Warning,
         CommentedContinuationLine
     ),
+    ("C077", Category::Correctness, Severity::Warning, SubshellInArithmetic),
     ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
@@ -251,6 +252,16 @@ declare_rules! {
     ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
+    ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
+    ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
+    ("S035", Category::Style, Severity::Warning, ArithmeticScoreLine),
+    ("S045", Category::Style, Severity::Warning, DollarInArithmetic),
+    (
+        "S048",
+        Category::Style,
+        Severity::Warning,
+        DollarInArithmeticContext
+    ),
     ("S023", Category::Style, Severity::Warning, EscapedUnderscore),
     ("S024", Category::Style, Severity::Warning, SingleQuoteBackslash),
     ("S025", Category::Style, Severity::Warning, LiteralBackslash),
@@ -298,6 +309,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
+        "SH-079" => Some(Rule::AvoidLetBuiltin),
         "SH-020" => Some(Rule::LetCommand),
         "SH-021" => Some(Rule::DeclareCommand),
         "SH-029" => Some(Rule::PipefailOption),
@@ -312,6 +324,10 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-277" => Some(Rule::BasePrefixInArithmetic),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
+        "SH-157" => Some(Rule::ArrayIndexArithmetic),
+        "SH-161" => Some(Rule::ArithmeticScoreLine),
+        "SH-197" => Some(Rule::DollarInArithmetic),
+        "SH-202" => Some(Rule::DollarInArithmeticContext),
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
@@ -393,6 +409,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-194" => Some(Rule::CommentedContinuationLine),
+        "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-055" => Some(Rule::ExprArithmetic),
@@ -479,6 +496,17 @@ mod tests {
         assert_eq!(code_to_rule("SH-082"), Some(Rule::EscapedUnderscore));
         assert_eq!(code_to_rule("S027"), Some(Rule::EscapedUnderscoreLiteral));
         assert_eq!(code_to_rule("SH-095"), Some(Rule::EscapedUnderscoreLiteral));
+        assert_eq!(code_to_rule("S034"), Some(Rule::ArrayIndexArithmetic));
+        assert_eq!(code_to_rule("SH-157"), Some(Rule::ArrayIndexArithmetic));
+        assert_eq!(code_to_rule("S035"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(code_to_rule("SH-161"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(code_to_rule("S045"), Some(Rule::DollarInArithmetic));
+        assert_eq!(code_to_rule("SH-197"), Some(Rule::DollarInArithmetic));
+        assert_eq!(code_to_rule("S048"), Some(Rule::DollarInArithmeticContext));
+        assert_eq!(
+            code_to_rule("SH-202"),
+            Some(Rule::DollarInArithmeticContext)
+        );
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
@@ -597,6 +625,8 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-188"), Some(Rule::DoubleParenGrouping));
         assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(code_to_rule("SH-079"), Some(Rule::AvoidLetBuiltin));
+        assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C076"), Some(Rule::CommentedContinuationLine));

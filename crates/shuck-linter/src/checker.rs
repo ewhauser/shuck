@@ -200,6 +200,21 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }
+        if self.is_rule_enabled(Rule::AvoidLetBuiltin) {
+            rules::style::avoid_let_builtin::avoid_let_builtin(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayIndexArithmetic) {
+            rules::style::array_index_arithmetic::array_index_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::ArithmeticScoreLine) {
+            rules::style::arithmetic_score_line::arithmetic_score_line(self);
+        }
+        if self.is_rule_enabled(Rule::DollarInArithmetic) {
+            rules::style::dollar_in_arithmetic::dollar_in_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::DollarInArithmeticContext) {
+            rules::style::dollar_in_arithmetic_context::dollar_in_arithmetic_context(self);
+        }
         if self.is_rule_enabled(Rule::ExprArithmetic) {
             rules::performance::expr_arithmetic::expr_arithmetic(self);
         }
@@ -486,6 +501,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::LegacyArithmeticInSh) {
             rules::portability::legacy_arithmetic_in_sh::legacy_arithmetic_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::SubshellInArithmetic) {
+            rules::correctness::subshell_in_arithmetic::subshell_in_arithmetic(self);
         }
         if self.is_rule_enabled(Rule::SingleQuoteBackslash) {
             rules::style::single_quote_backslash::single_quote_backslash(self);

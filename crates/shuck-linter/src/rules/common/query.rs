@@ -90,11 +90,7 @@ pub(crate) fn visit_arithmetic_words(
     expression: &ArithmeticExprNode,
     visitor: &mut impl FnMut(&Word),
 ) {
-    let mut words = Vec::new();
-    collect_arithmetic_words(expression, &mut words);
-    for word in words {
-        visitor(word);
-    }
+    visit_arithmetic_words_in_expr(expression, visitor);
 }
 
 pub(crate) fn visit_var_ref_subscript_words(reference: &VarRef, visitor: &mut impl FnMut(&Word)) {
@@ -125,31 +121,36 @@ pub(crate) fn visit_subscript_words(
     }
 }
 
-fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut Vec<&'a Word>) {
+fn visit_arithmetic_words_in_expr(
+    expression: &ArithmeticExprNode,
+    visitor: &mut impl FnMut(&Word),
+) {
     match &expression.kind {
         ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
-        ArithmeticExpr::Indexed { index, .. } => collect_arithmetic_words(index, words),
-        ArithmeticExpr::ShellWord(word) => words.push(word),
-        ArithmeticExpr::Parenthesized { expression } => collect_arithmetic_words(expression, words),
+        ArithmeticExpr::Indexed { index, .. } => visit_arithmetic_words_in_expr(index, visitor),
+        ArithmeticExpr::ShellWord(word) => visitor(word),
+        ArithmeticExpr::Parenthesized { expression } => {
+            visit_arithmetic_words_in_expr(expression, visitor)
+        }
         ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            collect_arithmetic_words(expr, words)
+            visit_arithmetic_words_in_expr(expr, visitor)
         }
         ArithmeticExpr::Binary { left, right, .. } => {
-            collect_arithmetic_words(left, words);
-            collect_arithmetic_words(right, words);
+            visit_arithmetic_words_in_expr(left, visitor);
+            visit_arithmetic_words_in_expr(right, visitor);
         }
         ArithmeticExpr::Conditional {
             condition,
             then_expr,
             else_expr,
         } => {
-            collect_arithmetic_words(condition, words);
-            collect_arithmetic_words(then_expr, words);
-            collect_arithmetic_words(else_expr, words);
+            visit_arithmetic_words_in_expr(condition, visitor);
+            visit_arithmetic_words_in_expr(then_expr, visitor);
+            visit_arithmetic_words_in_expr(else_expr, visitor);
         }
         ArithmeticExpr::Assignment { target, value, .. } => {
-            collect_arithmetic_lvalue_words(target, words);
-            collect_arithmetic_words(value, words);
+            visit_arithmetic_lvalue_words(target, visitor);
+            visit_arithmetic_words_in_expr(value, visitor);
         }
     }
 }
@@ -199,6 +200,42 @@ fn collect_arithmetic_lvalue_words<'a>(target: &'a ArithmeticLvalue, words: &mut
     match target {
         ArithmeticLvalue::Variable(_) => {}
         ArithmeticLvalue::Indexed { index, .. } => collect_arithmetic_words(index, words),
+    }
+}
+
+fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut Vec<&'a Word>) {
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => collect_arithmetic_words(index, words),
+        ArithmeticExpr::ShellWord(word) => words.push(word),
+        ArithmeticExpr::Parenthesized { expression } => collect_arithmetic_words(expression, words),
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_arithmetic_words(expr, words)
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_words(left, words);
+            collect_arithmetic_words(right, words);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_words(condition, words);
+            collect_arithmetic_words(then_expr, words);
+            collect_arithmetic_words(else_expr, words);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_arithmetic_lvalue_words(target, words);
+            collect_arithmetic_words(value, words);
+        }
+    }
+}
+
+fn visit_arithmetic_lvalue_words(target: &ArithmeticLvalue, visitor: &mut impl FnMut(&Word)) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => visit_arithmetic_words_in_expr(index, visitor),
     }
 }
 
