@@ -501,6 +501,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SuspectClosingQuote) {
             rules::style::suspect_closing_quote::suspect_closing_quote(self);
         }
+        if self.is_rule_enabled(Rule::TrailingDirective) {
+            rules::style::trailing_directive::trailing_directive(self);
+        }
         if self.is_rule_enabled(Rule::PositionalTenBraces) {
             rules::correctness::positional_ten_braces::positional_ten_braces(self);
         }
@@ -523,6 +526,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::CommentedContinuationLine) {
             rules::correctness::commented_continuation_line::commented_continuation_line(self);
+        }
+        if self.is_rule_enabled(Rule::TrailingDirective) {
+            rules::style::trailing_directive::trailing_directive(self);
         }
         if self.is_rule_enabled(Rule::UnicodeSingleQuoteInSingleQuotes) {
             rules::correctness::unicode_single_quote_in_single_quotes::unicode_single_quote_in_single_quotes(self);

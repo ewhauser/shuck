@@ -1549,6 +1549,7 @@ pub struct LinterFacts<'a> {
     subshell_test_group_spans: Vec<Span>,
     non_absolute_shebang_span: Option<Span>,
     commented_continuation_comment_spans: Vec<Span>,
+    trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
@@ -1703,6 +1704,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn commented_continuation_comment_spans(&self) -> &[Span] {
         &self.commented_continuation_comment_spans
+    }
+
+    pub fn trailing_directive_comment_spans(&self) -> &[Span] {
+        &self.trailing_directive_comment_spans
     }
 
     pub fn condition_status_capture_spans(&self) -> &[Span] {
@@ -1916,6 +1921,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
+        let trailing_directive_comment_spans =
+            build_trailing_directive_comment_spans(self.source, self._indexer);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
         let SurfaceFragmentFacts {
@@ -1997,6 +2004,7 @@ impl<'a> LinterFactsBuilder<'a> {
             subshell_test_group_spans,
             non_absolute_shebang_span,
             commented_continuation_comment_spans,
+            trailing_directive_comment_spans,
             condition_status_capture_spans,
             single_quoted_fragments: single_quoted,
             open_double_quote_fragments: open_double_quotes,
@@ -2545,6 +2553,108 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
             Some(Span::from_positions(start, end))
         })
         .collect()
+}
+
+fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
+    let line_index = indexer.line_index();
+
+    indexer
+        .comment_index()
+        .comments()
+        .iter()
+        .filter_map(|comment| {
+            if comment.is_own_line {
+                return None;
+            }
+
+            let line = line_index.line_number(comment.range.start());
+            let line_start = usize::from(line_index.line_start(line)?);
+            let line_end = usize::from(line_index.line_range(line, source)?.end());
+            let comment_start = usize::from(comment.range.start());
+            let comment_end = usize::from(comment.range.end())
+                .min(line_end)
+                .min(source.len());
+            if comment_start < line_start || comment_start >= comment_end {
+                return None;
+            }
+            if directive_can_apply_to_following_command(&source[line_start..comment_start]) {
+                return None;
+            }
+
+            let comment_text = &source[comment_start..comment_end];
+            if !is_inline_shellcheck_directive(comment_text) {
+                return None;
+            }
+
+            let line_start_position = Position {
+                line,
+                column: 1,
+                offset: line_start,
+            };
+            let start = line_start_position.advanced_by(&source[line_start..comment_start]);
+            let end = start.advanced_by("#");
+            Some(Span::from_positions(start, end))
+        })
+        .collect()
+}
+
+fn directive_can_apply_to_following_command(prefix: &str) -> bool {
+    let trimmed = prefix.trim_end();
+    trimmed.ends_with(';')
+        || trimmed.ends_with('{')
+        || trimmed.ends_with('(')
+        || ends_with_keyword(trimmed, "then")
+        || ends_with_keyword(trimmed, "do")
+        || ends_with_keyword(trimmed, "else")
+}
+
+fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
+    let body = comment_text.trim_start().trim_start_matches('#').trim_start();
+    let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shellcheck") else {
+        return false;
+    };
+    let Some(first) = remainder.chars().next() else {
+        return false;
+    };
+    if !first.is_ascii_whitespace() {
+        return false;
+    }
+
+    let mut body = remainder;
+    if let Some((before, _)) = body.split_once('#') {
+        body = before;
+    }
+
+    body.split_ascii_whitespace().any(|part| {
+        [
+            "disable=",
+            "enable=",
+            "disable-file=",
+            "source=",
+            "shell=",
+            "external-sources=",
+        ]
+        .into_iter()
+        .any(|prefix| {
+            strip_prefix_ignore_ascii_case(part, prefix)
+                .is_some_and(|value| !value.trim().is_empty())
+        })
+    })
+}
+
+fn ends_with_keyword(text: &str, keyword: &str) -> bool {
+    text == keyword
+        || text
+            .strip_suffix(keyword)
+            .and_then(|prefix| prefix.chars().last())
+            .is_some_and(|ch| ch.is_ascii_whitespace())
+}
+
+fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let candidate = text.get(..prefix.len())?;
+    candidate
+        .eq_ignore_ascii_case(prefix)
+        .then(|| &text[prefix.len()..])
 }
 
 fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {

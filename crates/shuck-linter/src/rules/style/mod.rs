@@ -15,6 +15,7 @@ pub mod read_without_raw;
 pub mod single_quote_backslash;
 pub mod suspect_closing_quote;
 pub mod syntax;
+pub mod trailing_directive;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
 pub mod unquoted_expansion;
@@ -47,6 +48,7 @@ mod tests {
     #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
     #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
     #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
+    #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

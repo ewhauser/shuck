@@ -65,6 +65,9 @@ impl ShellCheckCodeMap {
         if number == 2284 {
             return vec![Rule::UnicodeQuoteInString];
         }
+        if number == 1126 {
+            return Some(Rule::TrailingDirective);
+        }
         if number == 2385 {
             return vec![Rule::UnicodeSingleQuoteInSingleQuotes];
         }
@@ -106,6 +109,8 @@ impl Default for ShellCheckCodeMap {
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
+            (1126, Rule::TrailingDirective),
+            (1113, Rule::TrailingDirective),
             (1127, Rule::CStyleComment),
             (1132, Rule::CPrototypeFragment),
             (2164, Rule::UncheckedDirectoryChange),
@@ -265,6 +270,8 @@ impl Default for ShellCheckCodeMap {
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
+                (1126, Rule::TrailingDirective),
+                (1113, Rule::TrailingDirective),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
                 (3002, Rule::ExtglobInSh),
                 (3026, Rule::CaretNegationInBracket),
@@ -471,6 +478,8 @@ mod tests {
         );
         assert_eq!(map.resolve("SC1102"), Some(Rule::PositionalParamAsOperator));
         assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(map.resolve("SC1113"), Some(Rule::TrailingDirective));
+        assert_eq!(map.resolve("SC1126"), Some(Rule::TrailingDirective));
         assert_eq!(
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
@@ -645,6 +654,8 @@ mod tests {
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
+            (1113, Rule::TrailingDirective),
+            (1126, Rule::TrailingDirective),
             (1127, Rule::CStyleComment),
             (1129, Rule::ZshBraceIf),
             (1130, Rule::ZshAlwaysBlock),
