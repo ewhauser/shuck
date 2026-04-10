@@ -2261,7 +2261,7 @@ fn build_shellcheck_to_rule_index(
     if let Some(selected_rules) = selected_rules {
         let mut index = HashMap::<u32, Vec<String>>::new();
         for rule in selected_rules.iter() {
-            if let Some(sc_code) = selected_rule_shellcheck_code(rule) {
+            for sc_code in selected_rule_shellcheck_codes(rule) {
                 index
                     .entry(sc_code)
                     .or_default()
@@ -2331,7 +2331,7 @@ fn build_mapped_shellcheck_codes() -> HashSet<u32> {
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
     selected_rules
         .iter()
-        .filter_map(selected_rule_shellcheck_code)
+        .flat_map(selected_rule_shellcheck_codes)
         .collect()
 }
 
@@ -2340,7 +2340,7 @@ fn validate_selected_rules_for_large_corpus(
 ) -> Result<(), String> {
     let comparable_rules: HashSet<_> = selected_rules
         .iter()
-        .filter(|rule| selected_rule_shellcheck_code(*rule).is_some())
+        .filter(|rule| !selected_rule_shellcheck_codes(*rule).is_empty())
         .collect();
     let mut missing_rules: Vec<_> = selected_rules
         .iter()
@@ -2360,6 +2360,10 @@ fn validate_selected_rules_for_large_corpus(
 }
 
 fn selected_rule_shellcheck_code(rule: shuck_linter::Rule) -> Option<u32> {
+    selected_rule_shellcheck_codes(rule).into_iter().next()
+}
+
+fn selected_rule_shellcheck_codes(rule: shuck_linter::Rule) -> Vec<u32> {
     let metadata = load_rule_corpus_metadata(rule.code());
     let has_comparison_target_notes = !metadata.comparison_target_notes.is_empty();
     let excluded_codes = metadata
@@ -2377,13 +2381,15 @@ fn selected_rule_shellcheck_code(rule: shuck_linter::Rule) -> Option<u32> {
         .filter_map(|(sc_code, mapped_rule)| {
             (mapped_rule == rule && !excluded_codes.contains(&sc_code)).then_some(sc_code)
         })
-        .collect::<Vec<_>>();
+        .collect::<HashSet<_>>();
 
-    if let Some(sc_code) = comparison_candidates.iter().copied().min() {
-        return Some(sc_code);
+    if !comparison_candidates.is_empty() {
+        let mut comparison_candidates = comparison_candidates.into_iter().collect::<Vec<_>>();
+        comparison_candidates.sort_unstable();
+        return comparison_candidates;
     }
 
-    has_comparison_target_notes.then(|| {
+    if has_comparison_target_notes {
         let mut fallback_candidates = shuck_linter::ShellCheckCodeMap::default()
             .mappings()
             .filter_map(|(sc_code, mapped_rule)| {
@@ -2392,8 +2398,10 @@ fn selected_rule_shellcheck_code(rule: shuck_linter::Rule) -> Option<u32> {
             .collect::<Vec<_>>();
         fallback_candidates.sort_unstable();
         fallback_candidates.dedup();
-        fallback_candidates.into_iter().next()
-    })?
+        fallback_candidates
+    } else {
+        Vec::new()
+    }
 }
 
 fn large_corpus_comparison_mappings(
@@ -3345,9 +3353,9 @@ mod tests {
     #[test]
     fn selected_rule_filter_prefers_first_current_comparison_code() {
         let rules = parse_large_corpus_rule_set("S074").unwrap();
-        let codes = build_selected_shellcheck_codes(&rules);
+        let rule_index = build_rule_to_shellcheck_index(Some(&rules));
 
-        assert_eq!(codes, HashSet::from([1045]));
+        assert_eq!(rule_index.get("S074").map(String::as_str), Some("SC1045"));
     }
 
     #[test]
@@ -3359,6 +3367,14 @@ mod tests {
     }
 
     #[test]
+    fn selected_rule_filter_preserves_all_comparison_codes_for_multi_code_rules() {
+        let rules = parse_large_corpus_rule_set("P004").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([2235, 2259]));
+    }
+
+    #[test]
     fn selected_rule_filter_preserves_all_rules_for_shared_shellcheck_codes() {
         let rules = parse_large_corpus_rule_set("X045,X064").unwrap();
         let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
@@ -3366,6 +3382,21 @@ mod tests {
         assert_eq!(
             shellcheck_index.get(&3024).map(Vec::as_slice),
             Some(&["X045".to_string(), "X064".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn selected_rule_filter_preserves_multi_code_shellcheck_entries() {
+        let rules = parse_large_corpus_rule_set("P004").unwrap();
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+
+        assert_eq!(
+            shellcheck_index.get(&2235).map(Vec::as_slice),
+            Some(&["P004".to_string()][..])
+        );
+        assert_eq!(
+            shellcheck_index.get(&2259).map(Vec::as_slice),
+            Some(&["P004".to_string()][..])
         );
     }
 
