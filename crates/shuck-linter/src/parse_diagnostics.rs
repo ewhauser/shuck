@@ -686,6 +686,70 @@ mod tests {
     }
 
     #[test]
+    fn ignores_balanced_while_loop_for_c141() {
+        let source = "#!/bin/sh\nwhile true; do\n  :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_balanced_until_loop_for_c141() {
+        let source = "#!/bin/sh\nuntil false; do\n  :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_nested_for_loop_missing_done_for_c141() {
+        let source = "#!/bin/sh\nwhile true; do\n  for x in a; do\n    :\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_balanced_nested_loops_for_c141() {
+        let source = "#!/bin/sh\nwhile true; do\n  until false; do\n    :\n  done\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_for_loop_missing_done_for_c141() {
         let source = "#!/bin/sh\nfor x in a; do\n  :\n";
         let recovered = Parser::new(source).parse_recovered();
