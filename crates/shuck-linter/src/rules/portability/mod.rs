@@ -36,6 +36,7 @@ pub mod source_inside_function_in_sh;
 pub mod sourced_with_args;
 pub mod standalone_arithmetic;
 pub mod substring_expansion;
+mod trap_common;
 pub mod trap_err;
 pub mod uppercase_expansion;
 pub mod wait_option;

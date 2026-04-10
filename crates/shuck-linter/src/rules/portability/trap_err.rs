@@ -1,3 +1,4 @@
+use super::trap_common::parse_trap_args;
 use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
 
 pub struct TrapErr;
@@ -29,29 +30,12 @@ pub fn trap_err(checker: &mut Checker) {
 }
 
 fn trap_err_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_ast::Span> {
-    let signal_words = match args.first().and_then(|word| static_word_text(word, source)) {
-        Some(first) if matches!(first.as_str(), "-p" | "-l") => &args[1..],
-        Some(first) if first == "--" => {
-            if args.len() == 2 {
-                &args[1..]
-            } else if args.len() > 2 {
-                &args[2..]
-            } else {
-                return Vec::new();
-            }
-        }
-        _ => {
-            if args.len() == 1 {
-                args
-            } else if args.len() > 1 {
-                &args[1..]
-            } else {
-                return Vec::new();
-            }
-        }
+    let Some(parsed) = parse_trap_args(args, source) else {
+        return Vec::new();
     };
 
-    signal_words
+    parsed
+        .signal_words
         .iter()
         .filter_map(|word| {
             static_word_text(word, source)
@@ -84,16 +68,17 @@ trap 'echo hi' ERR
 #!/bin/sh
 trap -p ERR
 trap -l ERR
+trap -lp ERR
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["ERR", "ERR"]
+            vec!["ERR", "ERR", "ERR"]
         );
     }
 

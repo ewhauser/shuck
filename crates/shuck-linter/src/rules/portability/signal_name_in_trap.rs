@@ -1,5 +1,6 @@
 use shuck_ast::{Span, Word};
 
+use super::trap_common::parse_trap_args;
 use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
 
 pub struct SignalNameInTrap;
@@ -31,29 +32,15 @@ pub fn signal_name_in_trap(checker: &mut Checker) {
 }
 
 fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
-    let signal_words = match args.first().and_then(|word| static_word_text(word, source)) {
-        Some(first) if trap_is_listing_mode(first.as_str()) => return Vec::new(),
-        Some(first) if first == "--" => {
-            if args.len() == 2 {
-                &args[1..]
-            } else if args.len() > 2 {
-                &args[2..]
-            } else {
-                return Vec::new();
-            }
-        }
-        _ => {
-            if args.len() == 1 {
-                args
-            } else if args.len() > 1 {
-                &args[1..]
-            } else {
-                return Vec::new();
-            }
-        }
+    let Some(parsed) = parse_trap_args(args, source) else {
+        return Vec::new();
     };
+    if parsed.listing_mode {
+        return Vec::new();
+    }
 
-    signal_words
+    parsed
+        .signal_words
         .iter()
         .filter_map(|word| {
             let text = static_word_text(word, source)?;
@@ -67,12 +54,6 @@ fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
             .then_some(word.span)
         })
         .collect()
-}
-
-fn trap_is_listing_mode(text: &str) -> bool {
-    text.strip_prefix('-').is_some_and(|flags| {
-        !flags.is_empty() && flags.chars().all(|flag| matches!(flag, 'l' | 'p'))
-    })
 }
 
 #[cfg(test)]
