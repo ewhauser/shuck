@@ -39,6 +39,7 @@ pub mod literal_unary_string_test;
 pub mod local_cross_reference;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
+pub mod misquoted_heredoc_close;
 pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
@@ -158,6 +159,7 @@ mod tests {
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
     #[test_case(Rule::DanglingElse, Path::new("C143.sh"))]
     #[test_case(Rule::HeredocCloserNotAlone, Path::new("C144.sh"))]
+    #[test_case(Rule::MisquotedHeredocClose, Path::new("C145.sh"))]
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {

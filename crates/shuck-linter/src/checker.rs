@@ -490,6 +490,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::HeredocCloserNotAlone) {
             rules::correctness::heredoc_closer_not_alone::heredoc_closer_not_alone(self);
         }
+        if self.is_rule_enabled(Rule::MisquotedHeredocClose) {
+            rules::correctness::misquoted_heredoc_close::misquoted_heredoc_close(self);
+        }
     }
 
     fn check_surface_fragment_facts(&mut self) {
