@@ -51,6 +51,18 @@ mod tests {
     }
 
     #[test]
+    fn reports_dollar_prefixed_variables_in_arithmetic_for_clauses() {
+        let source = "#!/bin/bash\nlimit=3\nfor (( i=$limit; i > 0; i-- )); do :; done\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::DollarInArithmeticContext),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$limit");
+    }
+
+    #[test]
     fn ignores_arithmetic_expansion_forms() {
         let source = "#!/bin/bash\nx=1\nm=$(( $x + 1 ))\n";
         let diagnostics = test_snippet(

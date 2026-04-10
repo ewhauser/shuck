@@ -51,6 +51,16 @@ mod tests {
     }
 
     #[test]
+    fn reports_dollar_prefixed_variables_in_substring_offset_arithmetic() {
+        let source =
+            "#!/bin/bash\nrest=abcdef\nlen=2\nprintf '%s\\n' \"${rest:$((${#rest}-$len))}\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$len");
+    }
+
+    #[test]
     fn ignores_assignments_without_arithmetic_dollar_variables() {
         let source = "#!/bin/bash\nm=$((1 + 1))\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));

@@ -4130,13 +4130,30 @@ impl<'a> WordFactCollector<'a> {
                     if let Some(expression) = &command.expr_ast {
                         collect_arithmetic_command_spans(
                             expression,
+                            self.source,
+                            &mut self.arithmetic.dollar_in_arithmetic_context_spans,
+                            &mut self.arithmetic.arithmetic_command_substitution_spans,
+                        );
+                    }
+                }
+                CompoundCommand::ArithmeticFor(command) => {
+                    for expression in [
+                        command.init_ast.as_ref(),
+                        command.condition_ast.as_ref(),
+                        command.step_ast.as_ref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        collect_arithmetic_command_spans(
+                            expression,
+                            self.source,
                             &mut self.arithmetic.dollar_in_arithmetic_context_spans,
                             &mut self.arithmetic.arithmetic_command_substitution_spans,
                         );
                     }
                 }
                 CompoundCommand::If(_)
-                | CompoundCommand::ArithmeticFor(_)
                 | CompoundCommand::While(_)
                 | CompoundCommand::Until(_)
                 | CompoundCommand::Subshell(_)
@@ -4645,10 +4662,21 @@ impl<'a> WordFactCollector<'a> {
 
         collect_arithmetic_expansion_spans_from_parts(
             &word.parts,
+            self.source,
             host_kind == WordFactHostKind::Direct,
             &mut self.arithmetic.dollar_in_arithmetic_spans,
             &mut self.arithmetic.arithmetic_command_substitution_spans,
         );
+
+        if host_kind == WordFactHostKind::Direct
+            && word_needs_wrapped_arithmetic_fallback(word, self.source)
+        {
+            collect_wrapped_arithmetic_dollar_spans_in_word(
+                word,
+                self.source,
+                &mut self.arithmetic.dollar_in_arithmetic_spans,
+            );
+        }
     }
 }
 
@@ -4712,19 +4740,222 @@ fn is_arithmetic_variable_reference_word(word: &Word) -> bool {
 
 fn collect_arithmetic_command_spans(
     expression: &ArithmeticExprNode,
+    source: &str,
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
+    collect_dollar_prefixed_arithmetic_variable_spans(expression.span, source, dollar_spans);
+
     query::visit_arithmetic_words(expression, &mut |word| {
-        if is_arithmetic_variable_reference_word(word) {
-            dollar_spans.push(word.span);
-        }
-        command_substitution_spans.extend(span::command_substitution_part_spans(word));
+        collect_arithmetic_context_spans_in_word(
+            word,
+            true,
+            dollar_spans,
+            command_substitution_spans,
+        );
     });
+}
+
+fn collect_dollar_prefixed_arithmetic_variable_spans(
+    span: Span,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'$' {
+            index += 1;
+            continue;
+        }
+
+        let Some(next) = bytes.get(index + 1).copied() else {
+            break;
+        };
+
+        let match_end = if next == b'{' {
+            let name_start = index + 2;
+            let Some(first) = bytes.get(name_start).copied() else {
+                index += 1;
+                continue;
+            };
+            if !(first == b'_' || first.is_ascii_alphabetic()) {
+                index += 1;
+                continue;
+            }
+
+            let mut name_end = name_start + 1;
+            while let Some(byte) = bytes.get(name_end).copied() {
+                if byte == b'_' || byte.is_ascii_alphanumeric() {
+                    name_end += 1;
+                } else {
+                    break;
+                }
+            }
+
+            if bytes.get(name_end) != Some(&b'}') {
+                index += 1;
+                continue;
+            }
+
+            name_end + 1
+        } else if next == b'_' || next.is_ascii_alphabetic() {
+            let mut name_end = index + 2;
+            while let Some(byte) = bytes.get(name_end).copied() {
+                if byte == b'_' || byte.is_ascii_alphanumeric() {
+                    name_end += 1;
+                } else {
+                    break;
+                }
+            }
+            name_end
+        } else {
+            index += 1;
+            continue;
+        };
+
+        let start = span.start.advanced_by(&text[..index]);
+        let end = start.advanced_by(&text[index..match_end]);
+        spans.push(Span::from_positions(start, end));
+        index = match_end;
+    }
+}
+
+fn collect_wrapped_arithmetic_dollar_spans_in_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let text = word.span.slice(source);
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index + 2 < bytes.len() {
+        if bytes[index] != b'$' || bytes[index + 1] != b'(' || bytes[index + 2] != b'(' {
+            index += 1;
+            continue;
+        }
+
+        let mut depth = 1usize;
+        let mut cursor = index + 3;
+        let mut matched = false;
+
+        while cursor < bytes.len() {
+            if cursor + 2 < bytes.len()
+                && bytes[cursor] == b'$'
+                && bytes[cursor + 1] == b'('
+                && bytes[cursor + 2] == b'('
+            {
+                depth += 1;
+                cursor += 3;
+                continue;
+            }
+
+            match bytes[cursor] {
+                b'(' => {
+                    depth += 1;
+                    cursor += 1;
+                }
+                b')' => {
+                    if depth == 1 && cursor + 1 < bytes.len() && bytes[cursor + 1] == b')' {
+                        let expr_start = index + 3;
+                        let expr_end = cursor;
+                        let start = word.span.start.advanced_by(&text[..expr_start]);
+                        let end = start.advanced_by(&text[expr_start..expr_end]);
+                        collect_dollar_prefixed_arithmetic_variable_spans(
+                            Span::from_positions(start, end),
+                            source,
+                            spans,
+                        );
+                        index = cursor + 2;
+                        matched = true;
+                        break;
+                    }
+
+                    depth = depth.saturating_sub(1);
+                    cursor += 1;
+                }
+                _ => {
+                    cursor += 1;
+                }
+            }
+        }
+
+        if !matched {
+            break;
+        }
+    }
+}
+
+fn word_needs_wrapped_arithmetic_fallback(word: &Word, source: &str) -> bool {
+    parts_need_wrapped_arithmetic_fallback(&word.parts, source)
+}
+
+fn parts_need_wrapped_arithmetic_fallback(parts: &[WordPartNode], source: &str) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            parts_need_wrapped_arithmetic_fallback(parts, source)
+        }
+        WordPart::Substring {
+            offset_ast: None,
+            offset,
+            ..
+        }
+        | WordPart::ArraySlice {
+            offset_ast: None,
+            offset,
+            ..
+        } => offset.is_source_backed() && offset.slice(source).starts_with("$(("),
+        WordPart::Parameter(parameter) => {
+            parameter_needs_wrapped_arithmetic_fallback(parameter, source)
+        }
+        _ => false,
+    })
+}
+
+fn parameter_needs_wrapped_arithmetic_fallback(
+    parameter: &ParameterExpansion,
+    source: &str,
+) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
+            offset_ast: None,
+            offset,
+            ..
+        }) => offset.is_source_backed() && offset.slice(source).starts_with("$(("),
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Nested(parameter) => {
+                parameter_needs_wrapped_arithmetic_fallback(parameter, source)
+            }
+            ZshExpansionTarget::Word(word) => word_needs_wrapped_arithmetic_fallback(word, source),
+            ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Empty => false,
+        },
+        _ => false,
+    }
+}
+
+fn collect_arithmetic_context_spans_in_word(
+    word: &Word,
+    collect_dollar_spans: bool,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    if collect_dollar_spans && is_arithmetic_variable_reference_word(word) {
+        dollar_spans.push(word.span);
+    }
+
+    for part in &word.parts {
+        if let WordPart::CommandSubstitution { .. } = &part.kind {
+            command_substitution_spans.push(part.span);
+        }
+    }
 }
 
 fn collect_arithmetic_expansion_spans_from_parts(
     parts: &[WordPartNode],
+    source: &str,
     collect_dollar_spans: bool,
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
@@ -4733,6 +4964,7 @@ fn collect_arithmetic_expansion_spans_from_parts(
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => collect_arithmetic_expansion_spans_from_parts(
                 parts,
+                source,
                 collect_dollar_spans,
                 dollar_spans,
                 command_substitution_spans,
@@ -4742,11 +4974,89 @@ fn collect_arithmetic_expansion_spans_from_parts(
                 ..
             } => {
                 query::visit_arithmetic_words(expression, &mut |word| {
-                    if collect_dollar_spans && is_arithmetic_variable_reference_word(word) {
-                        dollar_spans.push(word.span);
-                    }
-                    command_substitution_spans.extend(span::command_substitution_part_spans(word));
+                    collect_arithmetic_context_spans_in_word(
+                        word,
+                        collect_dollar_spans,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
                 });
+            }
+            WordPart::Parameter(parameter) => collect_arithmetic_spans_in_parameter_expansion(
+                parameter,
+                source,
+                collect_dollar_spans,
+                dollar_spans,
+                command_substitution_spans,
+            ),
+            WordPart::ParameterExpansion { reference, .. }
+            | WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::IndirectExpansion { reference, .. }
+            | WordPart::Transformation { reference, .. } => collect_arithmetic_spans_in_var_ref(
+                reference,
+                source,
+                collect_dollar_spans,
+                dollar_spans,
+                command_substitution_spans,
+            ),
+            WordPart::Substring {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+                ..
+            } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+                if let Some(expression) = offset_ast {
+                    collect_arithmetic_command_spans(
+                        expression,
+                        source,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                } else {
+                    collect_arithmetic_spans_in_source_text(
+                        offset,
+                        source,
+                        collect_dollar_spans,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                }
+                if let Some(expression) = length_ast {
+                    collect_arithmetic_command_spans(
+                        expression,
+                        source,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                } else if let Some(length) = length {
+                    collect_arithmetic_spans_in_source_text(
+                        length,
+                        source,
+                        collect_dollar_spans,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                }
             }
             WordPart::ArithmeticExpansion {
                 expression_ast: None,
@@ -4755,22 +5065,160 @@ fn collect_arithmetic_expansion_spans_from_parts(
             | WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
-            | WordPart::Parameter(_)
             | WordPart::CommandSubstitution { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
             | WordPart::ProcessSubstitution { .. }
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::ZshQualifiedGlob(_)
-            | WordPart::Transformation { .. } => {}
+            | WordPart::ZshQualifiedGlob(_) => {}
         }
     }
+}
+
+fn collect_arithmetic_spans_in_var_ref(
+    reference: &VarRef,
+    source: &str,
+    _collect_dollar_spans: bool,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_arithmetic_context_spans_in_word(
+            word,
+            false,
+            dollar_spans,
+            command_substitution_spans,
+        );
+    });
+}
+
+fn collect_arithmetic_spans_in_parameter_expansion(
+    parameter: &ParameterExpansion,
+    source: &str,
+    collect_dollar_spans: bool,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+            }
+            BourneParameterExpansion::Indirect { reference, .. }
+            | BourneParameterExpansion::Operation { reference, .. } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+                ..
+            } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+                if let Some(expression) = offset_ast {
+                    collect_arithmetic_command_spans(
+                        expression,
+                        source,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                } else {
+                    collect_arithmetic_spans_in_source_text(
+                        offset,
+                        source,
+                        collect_dollar_spans,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                }
+                if let Some(expression) = length_ast {
+                    collect_arithmetic_command_spans(
+                        expression,
+                        source,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                } else if let Some(length) = length {
+                    collect_arithmetic_spans_in_source_text(
+                        length,
+                        source,
+                        collect_dollar_spans,
+                        dollar_spans,
+                        command_substitution_spans,
+                    );
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Reference(reference) => collect_arithmetic_spans_in_var_ref(
+                reference,
+                source,
+                collect_dollar_spans,
+                dollar_spans,
+                command_substitution_spans,
+            ),
+            ZshExpansionTarget::Nested(parameter) => {
+                collect_arithmetic_spans_in_parameter_expansion(
+                    parameter,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                )
+            }
+            ZshExpansionTarget::Word(word) => collect_arithmetic_expansion_spans_from_parts(
+                &word.parts,
+                source,
+                collect_dollar_spans,
+                dollar_spans,
+                command_substitution_spans,
+            ),
+            ZshExpansionTarget::Empty => {}
+        },
+    }
+}
+
+fn collect_arithmetic_spans_in_source_text(
+    text: &SourceText,
+    source: &str,
+    collect_dollar_spans: bool,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    if !text.is_source_backed() {
+        return;
+    }
+
+    let word = Parser::parse_word_fragment(source, text.slice(source), text.span());
+    collect_arithmetic_expansion_spans_from_parts(
+        &word.parts,
+        source,
+        collect_dollar_spans,
+        dollar_spans,
+        command_substitution_spans,
+    );
 }
 
 fn word_classification_from_analysis(analysis: ExpansionAnalysis) -> WordClassification {
@@ -7823,6 +8271,33 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                     .collect::<Vec<_>>(),
                 vec!["${items[@]}"]
             );
+        });
+    }
+
+    #[test]
+    fn collects_dollar_spans_for_wrapped_substring_offset_arithmetic() {
+        let source =
+            "#!/bin/bash\nrest=abcdef\nlen=2\nprintf '%s\\n' \"${rest:$((${#rest}-$len))}\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+            let words = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .map(|fact| {
+                    format!(
+                        "{} {:?} {:?}",
+                        fact.span().slice(source),
+                        fact.host_kind(),
+                        fact.word().parts
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["$len"], "command words: {words:?}");
         });
     }
 

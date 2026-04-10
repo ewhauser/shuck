@@ -4,13 +4,25 @@ reviewed_divergences:
     line: 136
     reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
   - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    line: 68
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
     line: 91
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 3461
     reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
     line: 1136
     reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
+    line: 1182
+    reason: "Shuck keeps this arithmetic `for ((...; ...; ...))` warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
     line: 3497
@@ -48,6 +60,30 @@ reviewed_divergences:
     line: 64
     reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
   - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__hash"
+    line: 24
+    reason: "Shuck keeps this arithmetic `for ((...; ...; ...))` warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 128
+    reason: "Shuck keeps this arithmetic `for ((...; ...; ...))` warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 157
+    reason: "Shuck keeps this arithmetic `for ((...; ...; ...))` warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__set"
     line: 162
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__bin__validation"
+    line: 109
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__bin__validation"
+    line: 111
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_install_service_scripts.sh"
+    line: 12
     reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
