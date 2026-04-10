@@ -550,6 +550,11 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::IfsSetToLiteralBackslashN) {
+            rules::correctness::ifs_set_to_literal_backslash_n::ifs_set_to_literal_backslash_n(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::CommentedContinuationLine) {
             rules::correctness::commented_continuation_line::commented_continuation_line(self);
         }

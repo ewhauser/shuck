@@ -236,11 +236,12 @@ impl Default for ShellCheckCodeMap {
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
-            (2277, Rule::ExtglobInCasePattern),
-            (2100, Rule::AssignmentLooksLikeComparison),
-            (2319, Rule::StatusCaptureAfterBranchTest),
-            (2365, Rule::UnreachableAfterExit),
-            (3010, Rule::DoubleBracketInSh),
+                (2277, Rule::ExtglobInCasePattern),
+                (2100, Rule::AssignmentLooksLikeComparison),
+                (2319, Rule::StatusCaptureAfterBranchTest),
+                (2141, Rule::IfsSetToLiteralBackslashN),
+                (2365, Rule::UnreachableAfterExit),
+                (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
             (3014, Rule::TestEqualityOperator),
             (3015, Rule::RegexMatchInSh),
@@ -417,6 +418,7 @@ impl Default for ShellCheckCodeMap {
                 (2277, Rule::ExtglobInCasePattern),
                 (2100, Rule::AssignmentLooksLikeComparison),
                 (2319, Rule::StatusCaptureAfterBranchTest),
+                (2141, Rule::IfsSetToLiteralBackslashN),
                 (2365, Rule::UnreachableAfterExit),
                 (3010, Rule::DoubleBracketInSh),
                 (3012, Rule::GreaterThanInDoubleBracket),
@@ -433,6 +435,7 @@ impl Default for ShellCheckCodeMap {
                 (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2319, Rule::AssignmentLooksLikeComparison),
+                (2329, Rule::IfsSetToLiteralBackslashN),
             ],
             comparison,
         }
@@ -676,6 +679,8 @@ mod tests {
         assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(map.resolve("SC2141"), Some(Rule::IfsSetToLiteralBackslashN));
+        assert_eq!(map.resolve("SC2329"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC7777"), None);
     }
 
@@ -790,7 +795,8 @@ mod tests {
             (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
-            (2323, Rule::ArithmeticScoreLine),
+            (2141, Rule::IfsSetToLiteralBackslashN),
+            (2329, Rule::IfsSetToLiteralBackslashN),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
             (2333, Rule::NonShellSyntaxInScript),
@@ -938,6 +944,7 @@ mod tests {
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
+        assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));

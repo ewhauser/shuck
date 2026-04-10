@@ -155,6 +155,12 @@ declare_rules! {
         Severity::Warning,
         AssignmentLooksLikeComparison
     ),
+    (
+        "C101",
+        Category::Correctness,
+        Severity::Warning,
+        IfsSetToLiteralBackslashN
+    ),
     ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
@@ -324,6 +330,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-080" => Some(Rule::SourceBuiltinInSh),
         "SH-081" => Some(Rule::PrintfQFormatInSh),
         "SH-226" => Some(Rule::FunctionKeywordInSh),
+        "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
         "SH-275" => Some(Rule::ErrexitTrapInSh),
         "SH-276" => Some(Rule::SignalNameInTrap),

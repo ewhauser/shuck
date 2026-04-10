@@ -25,6 +25,7 @@ pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod if_bracket_glued;
 pub mod if_missing_then;
+pub mod ifs_set_to_literal_backslash_n;
 pub mod invalid_exit_status;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
@@ -132,6 +133,7 @@ mod tests {
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
+    #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
