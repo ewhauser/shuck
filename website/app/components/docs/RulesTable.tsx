@@ -14,10 +14,17 @@ interface Props {
 
 export default function RulesTable({ rules }: Props) {
   const searchParams = useSearchParams();
-  const initialCategory = searchParams.get("category") ?? "All";
+  const categoryFromUrl = searchParams.get("category") ?? "All";
 
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+  const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
+
+  // Resync when URL query param changes (e.g. sidebar navigation)
+  const [prevUrlCategory, setPrevUrlCategory] = useState(categoryFromUrl);
+  if (categoryFromUrl !== prevUrlCategory) {
+    setPrevUrlCategory(categoryFromUrl);
+    setSelectedCategory(categoryFromUrl);
+  }
 
   const filtered = useMemo(() => {
     let result = rules;

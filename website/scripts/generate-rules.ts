@@ -48,8 +48,9 @@ const outPath = join(__dirname, "../app/lib/rules-data.generated.json");
 const registrySource = readFileSync(registryPath, "utf-8");
 const implementedRules = new Map<string, string>();
 
-// Match lines like: ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
-const rulePattern = /\("([A-Z]\d+)",\s*Category::\w+,\s*Severity::(\w+),/g;
+// Match tuples like: ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
+// Also handles multiline formatting where the tuple is split across lines.
+const rulePattern = /\(\s*"([A-Z]\d+)",\s*Category::\w+,\s*Severity::(\w+),/gs;
 let match: RegExpExecArray | null;
 while ((match = rulePattern.exec(registrySource)) !== null) {
   implementedRules.set(match[1], match[2]);
