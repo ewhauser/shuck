@@ -14,6 +14,9 @@
 - **L** (Low) — Simple fact filter or AST pattern match; minimal false-positive logic
 - **M** (Medium) — Cross-references multiple facts, needs option parsing, context-aware filtering, or moderate false-positive avoidance
 - **H** (High) — Needs new fact infrastructure, semantic/dataflow analysis, cross-function reasoning, or complex scope logic
+- Entry markers use two checkboxes: first = implemented, second = vetted (`V`)
+- `V` means the rule was reviewed for performance, direct AST traversal in rule files, and duplication; it does not mean the implementation is issue-free
+- The checker currently contains additional implemented rules that are not yet enumerated in this roadmap, so vetted markers below apply to the documented implemented rows only
 
 ## Scheduled Tranches
 
@@ -25,6 +28,22 @@ These rules are queued for implementation and tracked separately.
 
 **Tranche 3:** ~~C054~~, ~~C056~~, ~~C059~~, ~~C060~~, ~~C061~~, ~~C062~~, ~~C064~~, ~~C065~~, ~~C066~~, ~~C067~~, ~~C068~~, ~~C069~~, ~~C070~~, ~~C071~~, ~~C072~~ *(complete)*
 
+## Vetting Findings
+
+Review scope: all currently dispatched rule entrypoints under `crates/shuck-linter/src/rules/`, with focus on performance costs, direct AST traversal from rule files, and duplication.
+
+- No direct AST-traversal violations were found in rule files during this pass. The architecture guard `cargo test -p shuck-linter rule_modules_avoid_direct_ast_traversal_tokens` passed.
+- [P2] `crates/shuck-linter/src/rules/portability/conditional_portability.rs`
+  The conditional portability family performs many separate scans over `facts().commands()` and repeats simple-test token decoding across sibling rules. This should be collapsed into a grouped evaluator or precomputed fact set.
+- [P2] `crates/shuck-linter/src/rules/style/escaped_underscore.rs`
+  The S023/S026/S027 escape-style rules are near-copies of the same word and pattern scan pipeline. They should share one engine or fact layer so fixes do not drift and the same inputs are not rescanned multiple times.
+- [P3] `crates/shuck-linter/src/rules/portability/source_builtin_in_sh.rs`
+  `source_builtin_in_sh` and `source_inside_function_in_sh` duplicate scope checks and span anchoring helpers. They should share a helper and differ only in the inside/outside-function predicate.
+- [P3] `crates/shuck-linter/src/rules/portability/trap_err.rs`
+  `trap_err` and `signal_name_in_trap` both reimplement trap argument parsing before applying different predicates. That parsing should live in one shared helper.
+- [P3] `crates/shuck-linter/src/rules/correctness/broken_test_end.rs`
+  `broken_test_end` and `broken_test_parse` currently use the same matcher and only differ in diagnostic wording. They should share a common detection helper.
+
 ---
 
 ## Remaining Rules
@@ -35,49 +54,49 @@ Detect bash-specific test/conditional syntax in POSIX sh scripts. All share a
 common pattern: verify dialect is sh, detect the specific syntax form in
 conditional facts.
 
-- [x] **L** X001 (SC3010) `double-bracket-in-sh` — `[[ ]]` conditional not portable to sh
-- [x] **L** X002 (SC3014) `test-equality-operator` — `==` inside `[` not portable
-- [x] **L** X033 (SC3011) `if-elif-bash-test` — `[[ ]]` in elif clause
-- [x] **L** X034 (SC2221) `extended-glob-in-test` — extended glob in `[[` match
-- [x] **L** X040 (SC2102) `array-subscript-test` — array subscript in `[` test
-- [x] **L** X041 (SC2103) `array-subscript-condition` — array subscript in `[[ ]]`
-- [x] **L** X046 (SC2269) `extglob-in-test` — extended glob in test bracket
-- [x] **L** X058 (SC3065) `greater-than-in-double-bracket` — `>` inside `[[ ]]` in sh
-- [x] **L** X059 (SC3066) `regex-match-in-sh` — `=~` regex match in sh
-- [x] **L** X060 (SC3067) `v-test-in-sh` — `-v` variable-is-set test in sh
-- [x] **L** X061 (SC3068) `a-test-in-sh` — `-a` file test inside `[[ ]]` in sh
-- [x] **L** X073 (SC3080) `option-test-in-sh` — `-o` option test in `[[ ]]` in sh
-- [x] **L** X074 (SC3081) `sticky-bit-test-in-sh` — `-k` sticky-bit test in sh
-- [x] **L** X075 (SC3082) `ownership-test-in-sh` — `-O` ownership test in sh
+- [x] [x] **L** X001 (SC3010) `double-bracket-in-sh` — `[[ ]]` conditional not portable to sh
+- [x] [x] **L** X002 (SC3014) `test-equality-operator` — `==` inside `[` not portable
+- [x] [x] **L** X033 (SC3011) `if-elif-bash-test` — `[[ ]]` in elif clause
+- [x] [x] **L** X034 (SC2221) `extended-glob-in-test` — extended glob in `[[` match
+- [x] [x] **L** X040 (SC2102) `array-subscript-test` — array subscript in `[` test
+- [x] [x] **L** X041 (SC2103) `array-subscript-condition` — array subscript in `[[ ]]`
+- [x] [x] **L** X046 (SC2269) `extglob-in-test` — extended glob in test bracket
+- [x] [x] **L** X058 (SC3065) `greater-than-in-double-bracket` — `>` inside `[[ ]]` in sh
+- [x] [x] **L** X059 (SC3066) `regex-match-in-sh` — `=~` regex match in sh
+- [x] [x] **L** X060 (SC3067) `v-test-in-sh` — `-v` variable-is-set test in sh
+- [x] [x] **L** X061 (SC3068) `a-test-in-sh` — `-a` file test inside `[[ ]]` in sh
+- [x] [x] **L** X073 (SC3080) `option-test-in-sh` — `-o` option test in `[[ ]]` in sh
+- [x] [x] **L** X074 (SC3081) `sticky-bit-test-in-sh` — `-k` sticky-bit test in sh
+- [x] [x] **L** X075 (SC3082) `ownership-test-in-sh` — `-O` ownership test in sh
 
 ### Portability — Bash Keywords and Builtins in sh
 
 Detect bash-specific keywords and builtins used in POSIX sh. Simple command-name
 or keyword checks gated on dialect.
 
-- [x] **L** X003 (SC3043) `local-variable-in-sh` — `local` in sh
-- [x] **L** X004 (SC2112) `function-keyword` — `function` keyword in sh
-- [x] **L** X015 (SC3042) `let-command` — `let` in sh
-- [x] **L** X016 (SC3044) `declare-command` — `declare` in sh
-- [x] **L** X031 (SC3046) `source-builtin-in-sh` — `source` instead of `.` in sh
-- [x] **L** X052 (SC2321) `function-keyword-in-sh` — `function` with parens in sh
-- [x] **L** X080 (SC3084) `source-inside-function-in-sh` — `source` inside function in sh
+- [x] [x] **L** X003 (SC3043) `local-variable-in-sh` — `local` in sh
+- [x] [x] **L** X004 (SC2112) `function-keyword` — `function` keyword in sh
+- [x] [x] **L** X015 (SC3042) `let-command` — `let` in sh
+- [x] [x] **L** X016 (SC3044) `declare-command` — `declare` in sh
+- [x] [x] **L** X031 (SC3046) `source-builtin-in-sh` — `source` instead of `.` in sh
+- [x] [x] **L** X052 (SC2321) `function-keyword-in-sh` — `function` with parens in sh
+- [x] [x] **L** X080 (SC3084) `source-inside-function-in-sh` — `source` inside function in sh
 
 ### Portability — Bash Expansion Syntax in sh
 
 Detect bash-specific parameter expansion, process substitution, arrays, and
 related syntax in POSIX sh. Mostly surface-level AST node type checks.
 
-- [x] **L** X006 (SC3001) `process-substitution` — `<()` / `>()` in sh
-- [x] **L** X007 (SC3003) `ansi-c-quoting` — `$'...'` in sh
-- [x] **L** X010 (SC3009) `brace-expansion` — `{a,b}` expansion in sh
-- [x] **L** X011 (SC3011) `here-string` — `<<<` in sh
-- [x] **L** X013 (SC3030) `array-assignment` — array variable assignment in sh
-- [x] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
-- [x] **L** X019 (SC3054) `array-reference` — array reference in sh
-- [x] **L** X023 (SC3057) `substring-expansion` — `${var:offset:len}` in sh
-- [x] **L** X024 (SC3059) `uppercase-expansion` — case-modification expansion in sh
-- [x] **L** X025 (SC3060) `replacement-expansion` — replacement expansion in sh
+- [x] [x] **L** X006 (SC3001) `process-substitution` — `<()` / `>()` in sh
+- [x] [x] **L** X007 (SC3003) `ansi-c-quoting` — `$'...'` in sh
+- [x] [x] **L** X010 (SC3009) `brace-expansion` — `{a,b}` expansion in sh
+- [x] [x] **L** X011 (SC3011) `here-string` — `<<<` in sh
+- [x] [x] **L** X013 (SC3030) `array-assignment` — array variable assignment in sh
+- [x] [x] **L** X018 (SC3053) `indirect-expansion` — `${!var}` in sh
+- [x] [x] **L** X019 (SC3054) `array-reference` — array reference in sh
+- [x] [x] **L** X023 (SC3057) `substring-expansion` — `${var:offset:len}` in sh
+- [x] [x] **L** X024 (SC3059) `uppercase-expansion` — case-modification expansion in sh
+- [x] [x] **L** X025 (SC3060) `replacement-expansion` — replacement expansion in sh
 - [ ] **L** X026 (SC3024) `bash-file-slurp` — `$(< file)` in sh
 - [ ] **L** X045 (SC3055) `plus-equals-append` — `+=` assignment in sh
 - [ ] **L** X055 (SC3062) `dollar-string-in-sh` — `$"string"` in sh
@@ -89,43 +108,43 @@ related syntax in POSIX sh. Mostly surface-level AST node type checks.
 
 Detect bash-specific control flow constructs in POSIX sh.
 
-- [x] **L** X005 (SC3058) `bash-case-fallthrough` — `;&` / `;;&` in case
-- [x] **L** X008 (SC3018) `standalone-arithmetic` — `(( ))` command in sh
-- [x] **L** X009 (SC3033) `select-loop` — `select` loop in sh
-- [x] **L** X014 (SC3007) `coproc` — `coproc` in sh
-- [x] **L** X056 (SC3063) `c-style-for-in-sh` — `for ((...))` in sh
-- [x] **L** X057 (SC3064) `legacy-arithmetic-in-sh` — `$[...]` in sh
-- [x] **L** X062 (SC3069) `c-style-for-arithmetic-in-sh` — C-style for arithmetic in sh
+- [x] [x] **L** X005 (SC3058) `bash-case-fallthrough` — `;&` / `;;&` in case
+- [x] [x] **L** X008 (SC3018) `standalone-arithmetic` — `(( ))` command in sh
+- [x] [x] **L** X009 (SC3033) `select-loop` — `select` loop in sh
+- [x] [x] **L** X014 (SC3007) `coproc` — `coproc` in sh
+- [x] [x] **L** X056 (SC3063) `c-style-for-in-sh` — `for ((...))` in sh
+- [x] [x] **L** X057 (SC3064) `legacy-arithmetic-in-sh` — `$[...]` in sh
+- [x] [x] **L** X062 (SC3069) `c-style-for-arithmetic-in-sh` — C-style for arithmetic in sh
 
 ### Portability — Bash Redirection and Pipes in sh
 
 Detect bash-specific redirection and pipe operators in POSIX sh.
 
-- [x] **L** X012 (SC3052) `ampersand-redirection` — `&>` combined redirect in sh
-- [x] **L** X020 (SC3050) `brace-fd-redirection` — `{fd}>` brace-based FD in sh
-- [x] **L** X063 (SC3070) `ampersand-redirect-in-sh` — `>&` combined redirect in sh
-- [x] **L** X066 (SC3073) `pipe-stderr-in-sh` — `|&` pipe-stderr in sh
+- [x] [x] **L** X012 (SC3052) `ampersand-redirection` — `&>` combined redirect in sh
+- [x] [x] **L** X020 (SC3050) `brace-fd-redirection` — `{fd}>` brace-based FD in sh
+- [x] [x] **L** X063 (SC3070) `ampersand-redirect-in-sh` — `>&` combined redirect in sh
+- [x] [x] **L** X066 (SC3073) `pipe-stderr-in-sh` — `|&` pipe-stderr in sh
 
 ### Portability — Bash Options and Traps in sh
 
 Detect bash-specific set/trap options in POSIX sh.
 
-- [x] **L** X017 (SC3047) `trap-err` — trapping ERR in sh
-- [x] **L** X021 (SC3040) `pipefail-option` — `set -o pipefail` in sh
-- [x] **L** X022 (SC3048) `wait-option` — wait flags in sh
-- [x] **L** X032 (SC3025) `printf-q-format-in-sh` — `%q` printf conversion in sh
-- [x] **L** X068 (SC3075) `errexit-trap-in-sh` — `set -E` in sh
-- [x] **M** X069 (SC3076) `signal-name-in-trap` — symbolic signal names in trap
-- [x] **L** X070 (SC3077) `base-prefix-in-arithmetic` — `10#` base prefix in sh
+- [x] [x] **L** X017 (SC3047) `trap-err` — trapping ERR in sh
+- [x] [x] **L** X021 (SC3040) `pipefail-option` — `set -o pipefail` in sh
+- [x] [x] **L** X022 (SC3048) `wait-option` — wait flags in sh
+- [x] [x] **L** X032 (SC3025) `printf-q-format-in-sh` — `%q` printf conversion in sh
+- [x] [x] **L** X068 (SC3075) `errexit-trap-in-sh` — `set -E` in sh
+- [x] [x] **M** X069 (SC3076) `signal-name-in-trap` — symbolic signal names in trap
+- [x] [x] **L** X070 (SC3077) `base-prefix-in-arithmetic` — `10#` base prefix in sh
 
 ### Portability — Extended Glob Patterns
 
 Detect extended glob syntax in contexts where it is not supported.
 
-- [x] **L** X037 (SC1075) `extglob-case` — non-POSIX case pattern syntax
-- [x] **L** X048 (SC2277) `extglob-in-case-pattern` — extended-glob alternation in case
-- [x] **L** X054 (SC3061) `extglob-in-sh` — `@()` extended glob in sh
-- [x] **L** X065 (SC3072) `caret-negation-in-bracket` — `[^...]` negation in sh
+- [x] [x] **L** X037 (SC1075) `extglob-case` — non-POSIX case pattern syntax
+- [x] [x] **L** X048 (SC2277) `extglob-in-case-pattern` — extended-glob alternation in case
+- [x] [x] **L** X054 (SC3061) `extglob-in-sh` — `@()` extended glob in sh
+- [x] [x] **L** X065 (SC3072) `caret-negation-in-bracket` — `[^...]` negation in sh
 
 ### Portability — Echo, tr, and printf Locale
 
@@ -149,20 +168,20 @@ Detect non-portable function definitions and variable operations.
 
 Detect zsh-only syntax in scripts targeting other shells.
 
-- [x] **L** X036 (SC1070) `zsh-redir-pipe` — zsh-only redirection operator
-- [x] **L** X038 (SC1129) `zsh-brace-if` — zsh-style conditional bracing
-- [x] **L** X039 (SC1130) `zsh-always-block` — zsh `always` block
-- [x] **L** X042 (SC2240) `sourced-with-args` — sourced file with extra args
-- [x] **L** X043 (SC2251) `zsh-flag-expansion` — zsh-only parameter expansion form
-- [x] **L** X044 (SC2252) `nested-zsh-substitution` — nested zsh-style expansion
-- [x] **M** X047 (SC2275) `multi-var-for-loop` — for loop binds multiple variables
-- [x] **L** X049 (SC2278) `zsh-prompt-bracket` — zsh prompt escape in sh
-- [x] **L** X050 (SC2279) `csh-syntax-in-sh` — csh-style set assignment in sh
-- [x] **L** X051 (SC2313) `zsh-nested-expansion` — zsh nested parameter expansion
-- [x] **L** X053 (SC2355) `zsh-assignment-to-zero` — assigning to `$0` (zsh idiom)
-- [x] **L** X076 (SC2359) `zsh-parameter-flag` — zsh parameter flag in sh
-- [x] **L** X078 (SC2371) `zsh-array-subscript-in-case` — zsh array subscript in case
-- [x] **L** X079 (SC2375) `zsh-parameter-index-flag` — zsh parameter index flag
+- [x] [x] **L** X036 (SC1070) `zsh-redir-pipe` — zsh-only redirection operator
+- [x] [x] **L** X038 (SC1129) `zsh-brace-if` — zsh-style conditional bracing
+- [x] [x] **L** X039 (SC1130) `zsh-always-block` — zsh `always` block
+- [x] [x] **L** X042 (SC2240) `sourced-with-args` — sourced file with extra args
+- [x] [x] **L** X043 (SC2251) `zsh-flag-expansion` — zsh-only parameter expansion form
+- [x] [x] **L** X044 (SC2252) `nested-zsh-substitution` — nested zsh-style expansion
+- [x] [x] **M** X047 (SC2275) `multi-var-for-loop` — for loop binds multiple variables
+- [x] [x] **L** X049 (SC2278) `zsh-prompt-bracket` — zsh prompt escape in sh
+- [x] [x] **L** X050 (SC2279) `csh-syntax-in-sh` — csh-style set assignment in sh
+- [x] [x] **L** X051 (SC2313) `zsh-nested-expansion` — zsh nested parameter expansion
+- [x] [x] **L** X053 (SC2355) `zsh-assignment-to-zero` — assigning to `$0` (zsh idiom)
+- [x] [x] **L** X076 (SC2359) `zsh-parameter-flag` — zsh parameter flag in sh
+- [x] [x] **L** X078 (SC2371) `zsh-array-subscript-in-case` — zsh array subscript in case
+- [x] [x] **L** X079 (SC2375) `zsh-parameter-index-flag` — zsh parameter index flag
 
 ### Test and Conditional Expressions
 
@@ -295,14 +314,14 @@ Rules about shebang lines and script-level metadata.
 Rules about needless or misleading backslash escapes. Most use surface fragment
 facts or word facts for single-quoted strings.
 
-- [x] **L** C137 (SC2385) `unicode-single-quote-in-single-quotes` — Unicode smart quote in single-quoted string
-- [x] **L** S023 (SC1001) `escaped-underscore` — needless backslash in plain word
-- [x] **L** S024 (SC1003) `single-quote-backslash` — literal backslash in quoted string
-- [x] **L** S025 (SC1004) `literal-backslash` — backslash before normal letter is literal
-- [x] **L** S026 (SC1012) `needless-backslash-underscore` — backslash before normal char in word
-- [x] **L** S027 (SC1002) `escaped-underscore` — backslash before `_` is unnecessary
-- [x] **L** S039 (SC2267) `literal-backslash-in-single-quotes` — backslash in single quotes is literal
-- [x] **L** S040 (SC2268) `backslash-before-command` — backslash before command to bypass aliases
+- [x] [x] **L** C137 (SC2385) `unicode-single-quote-in-single-quotes` — Unicode smart quote in single-quoted string
+- [x] [x] **L** S023 (SC1001) `escaped-underscore` — needless backslash in plain word
+- [x] [x] **L** S024 (SC1003) `single-quote-backslash` — literal backslash in quoted string
+- [x] [x] **L** S025 (SC1004) `literal-backslash` — backslash before normal letter is literal
+- [x] [x] **L** S026 (SC1012) `needless-backslash-underscore` — backslash before normal char in word
+- [x] [x] **L** S027 (SC1002) `escaped-underscore` — backslash before `_` is unnecessary
+- [x] [x] **L** S039 (SC2267) `literal-backslash-in-single-quotes` — backslash in single quotes is literal
+- [x] [x] **L** S040 (SC2268) `backslash-before-command` — backslash before command to bypass aliases
 
 ### Arithmetic Expressions
 
@@ -415,7 +434,7 @@ injection.
 Rules about inefficient patterns that can be replaced with builtins or simpler
 constructs.
 
-- [x] **L** P001 (SC2003) `expr-arithmetic` — expr for arithmetic when shell can do it
-- [x] **L** P002 (SC2126) `grep-count-pipeline` — `grep | wc -l` instead of `grep -c`
-- [x] **L** P003 (SC2233) `single-test-subshell` — lone test in subshell
-- [x] **L** P004 (SC2259) `subshell-test-group` — grouped test in subshell instead of braces
+- [x] [x] **L** P001 (SC2003) `expr-arithmetic` — expr for arithmetic when shell can do it
+- [x] [x] **L** P002 (SC2126) `grep-count-pipeline` — `grep | wc -l` instead of `grep -c`
+- [x] [x] **L** P003 (SC2233) `single-test-subshell` — lone test in subshell
+- [x] [x] **L** P004 (SC2259) `subshell-test-group` — grouped test in subshell instead of braces

@@ -8,6 +8,7 @@
 //! facts.
 
 mod command_flow;
+mod conditional_portability;
 mod presence;
 mod surface;
 
@@ -33,6 +34,7 @@ use self::{
         build_select_header_facts, build_single_test_subshell_spans,
         build_subshell_test_group_spans, build_substitution_facts,
     },
+    conditional_portability::build_conditional_portability_facts,
     presence::build_presence_tested_names,
     surface::{
         SurfaceFragmentFacts, build_subscript_index_reference_spans, build_surface_fragment_facts,
@@ -54,6 +56,8 @@ use crate::rules::common::{
         classify_contextual_operand, classify_word, static_word_text,
     },
 };
+
+pub use self::conditional_portability::ConditionalPortabilityFacts;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FactSpan {
@@ -1477,6 +1481,7 @@ pub struct LinterFacts<'a> {
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
     replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
+    conditional_portability: ConditionalPortabilityFacts,
 }
 
 impl<'a> LinterFacts<'a> {
@@ -1689,6 +1694,10 @@ impl<'a> LinterFacts<'a> {
     pub fn replacement_expansion_fragments(&self) -> &[ReplacementExpansionFragmentFact] {
         &self.replacement_expansion_fragments
     }
+
+    pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
+        &self.conditional_portability
+    }
 }
 
 struct LinterFactsBuilder<'a> {
@@ -1836,6 +1845,15 @@ impl<'a> LinterFactsBuilder<'a> {
             .into_iter()
             .map(FactSpan::new)
             .collect();
+        let conditional_portability = build_conditional_portability_facts(
+            &commands,
+            &elif_condition_command_ids,
+            &words,
+            &pattern_exactly_one_extglob_spans,
+            &pattern_charclass_spans,
+            &nested_pattern_charclass_spans,
+            self.source,
+        );
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -1881,6 +1899,7 @@ impl<'a> LinterFactsBuilder<'a> {
             substring_expansion_fragments: substring_expansions,
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
+            conditional_portability,
         }
     }
 }
@@ -5682,6 +5701,175 @@ for version ($versions); do :; done
                     .quote()
                     .is_some_and(|quote| quote != crate::rules::common::word::WordQuote::Unquoted)
             );
+        });
+    }
+
+    #[test]
+    fn builds_conditional_portability_fact_buckets_from_shared_command_scans() {
+        let source = "\
+#!/bin/bash
+if test left == right; then
+  :
+elif [[ $x == y ]]; then
+  :
+fi
+[ left == right ]
+[[ $OSTYPE == *@(linux|freebsd)* ]]
+[ \"$x\" = @(foo|bar) ]
+[[ $words[2] = */ ]]
+[ $tools[kops] ]
+[[ $x > y ]]
+[[ $x =~ y ]]
+[[ -v assoc[$key] ]]
+[[ -a file ]]
+[[ -o noclobber ]]
+[ -k \"$file\" ]
+test -O \"$file\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let portability = facts.conditional_portability();
+
+            assert_eq!(portability.double_bracket_in_sh().len(), 8);
+            assert_eq!(
+                portability
+                    .if_elif_bash_test()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["[[ $x == y ]]"]
+            );
+            assert_eq!(
+                portability
+                    .test_equality_operator()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["test left == right", "==", "==", "=="]
+            );
+            assert_eq!(
+                portability
+                    .extended_glob_in_test()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["@(linux|freebsd)"]
+            );
+            assert_eq!(
+                portability
+                    .extglob_in_test()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["@(foo|bar)"]
+            );
+            assert_eq!(
+                portability
+                    .array_subscript_test()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$tools[kops]"]
+            );
+            assert_eq!(
+                portability
+                    .array_subscript_condition()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$words[2]", "assoc[$key]"]
+            );
+            assert_eq!(
+                portability
+                    .greater_than_in_double_bracket()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![">"]
+            );
+            assert_eq!(
+                portability
+                    .regex_match_in_sh()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["=~"]
+            );
+            assert_eq!(
+                portability
+                    .v_test_in_sh()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["-v"]
+            );
+            assert_eq!(
+                portability
+                    .a_test_in_sh()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["-a"]
+            );
+            assert_eq!(
+                portability
+                    .option_test_in_sh()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["-o"]
+            );
+            assert_eq!(
+                portability
+                    .sticky_bit_test_in_sh()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["-k"]
+            );
+            assert_eq!(
+                portability
+                    .ownership_test_in_sh()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["test -O \"$file\""]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_conditional_portability_pattern_buckets_from_surface_and_word_sources() {
+        let source = "\
+#!/bin/bash
+echo @(foo|bar)
+case \"$x\" in @(zip|tar)) : ;; esac
+trimmed=${name%@($suffix|zz)}
+echo [^a]*
+trimmed=${value#[^b]*}
+for item in [^c]*; do :; done
+";
+
+        with_facts(source, None, |_, facts| {
+            let extglobs = facts
+                .conditional_portability()
+                .extglob_in_sh()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+            assert!(extglobs.contains(&"@(foo|bar)"));
+            assert!(extglobs.contains(&"@(zip|tar)"));
+            assert!(extglobs.contains(&"@($suffix|zz)"));
+
+            let caret_negations = facts
+                .conditional_portability()
+                .caret_negation_in_bracket()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+            assert!(caret_negations.contains(&"[^a]"));
+            assert!(caret_negations.contains(&"[^b]"));
+            assert!(caret_negations.contains(&"[^c]"));
         });
     }
 
