@@ -100,6 +100,11 @@ fn collect_or_update_word_substitution_facts<'a>(
             kind: occurrence.kind,
             stdout_intent,
             has_stdout_redirect,
+            body_contains_ls: substitution_body_contains_ls(
+                occurrence.body,
+                commands,
+                command_ids_by_span,
+            ),
             body_contains_echo: substitution_body_contains_echo(occurrence.body, source),
             body_contains_grep: substitution_body_contains_grep(occurrence.body, source),
             host_word_span: word.span,
@@ -364,12 +369,63 @@ fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
         .all(|word| !word_contains_unquoted_glob_or_brace(word, source))
 }
 
+fn substitution_body_contains_ls<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    body.stmts
+        .iter()
+        .any(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span))
+}
+
 fn substitution_body_contains_grep(body: &StmtSeq, source: &str) -> bool {
     let [stmt] = body.stmts.as_slice() else {
         return false;
     };
 
     command_contains_grep_output(&stmt.command, source)
+}
+
+fn stmt_contains_raw_ls<'a>(
+    stmt: &'a Stmt,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    command_fact_for_stmt(stmt, commands, command_ids_by_span)
+        .is_some_and(|fact| fact.literal_name() == Some("ls") && fact.wrappers().is_empty())
+        || match &stmt.command {
+            Command::Binary(binary) => {
+                stmt_contains_raw_ls(&binary.left, commands, command_ids_by_span)
+                    || stmt_contains_raw_ls(&binary.right, commands, command_ids_by_span)
+            }
+            Command::Compound(CompoundCommand::Subshell(body))
+            | Command::Compound(CompoundCommand::BraceGroup(body)) => body
+                .stmts
+                .iter()
+                .any(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span)),
+            Command::Compound(CompoundCommand::Time(command)) => command
+                .command
+                .as_deref()
+                .is_some_and(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span)),
+            Command::Compound(
+                CompoundCommand::If(_)
+                | CompoundCommand::For(_)
+                | CompoundCommand::Repeat(_)
+                | CompoundCommand::Foreach(_)
+                | CompoundCommand::ArithmeticFor(_)
+                | CompoundCommand::While(_)
+                | CompoundCommand::Until(_)
+                | CompoundCommand::Case(_)
+                | CompoundCommand::Select(_)
+                | CompoundCommand::Arithmetic(_)
+                | CompoundCommand::Conditional(_)
+                | CompoundCommand::Coproc(_)
+                | CompoundCommand::Always(_),
+            ) => false,
+            Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
+            Command::Function(_) | Command::AnonymousFunction(_) => false,
+        }
 }
 
 fn command_contains_grep_output(command: &Command, source: &str) -> bool {

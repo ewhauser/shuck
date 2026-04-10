@@ -448,6 +448,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LsPipedToXargs) {
             rules::style::ls_piped_to_xargs::ls_piped_to_xargs(self);
         }
+        if self.is_rule_enabled(Rule::LsInSubstitution) {
+            rules::style::ls_in_substitution::ls_in_substitution(self);
+        }
         if self.is_rule_enabled(Rule::ChainedTestBranches) {
             rules::correctness::chained_test_branches::chained_test_branches(self);
         }

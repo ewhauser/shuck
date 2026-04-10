@@ -304,7 +304,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **L** S037 (SC2263) `redundant-spaces-in-echo` — extra spaces in echo collapsed
 - [x] [x] **M** S044 (SC2291) `unquoted-variable-in-sed` — unquoted variable in sed
 - [x] [x] **L** S046 (SC2293) `ls-piped-to-xargs` — ls piped to xargs
-- [ ] **L** S047 (SC2294) `ls-in-substitution` — ls in command substitution
+- [x] [x] **L** S047 (SC2294) `ls-in-substitution` — ls in command substitution
 - [ ] **L** S049 (SC2298) `unquoted-tr-range` — unquoted tr character class
 - [ ] **L** S051 (SC2303) `unquoted-tr-class` — unquoted tr class may glob-expand
 - [ ] **L** S054 (SC2322) `su-without-flag` — su without `-l` or `-c`

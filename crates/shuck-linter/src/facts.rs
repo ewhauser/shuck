@@ -735,6 +735,7 @@ pub struct SubstitutionFact {
     kind: CommandSubstitutionKind,
     stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
+    body_contains_ls: bool,
     body_contains_echo: bool,
     body_contains_grep: bool,
     host_word_span: Span,
@@ -757,6 +758,10 @@ impl SubstitutionFact {
 
     pub fn has_stdout_redirect(&self) -> bool {
         self.has_stdout_redirect
+    }
+
+    pub fn body_contains_ls(&self) -> bool {
+        self.body_contains_ls
     }
 
     pub fn body_contains_echo(&self) -> bool {
@@ -8188,6 +8193,7 @@ drop=$(printf hi >/dev/null 2>&1)
 mixed=$(jq -r . <<< \"$status\" || die >&2)
 x=$(echo direct)
 y=$(foo $(echo nested))
+z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
 ";
 
         with_facts(source, None, |_, facts| {
@@ -8201,6 +8207,7 @@ y=$(foo $(echo nested))
                         fact.stdout_intent(),
                         fact.host_kind(),
                         fact.unquoted_in_host(),
+                        fact.body_contains_ls(),
                         fact.body_contains_echo(),
                     )
                 })
@@ -8212,6 +8219,7 @@ y=$(foo $(echo nested))
                 SubstitutionHostKind::CommandArgument,
                 true,
                 false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf decl-assign)".to_owned(),
@@ -8219,11 +8227,13 @@ y=$(foo $(echo nested))
                 SubstitutionHostKind::DeclarationAssignmentValue,
                 true,
                 false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf quoted)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
+                false,
                 false,
                 false,
             )));
@@ -8233,12 +8243,14 @@ y=$(foo $(echo nested))
                 SubstitutionHostKind::AssignmentTargetSubscript,
                 true,
                 false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf decl-name)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::DeclarationNameSubscript,
                 true,
+                false,
                 false,
             )));
             assert!(substitutions.contains(&(
@@ -8247,12 +8259,14 @@ y=$(foo $(echo nested))
                 SubstitutionHostKind::ArrayKeySubscript,
                 true,
                 false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf hi > out.txt)".to_owned(),
                 SubstitutionOutputIntent::Rerouted,
                 SubstitutionHostKind::Other,
                 true,
+                false,
                 false,
             )));
             assert!(substitutions.contains(&(
@@ -8261,6 +8275,7 @@ y=$(foo $(echo nested))
                 SubstitutionHostKind::Other,
                 true,
                 false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(jq -r . <<< \"$status\" || die >&2)".to_owned(),
@@ -8268,12 +8283,14 @@ y=$(foo $(echo nested))
                 SubstitutionHostKind::Other,
                 true,
                 false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(echo direct)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
                 true,
+                false,
                 true,
             )));
             assert!(substitutions.contains(&(
@@ -8282,13 +8299,23 @@ y=$(foo $(echo nested))
                 SubstitutionHostKind::CommandArgument,
                 true,
                 false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(echo nested)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
                 true,
+                false,
                 true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(ls layout.*.h | cut -d. -f2 | xargs echo)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::CommandArgument,
+                true,
+                true,
+                false,
             )));
         });
     }

@@ -329,6 +329,7 @@ declare_rules! {
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
+    ("S047", Category::Style, Severity::Warning, LsInSubstitution),
     (
         "S016",
         Category::Style,
@@ -440,6 +441,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
         "SH-196" => Some(Rule::UnquotedVariableInSed),
         "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
+        "SH-199" => Some(Rule::LsInSubstitution),
         "SH-163" => Some(Rule::BareRead),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-041" => Some(Rule::FindOutputToXargs),
@@ -624,6 +626,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-197"), Some(Rule::DollarInArithmetic));
         assert_eq!(code_to_rule("S046"), Some(Rule::LsPipedToXargs));
         assert_eq!(code_to_rule("SH-198"), Some(Rule::LsPipedToXargs));
+        assert_eq!(code_to_rule("S047"), Some(Rule::LsInSubstitution));
+        assert_eq!(code_to_rule("SH-199"), Some(Rule::LsInSubstitution));
         assert_eq!(code_to_rule("S048"), Some(Rule::DollarInArithmeticContext));
         assert_eq!(
             code_to_rule("SH-202"),

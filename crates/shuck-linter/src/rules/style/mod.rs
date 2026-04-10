@@ -22,6 +22,7 @@ pub mod literal_backslash_in_single_quotes;
 pub mod literal_braces;
 pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
+pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
 pub mod needless_backslash_underscore;
 pub mod bare_read;
@@ -66,6 +67,7 @@ mod tests {
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
     #[test_case(Rule::LsPipedToXargs, Path::new("S046.sh"))]
+    #[test_case(Rule::LsInSubstitution, Path::new("S047.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
     #[test_case(Rule::EchoHereDoc, Path::new("S033.sh"))]
     #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]

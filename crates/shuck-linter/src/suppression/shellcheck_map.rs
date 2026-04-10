@@ -59,6 +59,9 @@ impl ShellCheckCodeMap {
         if number == 2293 {
             return vec![Rule::LsPipedToXargs];
         }
+        if number == 2294 {
+            return vec![Rule::LsInSubstitution, Rule::EvalOnArray];
+        }
         if number == 2281 {
             return vec![Rule::BackslashBeforeClosingBacktick];
         }
@@ -110,6 +113,7 @@ impl Default for ShellCheckCodeMap {
             (2009, Rule::PsGrepPipeline),
             (2010, Rule::LsGrepPipeline),
             (2293, Rule::LsPipedToXargs),
+            (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
             (2283, Rule::DoubleParenGrouping),
@@ -386,6 +390,7 @@ impl Default for ShellCheckCodeMap {
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
                 (2263, Rule::RedundantSpacesInEcho),
+                (2294, Rule::LsInSubstitution),
                 (2291, Rule::UnquotedVariableInSed),
                 (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
@@ -526,6 +531,7 @@ impl Default for ShellCheckCodeMap {
                 (2321, Rule::FunctionKeywordInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
+<<<<<<< HEAD
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -537,6 +543,7 @@ impl Default for ShellCheckCodeMap {
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
+                (2294, Rule::LsInSubstitution),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
                 (2127, Rule::EchoHereDoc),
@@ -569,6 +576,7 @@ mod tests {
         assert_eq!(map.resolve("SC2009"), Some(Rule::PsGrepPipeline));
         assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
+        assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -614,6 +622,7 @@ mod tests {
         assert_eq!(map.resolve("SC2258"), Some(Rule::BareRead));
         assert_eq!(map.resolve("SC2291"), Some(Rule::UnquotedVariableInSed));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
+        assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve("SC3072"), Some(Rule::CaretNegationInBracket));
@@ -625,6 +634,10 @@ mod tests {
             vec![Rule::UnquotedVariableInSed]
         );
         assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
+        assert_eq!(
+            map.resolve_all("SC2294"),
+            vec![Rule::LsInSubstitution, Rule::EvalOnArray]
+        );
         assert_eq!(
             map.resolve_all("SC2263"),
             vec![Rule::RedundantSpacesInEcho]
@@ -929,6 +942,7 @@ mod tests {
             (2009, Rule::DoubleParenGrouping),
             (2010, Rule::LsGrepPipeline),
             (2293, Rule::LsPipedToXargs),
+            (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
             (2013, Rule::LineOrientedInput),
@@ -1158,6 +1172,7 @@ mod tests {
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
+        assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
