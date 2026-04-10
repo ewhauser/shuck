@@ -433,6 +433,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PsGrepPipeline) {
             rules::style::ps_grep_pipeline::ps_grep_pipeline(self);
         }
+        if self.is_rule_enabled(Rule::LsGrepPipeline) {
+            rules::style::ls_grep_pipeline::ls_grep_pipeline(self);
+        }
         if self.is_rule_enabled(Rule::ChainedTestBranches) {
             rules::correctness::chained_test_branches::chained_test_branches(self);
         }

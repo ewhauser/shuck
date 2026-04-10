@@ -324,6 +324,7 @@ declare_rules! {
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
+    ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
     ("S033", Category::Style, Severity::Warning, EchoHereDoc),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
@@ -507,6 +508,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-310" => Some(Rule::MisspelledOptionName),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-056" => Some(Rule::PsGrepPipeline),
+        "SH-057" => Some(Rule::LsGrepPipeline),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
         "SH-164" => Some(Rule::SubshellTestGroup),
@@ -589,6 +591,7 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
         assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
+        assert_eq!(code_to_rule("SH-057"), Some(Rule::LsGrepPipeline));
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));

@@ -19,6 +19,7 @@ pub mod literal_backslash;
 pub mod literal_backslash_in_single_quotes;
 pub mod literal_braces;
 pub mod loop_from_command_output;
+pub mod ls_grep_pipeline;
 pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
@@ -52,6 +53,7 @@ mod tests {
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
+    #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
     #[test_case(Rule::EchoHereDoc, Path::new("S033.sh"))]
     #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]

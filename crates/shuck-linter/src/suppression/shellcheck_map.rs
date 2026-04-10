@@ -94,6 +94,7 @@ impl Default for ShellCheckCodeMap {
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
+            (2010, Rule::LsGrepPipeline),
             (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
             // ShellCheck 0.11.0 reports space-indented `<<-` close candidates as SC1040.
@@ -307,6 +308,7 @@ impl Default for ShellCheckCodeMap {
                 (2003, Rule::ExprArithmetic),
                 (2126, Rule::GrepCountPipeline),
                 (2009, Rule::PsGrepPipeline),
+                (2010, Rule::LsGrepPipeline),
                 (2283, Rule::DoubleParenGrouping),
                 (2233, Rule::SingleTestSubshell),
                 (2235, Rule::SubshellTestGroup),
@@ -537,6 +539,7 @@ mod tests {
         assert_eq!(map.resolve("SC2219"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::PsGrepPipeline));
+        assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -880,6 +883,7 @@ mod tests {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
             (2009, Rule::DoubleParenGrouping),
+            (2010, Rule::LsGrepPipeline),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
             (2016, Rule::SingleQuotedLiteral),
@@ -1105,6 +1109,7 @@ mod tests {
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
+        assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
