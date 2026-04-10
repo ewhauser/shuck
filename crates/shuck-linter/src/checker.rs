@@ -153,6 +153,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AppendToArrayAsString) {
             rules::correctness::append_to_array_as_string::append_to_array_as_string(self);
         }
+        if self.is_rule_enabled(Rule::ArrayToStringConversion) {
+            rules::correctness::array_to_string_conversion::array_to_string_conversion(self);
+        }
     }
 
     fn check_references(&mut self) {

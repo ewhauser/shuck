@@ -254,6 +254,12 @@ declare_rules! {
         MisspelledOptionName
     ),
     (
+        "C133",
+        Category::Correctness,
+        Severity::Warning,
+        ArrayToStringConversion
+    ),
+    (
         "C136",
         Category::Correctness,
         Severity::Warning,
@@ -502,6 +508,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-295" => Some(Rule::UncheckedDirectoryChangeInFunction),
         "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
         "SH-308" => Some(Rule::VariableAsCommandName),
+        "SH-311" => Some(Rule::ArrayToStringConversion),
         "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
@@ -930,6 +937,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
+        assert_eq!(code_to_rule("C133"), Some(Rule::ArrayToStringConversion));
+        assert_eq!(code_to_rule("SH-311"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));

@@ -1,5 +1,6 @@
 pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
+pub mod array_to_string_conversion;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
 pub mod backslash_before_closing_backtick;
@@ -171,6 +172,7 @@ mod tests {
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
+    #[test_case(Rule::ArrayToStringConversion, Path::new("C133.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
     #[test_case(Rule::BadVarName, Path::new("C140.sh"))]
