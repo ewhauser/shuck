@@ -271,6 +271,7 @@ declare_rules! {
         LiteralBackslashInSingleQuotes
     ),
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
+    ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -359,6 +360,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-115" => Some(Rule::LinebreakInTest),
         "SH-116" => Some(Rule::LiteralBraces),
         "SH-120" => Some(Rule::TrailingDirective),
+        "SH-329" => Some(Rule::LinebreakBeforeAnd),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
         "SH-129" => Some(Rule::BadRedirectionFdOrder),
@@ -543,6 +545,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("S031"), Some(Rule::TrailingDirective));
         assert_eq!(code_to_rule("SH-120"), Some(Rule::TrailingDirective));
+        assert_eq!(code_to_rule("S072"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(code_to_rule("SH-329"), Some(Rule::LinebreakBeforeAnd));
         assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("SH-115"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("C041"), Some(Rule::CStyleComment));

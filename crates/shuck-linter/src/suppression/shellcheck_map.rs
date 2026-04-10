@@ -201,11 +201,13 @@ impl Default for ShellCheckCodeMap {
             (2239, Rule::NonAbsoluteShebang),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
+            (1133, Rule::LinebreakBeforeAnd),
             (2294, Rule::EvalOnArray),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
+            (2392, Rule::LinebreakBeforeAnd),
             (2396, Rule::UntilMissingDo),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
@@ -367,11 +369,13 @@ impl Default for ShellCheckCodeMap {
                 (2239, Rule::NonAbsoluteShebang),
                 (2288, Rule::TemplateBraceInCommand),
                 (2289, Rule::CommentedContinuationLine),
+                (1133, Rule::LinebreakBeforeAnd),
                 (2294, Rule::EvalOnArray),
                 (2333, Rule::NonShellSyntaxInScript),
                 (2389, Rule::LoopWithoutEnd),
                 (2390, Rule::MissingDoneInForLoop),
                 (2391, Rule::DanglingElse),
+                (2392, Rule::LinebreakBeforeAnd),
                 (2396, Rule::UntilMissingDo),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
@@ -620,6 +624,13 @@ mod tests {
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2289"), Some(Rule::CommentedContinuationLine));
+        assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(map.resolve("SC1133"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
+        assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
+        assert_eq!(map.resolve("SC2391"), Some(Rule::DanglingElse));
+        assert_eq!(map.resolve("SC2392"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
@@ -654,6 +665,7 @@ mod tests {
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
+            (1133, Rule::LinebreakBeforeAnd),
             (1113, Rule::TrailingDirective),
             (1126, Rule::TrailingDirective),
             (1127, Rule::CStyleComment),
@@ -734,6 +746,7 @@ mod tests {
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
+            (2392, Rule::LinebreakBeforeAnd),
             (2396, Rule::UntilMissingDo),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),

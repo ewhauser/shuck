@@ -14,6 +14,7 @@ use crate::rules::correctness::until_missing_do::UntilMissingDo;
 use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
+use crate::rules::style::linebreak_before_and::LinebreakBeforeAnd;
 use crate::{Diagnostic, Rule, RuleSet, ShellDialect, Violation};
 
 pub struct ExtglobCase;
@@ -80,6 +81,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
             diagnostics.push(Diagnostic::new(IfBracketGlued, span));
         }
     }
+    if enabled_rules.contains(crate::Rule::LinebreakBeforeAnd) {
+        for span in linebreak_before_and_spans(source, parse_diagnostics) {
+            diagnostics.push(Diagnostic::new(LinebreakBeforeAnd, span));
+        }
+    }
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
         for diagnostic in parse_diagnostics {
@@ -128,6 +134,54 @@ fn is_dangling_else_error(message: &str) -> bool {
 
 fn is_expected_command_error(message: &str) -> bool {
     message.starts_with("expected command")
+}
+
+fn linebreak_before_and_spans(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Vec<Span> {
+    parse_diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            if !is_expected_command_error(&diagnostic.message) {
+                return None;
+            }
+
+            leading_control_operator_span(source, diagnostic.span.start.line)
+        })
+        .collect()
+}
+
+fn leading_control_operator_span(source: &str, line_number: usize) -> Option<Span> {
+    let line = line_text_at(source, line_number)?;
+    let text = line.split_once('#').map_or(line, |(before, _)| before);
+    let leading_bytes = text
+        .bytes()
+        .take_while(|byte| matches!(*byte, b' ' | b'\t' | b'\r'))
+        .count();
+    let trimmed = &text[leading_bytes..];
+
+    let operator = if let Some(rest) = trimmed.strip_prefix("&&") {
+        if rest.chars().next().is_some_and(|ch| !ch.is_ascii_whitespace()) {
+            return None;
+        }
+        "&&"
+    } else if let Some(rest) = trimmed.strip_prefix("||") {
+        if rest.chars().next().is_some_and(|ch| !ch.is_ascii_whitespace()) {
+            return None;
+        }
+        "||"
+    } else if let Some(rest) = trimmed.strip_prefix('|') {
+        if rest.chars().next().is_some_and(|ch| !ch.is_ascii_whitespace()) {
+            return None;
+        }
+        "|"
+    } else {
+        return None;
+    };
+
+    let line_start = line_start_offset(source, line_number)?;
+    let start_offset = line_start + leading_bytes;
+    let start = position_at_offset(source, start_offset)?;
+    let end = position_at_offset(source, start_offset + operator.len())?;
+    Some(Span::from_positions(start, end))
 }
 
 fn dangling_else_span(parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
@@ -750,6 +804,40 @@ mod tests {
         let source = "#!/bin/sh\nuntil :\ndone\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn maps_linebreak_before_and_parse_error_to_s072() {
+        let source = "#!/bin/bash\ntrue\n&& echo x\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Bash,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::LinebreakBeforeAnd);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn ignores_non_and_expected_command_parse_errors_for_s072() {
+        let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,

@@ -406,7 +406,7 @@ oddities. Mostly AST-level checks.
 - [x] **M** S028 (SC1079) `suspect-closing-quote` — quote closed but next char is suspicious
 - [x] **M** S029 (SC1083) `literal-braces` — literal braces may be treated as expansion
 - [x] **L** S031 (SC1113) `trailing-directive` — directive after code is ignored
-- [ ] **L** S072 (SC2392) `linebreak-before-and` — control operator starts new line
+- [x] **L** S072 (SC2392) `linebreak-before-and` — control operator starts new line
 - [ ] **L** S074 (SC2397) `ampersand-semicolon` — backgrounded command followed by `;`
 
 ### Security

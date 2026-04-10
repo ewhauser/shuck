@@ -9,6 +9,7 @@ pub mod literal_braces;
 pub mod literal_backslash;
 pub mod literal_backslash_in_single_quotes;
 pub mod loop_from_command_output;
+pub mod linebreak_before_and;
 pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
 pub mod read_without_raw;
@@ -49,6 +50,7 @@ mod tests {
     #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
     #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
     #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]
+    #[test_case(Rule::LinebreakBeforeAnd, Path::new("S072.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(
