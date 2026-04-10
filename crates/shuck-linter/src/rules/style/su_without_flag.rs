@@ -27,19 +27,60 @@ pub fn su_without_flag(checker: &mut Checker) {
 
 fn su_has_login_or_command_flag(fact: &crate::CommandFact<'_>, source: &str) -> bool {
     let args = fact.body_args();
-    args.iter().enumerate().any(|(index, word)| {
+    let mut pending_option_arg = false;
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
+            if pending_option_arg {
+                pending_option_arg = false;
+                index += 1;
+                continue;
+            }
             return false;
         };
 
-        match text.as_str() {
-            "-" | "-l" | "--login" => true,
-            "-c" | "--command" => args.get(index + 1).is_some(),
-            _ if text.starts_with("--command=") => text.len() > "--command=".len(),
-            _ if text.starts_with("-c") => text.len() > 2,
-            _ => false,
+        if pending_option_arg {
+            pending_option_arg = false;
+            index += 1;
+            continue;
         }
-    })
+
+        match text.as_str() {
+            "-" | "-l" | "--login" => return true,
+            "--" => break,
+            "--command" => return args.get(index + 1).is_some(),
+            _ if text.starts_with("--command=") => return text.len() > "--command=".len(),
+            _ => {}
+        }
+
+        if !text.starts_with('-') {
+            break;
+        }
+
+        let mut flags = text[1..].chars().peekable();
+        while let Some(flag) = flags.next() {
+            match flag {
+                'l' => return true,
+                'c' => return flags.peek().is_some() || args.get(index + 1).is_some(),
+                flag if su_short_option_takes_argument(flag) => {
+                    if flags.peek().is_none() {
+                        pending_option_arg = true;
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+fn su_short_option_takes_argument(flag: char) -> bool {
+    matches!(flag, 'C' | 'g' | 'G' | 's' | 'w')
 }
 
 #[cfg(test)]
@@ -54,6 +95,9 @@ mod tests {
 su librenms
 su -c
 su --command
+su librenms -c id
+su alice -
+su alice -- -
 command su librenms
 sudo su librenms
 ";
@@ -64,7 +108,7 @@ sudo su librenms
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["su", "su", "su"]
+            vec!["su", "su", "su", "su", "su", "su"]
         );
     }
 
@@ -80,7 +124,6 @@ su -c id root
 su -cid root
 su --command id root
 su - root
-su librenms -c id
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SuWithoutFlag));
 

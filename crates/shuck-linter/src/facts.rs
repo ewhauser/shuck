@@ -6675,6 +6675,13 @@ fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
                 index += 1;
                 continue;
             }
+
+            if text != "-" && ps_bare_pid_selector(text.as_str()) {
+                has_pid_selector = true;
+                index += 1;
+                continue;
+            }
+
             break;
         }
 
@@ -6743,6 +6750,11 @@ fn dynamic_ps_pid_selector(word: &Word, source: &str) -> Option<bool> {
         }
         _ => None,
     }
+}
+
+fn ps_bare_pid_selector(text: &str) -> bool {
+    text.split(',')
+        .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
 }
 
 fn ps_option_takes_argument(flag: char) -> bool {
@@ -8185,6 +8197,33 @@ mod tests {
 #!/bin/bash
 ps -p\"$pid\" -o comm=
 ps --pid=\"$pid\" -o comm=
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let ps_commands = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ps"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ps_commands.len(), 2);
+        assert!(
+            ps_commands
+                .iter()
+                .all(|fact| fact.options().ps().is_some_and(|ps| ps.has_pid_selector))
+        );
+    }
+
+    #[test]
+    fn tracks_bare_ps_pid_operands() {
+        let source = "\
+#!/bin/bash
+ps 1 -o comm=
+ps 1,2 -o comm=
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);

@@ -104,6 +104,8 @@ ps aux | fgrep foo
 ps aux | awk '/foo/'
 ps -p 1 -o comm= | grep -q systemd
 ps p 123 -o comm= | grep -q systemd
+ps 1 | grep -q systemd
+ps 1,2 | grep -q systemd
 ps -o command= -p \"$parent\" | grep -F -- \"-f\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PsGrepPipeline));
