@@ -652,65 +652,13 @@ fn is_bash_file_slurp_command(command: &Command, redirects: &[Redirect], source:
         return false;
     }
 
-    let redirect_facts = build_redirect_facts(redirects, source);
-
-    classify_redirect_facts(&redirect_facts).stdout_intent == SubstitutionOutputIntent::Captured
-        && classify_stdin_source(&redirect_facts) == InputSource::File
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InputSource {
-    Default,
-    File,
-    Other,
-}
-
-fn classify_stdin_source(redirects: &[RedirectFact<'_>]) -> InputSource {
-    let mut fds = FxHashMap::from_iter([(0, InputSource::Default)]);
-
-    for redirect in redirects {
-        if redirect.redirect().fd_var.is_some() {
-            continue;
-        }
-
-        match redirect.redirect().kind {
-            RedirectKind::Input => {
-                let fd = redirect.redirect().fd.unwrap_or(0);
-                fds.insert(fd, InputSource::File);
-            }
-            RedirectKind::DupInput => {
-                let fd = redirect.redirect().fd.unwrap_or(0);
-                let source = redirect
-                    .analysis()
-                    .and_then(|analysis| analysis.numeric_descriptor_target)
-                    .and_then(|source_fd| fds.get(&source_fd).copied())
-                    .unwrap_or(InputSource::Other);
-                fds.insert(fd, source);
-            }
-            RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
-                let fd = redirect.redirect().fd.unwrap_or(1);
-                fds.insert(fd, InputSource::Other);
-            }
-            RedirectKind::ReadWrite
-            | RedirectKind::HereDoc
-            | RedirectKind::HereDocStrip
-            | RedirectKind::HereString => {
-                let fd = redirect.redirect().fd.unwrap_or(0);
-                fds.insert(fd, InputSource::Other);
-            }
-            RedirectKind::OutputBoth => {
-                let fd = redirect.redirect().fd.unwrap_or(1);
-                fds.insert(fd, InputSource::Other);
-                fds.insert(2, InputSource::Other);
-            }
-            RedirectKind::DupOutput => {
-                let fd = redirect.redirect().fd.unwrap_or(1);
-                fds.insert(fd, InputSource::Other);
-            }
-        }
-    }
-
-    *fds.get(&0).unwrap_or(&InputSource::Other)
+    matches!(
+        redirects,
+        [redirect]
+            if redirect.kind == RedirectKind::Input
+                && redirect.fd_var.is_none()
+                && redirect.fd.unwrap_or(0) == 0
+    )
 }
 
 fn visit_command_argument_words_for_substitutions(

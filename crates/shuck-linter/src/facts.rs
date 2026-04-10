@@ -9227,7 +9227,7 @@ printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>
                     .contains(&("\"$( < spaced.txt )\"".trim_matches('"').to_owned(), true))
             );
             assert!(substitutions.contains(&("$(0< fd.txt)".to_owned(), true)));
-            assert!(substitutions.contains(&("$(< quiet.txt 2>/dev/null)".to_owned(), true)));
+            assert!(substitutions.contains(&("$(< quiet.txt 2>/dev/null)".to_owned(), false)));
             assert!(substitutions.contains(&("$(< muted.txt >/dev/null)".to_owned(), false)));
             assert!(substitutions.contains(&("$(< closed.txt 0<&-)".to_owned(), false)));
             assert!(substitutions.contains(&("$(cat < portable.txt)".to_owned(), false)));

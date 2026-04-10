@@ -61,12 +61,7 @@ assigned=$(foo=bar)
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "$(<input.txt)",
-                "$( < spaced.txt )",
-                "$(0< fd.txt)",
-                "$(<quiet.txt 2>/dev/null)",
-            ]
+            vec!["$(<input.txt)", "$( < spaced.txt )", "$(0< fd.txt)",]
         );
     }
 
