@@ -1,0 +1,18 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 2488
+    column: 18
+    end_line: 2488
+    end_column: 20
+    labels:
+      - helper-library
+      - project-closure
+    reason: "ShellCheck 0.11.0 does not report SC2291 for this echo-to-sed substitution helper, but shuck follows the repo-authored S044 scope and flags the unquoted scalar expansion."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_download_deb_pac.sh"
+    line: 36
+    column: 33
+    end_line: 36
+    end_column: 59
+    reason: "ShellCheck 0.11.0 does not report SC2291 for this echo-to-sed substitution in the package script, but shuck follows the repo-authored S044 scope and flags the unquoted scalar expansion."

@@ -327,6 +327,7 @@ declare_rules! {
     ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
+    ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     (
         "S016",
         Category::Style,
@@ -435,6 +436,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
+        "SH-196" => Some(Rule::UnquotedVariableInSed),
         "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
         "SH-163" => Some(Rule::BareRead),
         "SH-071" => Some(Rule::GrepOutputInTest),
@@ -650,6 +652,7 @@ mod tests {
             Some(Rule::EchoInsideCommandSubstitution)
         );
         assert_eq!(code_to_rule("SH-168"), Some(Rule::RedundantSpacesInEcho));
+        assert_eq!(code_to_rule("SH-196"), Some(Rule::UnquotedVariableInSed));
         assert_eq!(code_to_rule("SH-163"), Some(Rule::BareRead));
         assert_eq!(code_to_rule("SH-071"), Some(Rule::GrepOutputInTest));
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));

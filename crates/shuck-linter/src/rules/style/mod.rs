@@ -25,6 +25,7 @@ pub mod ls_grep_pipeline;
 pub mod needless_backslash_underscore;
 pub mod bare_read;
 pub mod redundant_spaces_in_echo;
+pub mod unquoted_variable_in_sed;
 pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
 pub mod read_without_raw;
@@ -62,6 +63,7 @@ mod tests {
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
+    #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]
     #[test_case(Rule::EchoHereDoc, Path::new("S033.sh"))]
     #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]
