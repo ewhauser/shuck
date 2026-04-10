@@ -95,6 +95,9 @@ impl Default for ShellCheckCodeMap {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
+            // ShellCheck 0.11.0 reports space-indented `<<-` close candidates as SC1040.
+            // Keep SC2393 as a suppression alias for compatibility metadata.
+            (1040, Rule::SpacedTabstripClose),
             // ShellCheck 0.11.0 reports trailing whitespace after heredoc terminators as SC1118.
             // Keep SC1040 as a suppression alias for compatibility metadata.
             (1118, Rule::HeredocEndSpace),
@@ -297,7 +300,7 @@ impl Default for ShellCheckCodeMap {
                 (2235, Rule::SubshellTestGroup),
                 (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
-                (1040, Rule::HeredocEndSpace),
+                (1040, Rule::SpacedTabstripClose),
                 (1118, Rule::HeredocEndSpace),
                 (1042, Rule::MisquotedHeredocClose),
                 (1041, Rule::HeredocCloserNotAlone),
@@ -435,6 +438,7 @@ impl Default for ShellCheckCodeMap {
                 (2390, Rule::MissingDoneInForLoop),
                 (2391, Rule::DanglingElse),
                 (2392, Rule::LinebreakBeforeAnd),
+                (2393, Rule::SpacedTabstripClose),
                 (2396, Rule::UntilMissingDo),
                 (2397, Rule::AmpersandSemicolon),
                 (2241, Rule::InvalidExitStatus),
@@ -472,6 +476,7 @@ impl Default for ShellCheckCodeMap {
                 (3067, Rule::OwnershipTestInSh),
             ]),
             aliases: vec![
+                (1040, Rule::HeredocEndSpace),
                 (1075, Rule::ExtglobCase),
                 (2321, Rule::FunctionKeywordInSh),
                 (3061, Rule::ExtglobInSh),
@@ -515,7 +520,12 @@ mod tests {
         assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
-        assert_eq!(map.resolve("SC1040"), Some(Rule::HeredocEndSpace));
+        assert_eq!(map.resolve("SC1040"), Some(Rule::SpacedTabstripClose));
+        assert_eq!(map.resolve("SC2393"), Some(Rule::SpacedTabstripClose));
+        assert_eq!(
+            map.resolve_all("SC1040"),
+            vec![Rule::SpacedTabstripClose, Rule::HeredocEndSpace]
+        );
         assert_eq!(map.resolve("SC1118"), Some(Rule::HeredocEndSpace));
         assert_eq!(map.resolve("SC1042"), Some(Rule::MisquotedHeredocClose));
         assert_eq!(map.resolve("SC1041"), Some(Rule::HeredocCloserNotAlone));
@@ -794,6 +804,7 @@ mod tests {
             (1012, Rule::NeedlessBackslashUnderscore),
             (1019, Rule::EmptyTest),
             (1037, Rule::PositionalTenBraces),
+            (1040, Rule::SpacedTabstripClose),
             (1040, Rule::HeredocEndSpace),
             (1118, Rule::HeredocEndSpace),
             (1042, Rule::MisquotedHeredocClose),
@@ -922,6 +933,7 @@ mod tests {
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
             (2392, Rule::LinebreakBeforeAnd),
+            (2393, Rule::SpacedTabstripClose),
             (2394, Rule::HeredocCloserNotAlone),
             (2395, Rule::MisquotedHeredocClose),
             (2396, Rule::UntilMissingDo),
@@ -1074,6 +1086,7 @@ mod tests {
         assert!(comparison.contains(&(2370, Rule::UnusedHeredoc)));
         assert!(comparison.contains(&(1044, Rule::HeredocMissingEnd)));
         assert!(comparison.contains(&(1118, Rule::HeredocEndSpace)));
+        assert!(comparison.contains(&(1040, Rule::SpacedTabstripClose)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
@@ -1103,6 +1116,7 @@ mod tests {
         assert!(!comparison.contains(&(2394, Rule::HeredocCloserNotAlone)));
         assert!(!comparison.contains(&(2395, Rule::MisquotedHeredocClose)));
         assert!(!comparison.contains(&(2386, Rule::HeredocMissingEnd)));
+        assert!(!comparison.contains(&(2393, Rule::SpacedTabstripClose)));
         assert!(!comparison.contains(&(1040, Rule::HeredocEndSpace)));
     }
 

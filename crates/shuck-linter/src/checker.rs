@@ -499,6 +499,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::HeredocEndSpace) {
             rules::style::heredoc_end_space::heredoc_end_space(self);
         }
+        if self.is_rule_enabled(Rule::SpacedTabstripClose) {
+            rules::style::spaced_tabstrip_close::spaced_tabstrip_close(self);
+        }
     }
 
     fn check_surface_fragment_facts(&mut self) {

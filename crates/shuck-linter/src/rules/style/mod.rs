@@ -23,6 +23,7 @@ pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
 pub mod read_without_raw;
 pub mod single_quote_backslash;
+pub mod spaced_tabstrip_close;
 pub mod suspect_closing_quote;
 pub mod syntax;
 pub mod trailing_directive;
@@ -68,6 +69,7 @@ mod tests {
     #[test_case(Rule::HeredocEndSpace, Path::new("S030.sh"))]
     #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]
     #[test_case(Rule::LinebreakBeforeAnd, Path::new("S072.sh"))]
+    #[test_case(Rule::SpacedTabstripClose, Path::new("S073.sh"))]
     #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

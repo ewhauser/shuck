@@ -333,6 +333,7 @@ declare_rules! {
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
     ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
+    ("S073", Category::Style, Severity::Warning, SpacedTabstripClose),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
 }
 
@@ -435,6 +436,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-119" => Some(Rule::HeredocEndSpace),
         "SH-120" => Some(Rule::TrailingDirective),
         "SH-329" => Some(Rule::LinebreakBeforeAnd),
+        "SH-330" => Some(Rule::SpacedTabstripClose),
         "SH-335" => Some(Rule::AmpersandSemicolon),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
@@ -646,6 +648,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-120"), Some(Rule::TrailingDirective));
         assert_eq!(code_to_rule("S072"), Some(Rule::LinebreakBeforeAnd));
         assert_eq!(code_to_rule("SH-329"), Some(Rule::LinebreakBeforeAnd));
+        assert_eq!(code_to_rule("S073"), Some(Rule::SpacedTabstripClose));
+        assert_eq!(code_to_rule("SH-330"), Some(Rule::SpacedTabstripClose));
         assert_eq!(code_to_rule("S074"), Some(Rule::AmpersandSemicolon));
         assert_eq!(code_to_rule("SH-335"), Some(Rule::AmpersandSemicolon));
         assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
