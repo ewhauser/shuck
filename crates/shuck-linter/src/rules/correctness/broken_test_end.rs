@@ -1,4 +1,6 @@
-use crate::{Checker, Rule, Violation, static_word_text};
+use crate::{Checker, Rule, Violation};
+
+use super::broken_test_common::malformed_bracket_test_spans;
 
 pub struct BrokenTestEnd;
 
@@ -13,22 +15,7 @@ impl Violation for BrokenTestEnd {
 }
 
 pub fn broken_test_end(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .filter(|fact| fact.static_utility_name_is("["))
-        .filter(|fact| {
-            fact.body_args()
-                .last()
-                .and_then(|word| static_word_text(word, checker.source()))
-                .as_deref()
-                != Some("]")
-        })
-        .map(|fact| fact.body_name_word().map_or(fact.span(), |word| word.span))
-        .collect::<Vec<_>>();
-
-    checker.report_all(spans, || BrokenTestEnd);
+    checker.report_all(malformed_bracket_test_spans(checker), || BrokenTestEnd);
 }
 
 #[cfg(test)]
