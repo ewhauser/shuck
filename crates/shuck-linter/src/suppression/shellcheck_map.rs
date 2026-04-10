@@ -279,6 +279,7 @@ impl Default for ShellCheckCodeMap {
             (3060, Rule::ReplacementExpansion),
             (2038, Rule::FindOutputToXargs),
             (2064, Rule::TrapStringExpansion),
+            (2066, Rule::QuotedDollarStarLoop),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2086, Rule::UnquotedExpansion),
@@ -558,6 +559,7 @@ impl Default for ShellCheckCodeMap {
                     (3060, Rule::ReplacementExpansion),
                     (2038, Rule::FindOutputToXargs),
                     (2064, Rule::TrapStringExpansion),
+                    (2066, Rule::QuotedDollarStarLoop),
                     (2068, Rule::UnquotedArrayExpansion),
                     (2076, Rule::QuotedBashRegex),
                     (2086, Rule::UnquotedExpansion),
@@ -814,6 +816,7 @@ mod tests {
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
+        assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
@@ -852,6 +855,7 @@ mod tests {
             map.resolve_all("SC2060"),
             vec![Rule::UnquotedTrClass, Rule::UnquotedTrRange]
         );
+        assert_eq!(map.resolve_all("SC2066"), vec![Rule::QuotedDollarStarLoop]);
         assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
         assert_eq!(
             map.resolve_all("SC2294"),
@@ -1060,6 +1064,7 @@ mod tests {
         assert_eq!(map.resolve("SC3060"), Some(Rule::ReplacementExpansion));
         assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2064"), Some(Rule::TrapStringExpansion));
+        assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
@@ -1360,6 +1365,7 @@ mod tests {
             (2209, Rule::ConditionalAssignmentShortcut),
             (2352, Rule::DefaultElseInShortCircuit),
             (2064, Rule::TrapStringExpansion),
+            (2066, Rule::QuotedDollarStarLoop),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2078, Rule::TruthyLiteralTest),
@@ -1645,6 +1651,7 @@ mod tests {
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
+        assert!(comparison.contains(&(2066, Rule::QuotedDollarStarLoop)));
         assert!(comparison.contains(&(2048, Rule::UnquotedDollarStar)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));

@@ -190,6 +190,12 @@ pub fn word_unquoted_star_splat_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+pub fn word_quoted_star_splat_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_quoted_star_splat_spans(&word.parts, false, &mut spans);
+    spans
+}
+
 pub fn word_zsh_flag_modifier_spans(word: &Word) -> Vec<Span> {
     word.parts
         .iter()
@@ -1557,6 +1563,19 @@ fn collect_unquoted_star_splat_spans(parts: &[WordPartNode], quoted: bool, spans
     }
 }
 
+fn collect_quoted_star_splat_spans(parts: &[WordPartNode], quoted: bool, spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_quoted_star_splat_spans(parts, true, spans);
+            }
+            _ if quoted && part_uses_star_splat(&part.kind) => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_parser::parser::Parser;
@@ -1566,7 +1585,7 @@ mod tests {
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
-        word_unquoted_star_splat_spans,
+        word_quoted_star_splat_spans, word_unquoted_star_splat_spans,
     };
 
     #[test]
@@ -1965,6 +1984,30 @@ printf '%s\\n' $* ${*} ${*:1} ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr
             .args
             .iter()
             .flat_map(word_unquoted_star_splat_spans)
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans,
+            vec!["$*", "${*}", "${*:1}", "${arr[*]}", "${arr[*]:1:2}"]
+        );
+    }
+
+    #[test]
+    fn word_quoted_star_splat_spans_tracks_double_quoted_star_selector_forms_only() {
+        let source = "\
+printf '%s\\n' \"$*\" \"${*}\" \"${*:1}\" \"${arr[*]}\" \"${arr[*]:1:2}\" \"${!arr[*]}\" \"${arr[@]}\" \"${arr[@]:1}\" \"$@\" ${arr[*]}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(word_quoted_star_splat_spans)
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
 
