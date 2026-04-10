@@ -98,6 +98,7 @@ impl Default for ShellCheckCodeMap {
             (1073, Rule::BrokenTestEnd),
             (1075, Rule::ElseIf),
             (1078, Rule::OpenDoubleQuote),
+            (1079, Rule::SuspectClosingQuote),
             (1080, Rule::LinebreakInTest),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
@@ -255,6 +256,7 @@ impl Default for ShellCheckCodeMap {
                 (1073, Rule::BrokenTestEnd),
                 (1075, Rule::ElseIf),
                 (1078, Rule::OpenDoubleQuote),
+                (1079, Rule::SuspectClosingQuote),
                 (1080, Rule::LinebreakInTest),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
@@ -456,6 +458,7 @@ mod tests {
             vec![Rule::CaretNegationInBracket]
         );
         assert_eq!(map.resolve("SC1078"), Some(Rule::OpenDoubleQuote));
+        assert_eq!(map.resolve("SC1079"), Some(Rule::SuspectClosingQuote));
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
@@ -631,6 +634,7 @@ mod tests {
             (1075, Rule::ElseIf),
             (1075, Rule::ExtglobCase),
             (1078, Rule::OpenDoubleQuote),
+            (1079, Rule::SuspectClosingQuote),
             (1080, Rule::LinebreakInTest),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),

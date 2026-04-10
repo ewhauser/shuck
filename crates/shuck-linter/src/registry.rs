@@ -261,6 +261,7 @@ declare_rules! {
         NeedlessBackslashUnderscore
     ),
     ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
+    ("S028", Category::Style, Severity::Warning, SuspectClosingQuote),
     (
         "S039",
         Category::Style,
@@ -352,6 +353,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-272" => Some(Rule::CaretNegationInBracket),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
+        "SH-114" => Some(Rule::SuspectClosingQuote),
         "SH-115" => Some(Rule::LinebreakInTest),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
@@ -531,6 +533,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-112"), Some(Rule::ElseIf));
         assert_eq!(code_to_rule("C039"), Some(Rule::OpenDoubleQuote));
         assert_eq!(code_to_rule("SH-113"), Some(Rule::OpenDoubleQuote));
+        assert_eq!(code_to_rule("S028"), Some(Rule::SuspectClosingQuote));
+        assert_eq!(code_to_rule("SH-114"), Some(Rule::SuspectClosingQuote));
         assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("SH-115"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("C041"), Some(Rule::CStyleComment));

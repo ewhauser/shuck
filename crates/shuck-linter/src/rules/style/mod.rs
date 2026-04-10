@@ -12,6 +12,7 @@ pub mod needless_backslash_underscore;
 pub mod printf_format_variable;
 pub mod read_without_raw;
 pub mod single_quote_backslash;
+pub mod suspect_closing_quote;
 pub mod syntax;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
@@ -43,6 +44,7 @@ mod tests {
     #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
     #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
+    #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

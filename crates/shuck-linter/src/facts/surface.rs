@@ -5,6 +5,7 @@ use shuck_ast::PatternGroupKind;
 pub(super) struct SurfaceFragmentFacts {
     pub(super) single_quoted: Vec<SingleQuotedFragmentFact>,
     pub(super) open_double_quotes: Vec<OpenDoubleQuoteFragmentFact>,
+    pub(super) suspect_closing_quotes: Vec<SuspectClosingQuoteFragmentFact>,
     pub(super) backticks: Vec<BacktickFragmentFact>,
     pub(super) legacy_arithmetic: Vec<LegacyArithmeticFragmentFact>,
     pub(super) positional_parameters: Vec<PositionalParameterFragmentFact>,
@@ -450,6 +451,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
             self.facts
                 .open_double_quotes
                 .push(OpenDoubleQuoteFragmentFact { span });
+            if let Some(span) = closing_double_quote_span(part.span, self.source) {
+                self.facts
+                    .suspect_closing_quotes
+                    .push(SuspectClosingQuoteFragmentFact { span });
+            }
         }
     }
 
@@ -1506,6 +1512,13 @@ fn is_shell_name(text: &str) -> bool {
 fn opening_double_quote_span(span: Span, source: &str) -> Option<Span> {
     let text = span.slice(source);
     let quote_offset = text.find('"')?;
+    let start = span.start.advanced_by(&text[..quote_offset]);
+    Some(Span::from_positions(start, start))
+}
+
+fn closing_double_quote_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let quote_offset = text.rfind('"')?;
     let start = span.start.advanced_by(&text[..quote_offset]);
     Some(Span::from_positions(start, start))
 }
