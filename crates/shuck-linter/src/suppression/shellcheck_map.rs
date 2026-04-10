@@ -109,6 +109,7 @@ impl Default for ShellCheckCodeMap {
             (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
+            (1097, Rule::IfsEqualsAmbiguity),
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
@@ -294,6 +295,7 @@ impl Default for ShellCheckCodeMap {
                 (1083, Rule::LiteralBraces),
                 (1090, Rule::DynamicSourcePath),
                 (1091, Rule::UntrackedSourceFile),
+                (1097, Rule::IfsEqualsAmbiguity),
                 (1101, Rule::BackslashBeforeClosingBacktick),
                 (1102, Rule::PositionalParamAsOperator),
                 (1110, Rule::UnicodeQuoteInString),
@@ -458,6 +460,7 @@ impl Default for ShellCheckCodeMap {
                 (2388, Rule::BadVarName),
                 (2384, Rule::LocalCrossReference),
                 (2377, Rule::AppendWithEscapedQuotes),
+                (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
             ],
             comparison,
@@ -527,6 +530,7 @@ mod tests {
         assert_eq!(map.resolve("SC1080"), Some(Rule::LinebreakInTest));
         assert_eq!(map.resolve("SC1090"), Some(Rule::DynamicSourcePath));
         assert_eq!(map.resolve("SC1091"), Some(Rule::UntrackedSourceFile));
+        assert_eq!(map.resolve("SC1097"), Some(Rule::IfsEqualsAmbiguity));
         assert_eq!(
             map.resolve("SC1101"),
             Some(Rule::BackslashBeforeClosingBacktick)
@@ -711,6 +715,7 @@ mod tests {
         assert_eq!(map.resolve("SC2392"), Some(Rule::LinebreakBeforeAnd));
         assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(map.resolve("SC2280"), Some(Rule::IfsEqualsAmbiguity));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
         assert_eq!(
@@ -759,6 +764,7 @@ mod tests {
             (1083, Rule::LiteralBraces),
             (1090, Rule::DynamicSourcePath),
             (1091, Rule::UntrackedSourceFile),
+            (1097, Rule::IfsEqualsAmbiguity),
             (1101, Rule::BackslashBeforeClosingBacktick),
             (1102, Rule::PositionalParamAsOperator),
             (1110, Rule::UnicodeQuoteInString),
@@ -845,6 +851,7 @@ mod tests {
             (2275, Rule::MultiVarForLoop),
             (2278, Rule::ZshPromptBracket),
             (2279, Rule::CshSyntaxInSh),
+            (2280, Rule::IfsEqualsAmbiguity),
             (2282, Rule::BadVarName),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
@@ -1005,6 +1012,7 @@ mod tests {
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
+        assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
         assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
         assert!(comparison.contains(&(2318, Rule::LocalCrossReference)));
         assert!(comparison.contains(&(2290, Rule::SpacedAssignment)));
@@ -1014,6 +1022,7 @@ mod tests {
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2387, Rule::SpacedAssignment)));
+        assert!(!comparison.contains(&(2280, Rule::IfsEqualsAmbiguity)));
         assert!(!comparison.contains(&(2388, Rule::BadVarName)));
         assert!(!comparison.contains(&(2384, Rule::LocalCrossReference)));
         assert!(!comparison.contains(&(2377, Rule::AppendWithEscapedQuotes)));

@@ -9,6 +9,7 @@ pub mod echoed_command_substitution;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
+pub mod ifs_equals_ambiguity;
 pub mod legacy_arithmetic_expansion;
 pub mod legacy_backticks;
 pub mod linebreak_before_and;
@@ -58,6 +59,7 @@ mod tests {
     #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
     #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
+    #[test_case(Rule::IfsEqualsAmbiguity, Path::new("S042.sh"))]
     #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
     #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]
     #[test_case(Rule::TrailingDirective, Path::new("S031.sh"))]

@@ -513,6 +513,9 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::IfsEqualsAmbiguity) {
+            rules::style::ifs_equals_ambiguity::ifs_equals_ambiguity(self);
+        }
         if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
             rules::correctness::single_quoted_literal::single_quoted_literal(self);
         }

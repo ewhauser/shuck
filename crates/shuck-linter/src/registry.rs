@@ -320,6 +320,7 @@ declare_rules! {
         LiteralBackslashInSingleQuotes
     ),
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
+    ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
 }
@@ -372,6 +373,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
         "SH-173" => Some(Rule::BackslashBeforeCommand),
+        "SH-185" => Some(Rule::IfsEqualsAmbiguity),
         "SH-088" => Some(Rule::LiteralBackslash),
         "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
         "SH-258" => Some(Rule::AssignmentToNumericVariable),
