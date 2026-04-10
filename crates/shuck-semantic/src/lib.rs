@@ -2153,7 +2153,10 @@ printf '%s\\n' \"$value\"
 ";
         let model = model_with_dialect(source, ShellDialect::Posix);
         let unused = reportable_unused_names(&model);
-        let count = unused.iter().filter(|name| name.as_str() == "value").count();
+        let count = unused
+            .iter()
+            .filter(|name| name.as_str() == "value")
+            .count();
 
         assert_eq!(count, 1, "unused bindings: {:?}", unused);
     }
@@ -2168,6 +2171,25 @@ esac
 printf '%s\\n' ok
 ";
         let model = model_with_dialect(source, ShellDialect::Posix);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn catch_all_continue_case_arm_keeps_following_code_reachable() {
+        let source = "\
+case \"$kind\" in
+  *)
+    :
+    ;;&
+esac
+printf '%s\\n' ok
+";
+        let model = model(source);
 
         assert!(
             model.analysis().dead_code().is_empty(),
