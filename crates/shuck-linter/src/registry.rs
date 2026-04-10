@@ -324,6 +324,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-277" => Some(Rule::BasePrefixInArithmetic),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
+        "SH-157" => Some(Rule::ArrayIndexArithmetic),
         "SH-161" => Some(Rule::ArithmeticScoreLine),
         "SH-197" => Some(Rule::DollarInArithmetic),
         "SH-202" => Some(Rule::DollarInArithmeticContext),

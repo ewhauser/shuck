@@ -1,4 +1,3 @@
-use crate::facts::WordFactHostKind;
 use crate::{Checker, Rule, Violation};
 
 pub struct DollarInArithmetic;
@@ -14,14 +13,7 @@ impl Violation for DollarInArithmetic {
 }
 
 pub fn dollar_in_arithmetic(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .word_facts()
-        .iter()
-        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
-        .filter(|fact| fact.is_arithmetic_variable_reference())
-        .map(|fact| fact.span())
-        .collect::<Vec<_>>();
+    let spans = checker.facts().dollar_in_arithmetic_spans().to_vec();
 
     checker.report_all_dedup(spans, || DollarInArithmetic);
 }

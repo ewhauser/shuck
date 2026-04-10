@@ -3,4 +3,98 @@ reviewed_divergences:
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     reason: "This helper script uses arithmetic updates in generated option-parsing and version-formatting code, and the current ShellCheck oracle does not emit SC2004 for those sites even though Shuck keeps the warning for the same `$((...))` pattern elsewhere."
   - side: shellcheck-only
-    reason: "The current ShellCheck build reports SC2004 for command-context `((...))` arithmetic, but S045 is intentionally limited to `$((...))` arithmetic expansion so the `((...))` form remains reserved for S048."
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
+    line: 91
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-rehash"
+    line: 124
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-versions"
+    line: 90
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-versions"
+    line: 102
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-versions"
+    line: 143
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__pyenv.d__install__latest.bash"
+    line: 22
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__contrib__ps1_functions"
+    line: 34
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__contrib__ps1_functions"
+    line: 95
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config"
+    line: 96
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config"
+    line: 136
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
+    line: 101
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
+    line: 175
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements_helpers"
+    line: 186
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    line: 64
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__hash"
+    line: 24
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 189
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__repair"
+    line: 152
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 128
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 157
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 162
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "sstephenson__bats__libexec__bats-exec-suite"
+    line: 39
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "sstephenson__bats__libexec__bats-exec-suite"
+    line: 43
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "sstephenson__bats__libexec__bats-format-tap-stream"
+    line: 85
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_install_service_scripts.sh"
+    line: 12
+    reason: "The current ShellCheck oracle folds this command-style `((...))` arithmetic warning into SC2004, while Shuck keeps command arithmetic under S048 instead of S045."

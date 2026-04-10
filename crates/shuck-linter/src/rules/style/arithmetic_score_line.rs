@@ -1,5 +1,4 @@
-use crate::facts::WordFactHostKind;
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::{Checker, Rule, Violation};
 
 pub struct ArithmeticScoreLine;
 
@@ -14,20 +13,7 @@ impl Violation for ArithmeticScoreLine {
 }
 
 pub fn arithmetic_score_line(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .word_facts()
-        .iter()
-        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
-        .filter(|fact| {
-            matches!(
-                fact.context(),
-                WordFactContext::Expansion(ExpansionContext::AssignmentValue)
-                    | WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue)
-            )
-        })
-        .flat_map(|fact| fact.parenthesized_arithmetic_expansion_spans().iter().copied())
-        .collect::<Vec<_>>();
+    let spans = checker.facts().arithmetic_score_line_spans().to_vec();
 
     checker.report_all_dedup(spans, || ArithmeticScoreLine);
 }
@@ -40,7 +26,8 @@ mod tests {
     #[test]
     fn reports_redundant_parentheses_in_assignment_arithmetic() {
         let source = "#!/bin/bash\nscore=$(( (1 + 2) ))\n";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ArithmeticScoreLine));
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ArithmeticScoreLine));
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "(1 + 2)");
@@ -49,7 +36,8 @@ mod tests {
     #[test]
     fn ignores_arithmetic_expansion_without_wrapping_parentheses() {
         let source = "#!/bin/bash\nscore=$((1 + 2))\n";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ArithmeticScoreLine));
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ArithmeticScoreLine));
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }

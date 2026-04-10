@@ -1,11 +1,53 @@
 reviewed_divergences:
   - side: shuck-only
-    reason: >-
-      S048 intentionally covers dollar-prefixed variables in `((...))`
-      command-style arithmetic as its own rule, so these diagnostics are
-      expected when Shuck keeps that context separate from `$((...))`.
-  - side: shellcheck-only
-    reason: >-
-      The current ShellCheck build reports `$((...))` expansion-form
-      arithmetic under SC2004 as part of the same code family, but those
-      expansion cases belong to S045 rather than S048.
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    line: 136
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
+    line: 91
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
+    line: 1136
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
+    line: 3497
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__contrib__ps1_functions"
+    line: 34
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__contrib__ps1_functions"
+    line: 95
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config"
+    line: 96
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config"
+    line: 136
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
+    line: 101
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
+    line: 175
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements_helpers"
+    line: 186
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    line: 64
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 162
+    reason: "Shuck keeps this `((...))` command-style arithmetic warning under S048, but the current ShellCheck oracle in the corpus run does not surface SC2297 for this site."
