@@ -427,6 +427,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-046" => Some(Rule::LineOrientedInput),
         "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
+        "C113" => Some(Rule::FindOutputLoop),
         "SH-050" => Some(Rule::ExportCommandSubstitution),
         "SH-135" => Some(Rule::EchoHereDoc),
         "SH-052" => Some(Rule::LocalTopLevel),
@@ -492,6 +493,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
+        "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
         "SH-318" => Some(Rule::HeredocMissingEnd),
@@ -625,6 +627,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
+        assert_eq!(code_to_rule("C113"), Some(Rule::FindOutputLoop));
         assert_eq!(
             code_to_rule("SH-050"),
             Some(Rule::ExportCommandSubstitution)
@@ -741,6 +744,7 @@ mod tests {
             code_to_rule("SH-244"),
             Some(Rule::MapfileProcessSubstitution)
         );
+        assert_eq!(code_to_rule("SH-253"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
