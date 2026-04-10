@@ -572,6 +572,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SpacedAssignment) {
             rules::correctness::spaced_assignment::spaced_assignment(self);
         }
+        if self.is_rule_enabled(Rule::BadVarName) {
+            rules::correctness::bad_var_name::bad_var_name(self);
+        }
         if self.is_rule_enabled(Rule::CommentedContinuationLine) {
             rules::correctness::commented_continuation_line::commented_continuation_line(self);
         }

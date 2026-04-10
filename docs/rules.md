@@ -255,7 +255,7 @@ Rules about assignment syntax, variable naming, and value issues.
 - [x] **M** C130 (SC2377) `append-with-escaped-quotes` — `+=` with escaped quotes
 - [x] **M** C136 (SC2384) `local-cross-reference` — local assigns from same-line variable
 - [x] **L** C139 (SC2387) `spaced-assignment` — assignment-like word with stray spaces
-- [ ] **L** C140 (SC2388) `bad-var-name` — variable name starts with invalid character
+- [x] **L** C140 (SC2388) `bad-var-name` — variable name starts with invalid character
 - [ ] **L** S042 (SC2280) `ifs-equals-ambiguity` — `IFS==` looks like comparison
 
 ### Command-Specific Checks

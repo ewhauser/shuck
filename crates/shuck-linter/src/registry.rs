@@ -188,6 +188,7 @@ declare_rules! {
         LocalCrossReference
     ),
     ("C139", Category::Correctness, Severity::Warning, SpacedAssignment),
+    ("C140", Category::Correctness, Severity::Warning, BadVarName),
     (
         "C137",
         Category::Correctness,
@@ -493,6 +494,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-314" => Some(Rule::LocalCrossReference),
         "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
         "SH-319" => Some(Rule::SpacedAssignment),
+        "SH-320" => Some(Rule::BadVarName),
         "SH-321" => Some(Rule::LoopWithoutEnd),
         "SH-322" => Some(Rule::MissingDoneInForLoop),
         "SH-327" => Some(Rule::DanglingElse),

@@ -1,9 +1,10 @@
-pub mod arithmetic_redirection_target;
 pub mod append_with_escaped_quotes;
+pub mod arithmetic_redirection_target;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
 pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
+pub mod bad_var_name;
 pub mod bare_closing_brace;
 pub mod bare_slash_marker;
 mod broken_test_common;
@@ -52,8 +53,8 @@ pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
-pub mod spaced_assignment;
 pub mod single_quoted_literal;
+pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
 pub mod subshell_in_arithmetic;
 pub mod subst_with_redirect;
@@ -146,6 +147,7 @@ mod tests {
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
+    #[test_case(Rule::BadVarName, Path::new("C140.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]

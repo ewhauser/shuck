@@ -57,7 +57,7 @@ impl ShellCheckCodeMap {
             return vec![Rule::BackslashBeforeClosingBacktick];
         }
         if number == 2282 {
-            return vec![Rule::PositionalParamAsOperator];
+            return vec![Rule::BadVarName, Rule::PositionalParamAsOperator];
         }
         if number == 2283 {
             return vec![Rule::DoubleParenGrouping];
@@ -236,6 +236,9 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2387 as a suppression alias, but prefer the current code for comparisons.
             (2290, Rule::SpacedAssignment),
             (2276, Rule::PlusPrefixInAssignment),
+            // ShellCheck 0.11.0 reports digit-prefixed assignment names as SC2282.
+            // Keep SC2388 as a suppression alias, but prefer the current code for comparisons.
+            (2282, Rule::BadVarName),
             (2238, Rule::RedirectToCommandName),
             (2259, Rule::SubshellTestGroup),
             (2266, Rule::OverwrittenFunction),
@@ -312,6 +315,7 @@ impl Default for ShellCheckCodeMap {
                 (2275, Rule::MultiVarForLoop),
                 (2278, Rule::ZshPromptBracket),
                 (2279, Rule::CshSyntaxInSh),
+                (2282, Rule::BadVarName),
                 (2355, Rule::ZshAssignmentToZero),
                 (2359, Rule::ZshParameterFlag),
                 (2371, Rule::ZshArraySubscriptInCase),
@@ -451,6 +455,7 @@ impl Default for ShellCheckCodeMap {
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
                 (2387, Rule::SpacedAssignment),
+                (2388, Rule::BadVarName),
                 (2384, Rule::LocalCrossReference),
                 (2377, Rule::AppendWithEscapedQuotes),
                 (2270, Rule::IfMissingThen),
@@ -689,7 +694,11 @@ mod tests {
             map.resolve("SC2281"),
             Some(Rule::BackslashBeforeClosingBacktick)
         );
-        assert_eq!(map.resolve("SC2282"), Some(Rule::PositionalParamAsOperator));
+        assert_eq!(map.resolve("SC2282"), Some(Rule::BadVarName));
+        assert_eq!(
+            map.resolve_all("SC2282"),
+            vec![Rule::BadVarName, Rule::PositionalParamAsOperator]
+        );
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
@@ -710,6 +719,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2354"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(map.resolve("SC2387"), Some(Rule::SpacedAssignment));
+        assert_eq!(map.resolve("SC2388"), Some(Rule::BadVarName));
         assert_eq!(map.resolve("SC2384"), Some(Rule::LocalCrossReference));
         assert_eq!(map.resolve("SC2377"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(
@@ -835,6 +845,7 @@ mod tests {
             (2275, Rule::MultiVarForLoop),
             (2278, Rule::ZshPromptBracket),
             (2279, Rule::CshSyntaxInSh),
+            (2282, Rule::BadVarName),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
@@ -860,6 +871,7 @@ mod tests {
             (2371, Rule::ZshArraySubscriptInCase),
             (2375, Rule::ZshParameterIndexFlag),
             (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+            (2388, Rule::BadVarName),
             (3001, Rule::ProcessSubstitution),
             (3002, Rule::ExtglobInSh),
             (3003, Rule::AnsiCQuoting),
@@ -996,11 +1008,13 @@ mod tests {
         assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
         assert!(comparison.contains(&(2318, Rule::LocalCrossReference)));
         assert!(comparison.contains(&(2290, Rule::SpacedAssignment)));
+        assert!(comparison.contains(&(2282, Rule::BadVarName)));
         assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
         assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2387, Rule::SpacedAssignment)));
+        assert!(!comparison.contains(&(2388, Rule::BadVarName)));
         assert!(!comparison.contains(&(2384, Rule::LocalCrossReference)));
         assert!(!comparison.contains(&(2377, Rule::AppendWithEscapedQuotes)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
