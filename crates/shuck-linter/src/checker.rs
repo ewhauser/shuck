@@ -487,6 +487,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LegacyArithmeticInSh) {
             rules::portability::legacy_arithmetic_in_sh::legacy_arithmetic_in_sh(self);
         }
+        if self.is_rule_enabled(Rule::SubshellInArithmetic) {
+            rules::correctness::subshell_in_arithmetic::subshell_in_arithmetic(self);
+        }
         if self.is_rule_enabled(Rule::SingleQuoteBackslash) {
             rules::style::single_quote_backslash::single_quote_backslash(self);
         }

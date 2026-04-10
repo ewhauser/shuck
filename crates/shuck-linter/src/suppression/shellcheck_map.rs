@@ -205,14 +205,15 @@ impl Default for ShellCheckCodeMap {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
+            (2290, Rule::SubshellInArithmetic),
             (2294, Rule::EvalOnArray),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
             (2392, Rule::LinebreakBeforeAnd),
-            (2397, Rule::AmpersandSemicolon),
             (2396, Rule::UntilMissingDo),
+            (2397, Rule::AmpersandSemicolon),
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
@@ -375,14 +376,15 @@ impl Default for ShellCheckCodeMap {
                 (2288, Rule::TemplateBraceInCommand),
                 (2289, Rule::CommentedContinuationLine),
                 (1133, Rule::LinebreakBeforeAnd),
+                (2290, Rule::SubshellInArithmetic),
                 (2294, Rule::EvalOnArray),
                 (2333, Rule::NonShellSyntaxInScript),
                 (2389, Rule::LoopWithoutEnd),
                 (2390, Rule::MissingDoneInForLoop),
                 (2391, Rule::DanglingElse),
                 (2392, Rule::LinebreakBeforeAnd),
-                (2397, Rule::AmpersandSemicolon),
                 (2396, Rule::UntilMissingDo),
+                (2397, Rule::AmpersandSemicolon),
                 (2241, Rule::InvalidExitStatus),
                 (2242, Rule::CasePatternVar),
                 (2248, Rule::BareSlashMarker),
@@ -490,6 +492,7 @@ mod tests {
         assert_eq!(map.resolve("SC1110"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC1113"), Some(Rule::TrailingDirective));
         assert_eq!(map.resolve("SC1126"), Some(Rule::TrailingDirective));
+        assert_eq!(map.resolve("SC2290"), Some(Rule::SubshellInArithmetic));
         assert_eq!(
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)

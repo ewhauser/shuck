@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "C077 intentionally flags command substitutions nested inside arithmetic expansion, including direct `$(...)` uses and arithmetic expressions that evaluate command output first. The current ShellCheck oracle in this workspace does not emit SC2290 for that construct, so the corpus comparisons for this rule are a reviewed policy divergence rather than a shuck implementation bug."

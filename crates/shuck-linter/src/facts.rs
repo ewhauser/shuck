@@ -1551,6 +1551,7 @@ pub struct LinterFacts<'a> {
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
+    arithmetic_command_substitution_spans: Vec<Span>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
     suspect_closing_quote_fragments: Vec<SuspectClosingQuoteFragmentFact>,
@@ -1763,6 +1764,9 @@ impl<'a> LinterFacts<'a> {
         &self.escape_scan_matches
     }
 
+    pub fn arithmetic_command_substitution_spans(&self) -> &[Span] {
+        &self.arithmetic_command_substitution_spans
+    }
     pub fn unicode_smart_quote_spans(&self) -> &[Span] {
         &self.unicode_smart_quote_spans
     }
@@ -1956,6 +1960,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_arithmetic_for_update_operator_spans(&commands, self.source);
         let base_prefix_arithmetic_spans =
             build_base_prefix_arithmetic_spans(&self.file.body, self.source);
+        let arithmetic_command_substitution_spans =
+            build_arithmetic_command_substitution_spans(&words);
         let subscript_index_reference_spans =
             build_subscript_index_reference_spans(self._semantic, &subscript_spans);
         pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
@@ -2012,6 +2018,7 @@ impl<'a> LinterFactsBuilder<'a> {
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
+            arithmetic_command_substitution_spans,
             single_quoted_fragments: single_quoted,
             open_double_quote_fragments: open_double_quotes,
             suspect_closing_quote_fragments: suspect_closing_quotes,
@@ -3171,6 +3178,46 @@ fn build_arithmetic_for_update_operator_spans(
     }
 
     spans
+}
+
+fn build_arithmetic_command_substitution_spans(words: &[WordFact<'_>]) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in words {
+        collect_arithmetic_command_substitution_spans_in_word(fact.word(), &mut spans);
+    }
+
+    spans
+}
+
+fn collect_arithmetic_command_substitution_spans_in_word(word: &Word, spans: &mut Vec<Span>) {
+    collect_arithmetic_command_substitution_spans_in_parts(&word.parts, spans);
+}
+
+fn collect_arithmetic_command_substitution_spans_in_parts(
+    parts: &[WordPartNode],
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_arithmetic_command_substitution_spans_in_parts(parts, spans);
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast: Some(expression),
+                ..
+            } => {
+                query::visit_arithmetic_words(expression, &mut |word| {
+                    spans.extend(span::command_substitution_part_spans(word));
+                });
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast: None,
+                ..
+            } => {}
+            _ => {}
+        }
+    }
 }
 
 fn collect_arithmetic_update_operator_spans(

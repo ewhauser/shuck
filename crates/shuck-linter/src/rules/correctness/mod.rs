@@ -48,6 +48,7 @@ pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod single_quoted_literal;
 pub mod status_capture_after_branch_test;
+pub mod subshell_in_arithmetic;
 pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
@@ -128,6 +129,7 @@ mod tests {
     #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
+    #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]

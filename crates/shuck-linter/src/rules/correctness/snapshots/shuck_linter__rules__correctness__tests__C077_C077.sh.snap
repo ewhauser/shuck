@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C077 avoid command substitutions inside arithmetic expansion
+ --> <source>:4:20
+  |
+4 | spaces=$(($start - $(echo "$tool" | wc -c)))
+  |
