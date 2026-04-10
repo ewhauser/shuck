@@ -11,6 +11,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) unicode_smart_quote_spans: Vec<Span>,
     pub(super) pattern_exactly_one_extglob_spans: Vec<Span>,
     pub(super) pattern_charclass_spans: Vec<Span>,
+    pub(super) nested_pattern_charclass_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
@@ -24,6 +25,7 @@ pub(super) struct SurfaceFragmentFacts {
 struct SurfaceScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
+    nested_word_command: bool,
     variable_set_operand: bool,
     collect_open_double_quotes: bool,
     collect_pattern_charclasses: bool,
@@ -164,8 +166,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
             .and_then(CommandFact::effective_or_literal_name)
             .map(str::to_owned)
             .map(String::into_boxed_str);
+        let nested_word_command = self
+            .command_fact_for_command(&stmt.command)
+            .is_some_and(CommandFact::is_nested_word_command);
         let context = SurfaceScanContext {
             command_name: command_name_storage.as_deref(),
+            nested_word_command,
             ..SurfaceScanContext::new()
         };
 
@@ -192,7 +198,13 @@ impl<'a> SurfaceFragmentCollector<'a> {
             }
         }
 
-        self.collect_redirects(&stmt.redirects, SurfaceScanContext::new());
+        self.collect_redirects(
+            &stmt.redirects,
+            SurfaceScanContext {
+                nested_word_command,
+                ..SurfaceScanContext::new()
+            },
+        );
     }
 
     fn collect_simple_command(&mut self, command: &SimpleCommand, context: SurfaceScanContext<'_>) {
@@ -709,7 +721,10 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 }
                 PatternPart::Word(word) => self.collect_word(word, context),
                 PatternPart::CharClass(_) if context.collect_pattern_charclasses => {
-                    self.facts.pattern_charclass_spans.push(span)
+                    self.facts.pattern_charclass_spans.push(span);
+                    if context.nested_word_command {
+                        self.facts.nested_pattern_charclass_spans.push(span);
+                    }
                 }
                 PatternPart::CharClass(_)
                 | PatternPart::Literal(_)

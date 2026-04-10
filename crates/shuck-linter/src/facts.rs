@@ -1433,6 +1433,7 @@ pub struct LinterFacts<'a> {
     pattern_exactly_one_extglob_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
+    nested_pattern_charclass_spans: FxHashSet<FactSpan>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
@@ -1619,6 +1620,11 @@ impl<'a> LinterFacts<'a> {
         &self.pattern_charclass_spans
     }
 
+    pub fn is_nested_pattern_charclass_span(&self, span: Span) -> bool {
+        self.nested_pattern_charclass_spans
+            .contains(&FactSpan::new(span))
+    }
+
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
         &self.nested_parameter_expansion_fragments
     }
@@ -1764,6 +1770,7 @@ impl<'a> LinterFactsBuilder<'a> {
             unicode_smart_quote_spans,
             pattern_exactly_one_extglob_spans,
             pattern_charclass_spans,
+            nested_pattern_charclass_spans,
             nested_parameter_expansions,
             indirect_expansions,
             indexed_array_references,
@@ -1777,6 +1784,10 @@ impl<'a> LinterFactsBuilder<'a> {
             build_arithmetic_for_update_operator_spans(&commands, self.source);
         let subscript_index_reference_spans =
             build_subscript_index_reference_spans(self._semantic, &subscript_spans);
+        let nested_pattern_charclass_spans = nested_pattern_charclass_spans
+            .into_iter()
+            .map(FactSpan::new)
+            .collect();
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -1814,6 +1825,7 @@ impl<'a> LinterFactsBuilder<'a> {
             pattern_exactly_one_extglob_spans,
             pattern_literal_spans,
             pattern_charclass_spans,
+            nested_pattern_charclass_spans,
             nested_parameter_expansion_fragments: nested_parameter_expansions,
             indirect_expansion_fragments: indirect_expansions,
             indexed_array_reference_fragments: indexed_array_references,
@@ -5206,14 +5218,38 @@ pkgopts=\"${XBPS_CURRENT_PKG//[^A-Za-z0-9_]/_}\"
 ";
 
         with_facts(source, None, |_, facts| {
+            let spans = facts.pattern_charclass_spans();
             assert_eq!(
-                facts
-                    .pattern_charclass_spans()
+                spans
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["[^A-Za-z0-9_]"]
             );
+            assert!(!facts.is_nested_pattern_charclass_span(spans[0]));
+        });
+    }
+
+    #[test]
+    fn tracks_nested_pattern_charclass_spans_for_parameter_patterns() {
+        let source = "\
+#!/bin/sh
+printf '%s\n' \"$(
+    sanitized=${name//[^a]/_}
+    printf '%s' \"$sanitized\"
+)\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts.pattern_charclass_spans();
+            assert_eq!(
+                spans
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["[^a]"]
+            );
+            assert!(facts.is_nested_pattern_charclass_span(spans[0]));
         });
     }
 

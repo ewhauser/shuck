@@ -309,6 +309,7 @@ pub fn caret_negation_in_bracket(checker: &mut Checker) {
         .facts()
         .pattern_charclass_spans()
         .iter()
+        .filter(|span| !checker.facts().is_nested_pattern_charclass_span(**span))
         .filter(|span| text_looks_like_caret_negated_bracket(span.slice(source)))
         .copied()
         .collect::<Vec<_>>();
@@ -318,7 +319,6 @@ pub fn caret_negation_in_bracket(checker: &mut Checker) {
             .word_facts()
             .iter()
             .filter(|fact| supports_bracket_glob_portability_context(fact.expansion_context()))
-            .filter(|fact| !fact.is_nested_word_command())
             .flat_map(|fact| word_caret_negated_bracket_spans(fact.word(), source)),
     );
 
@@ -799,6 +799,16 @@ mod tests {
     }
 
     #[test]
+    fn reports_at_extglob_spanning_mixed_word_parts_in_posix_shells() {
+        let source = "#!/bin/sh\necho @($choice|bar)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ExtglobInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "@($choice|bar)");
+    }
+
+    #[test]
     fn ignores_at_extglob_literals_in_assignment_values() {
         let source = "#!/bin/sh\nname=@(foo|bar)\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));
@@ -847,6 +857,19 @@ pkgopts=\"${XBPS_CURRENT_PKG//[^A-Za-z0-9_]/_}\"
     }
 
     #[test]
+    fn reports_caret_negation_spanning_mixed_word_parts_in_posix_shells() {
+        let source = "#!/bin/sh\necho [^$chars]*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::CaretNegationInBracket);
+        assert_eq!(diagnostics[0].span.slice(source), "[^$chars]");
+    }
+
+    #[test]
     fn reports_caret_negation_in_for_and_select_lists_in_posix_shells() {
         let source = "\
 #!/bin/sh
@@ -865,6 +888,36 @@ done
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "[^a]");
         assert_eq!(diagnostics[1].span.slice(source), "[^b]");
+    }
+
+    #[test]
+    fn reports_caret_negation_in_nested_command_substitutions_in_posix_shells() {
+        let source = "#!/bin/sh\necho \"$(printf '%s\\n' [^a]*)\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::CaretNegationInBracket);
+        assert_eq!(diagnostics[0].span.slice(source), "[^a]");
+    }
+
+    #[test]
+    fn ignores_caret_negation_in_nested_parameter_patterns_in_posix_shells() {
+        let source = "\
+#!/bin/sh
+printf '%s\n' \"$(
+    sanitized=${name//[^a]/_}
+    printf '%s' \"$sanitized\"
+)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaretNegationInBracket),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
