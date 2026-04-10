@@ -46,6 +46,8 @@ a=$(<input.txt)
 b=\"$( < spaced.txt )\"
 c=$(0< fd.txt)
 d=$(<quiet.txt 2>/dev/null)
+skip=$(1< not-stdin.txt)
+also_skip=$(<> readwrite.txt)
 portable=$(cat < input.txt)
 other=$(> out.txt)
 assigned=$(foo=bar)

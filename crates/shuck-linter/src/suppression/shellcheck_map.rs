@@ -219,7 +219,7 @@ impl Default for ShellCheckCodeMap {
             // The pinned ShellCheck oracle reports `+=` assignment portability findings as SC3024.
             // Keep SC3055/SC3071 as suppression aliases for compatibility with older rule metadata.
             (3024, Rule::PlusEqualsAppend),
-            (3024, Rule::PlusEqualsInSh),
+            (3071, Rule::PlusEqualsInSh),
             (3002, Rule::ExtglobInSh),
             // The pinned ShellCheck oracle reports `$(< file)` as SC3034.
             // Keep SC3024 as a legacy alias for suppression compatibility.
@@ -239,7 +239,7 @@ impl Default for ShellCheckCodeMap {
             (3053, Rule::IndirectExpansion),
             // The pinned ShellCheck oracle reports `${!arr[*]}` portability findings as SC3055.
             // Keep SC3078 as a suppression alias for compatibility with older rule metadata.
-            (3055, Rule::ArrayKeysInSh),
+            (3078, Rule::ArrayKeysInSh),
             (2219, Rule::AvoidLetBuiltin),
             // ShellCheck 0.11.0 reports array references as SC3054.
             // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
@@ -298,7 +298,7 @@ impl Default for ShellCheckCodeMap {
             (2127, Rule::BashCaseFallthrough),
             // The pinned ShellCheck oracle reports `${*%%pattern}` portability findings as SC3058.
             // Keep SC3085 as a suppression alias for compatibility with older rule metadata.
-            (3058, Rule::StarGlobRemovalInSh),
+            (3085, Rule::StarGlobRemovalInSh),
             (3075, Rule::ErrexitTrapInSh),
             (3076, Rule::SignalNameInTrap),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
@@ -1288,7 +1288,7 @@ mod tests {
             (3017, Rule::ATestInSh),
             (3018, Rule::CStyleForArithmeticInSh),
             (3024, Rule::PlusEqualsAppend),
-            (3024, Rule::PlusEqualsInSh),
+            (3071, Rule::PlusEqualsInSh),
             (3024, Rule::BashFileSlurp),
             (3034, Rule::BashFileSlurp),
             (3025, Rule::PrintfQFormatInSh),
@@ -1309,13 +1309,13 @@ mod tests {
             (3051, Rule::SourceInsideFunctionInSh),
             (3052, Rule::AmpersandRedirection),
             (3053, Rule::IndirectExpansion),
-            (3055, Rule::ArrayKeysInSh),
+            (3078, Rule::ArrayKeysInSh),
             (3054, Rule::ArrayReference),
             (3055, Rule::PlusEqualsAppend),
             (3071, Rule::PlusEqualsInSh),
             (3057, Rule::SubstringExpansion),
             (3058, Rule::BashCaseFallthrough),
-            (3058, Rule::StarGlobRemovalInSh),
+            (3085, Rule::StarGlobRemovalInSh),
             (3059, Rule::CaseModificationExpansion),
             (3060, Rule::ReplacementExpansion),
             (3061, Rule::ExtglobInSh),
@@ -1420,19 +1420,19 @@ mod tests {
         assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
         assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
-        assert!(comparison.contains(&(3058, Rule::StarGlobRemovalInSh)));
+        assert!(comparison.contains(&(3085, Rule::StarGlobRemovalInSh)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
         assert!(comparison.contains(&(3048, Rule::WaitOption)));
         assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3024, Rule::PlusEqualsAppend)));
-        assert!(comparison.contains(&(3024, Rule::PlusEqualsInSh)));
+        assert!(comparison.contains(&(3071, Rule::PlusEqualsInSh)));
         assert!(comparison.contains(&(3034, Rule::BashFileSlurp)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
         assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
-        assert!(comparison.contains(&(3055, Rule::ArrayKeysInSh)));
+        assert!(comparison.contains(&(3078, Rule::ArrayKeysInSh)));
         assert!(comparison.contains(&(3054, Rule::ArrayReference)));
         assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
         assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
@@ -1482,7 +1482,9 @@ mod tests {
         assert!(!comparison.contains(&(3062, Rule::DollarStringInSh)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3055, Rule::PlusEqualsAppend)));
-        assert!(!comparison.contains(&(3071, Rule::PlusEqualsInSh)));
+        assert!(!comparison.contains(&(3055, Rule::ArrayKeysInSh)));
+        assert!(!comparison.contains(&(3058, Rule::StarGlobRemovalInSh)));
+        assert!(!comparison.contains(&(3024, Rule::PlusEqualsInSh)));
         assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));

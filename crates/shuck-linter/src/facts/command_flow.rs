@@ -652,9 +652,11 @@ fn is_bash_file_slurp_command(command: &Command, redirects: &[Redirect], source:
         return false;
     }
 
-    redirects
-        .iter()
-        .any(|redirect| matches!(redirect.kind, RedirectKind::Input | RedirectKind::ReadWrite))
+    redirects.iter().any(|redirect| {
+        redirect.kind == RedirectKind::Input
+            && redirect.fd_var.is_none()
+            && redirect.fd.unwrap_or(0) == 0
+    })
 }
 
 fn visit_command_argument_words_for_substitutions(

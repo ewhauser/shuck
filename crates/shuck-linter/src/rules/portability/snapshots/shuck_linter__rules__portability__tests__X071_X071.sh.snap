@@ -2,13 +2,13 @@
 source: crates/shuck-linter/src/rules/portability/mod.rs
 ---
 X071 `${!arr[*]}` array key expansion is not portable in `sh`
-  --> <source>:4:16
-   |
+ --> <source>:4:16
+  |
 4 | printf '%s\n' "${!ARRAY[*]}"
-   |
+  |
 
 X071 `${!arr[*]}` array key expansion is not portable in `sh`
-  --> <source>:7:16
-   |
+ --> <source>:7:16
+  |
 7 | printf '%s\n' "${!ARRAY[@]}"
-   |
+  |

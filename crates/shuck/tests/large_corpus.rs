@@ -2194,6 +2194,16 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
 fn build_rule_to_shellcheck_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> HashMap<String, String> {
+    if let Some(selected_rules) = selected_rules {
+        return selected_rules
+            .iter()
+            .filter_map(|rule| {
+                selected_rule_shellcheck_code(rule)
+                    .map(|sc_code| (rule.code().to_owned(), format!("SC{sc_code}")))
+            })
+            .collect();
+    }
+
     large_corpus_comparison_mappings(selected_rules)
         .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
         .collect()
@@ -2202,6 +2212,15 @@ fn build_rule_to_shellcheck_index(
 fn build_shellcheck_to_rule_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> HashMap<u32, String> {
+    if let Some(selected_rules) = selected_rules {
+        return selected_rules
+            .iter()
+            .filter_map(|rule| {
+                selected_rule_shellcheck_code(rule).map(|sc_code| (sc_code, rule.code().to_owned()))
+            })
+            .collect();
+    }
+
     large_corpus_comparison_mappings(selected_rules)
         .map(|(sc_code, rule)| (sc_code, rule.code().to_owned()))
         .collect()
@@ -2219,8 +2238,9 @@ fn build_large_corpus_linter_settings(
         return shuck_linter::LinterSettings::for_rules(rules.iter());
     }
     if mapped_only {
-        let map = shuck_linter::ShellCheckCodeMap::default();
-        let mapped_rules: Vec<_> = map.mappings().map(|(_, rule)| rule).collect();
+        let mapped_rules: Vec<_> = large_corpus_comparison_mappings(None)
+            .map(|(_, rule)| rule)
+            .collect();
         return shuck_linter::LinterSettings::for_rules(mapped_rules);
     }
     shuck_linter::LinterSettings::default()
@@ -2246,16 +2266,18 @@ fn build_mapped_shellcheck_codes() -> HashSet<u32> {
 }
 
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
-    large_corpus_comparison_mappings(Some(selected_rules))
-        .filter_map(|(sc_code, rule)| selected_rules.contains(rule).then_some(sc_code))
+    selected_rules
+        .iter()
+        .filter_map(selected_rule_shellcheck_code)
         .collect()
 }
 
 fn validate_selected_rules_for_large_corpus(
     selected_rules: &shuck_linter::RuleSet,
 ) -> Result<(), String> {
-    let comparable_rules: HashSet<_> = large_corpus_comparison_mappings(Some(selected_rules))
-        .map(|(_, rule)| rule)
+    let comparable_rules: HashSet<_> = selected_rules
+        .iter()
+        .filter(|rule| selected_rule_shellcheck_code(*rule).is_some())
         .collect();
     let mut missing_rules: Vec<_> = selected_rules
         .iter()
@@ -2272,6 +2294,43 @@ fn validate_selected_rules_for_large_corpus(
             missing_rules.join(", ")
         ))
     }
+}
+
+fn selected_rule_shellcheck_code(rule: shuck_linter::Rule) -> Option<u32> {
+    let metadata = load_rule_corpus_metadata(rule.code());
+    let has_comparison_target_notes = !metadata.comparison_target_notes.is_empty();
+    let excluded_codes = metadata
+        .comparison_target_notes
+        .into_iter()
+        .filter_map(|note| {
+            note.current_shellcheck_code
+                .strip_prefix("SC")
+                .and_then(|code| code.parse().ok())
+        })
+        .collect::<HashSet<u32>>();
+
+    let comparison_candidates = shuck_linter::ShellCheckCodeMap::default()
+        .comparison_mappings()
+        .filter_map(|(sc_code, mapped_rule)| {
+            (mapped_rule == rule && !excluded_codes.contains(&sc_code)).then_some(sc_code)
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(sc_code) = comparison_candidates.last().copied() {
+        return Some(sc_code);
+    }
+
+    has_comparison_target_notes.then(|| {
+        let mut fallback_candidates = shuck_linter::ShellCheckCodeMap::default()
+            .mappings()
+            .filter_map(|(sc_code, mapped_rule)| {
+                (mapped_rule == rule && !excluded_codes.contains(&sc_code)).then_some(sc_code)
+            })
+            .collect::<Vec<_>>();
+        fallback_candidates.sort_unstable();
+        fallback_candidates.dedup();
+        fallback_candidates.into_iter().next()
+    })?
 }
 
 fn large_corpus_comparison_mappings(
@@ -3221,6 +3280,14 @@ mod tests {
     }
 
     #[test]
+    fn selected_rule_filter_uses_oracle_codes_for_portability_aliases() {
+        let rules = parse_large_corpus_rule_set("X064,X071,X081").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([3024, 3055, 3058]));
+    }
+
+    #[test]
     fn selected_rule_filter_builds_matching_linter_settings() {
         let rules = parse_large_corpus_rule_set("S001").unwrap();
         let settings = build_large_corpus_linter_settings(Some(rules), false);
@@ -3238,7 +3305,7 @@ mod tests {
     }
 
     #[test]
-    fn mapped_only_enables_all_mapped_rules_in_linter_settings() {
+    fn mapped_only_enables_all_comparison_mapped_rules_in_linter_settings() {
         let settings = build_large_corpus_linter_settings(None, true);
         // Style rules like S003 (LoopFromCommandOutput) should be included
         assert!(
@@ -3246,12 +3313,12 @@ mod tests {
                 .rules
                 .contains(shuck_linter::Rule::LoopFromCommandOutput)
         );
-        // All mapped rules should be present
+        // All comparison-mapped rules should be present.
         let map = shuck_linter::ShellCheckCodeMap::default();
-        for (_, rule) in map.mappings() {
+        for (_, rule) in map.comparison_mappings() {
             assert!(
                 settings.rules.contains(rule),
-                "mapped rule {:?} missing from mapped_only linter settings",
+                "comparison-mapped rule {:?} missing from mapped_only linter settings",
                 rule
             );
         }
