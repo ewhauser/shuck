@@ -298,6 +298,7 @@ declare_rules! {
     ("X023", Category::Portability, Severity::Warning, SubstringExpansion),
     ("X024", Category::Portability, Severity::Warning, CaseModificationExpansion),
     ("X025", Category::Portability, Severity::Warning, ReplacementExpansion),
+    ("X026", Category::Portability, Severity::Warning, BashFileSlurp),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
@@ -433,6 +434,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-031" => Some(Rule::SubstringExpansion),
         "SH-032" => Some(Rule::CaseModificationExpansion),
         "SH-033" => Some(Rule::ReplacementExpansion),
+        "SH-053" => Some(Rule::BashFileSlurp),
         "SH-013" => Some(Rule::StandaloneArithmetic),
         "SH-014" => Some(Rule::SelectLoop),
         "SH-019" => Some(Rule::Coproc),
@@ -967,5 +969,7 @@ mod tests {
         );
         assert_eq!(code_to_rule("X025"), Some(Rule::ReplacementExpansion));
         assert_eq!(code_to_rule("SH-033"), Some(Rule::ReplacementExpansion));
+        assert_eq!(code_to_rule("X026"), Some(Rule::BashFileSlurp));
+        assert_eq!(code_to_rule("SH-053"), Some(Rule::BashFileSlurp));
     }
 }

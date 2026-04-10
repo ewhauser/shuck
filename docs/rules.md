@@ -115,7 +115,7 @@ related syntax in POSIX sh. Mostly surface-level AST node type checks.
 - [x] [x] **L** X023 (SC3057) `substring-expansion` — `${var:offset:len}` in sh
 - [x] [x] **L** X024 (SC3059) `uppercase-expansion` — case-modification expansion in sh
 - [x] [x] **L** X025 (SC3060) `replacement-expansion` — replacement expansion in sh
-- [ ] **L** X026 (SC3024) `bash-file-slurp` — `$(< file)` in sh
+- [x] **L** X026 (SC3024) `bash-file-slurp` — `$(< file)` in sh
 - [ ] **L** X045 (SC3055) `plus-equals-append` — `+=` assignment in sh
 - [ ] **L** X055 (SC3062) `dollar-string-in-sh` — `$"string"` in sh
 - [ ] **L** X064 (SC3071) `plus-equals-in-sh` — `+=` append operator in sh

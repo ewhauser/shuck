@@ -738,6 +738,7 @@ pub struct SubstitutionFact {
     body_contains_ls: bool,
     body_contains_echo: bool,
     body_contains_grep: bool,
+    bash_file_slurp: bool,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
     unquoted_in_host: bool,
@@ -772,6 +773,9 @@ impl SubstitutionFact {
         self.body_contains_grep
     }
 
+    pub fn is_bash_file_slurp(&self) -> bool {
+        self.bash_file_slurp
+    }
     pub fn host_word_span(&self) -> Span {
         self.host_word_span
     }
@@ -9061,6 +9065,39 @@ legacy=`nvm ls | grep '^ *\\.'`
                 Some(&false)
             );
             assert_eq!(substitutions.get("`nvm ls | grep '^ *\\.'`"), Some(&true));
+        });
+    }
+
+    #[test]
+    fn marks_redirect_only_input_command_substitutions_as_bash_file_slurps() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>/dev/null) $(cat < portable.txt) $(> out.txt) $(foo=bar)
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.is_bash_file_slurp(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert!(substitutions.contains(&("$(<input.txt)".to_owned(), true)));
+            assert!(
+                substitutions
+                    .contains(&("\"$( < spaced.txt )\"".trim_matches('"').to_owned(), true))
+            );
+            assert!(substitutions.contains(&("$(0< fd.txt)".to_owned(), true)));
+            assert!(substitutions.contains(&("$(< quiet.txt 2>/dev/null)".to_owned(), true)));
+            assert!(substitutions.contains(&("$(cat < portable.txt)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(> out.txt)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(foo=bar)".to_owned(), false)));
         });
     }
 

@@ -5,6 +5,7 @@ pub mod array_assignment;
 pub mod array_reference;
 pub mod base_prefix_in_arithmetic;
 pub mod bash_case_fallthrough;
+pub mod bash_file_slurp;
 pub mod brace_expansion;
 pub mod brace_fd_redirection;
 pub mod c_style_for_arithmetic_in_sh;
@@ -96,6 +97,7 @@ mod tests {
     #[test_case(Rule::SubstringExpansion, Path::new("X023.sh"))]
     #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]
+    #[test_case(Rule::BashFileSlurp, Path::new("X026.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::PrintfQFormatInSh, Path::new("X032.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]

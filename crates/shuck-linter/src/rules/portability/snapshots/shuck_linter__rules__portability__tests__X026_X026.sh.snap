@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X026 `$(< file)` is not portable in `sh` scripts
+ --> <source>:4:7
+  |
+4 | first=$(< input.txt)
+  |
+
+X026 `$(< file)` is not portable in `sh` scripts
+ --> <source>:5:9
+  |
+5 | second="$( < spaced.txt )"
+  |
+
+X026 `$(< file)` is not portable in `sh` scripts
+ --> <source>:6:7
+  |
+6 | third=$(0< fd.txt)
+  |
+
+X026 `$(< file)` is not portable in `sh` scripts
+ --> <source>:7:8
+  |
+7 | fourth=$(< quiet.txt 2>/dev/null)
+  |

@@ -217,6 +217,9 @@ impl Default for ShellCheckCodeMap {
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
             (3002, Rule::ExtglobInSh),
+            // The pinned ShellCheck oracle reports `$(< file)` as SC3034.
+            // Keep SC3024 as a legacy alias for suppression compatibility.
+            (3034, Rule::BashFileSlurp),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3077, Rule::BasePrefixInArithmetic),
@@ -446,6 +449,7 @@ impl Default for ShellCheckCodeMap {
                 (2021, Rule::UnquotedTrRange),
                 (2186, Rule::DeprecatedTempfileCommand),
                 (2258, Rule::BareRead),
+                (3034, Rule::BashFileSlurp),
                 (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
                 (3050, Rule::BraceFdRedirection),
@@ -585,6 +589,8 @@ impl Default for ShellCheckCodeMap {
                 (1040, Rule::HeredocEndSpace),
                 (1075, Rule::ExtglobCase),
                 (2321, Rule::FunctionKeywordInSh),
+                (3024, Rule::BashFileSlurp),
+                (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
@@ -831,6 +837,8 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
         assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));
+        assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
+        assert_eq!(map.resolve("SC3024"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC3001"), Some(Rule::ProcessSubstitution));
         assert_eq!(map.resolve("SC3003"), Some(Rule::AnsiCQuoting));
         assert_eq!(map.resolve("SC3009"), Some(Rule::BraceExpansion));
@@ -1228,6 +1236,8 @@ mod tests {
             (3016, Rule::VTestInSh),
             (3017, Rule::ATestInSh),
             (3018, Rule::CStyleForArithmeticInSh),
+            (3024, Rule::BashFileSlurp),
+            (3034, Rule::BashFileSlurp),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3028, Rule::ArrayReference),
@@ -1354,6 +1364,7 @@ mod tests {
         assert!(comparison.contains(&(3048, Rule::WaitOption)));
         assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
+        assert!(comparison.contains(&(3034, Rule::BashFileSlurp)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
         assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
@@ -1404,6 +1415,7 @@ mod tests {
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
         assert!(!comparison.contains(&(3061, Rule::BareRead)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
+        assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));

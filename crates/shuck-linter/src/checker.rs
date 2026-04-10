@@ -539,6 +539,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ProcessSubstitution) {
             rules::portability::process_substitution::process_substitution(self);
         }
+        if self.is_rule_enabled(Rule::BashFileSlurp) {
+            rules::portability::bash_file_slurp::bash_file_slurp(self);
+        }
         if self.is_rule_enabled(Rule::HereString) {
             rules::portability::here_string::here_string(self);
         }
