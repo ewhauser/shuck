@@ -473,15 +473,15 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
-        let checkpoint = self.clone();
+        let checkpoint = self.checkpoint();
         let mut redirects = self.parse_trailing_redirects();
         if redirects.is_empty() || !self.current_starts_prefix_redirect_compound() {
-            *self = checkpoint;
+            self.restore(checkpoint);
             return Ok(None);
         }
 
         let Some(mut command) = self.parse_command()? else {
-            *self = checkpoint;
+            self.restore(checkpoint);
             return Ok(None);
         };
 
@@ -492,7 +492,7 @@ impl<'a> Parser<'a> {
                 Ok(Some(command))
             }
             _ => {
-                *self = checkpoint;
+                self.restore(checkpoint);
                 Ok(None)
             }
         }
@@ -625,70 +625,80 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn looks_like_command_style_double_paren(&self) -> bool {
-        let mut probe = self.clone();
-        if probe.current_token_kind != Some(TokenKind::DoubleLeftParen) {
+    fn looks_like_command_style_double_paren(&mut self) -> bool {
+        if self.current_token_kind != Some(TokenKind::DoubleLeftParen) {
             return false;
         }
 
-        probe.advance();
+        let checkpoint = self.checkpoint();
+        self.advance();
         let mut paren_depth = 0_i32;
         let mut previous_top_level_operand = false;
 
         loop {
-            match probe.current_token_kind {
+            match self.current_token_kind {
                 Some(TokenKind::DoubleLeftParen) => {
                     paren_depth += 2;
                     previous_top_level_operand = false;
-                    probe.advance();
+                    self.advance();
                 }
                 Some(TokenKind::LeftParen) => {
                     paren_depth += 1;
                     previous_top_level_operand = false;
-                    probe.advance();
+                    self.advance();
                 }
                 Some(TokenKind::DoubleRightParen) => {
                     if paren_depth == 0 {
+                        self.restore(checkpoint);
                         return false;
                     }
                     if paren_depth == 1 {
+                        self.restore(checkpoint);
                         return false;
                     }
                     paren_depth -= 2;
                     previous_top_level_operand = false;
-                    probe.advance();
+                    self.advance();
                 }
                 Some(TokenKind::RightParen) => {
                     if paren_depth == 0 {
+                        self.restore(checkpoint);
                         return true;
                     }
                     paren_depth -= 1;
                     previous_top_level_operand = false;
-                    probe.advance();
+                    self.advance();
                 }
                 Some(TokenKind::Newline) | Some(TokenKind::Semicolon) if paren_depth == 0 => {
                     previous_top_level_operand = false;
-                    probe.advance();
+                    self.advance();
                 }
-                Some(TokenKind::Comment) if probe.dialect == ShellDialect::Zsh => return false,
+                Some(TokenKind::Comment) if self.dialect == ShellDialect::Zsh => {
+                    self.restore(checkpoint);
+                    return false;
+                }
                 Some(_)
                     if paren_depth == 0
-                        && probe
+                        && self
                             .current_token
                             .as_ref()
                             .is_some_and(Self::is_operand_like_double_paren_token) =>
                 {
                     if previous_top_level_operand {
+                        self.restore(checkpoint);
                         return true;
                     }
                     previous_top_level_operand = true;
-                    probe.advance();
+                    self.advance();
                 }
                 Some(_) => {
                     previous_top_level_operand = false;
-                    probe.advance();
+                    self.advance();
                 }
-                None => return false,
+                None => {
+                    self.restore(checkpoint);
+                    return false;
+                }
             }
         }
     }
@@ -767,10 +777,12 @@ impl<'a> Parser<'a> {
             && let Some(word) = self.current_source_like_word_text()
             && self.peek_next_is(TokenKind::LeftParen)
         {
-            let mut probe = self.clone();
-            probe.advance();
-            probe.advance();
-            if probe.at(TokenKind::RightParen) {
+            let checkpoint = self.checkpoint();
+            self.advance();
+            self.advance();
+            let is_right_paren = self.at(TokenKind::RightParen);
+            self.restore(checkpoint);
+            if is_right_paren {
                 // Check for POSIX-style function: name() { body }
                 // Exclude obvious assignment-like heads such as `a[(1+2)*3]=9`.
                 if !word.contains('=') && !word.contains('[') {
@@ -793,21 +805,23 @@ impl<'a> Parser<'a> {
                 return self.parse_compound_with_redirects(|s| s.parse_subshell());
             }
 
-            let mut arithmetic_probe = self.clone();
-            if let Ok(compound) = arithmetic_probe.parse_arithmetic_command() {
-                let redirects = arithmetic_probe.parse_trailing_redirects();
-                *self = arithmetic_probe;
+            let checkpoint = self.checkpoint();
+            if let Ok(compound) = self.parse_arithmetic_command() {
+                let redirects = self.parse_trailing_redirects();
                 return Ok(Some(Command::Compound(Box::new(compound), redirects)));
             }
+            self.restore(checkpoint);
 
             self.split_current_double_left_paren();
             return self.parse_compound_with_redirects(|s| s.parse_subshell());
         }
 
         if self.dialect == ShellDialect::Zsh && self.at(TokenKind::LeftParen) {
-            let mut probe = self.clone();
-            probe.advance();
-            if probe.at(TokenKind::RightParen) {
+            let checkpoint = self.checkpoint();
+            self.advance();
+            let is_right_paren = self.at(TokenKind::RightParen);
+            self.restore(checkpoint);
+            if is_right_paren {
                 return self.parse_anonymous_paren_function().map(Some);
             }
         }
@@ -1051,9 +1065,8 @@ impl<'a> Parser<'a> {
                 match self.current_token_kind {
                     Some(kind) if kind.is_word_like() => {
                         let word = self
-                            .current_word()
+                            .take_current_word_and_advance()
                             .ok_or_else(|| self.error("expected for word"))?;
-                        self.advance_past_word(&word);
                         words.push(word);
                     }
                     Some(_) | None => {
@@ -1307,9 +1320,8 @@ impl<'a> Parser<'a> {
                     }
 
                     let word = self
-                        .current_word()
+                        .take_current_word_and_advance()
                         .ok_or_else(|| self.error("expected for word"))?;
-                    self.advance_past_word(&word);
                     words.push(word);
                 }
                 Some(TokenKind::Semicolon) => {
@@ -1486,9 +1498,8 @@ impl<'a> Parser<'a> {
                 match self.current_token_kind {
                     Some(kind) if kind.is_word_like() => {
                         let word = self
-                            .current_word()
+                            .take_current_word_and_advance()
                             .ok_or_else(|| self.error("expected foreach word"))?;
-                        self.advance_past_word(&word);
                         words.push(word);
                     }
                     Some(_) | None => {
@@ -1534,9 +1545,8 @@ impl<'a> Parser<'a> {
                     _ if self.current_keyword() == Some(Keyword::Do) => break false,
                     Some(kind) if kind.is_word_like() => {
                         let word = self
-                            .current_word()
+                            .take_current_word_and_advance()
                             .ok_or_else(|| self.error("expected foreach word"))?;
-                        self.advance_past_word(&word);
                         words.push(word);
                     }
                     Some(TokenKind::Semicolon) => {
@@ -1636,8 +1646,7 @@ impl<'a> Parser<'a> {
             match self.current_token_kind {
                 _ if self.current_keyword() == Some(Keyword::Do) => break,
                 Some(kind) if kind.is_word_like() => {
-                    if let Some(word) = self.current_word() {
-                        self.advance_past_word(&word);
+                    if let Some(word) = self.take_current_word_and_advance() {
                         words.push(word);
                     }
                 }
@@ -2001,8 +2010,7 @@ impl<'a> Parser<'a> {
 
         let mut patterns = Vec::new();
         while self.at_word_like() {
-            if let Some(word) = self.current_word() {
-                self.advance_past_word(&word);
+            if let Some(word) = self.take_current_word_and_advance() {
                 patterns.push(self.pattern_from_word(&word));
             }
 
@@ -2615,15 +2623,18 @@ impl<'a> Parser<'a> {
             self.skip_newlines()?;
 
             if self.at(TokenKind::Semicolon) {
-                let mut probe = self.clone();
-                probe.advance();
-                probe.skip_newlines()?;
-                if probe.is_keyword(Keyword::Then)
-                    || (allow_brace_body && !commands.is_empty() && probe.at(TokenKind::LeftBrace))
+                let checkpoint = self.checkpoint();
+                self.advance();
+                if let Err(error) = self.skip_newlines() {
+                    self.restore(checkpoint);
+                    return Err(error);
+                }
+                if self.is_keyword(Keyword::Then)
+                    || (allow_brace_body && !commands.is_empty() && self.at(TokenKind::LeftBrace))
                 {
-                    *self = probe;
                     break;
                 }
+                self.restore(checkpoint);
             }
 
             if self.is_keyword(Keyword::Then)
@@ -2737,14 +2748,17 @@ impl<'a> Parser<'a> {
             && self.next_token_after_tight_semicolon_is(TokenKind::RightBrace)
     }
 
-    fn next_token_after_tight_semicolon_is(&self, expected: TokenKind) -> bool {
-        let mut probe = self.clone();
-        probe.advance();
-        if !probe.at(TokenKind::Semicolon) {
+    fn next_token_after_tight_semicolon_is(&mut self, expected: TokenKind) -> bool {
+        let checkpoint = self.checkpoint();
+        self.advance();
+        if !self.at(TokenKind::Semicolon) {
+            self.restore(checkpoint);
             return false;
         }
-        probe.advance();
-        probe.at(expected)
+        self.advance();
+        let result = self.at(expected);
+        self.restore(checkpoint);
+        result
     }
 
     /// Parse arithmetic command ((expression))
@@ -2947,10 +2961,11 @@ impl<'a> Parser<'a> {
             return Ok(word);
         }
 
-        let Some(word) = self
-            .current_word()
-            .or_else(|| self.current_conditional_literal_word())
-        else {
+        if let Some(word) = self.take_current_word_and_advance() {
+            return Ok(word);
+        }
+
+        let Some(word) = self.current_conditional_literal_word() else {
             return Err(self.error("expected conditional operand"));
         };
         self.advance_past_word(&word);
@@ -3222,6 +3237,9 @@ impl<'a> Parser<'a> {
             {
                 let gap_span = Span::from_positions(prev_end, self.current_span.start);
                 let gap_text = gap_span.slice(self.input);
+                if let Some(word) = first_word.take() {
+                    parts.extend(word.parts);
+                }
                 if Self::source_text_needs_quote_preserving_decode(gap_text) {
                     let gap_word = self.decode_word_text_preserving_quotes_if_needed(
                         gap_text,
@@ -3242,18 +3260,22 @@ impl<'a> Parser<'a> {
             match self.current_token_kind {
                 Some(TokenKind::Word | TokenKind::LiteralWord | TokenKind::QuotedWord) => {
                     let word = self
-                        .current_word()
+                        .take_current_word()
                         .ok_or_else(|| self.error("expected conditional operand"))?;
                     if start.is_none() {
                         start = Some(word.span.start);
                     } else {
+                        if let Some(first) = first_word.take() {
+                            parts.extend(first.parts);
+                        }
                         composite = true;
                     }
                     end = Some(word.span.end);
                     if first_word.is_none() && !composite {
-                        first_word = Some(word.clone());
+                        first_word = Some(word);
+                    } else {
+                        parts.extend(word.parts);
                     }
-                    parts.extend(word.parts.clone());
                     previous_end = Some(self.current_span.end);
                     self.advance();
                 }
@@ -3262,6 +3284,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(LiteralText::owned("(")),
                         self.current_span,
@@ -3276,6 +3301,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(LiteralText::owned("((")),
                         self.current_span,
@@ -3293,6 +3321,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(LiteralText::owned(")")),
                         self.current_span,
@@ -3307,6 +3338,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(LiteralText::owned("))")),
                         self.current_span,
@@ -3321,6 +3355,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(LiteralText::owned("|")),
                         self.current_span,
@@ -3337,6 +3374,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(LiteralText::owned("&&")),
                         self.current_span,
@@ -3353,6 +3393,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(LiteralText::owned("||")),
                         self.current_span,
@@ -3371,6 +3414,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(self.literal_text(
                             literal,
@@ -3394,6 +3440,9 @@ impl<'a> Parser<'a> {
                         start = Some(self.current_span.start);
                     }
                     end = Some(self.current_span.end);
+                    if let Some(word) = first_word.take() {
+                        parts.extend(word.parts);
+                    }
                     parts.push(WordPartNode::new(
                         WordPart::Literal(self.literal_text(
                             literal,
@@ -3535,11 +3584,11 @@ impl<'a> Parser<'a> {
                         self.split_current_double_left_paren();
                         self.parse_subshell()?
                     } else {
-                        let mut arithmetic_probe = self.clone();
-                        if let Ok(compound) = arithmetic_probe.parse_arithmetic_command() {
-                            *self = arithmetic_probe;
+                        let checkpoint = self.checkpoint();
+                        if let Ok(compound) = self.parse_arithmetic_command() {
                             compound
                         } else {
+                            self.restore(checkpoint);
                             self.split_current_double_left_paren();
                             self.parse_subshell()?
                         }
@@ -3558,11 +3607,9 @@ impl<'a> Parser<'a> {
 
     fn parse_function_header_entry(&mut self) -> Result<FunctionHeaderEntry> {
         let word = self
-            .current_word()
+            .take_current_word_and_advance()
             .ok_or_else(|| self.error("expected function name"))?;
-        let entry = self.function_header_entry_from_word(word.clone());
-        self.advance_past_word(&word);
-        Ok(entry)
+        Ok(self.function_header_entry_from_word(word))
     }
 
     fn function_header_entry_from_word(&self, word: Word) -> FunctionHeaderEntry {
@@ -3695,9 +3742,8 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         while self.current_token_kind.is_some_and(TokenKind::is_word_like) {
             let word = self
-                .current_word()
+                .take_current_word_and_advance()
                 .ok_or_else(|| self.error("expected anonymous function argument"))?;
-            self.advance_past_word(&word);
             args.push(word);
         }
         Ok(args)
@@ -3829,12 +3875,17 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
-        let mut probe = self.clone();
-        probe.advance();
-        probe.skip_newlines()?;
-        if !probe.at(TokenKind::LeftBrace) {
+        let checkpoint = self.checkpoint();
+        self.advance();
+        if let Err(error) = self.skip_newlines() {
+            self.restore(checkpoint);
+            return Err(error);
+        }
+        if !self.at(TokenKind::LeftBrace) {
+            self.restore(checkpoint);
             return Ok(None);
         }
+        self.restore(checkpoint);
 
         let start_span = self.current_span;
         let header_span =
@@ -3984,7 +4035,7 @@ impl<'a> Parser<'a> {
                     // Handle compound array assignment in arg position:
                     // declare -a arr=(x y z) → arr=(x y z) as single arg
                     if word_text.ends_with('=') && !words.is_empty() {
-                        let original_word = self.current_word();
+                        let original_word = self.current_word_ref().cloned();
                         let saved_span = self.current_span;
                         self.advance();
                         if let Some(word) =
@@ -4000,16 +4051,14 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
-                    if let Some(word) = self.current_word() {
-                        self.advance_past_word(&word);
+                    if let Some(word) = self.take_current_word_and_advance() {
                         words.push(word);
                     }
                 }
                 Some(TokenKind::LeftParen) if !words.is_empty() => {
-                    let Some(word) = self.current_word() else {
+                    let Some(word) = self.take_current_word_and_advance() else {
                         break;
                     };
-                    self.advance_past_word(&word);
                     words.push(word);
                 }
                 Some(TokenKind::Newline) => {

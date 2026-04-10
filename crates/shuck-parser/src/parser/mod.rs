@@ -331,6 +331,26 @@ pub struct Parser<'a> {
     benchmark_counters: Option<ParserBenchmarkCounters>,
 }
 
+#[derive(Clone)]
+struct ParserCheckpoint<'a> {
+    lexer: Lexer<'a>,
+    synthetic_tokens: VecDeque<SyntheticToken>,
+    alias_replays: Vec<AliasReplay>,
+    current_token: Option<LexedToken<'a>>,
+    current_word_cache: Option<Word>,
+    current_token_kind: Option<TokenKind>,
+    current_keyword: Option<Keyword>,
+    current_span: Span,
+    peeked_token: Option<LexedToken<'a>>,
+    current_depth: usize,
+    fuel: usize,
+    expand_next_word: bool,
+    brace_group_depth: usize,
+    brace_body_stack: Vec<BraceBodyContext>,
+    #[cfg(feature = "benchmarking")]
+    benchmark_counters: Option<ParserBenchmarkCounters>,
+}
+
 /// A parser diagnostic emitted while recovering from invalid input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseDiagnostic {
@@ -1643,6 +1663,14 @@ impl<'a> Parser<'a> {
         Some(self.word_with_parts(parts, span))
     }
 
+    fn current_word_ref(&mut self) -> Option<&Word> {
+        if self.current_word_cache.is_none() {
+            self.current_word_cache = self.current_word();
+        }
+
+        self.current_word_cache.as_ref()
+    }
+
     fn current_word(&mut self) -> Option<Word> {
         if let Some(word) = self.current_word_cache.as_ref() {
             return Some(word.clone());
@@ -1667,6 +1695,34 @@ impl<'a> Parser<'a> {
             self.current_word_cache = Some(word.clone());
         }
         word
+    }
+
+    fn take_current_word(&mut self) -> Option<Word> {
+        if let Some(word) = self.current_word_cache.take() {
+            return Some(word);
+        }
+
+        if let Some(word) = self.current_zsh_glob_word_from_source() {
+            return Some(word);
+        }
+
+        let span = self.current_span;
+        if let Some(token) = self.current_token.clone()
+            && let Some(word) = self.simple_word_from_token(&token, span)
+        {
+            return Some(word);
+        }
+
+        let token = self.current_token.take()?;
+        let word = self.decode_word_from_token(&token, span);
+        self.current_token = Some(token);
+        word
+    }
+
+    fn take_current_word_and_advance(&mut self) -> Option<Word> {
+        let word = self.take_current_word()?;
+        self.advance_past_word(&word);
+        Some(word)
     }
 
     fn current_zsh_glob_word_from_source(&mut self) -> Option<Word> {
@@ -3565,6 +3621,48 @@ impl<'a> Parser<'a> {
             && span.slice(self.input) == text
     }
 
+    fn checkpoint(&self) -> ParserCheckpoint<'a> {
+        ParserCheckpoint {
+            lexer: self.lexer.clone(),
+            synthetic_tokens: self.synthetic_tokens.clone(),
+            alias_replays: self.alias_replays.clone(),
+            current_token: self.current_token.clone(),
+            current_word_cache: self.current_word_cache.clone(),
+            current_token_kind: self.current_token_kind,
+            current_keyword: self.current_keyword,
+            current_span: self.current_span,
+            peeked_token: self.peeked_token.clone(),
+            current_depth: self.current_depth,
+            fuel: self.fuel,
+            expand_next_word: self.expand_next_word,
+            brace_group_depth: self.brace_group_depth,
+            brace_body_stack: self.brace_body_stack.clone(),
+            #[cfg(feature = "benchmarking")]
+            benchmark_counters: self.benchmark_counters,
+        }
+    }
+
+    fn restore(&mut self, checkpoint: ParserCheckpoint<'a>) {
+        self.lexer = checkpoint.lexer;
+        self.synthetic_tokens = checkpoint.synthetic_tokens;
+        self.alias_replays = checkpoint.alias_replays;
+        self.current_token = checkpoint.current_token;
+        self.current_word_cache = checkpoint.current_word_cache;
+        self.current_token_kind = checkpoint.current_token_kind;
+        self.current_keyword = checkpoint.current_keyword;
+        self.current_span = checkpoint.current_span;
+        self.peeked_token = checkpoint.peeked_token;
+        self.current_depth = checkpoint.current_depth;
+        self.fuel = checkpoint.fuel;
+        self.expand_next_word = checkpoint.expand_next_word;
+        self.brace_group_depth = checkpoint.brace_group_depth;
+        self.brace_body_stack = checkpoint.brace_body_stack;
+        #[cfg(feature = "benchmarking")]
+        {
+            self.benchmark_counters = checkpoint.benchmark_counters;
+        }
+    }
+
     fn set_current_spanned(&mut self, token: LexedToken<'a>) {
         #[cfg(feature = "benchmarking")]
         self.maybe_record_set_current_spanned_call();
@@ -4700,91 +4798,100 @@ impl<'a> Parser<'a> {
         self.current_keyword
     }
 
-    fn looks_like_disabled_repeat_loop(&self) -> Result<bool> {
+    fn looks_like_disabled_repeat_loop(&mut self) -> Result<bool> {
         if self.current_keyword() != Some(Keyword::Repeat) {
             return Ok(false);
         }
 
-        let mut probe = self.clone();
-        probe.advance();
-        if !probe.at_word_like() {
+        let checkpoint = self.checkpoint();
+        self.advance();
+        if !self.at_word_like() {
+            self.restore(checkpoint);
             return Ok(false);
         }
-        probe.advance();
+        self.advance();
 
-        match probe.current_token_kind {
+        let result = match self.current_token_kind {
             Some(TokenKind::LeftBrace) => Ok(true),
             Some(TokenKind::Semicolon) => {
-                probe.advance();
-                probe.skip_newlines()?;
-                Ok(probe.current_keyword() == Some(Keyword::Do))
+                self.advance();
+                self.skip_newlines()?;
+                Ok(self.current_keyword() == Some(Keyword::Do))
             }
             Some(TokenKind::Newline) => {
-                probe.skip_newlines()?;
-                Ok(probe.current_keyword() == Some(Keyword::Do))
+                self.skip_newlines()?;
+                Ok(self.current_keyword() == Some(Keyword::Do))
             }
             _ => Ok(false),
-        }
+        };
+        self.restore(checkpoint);
+        result
     }
 
-    fn looks_like_disabled_foreach_loop(&self) -> Result<bool> {
+    fn looks_like_disabled_foreach_loop(&mut self) -> Result<bool> {
         if self.current_keyword() != Some(Keyword::Foreach) {
             return Ok(false);
         }
 
-        let mut probe = self.clone();
-        probe.advance();
-        if probe.current_name_token().is_none() {
+        let checkpoint = self.checkpoint();
+        self.advance();
+        if self.current_name_token().is_none() {
+            self.restore(checkpoint);
             return Ok(false);
         }
-        probe.advance();
+        self.advance();
 
-        if probe.at(TokenKind::LeftParen) {
-            probe.advance();
+        let result = if self.at(TokenKind::LeftParen) {
+            self.advance();
             let mut saw_word = false;
-            while !probe.at(TokenKind::RightParen) {
-                if !probe.at_word_like() {
+            while !self.at(TokenKind::RightParen) {
+                if !self.at_word_like() {
+                    self.restore(checkpoint);
                     return Ok(false);
                 }
                 saw_word = true;
-                probe.advance();
+                self.advance();
             }
             if !saw_word {
+                self.restore(checkpoint);
                 return Ok(false);
             }
-            probe.advance();
-            return Ok(probe.at(TokenKind::LeftBrace));
-        }
-
-        if probe.current_keyword() != Some(Keyword::In) {
-            return Ok(false);
-        }
-        probe.advance();
-
-        let mut saw_word = false;
-        let saw_separator = loop {
-            if probe.current_keyword() == Some(Keyword::Do) {
-                break false;
+            self.advance();
+            Ok(self.at(TokenKind::LeftBrace))
+        } else {
+            if self.current_keyword() != Some(Keyword::In) {
+                self.restore(checkpoint);
+                return Ok(false);
             }
+            self.advance();
 
-            match probe.current_token_kind {
-                Some(kind) if kind.is_word_like() => {
-                    saw_word = true;
-                    probe.advance();
+            let mut saw_word = false;
+            let saw_separator = loop {
+                if self.current_keyword() == Some(Keyword::Do) {
+                    break false;
                 }
-                Some(TokenKind::Semicolon) => {
-                    probe.advance();
-                    break true;
+
+                match self.current_token_kind {
+                    Some(kind) if kind.is_word_like() => {
+                        saw_word = true;
+                        self.advance();
+                    }
+                    Some(TokenKind::Semicolon) => {
+                        self.advance();
+                        break true;
+                    }
+                    Some(TokenKind::Newline) => {
+                        self.skip_newlines()?;
+                        break true;
+                    }
+                    _ => break false,
                 }
-                Some(TokenKind::Newline) => {
-                    probe.skip_newlines()?;
-                    break true;
-                }
-                _ => break false,
-            }
+            };
+
+            Ok(saw_word && saw_separator && self.current_keyword() == Some(Keyword::Do))
         };
-
-        Ok(saw_word && saw_separator && probe.current_keyword() == Some(Keyword::Do))
+        self.restore(checkpoint);
+        result
     }
 
     fn skip_newlines_with_flag(&mut self) -> Result<bool> {

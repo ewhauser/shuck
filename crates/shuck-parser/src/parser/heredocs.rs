@@ -2,7 +2,7 @@ use super::*;
 
 impl<'a> Parser<'a> {
     pub(super) fn current_static_heredoc_delimiter(&mut self) -> Option<(Word, String, bool)> {
-        let word = self.current_word()?;
+        let word = self.current_word_ref()?.clone();
         let raw_text = word.span.slice(self.input);
         let quoted_parts = word.has_quoted_parts();
 
