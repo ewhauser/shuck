@@ -65,6 +65,12 @@ impl ShellCheckCodeMap {
         if number == 2142 {
             return vec![Rule::FunctionInAlias];
         }
+        if number == 2340 {
+            return vec![Rule::DeprecatedTempfileCommand];
+        }
+        if number == 2186 {
+            return vec![Rule::DeprecatedTempfileCommand];
+        }
         if number == 2303 {
             return vec![Rule::UnquotedTrClass];
         }
@@ -132,12 +138,16 @@ impl Default for ShellCheckCodeMap {
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
+            // ShellCheck 0.11.0 reports tempfile deprecation warnings as SC2186.
+            // Keep SC2340 as a suppression alias for the authored S059 rule code.
+            (2186, Rule::DeprecatedTempfileCommand),
             // ShellCheck 0.11.0 reports command substitutions inside alias definitions as SC2139.
             // Keep SC2328 as a suppression alias for historical compatibility.
             (2139, Rule::CommandSubstitutionInAlias),
             // ShellCheck 0.11.0 reports alias function-definition issues as SC2142.
             // Keep SC2330 as a suppression alias for the authored S057 rule code.
             (2142, Rule::FunctionInAlias),
+            (2340, Rule::DeprecatedTempfileCommand),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
@@ -659,6 +669,14 @@ mod tests {
         assert_eq!(map.resolve("SC2291"), Some(Rule::UnquotedVariableInSed));
         assert_eq!(map.resolve("SC2322"), Some(Rule::SuWithoutFlag));
         assert_eq!(map.resolve("SC2117"), Some(Rule::SuWithoutFlag));
+        assert_eq!(
+            map.resolve("SC2340"),
+            Some(Rule::DeprecatedTempfileCommand)
+        );
+        assert_eq!(
+            map.resolve("SC2186"),
+            Some(Rule::DeprecatedTempfileCommand)
+        );
         assert_eq!(map.resolve("SC2139"), Some(Rule::CommandSubstitutionInAlias));
         assert_eq!(map.resolve("SC2142"), Some(Rule::FunctionInAlias));
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
@@ -679,6 +697,14 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2322"), vec![Rule::SuWithoutFlag]);
         assert_eq!(map.resolve_all("SC2117"), vec![Rule::SuWithoutFlag]);
+        assert_eq!(
+            map.resolve_all("SC2340"),
+            vec![Rule::DeprecatedTempfileCommand]
+        );
+        assert_eq!(
+            map.resolve_all("SC2186"),
+            vec![Rule::DeprecatedTempfileCommand]
+        );
         assert_eq!(map.resolve_all("SC2139"), vec![Rule::CommandSubstitutionInAlias]);
         assert_eq!(map.resolve_all("SC2142"), vec![Rule::FunctionInAlias]);
         assert_eq!(
@@ -1246,9 +1272,11 @@ mod tests {
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
+        assert!(comparison.contains(&(2186, Rule::DeprecatedTempfileCommand)));
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
+        assert!(!comparison.contains(&(2340, Rule::DeprecatedTempfileCommand)));
         assert!(!comparison.contains(&(2328, Rule::CommandSubstitutionInAlias)));
         assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));

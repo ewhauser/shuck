@@ -332,6 +332,7 @@ declare_rules! {
     ("S054", Category::Style, Severity::Warning, SuWithoutFlag),
     ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
     ("S057", Category::Style, Severity::Warning, FunctionInAlias),
+    ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
     ("S047", Category::Style, Severity::Warning, LsInSubstitution),
@@ -448,6 +449,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
         "SH-199" => Some(Rule::LsInSubstitution),
         "SH-163" => Some(Rule::BareRead),
+        "SH-245" => Some(Rule::DeprecatedTempfileCommand),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
@@ -713,6 +715,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-113"), Some(Rule::OpenDoubleQuote));
         assert_eq!(code_to_rule("S028"), Some(Rule::SuspectClosingQuote));
         assert_eq!(code_to_rule("SH-114"), Some(Rule::SuspectClosingQuote));
+        assert_eq!(
+            code_to_rule("SH-245"),
+            Some(Rule::DeprecatedTempfileCommand)
+        );
         assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("S030"), Some(Rule::HeredocEndSpace));

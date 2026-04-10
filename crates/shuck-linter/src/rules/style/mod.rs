@@ -4,6 +4,7 @@ pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod command_substitution_in_alias;
+pub mod deprecated_tempfile_command;
 pub mod function_in_alias;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
@@ -66,6 +67,7 @@ mod tests {
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
     #[test_case(Rule::EchoInsideCommandSubstitution, Path::new("S016.sh"))]
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
+    #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
