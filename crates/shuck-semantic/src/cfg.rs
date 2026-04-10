@@ -174,6 +174,7 @@ pub(crate) enum RecordedCommandKind {
 #[derive(Debug, Clone)]
 pub(crate) struct RecordedCaseArm {
     pub(crate) terminator: CaseTerminator,
+    pub(crate) matches_anything: bool,
     pub(crate) commands: Vec<RecordedCommand>,
 }
 
@@ -602,6 +603,7 @@ impl<'a> GraphBuilder<'a> {
         let head = self.command_block(command.span);
         self.attach_nested_regions(head, &command.nested_regions, loops);
         let exit_block = self.empty_block();
+        let no_match_possible = arms.is_empty() || !arms.iter().any(|arm| arm.matches_anything);
         let mut fallthrough_from = Vec::new();
 
         for arm in arms {
@@ -644,7 +646,9 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        self.add_edge(head, exit_block, EdgeKind::Sequential);
+        if no_match_possible {
+            self.add_edge(head, exit_block, EdgeKind::Sequential);
+        }
 
         SequenceResult {
             entry: Some(head),

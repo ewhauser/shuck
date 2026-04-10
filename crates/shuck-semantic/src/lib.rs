@@ -2138,6 +2138,30 @@ printf '%s\\n' \"$value\"
     }
 
     #[test]
+    fn case_with_catch_all_arm_overwrites_initializer() {
+        let source = "\
+value=''
+case \"$kind\" in
+  one)
+    value=1
+    ;;
+  *)
+    value=2
+    ;;
+esac
+printf '%s\\n' \"$value\"
+";
+        let model = model_with_dialect(source, ShellDialect::Posix);
+        let unused = reportable_unused_names(&model);
+        let count = unused
+            .iter()
+            .filter(|name| **name == Name::from("value"))
+            .count();
+
+        assert_eq!(count, 1, "unused bindings: {:?}", unused);
+    }
+
+    #[test]
     fn function_global_assignments_read_later_by_caller_are_live() {
         let source = "\
 pass_args() {

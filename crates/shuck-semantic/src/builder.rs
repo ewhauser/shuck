@@ -4,8 +4,8 @@ use shuck_ast::{
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef, Name, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, PatternPartNode, Span, Stmt,
-    StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionOperation,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
+    Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionOperation,
     ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
@@ -714,6 +714,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         }
                         RecordedCaseArm {
                             terminator: case.terminator,
+                            matches_anything: case_arm_matches_anything(&case.patterns),
                             commands,
                         }
                     })
@@ -2910,6 +2911,71 @@ fn single_literal_word(word: &Word) -> Option<&str> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+fn case_arm_matches_anything(patterns: &[Pattern]) -> bool {
+    patterns.iter().any(pattern_matches_anything)
+}
+
+fn pattern_matches_anything(pattern: &Pattern) -> bool {
+    !pattern.parts.is_empty()
+        && pattern
+            .parts
+            .iter()
+            .all(|part| pattern_part_can_match_empty(&part.kind))
+        && pattern
+            .parts
+            .iter()
+            .any(|part| pattern_part_matches_anything(&part.kind))
+}
+
+fn pattern_can_match_empty(pattern: &Pattern) -> bool {
+    pattern
+        .parts
+        .iter()
+        .all(|part| pattern_part_can_match_empty(&part.kind))
+}
+
+fn pattern_part_matches_anything(part: &PatternPart) -> bool {
+    match part {
+        PatternPart::AnyString => true,
+        PatternPart::Group { kind, patterns } => pattern_group_matches_anything(*kind, patterns),
+        PatternPart::Literal(_)
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_)
+        | PatternPart::Word(_) => false,
+    }
+}
+
+fn pattern_part_can_match_empty(part: &PatternPart) -> bool {
+    match part {
+        PatternPart::AnyString => true,
+        PatternPart::Group { kind, patterns } => pattern_group_can_match_empty(*kind, patterns),
+        PatternPart::Literal(_)
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_)
+        | PatternPart::Word(_) => false,
+    }
+}
+
+fn pattern_group_matches_anything(kind: PatternGroupKind, patterns: &[Pattern]) -> bool {
+    match kind {
+        PatternGroupKind::ZeroOrOne
+        | PatternGroupKind::ZeroOrMore
+        | PatternGroupKind::OneOrMore
+        | PatternGroupKind::ExactlyOne => patterns.iter().any(pattern_matches_anything),
+        PatternGroupKind::NoneOf => false,
+    }
+}
+
+fn pattern_group_can_match_empty(kind: PatternGroupKind, patterns: &[Pattern]) -> bool {
+    match kind {
+        PatternGroupKind::ZeroOrOne | PatternGroupKind::ZeroOrMore => true,
+        PatternGroupKind::OneOrMore | PatternGroupKind::ExactlyOne => {
+            patterns.iter().any(pattern_can_match_empty)
+        }
+        PatternGroupKind::NoneOf => false,
     }
 }
 
