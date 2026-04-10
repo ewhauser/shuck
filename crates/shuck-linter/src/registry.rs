@@ -197,6 +197,12 @@ declare_rules! {
         Severity::Warning,
         PlusPrefixInAssignment
     ),
+    (
+        "C123",
+        Category::Correctness,
+        Severity::Error,
+        FunctionReferencesUnsetParam
+    ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("C127", Category::Correctness, Severity::Warning, UnusedHeredoc),
     (
@@ -644,6 +650,10 @@ mod tests {
         assert_eq!(
             code_to_rule("SH-228"),
             Some(Rule::FunctionCalledWithoutArgs)
+        );
+        assert_eq!(
+            code_to_rule("SH-292"),
+            Some(Rule::FunctionReferencesUnsetParam)
         );
         assert_eq!(code_to_rule("S045"), Some(Rule::DollarInArithmetic));
         assert_eq!(code_to_rule("SH-197"), Some(Rule::DollarInArithmetic));

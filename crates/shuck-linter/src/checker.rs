@@ -173,6 +173,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FunctionCalledWithoutArgs) {
             rules::correctness::function_called_without_args::function_called_without_args(self);
         }
+        if self.is_rule_enabled(Rule::FunctionReferencesUnsetParam) {
+            rules::correctness::function_references_unset_param::function_references_unset_param(
+                self,
+            );
+        }
     }
 
     fn check_source_refs(&mut self) {

@@ -30,6 +30,7 @@ pub mod find_output_to_xargs;
 pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod function_called_without_args;
+pub mod function_references_unset_param;
 pub mod if_bracket_glued;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
@@ -156,6 +157,7 @@ mod tests {
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
+    #[test_case(Rule::FunctionReferencesUnsetParam, Path::new("C123.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]

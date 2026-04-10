@@ -4,21 +4,21 @@ use shuck_semantic::{BindingId, ScopeId, ScopeKind};
 
 use crate::{Checker, Rule, Violation};
 
-pub struct FunctionCalledWithoutArgs {
+pub struct FunctionReferencesUnsetParam {
     pub name: String,
 }
 
-impl Violation for FunctionCalledWithoutArgs {
+impl Violation for FunctionReferencesUnsetParam {
     fn rule() -> Rule {
-        Rule::FunctionCalledWithoutArgs
+        Rule::FunctionReferencesUnsetParam
     }
 
     fn message(&self) -> String {
-        format!("function `{}` is called without arguments", self.name)
+        format!("function `{}` is called with too few arguments", self.name)
     }
 }
 
-pub fn function_called_without_args(checker: &mut Checker) {
+pub fn function_references_unset_param(checker: &mut Checker) {
     let mut reported = FxHashSet::<BindingId>::default();
     let mut violations = Vec::<(Span, String)>::new();
 
@@ -57,15 +57,12 @@ pub fn function_called_without_args(checker: &mut Checker) {
         let positional = checker
             .facts()
             .function_positional_parameter_facts(function_scope);
-        let called_without_args = function_is_called_without_arguments(checker, name);
+        let required_arg_count = positional.required_arg_count();
 
-        if !positional.uses_positional_parameters() {
+        if required_arg_count <= 1 || positional.resets_positional_parameters() {
             continue;
         }
-        if positional.resets_positional_parameters() {
-            continue;
-        }
-        if !called_without_args {
+        if !function_is_called_without_arguments(checker, name) {
             continue;
         }
 
@@ -76,7 +73,7 @@ pub fn function_called_without_args(checker: &mut Checker) {
     }
 
     for (span, name) in violations {
-        checker.report(FunctionCalledWithoutArgs { name }, span);
+        checker.report(FunctionReferencesUnsetParam { name }, span);
     }
 }
 
@@ -99,17 +96,15 @@ fn function_scope_for(
 
 fn function_is_called_without_arguments(checker: &Checker<'_>, name: &Name) -> bool {
     let mut saw_relevant_call = false;
-    let mut saw_argument_call = false;
 
     for site in checker.semantic().call_sites_for(name) {
         saw_relevant_call = true;
         if site.arg_count > 0 {
-            saw_argument_call = true;
-            break;
+            return false;
         }
     }
 
-    saw_relevant_call && !saw_argument_call
+    saw_relevant_call
 }
 
 fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
@@ -125,7 +120,57 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_functions_called_without_arguments() {
+    fn reports_functions_called_with_too_few_arguments() {
+        let source = "\
+#!/bin/sh
+greet() { echo \"$1 $2\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() { echo \"$1 $2\"; }"
+        );
+    }
+
+    #[test]
+    fn ignores_functions_called_with_enough_arguments() {
+        let source = "\
+#!/bin/sh
+greet() { echo \"$1 $2\"; }
+greet a b
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_functions_with_mixed_arity_calls() {
+        let source = "\
+#!/bin/sh
+greet() { echo \"$1 $2\"; }
+greet a b
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_functions_with_only_one_required_argument() {
         let source = "\
 #!/bin/sh
 greet() { echo \"$1\"; }
@@ -133,149 +178,27 @@ greet
 ";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
-        );
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "greet() { echo \"$1\"; }"
-        );
-    }
-
-    #[test]
-    fn ignores_functions_called_with_arguments() {
-        let source = "\
-#!/bin/sh
-greet() { echo \"$@\"; }
-greet world
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
-    fn ignores_functions_without_calls() {
-        let source = "\
-#!/bin/sh
-greet() { echo \"$#\"; }
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
-        );
-
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
-    }
-
-    #[test]
-    fn ignores_guarded_positional_parameters() {
-        let source = "\
-#!/bin/sh
-greet() { echo \"${1:-default}\"; }
-greet
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
-        );
-
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
-    }
-
-    #[test]
-    fn ignores_functions_that_reset_positional_parameters() {
+    fn ignores_guarded_or_reset_positional_parameters() {
         let source = "\
 #!/bin/sh
 greet() {
   set -- hello
-  echo \"$1\"
+  echo \"${1:-default}\" \"$#\"
 }
 greet
 ";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
-    }
-
-    #[test]
-    fn reports_functions_that_use_variadic_positional_parameters() {
-        let source = "\
-#!/bin/sh
-die() { echo \"$@\"; }
-die
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
-        );
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "die() { echo \"$@\"; }");
-    }
-
-    #[test]
-    fn reports_functions_that_use_argument_count() {
-        let source = "\
-#!/bin/sh
-die() { echo \"$#\"; }
-die
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
-        );
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "die() { echo \"$#\"; }");
-    }
-
-    #[test]
-    fn ignores_call_sites_that_precede_the_definition_if_arguments_are_passed() {
-        let source = "\
-#!/bin/sh
-main() {
-  greet 1
-  greet
-}
-main
-
-greet() { echo \"$1\"; }
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
-        );
-
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
-    }
-
-    #[test]
-    fn nested_functions_are_tracked_independently() {
-        let source = "\
-#!/bin/sh
-outer() {
-  inner() { echo \"$1\"; }
-  inner
-}
-outer
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
-        );
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "inner() { echo \"$1\"; }"
-        );
     }
 }

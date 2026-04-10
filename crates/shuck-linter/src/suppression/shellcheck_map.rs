@@ -344,6 +344,7 @@ impl Default for ShellCheckCodeMap {
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
             (2120, Rule::FunctionCalledWithoutArgs),
+            (2364, Rule::FunctionReferencesUnsetParam),
             (2277, Rule::ExtglobInCasePattern),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
@@ -563,6 +564,7 @@ impl Default for ShellCheckCodeMap {
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
                 (2120, Rule::FunctionCalledWithoutArgs),
+                (2364, Rule::FunctionReferencesUnsetParam),
                 (2277, Rule::ExtglobInCasePattern),
                 (2100, Rule::AssignmentLooksLikeComparison),
                 (2319, Rule::StatusCaptureAfterBranchTest),
@@ -868,6 +870,10 @@ mod tests {
             vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]
         );
         assert_eq!(map.resolve("SC2120"), Some(Rule::FunctionCalledWithoutArgs));
+        assert_eq!(
+            map.resolve("SC2364"),
+            Some(Rule::FunctionReferencesUnsetParam)
+        );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(
             map.resolve("SC2339"),
@@ -1344,6 +1350,7 @@ mod tests {
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2120, Rule::FunctionCalledWithoutArgs)));
+        assert!(comparison.contains(&(2364, Rule::FunctionReferencesUnsetParam)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(comparison.contains(&(1041, Rule::HeredocCloserNotAlone)));
         assert!(comparison.contains(&(1042, Rule::MisquotedHeredocClose)));

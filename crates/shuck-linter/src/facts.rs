@@ -1287,11 +1287,20 @@ impl ConfigureCommandFacts {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FunctionPositionalParameterFacts {
+    required_arg_count: usize,
     uses_unprotected_positional_parameters: bool,
     resets_positional_parameters: bool,
 }
 
 impl FunctionPositionalParameterFacts {
+    pub fn required_arg_count(&self) -> usize {
+        self.required_arg_count
+    }
+
+    pub fn uses_positional_parameters(&self) -> bool {
+        self.uses_unprotected_positional_parameters
+    }
+
     pub fn uses_unprotected_positional_parameters(&self) -> bool {
         self.uses_unprotected_positional_parameters
     }
@@ -2978,9 +2987,34 @@ fn build_function_positional_parameter_facts(
     let mut facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts> = FxHashMap::default();
 
     for reference in semantic.references() {
-        if !is_positional_parameter_name(reference.name.as_str())
-            || semantic.is_guarded_parameter_reference(reference.id)
-        {
+        let Some(index) = positional_parameter_index(reference.name.as_str()) else {
+            let Some(uses_positional_parameters) =
+                special_positional_parameter_name(reference.name.as_str())
+            else {
+                continue;
+            };
+
+            if semantic.is_guarded_parameter_reference(reference.id) {
+                continue;
+            }
+
+            let scope = semantic.scope_at(reference.span.start.offset);
+            if !matches!(
+                semantic.scope_kind(scope),
+                shuck_semantic::ScopeKind::Function(_)
+            ) {
+                continue;
+            }
+
+            if uses_positional_parameters {
+                facts
+                    .entry(scope)
+                    .or_default()
+                    .uses_unprotected_positional_parameters = true;
+            }
+            continue;
+        };
+        if semantic.is_guarded_parameter_reference(reference.id) {
             continue;
         }
 
@@ -2992,10 +3026,9 @@ fn build_function_positional_parameter_facts(
             continue;
         }
 
-        facts
-            .entry(scope)
-            .or_default()
-            .uses_unprotected_positional_parameters = true;
+        let entry = facts.entry(scope).or_default();
+        entry.required_arg_count = entry.required_arg_count.max(index);
+        entry.uses_unprotected_positional_parameters = true;
     }
 
     for command in commands {
@@ -3019,8 +3052,22 @@ fn build_function_positional_parameter_facts(
     facts
 }
 
-fn is_positional_parameter_name(name: &str) -> bool {
-    matches!(name, "@" | "*" | "#") || (name != "0" && name.chars().all(|ch| ch.is_ascii_digit()))
+fn positional_parameter_index(name: &str) -> Option<usize> {
+    if name == "0" || matches!(name, "@" | "*" | "#") {
+        return None;
+    }
+    if name.chars().all(|ch| ch.is_ascii_digit()) {
+        name.parse::<usize>().ok()
+    } else {
+        None
+    }
+}
+
+fn special_positional_parameter_name(name: &str) -> Option<bool> {
+    match name {
+        "@" | "*" | "#" => Some(true),
+        _ => None,
+    }
 }
 
 fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
