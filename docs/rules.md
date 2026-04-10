@@ -303,7 +303,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **L** S036 (SC2258) `bare-read` — `read` without options
 - [x] [x] **L** S037 (SC2263) `redundant-spaces-in-echo` — extra spaces in echo collapsed
 - [x] [x] **M** S044 (SC2291) `unquoted-variable-in-sed` — unquoted variable in sed
-- [ ] **L** S046 (SC2293) `ls-piped-to-xargs` — ls piped to xargs
+- [x] [x] **L** S046 (SC2293) `ls-piped-to-xargs` — ls piped to xargs
 - [ ] **L** S047 (SC2294) `ls-in-substitution` — ls in command substitution
 - [ ] **L** S049 (SC2298) `unquoted-tr-range` — unquoted tr character class
 - [ ] **L** S051 (SC2303) `unquoted-tr-class` — unquoted tr class may glob-expand

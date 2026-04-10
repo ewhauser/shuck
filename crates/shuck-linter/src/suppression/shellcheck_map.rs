@@ -56,6 +56,9 @@ impl ShellCheckCodeMap {
         if number == 2291 {
             return vec![Rule::UnquotedVariableInSed];
         }
+        if number == 2293 {
+            return vec![Rule::LsPipedToXargs];
+        }
         if number == 2281 {
             return vec![Rule::BackslashBeforeClosingBacktick];
         }
@@ -106,6 +109,7 @@ impl Default for ShellCheckCodeMap {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
             (2010, Rule::LsGrepPipeline),
+            (2293, Rule::LsPipedToXargs),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
             (2283, Rule::DoubleParenGrouping),
@@ -325,6 +329,7 @@ impl Default for ShellCheckCodeMap {
                 (2126, Rule::GrepCountPipeline),
                 (2009, Rule::PsGrepPipeline),
                 (2010, Rule::LsGrepPipeline),
+                (2293, Rule::LsPipedToXargs),
                 (2283, Rule::DoubleParenGrouping),
                 (2233, Rule::SingleTestSubshell),
                 (2235, Rule::SubshellTestGroup),
@@ -563,6 +568,7 @@ mod tests {
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::PsGrepPipeline));
         assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
+        assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -607,6 +613,7 @@ mod tests {
         assert_eq!(map.resolve("SC3061"), Some(Rule::ExtglobInSh));
         assert_eq!(map.resolve("SC2258"), Some(Rule::BareRead));
         assert_eq!(map.resolve("SC2291"), Some(Rule::UnquotedVariableInSed));
+        assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve("SC3072"), Some(Rule::CaretNegationInBracket));
@@ -617,6 +624,7 @@ mod tests {
             map.resolve_all("SC2291"),
             vec![Rule::UnquotedVariableInSed]
         );
+        assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
         assert_eq!(
             map.resolve_all("SC2263"),
             vec![Rule::RedundantSpacesInEcho]
@@ -920,6 +928,7 @@ mod tests {
             (2009, Rule::PsGrepPipeline),
             (2009, Rule::DoubleParenGrouping),
             (2010, Rule::LsGrepPipeline),
+            (2293, Rule::LsPipedToXargs),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
             (2013, Rule::LineOrientedInput),
@@ -1148,6 +1157,7 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
+        assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));

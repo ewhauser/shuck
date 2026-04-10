@@ -445,6 +445,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LsGrepPipeline) {
             rules::style::ls_grep_pipeline::ls_grep_pipeline(self);
         }
+        if self.is_rule_enabled(Rule::LsPipedToXargs) {
+            rules::style::ls_piped_to_xargs::ls_piped_to_xargs(self);
+        }
         if self.is_rule_enabled(Rule::ChainedTestBranches) {
             rules::correctness::chained_test_branches::chained_test_branches(self);
         }
