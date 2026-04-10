@@ -550,6 +550,11 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
+        if self.is_rule_enabled(Rule::AssignmentToNumericVariable) {
+            rules::correctness::assignment_to_numeric_variable::assignment_to_numeric_variable(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::IfsSetToLiteralBackslashN) {
             rules::correctness::ifs_set_to_literal_backslash_n::ifs_set_to_literal_backslash_n(
                 self,

@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C116 assignment target is numeric
+ --> <source>:3:14
+  |
+3 | test "$2" || 2="."
+  |

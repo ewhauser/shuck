@@ -162,6 +162,12 @@ declare_rules! {
         IfsSetToLiteralBackslashN
     ),
     ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
+    (
+        "C116",
+        Category::Correctness,
+        Severity::Warning,
+        AssignmentToNumericVariable
+    ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
         "C137",
@@ -348,6 +354,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-173" => Some(Rule::BackslashBeforeCommand),
         "SH-088" => Some(Rule::LiteralBackslash),
         "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
+        "SH-258" => Some(Rule::AssignmentToNumericVariable),
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),

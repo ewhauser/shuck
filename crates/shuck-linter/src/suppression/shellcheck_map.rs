@@ -231,17 +231,17 @@ impl Default for ShellCheckCodeMap {
             (2238, Rule::RedirectToCommandName),
             (2259, Rule::SubshellTestGroup),
             (2266, Rule::OverwrittenFunction),
-            (2270, Rule::IfMissingThen),
+            (2270, Rule::AssignmentToNumericVariable),
             (2271, Rule::ElseWithoutThen),
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
-                (2277, Rule::ExtglobInCasePattern),
-                (2100, Rule::AssignmentLooksLikeComparison),
-                (2319, Rule::StatusCaptureAfterBranchTest),
-                (2141, Rule::IfsSetToLiteralBackslashN),
-                (2365, Rule::UnreachableAfterExit),
-                (3010, Rule::DoubleBracketInSh),
+            (2277, Rule::ExtglobInCasePattern),
+            (2100, Rule::AssignmentLooksLikeComparison),
+            (2319, Rule::StatusCaptureAfterBranchTest),
+            (2141, Rule::IfsSetToLiteralBackslashN),
+            (2365, Rule::UnreachableAfterExit),
+            (3010, Rule::DoubleBracketInSh),
             (3012, Rule::GreaterThanInDoubleBracket),
             (3014, Rule::TestEqualityOperator),
             (3015, Rule::RegexMatchInSh),
@@ -410,7 +410,7 @@ impl Default for ShellCheckCodeMap {
                 (2256, Rule::SubstWithRedirectErr),
                 (2238, Rule::RedirectToCommandName),
                 (2266, Rule::OverwrittenFunction),
-                (2270, Rule::IfMissingThen),
+                (2270, Rule::AssignmentToNumericVariable),
                 (2271, Rule::ElseWithoutThen),
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
@@ -436,6 +436,8 @@ impl Default for ShellCheckCodeMap {
                 (3072, Rule::CaretNegationInBracket),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
+                (2353, Rule::AssignmentToNumericVariable),
+                (2270, Rule::IfMissingThen),
             ],
             comparison,
         }
@@ -651,7 +653,10 @@ mod tests {
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
-        assert_eq!(map.resolve("SC2270"), Some(Rule::IfMissingThen));
+        assert_eq!(
+            map.resolve("SC2270"),
+            Some(Rule::AssignmentToNumericVariable)
+        );
         assert_eq!(map.resolve("SC2271"), Some(Rule::ElseWithoutThen));
         assert_eq!(
             map.resolve("SC2272"),
@@ -679,6 +684,14 @@ mod tests {
         assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
+        assert_eq!(
+            map.resolve("SC2353"),
+            Some(Rule::AssignmentToNumericVariable)
+        );
+        assert_eq!(
+            map.resolve_all("SC2270"),
+            vec![Rule::AssignmentToNumericVariable, Rule::IfMissingThen]
+        );
         assert_eq!(map.resolve("SC2141"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC2329"), Some(Rule::IfsSetToLiteralBackslashN));
         assert_eq!(map.resolve("SC7777"), None);
@@ -782,6 +795,7 @@ mod tests {
             (2264, Rule::NestedParameterExpansion),
             (2266, Rule::OverwrittenFunction),
             (2267, Rule::LiteralBackslashInSingleQuotes),
+            (2270, Rule::AssignmentToNumericVariable),
             (2270, Rule::IfMissingThen),
             (2271, Rule::ElseWithoutThen),
             (2272, Rule::MissingSemicolonBeforeBrace),
@@ -796,6 +810,7 @@ mod tests {
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2141, Rule::IfsSetToLiteralBackslashN),
+            (2353, Rule::AssignmentToNumericVariable),
             (2329, Rule::IfsSetToLiteralBackslashN),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
@@ -945,6 +960,8 @@ mod tests {
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
+        assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
+        assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
