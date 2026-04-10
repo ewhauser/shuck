@@ -343,6 +343,8 @@ impl Default for ShellCheckCodeMap {
             (2272, Rule::MissingSemicolonBeforeBrace),
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
+            (2120, Rule::FunctionCalledWithoutArgs),
+            (2364, Rule::FunctionReferencesUnsetParam),
             (2277, Rule::ExtglobInCasePattern),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
@@ -561,6 +563,8 @@ impl Default for ShellCheckCodeMap {
                 (2272, Rule::MissingSemicolonBeforeBrace),
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
+                (2120, Rule::FunctionCalledWithoutArgs),
+                (2364, Rule::FunctionReferencesUnsetParam),
                 (2277, Rule::ExtglobInCasePattern),
                 (2100, Rule::AssignmentLooksLikeComparison),
                 (2319, Rule::StatusCaptureAfterBranchTest),
@@ -595,10 +599,14 @@ impl Default for ShellCheckCodeMap {
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
+                (2377, Rule::AppendWithEscapedQuotes),
+                (2367, Rule::UncheckedDirectoryChangeInFunction),
+                (2368, Rule::ContinueOutsideLoopInFunction),
+                (2378, Rule::VariableAsCommandName),
+                (2384, Rule::LocalCrossReference),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
-                (2384, Rule::LocalCrossReference),
-                (2377, Rule::AppendWithEscapedQuotes),
+                (2398, Rule::KeywordFunctionName),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
@@ -788,6 +796,14 @@ mod tests {
         assert_eq!(map.resolve("SC2371"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(map.resolve("SC2375"), Some(Rule::ZshParameterIndexFlag));
         assert_eq!(map.resolve("SC2164"), Some(Rule::UncheckedDirectoryChange));
+        assert_eq!(
+            map.resolve("SC2367"),
+            Some(Rule::UncheckedDirectoryChangeInFunction)
+        );
+        assert_eq!(
+            map.resolve("SC2368"),
+            Some(Rule::ContinueOutsideLoopInFunction)
+        );
         assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
         assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
         assert_eq!(map.resolve("SC2127"), Some(Rule::BashCaseFallthrough));
@@ -837,6 +853,12 @@ mod tests {
         assert_eq!(map.resolve("SC2324"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(map.resolve("SC2115"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
+        assert_eq!(
+            map.resolve("SC2368"),
+            Some(Rule::ContinueOutsideLoopInFunction)
+        );
+        assert_eq!(map.resolve("SC2378"), Some(Rule::VariableAsCommandName));
+        assert_eq!(map.resolve("SC2398"), Some(Rule::KeywordFunctionName));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC2217"), Some(Rule::EchoHereDoc));
@@ -864,6 +886,11 @@ mod tests {
         assert_eq!(
             map.resolve_all("SC2321"),
             vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]
+        );
+        assert_eq!(map.resolve("SC2120"), Some(Rule::FunctionCalledWithoutArgs));
+        assert_eq!(
+            map.resolve("SC2364"),
+            Some(Rule::FunctionReferencesUnsetParam)
         );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(
@@ -1084,6 +1111,7 @@ mod tests {
             (2339, Rule::MapfileProcessSubstitution),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
+            (2398, Rule::KeywordFunctionName),
             (2115, Rule::RmGlobOnVariablePath),
             (2126, Rule::GrepCountPipeline),
             (2127, Rule::BashCaseFallthrough),
@@ -1145,7 +1173,12 @@ mod tests {
             (2294, Rule::EvalOnArray),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
+            (2120, Rule::FunctionCalledWithoutArgs),
             (2141, Rule::IfsSetToLiteralBackslashN),
+            (2364, Rule::FunctionReferencesUnsetParam),
+            (2367, Rule::UncheckedDirectoryChangeInFunction),
+            (2368, Rule::ContinueOutsideLoopInFunction),
+            (2378, Rule::VariableAsCommandName),
             (2353, Rule::AssignmentToNumericVariable),
             (2354, Rule::PlusPrefixInAssignment),
             (2377, Rule::AppendWithEscapedQuotes),
@@ -1153,6 +1186,7 @@ mod tests {
             (2321, Rule::ArrayIndexArithmetic),
             (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
+            (2120, Rule::FunctionCalledWithoutArgs),
             (2323, Rule::ArithmeticScoreLine),
             (2332, Rule::FindOrWithoutGrouping),
             (2339, Rule::MapfileProcessSubstitution),
@@ -1338,6 +1372,8 @@ mod tests {
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
+        assert!(comparison.contains(&(2120, Rule::FunctionCalledWithoutArgs)));
+        assert!(comparison.contains(&(2364, Rule::FunctionReferencesUnsetParam)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(comparison.contains(&(1041, Rule::HeredocCloserNotAlone)));
         assert!(comparison.contains(&(1042, Rule::MisquotedHeredocClose)));

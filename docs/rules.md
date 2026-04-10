@@ -375,12 +375,12 @@ Rules about `&&`/`||` chain semantics and boolean shortcut patterns.
 Rules about function definitions, local variables, and scope issues. Some
 require semantic model access for call site analysis.
 
-- [ ] **H** C097 (SC2323) `function-called-without-args` — function referencing `$1` called without args
-- [ ] **H** C123 (SC2364) `function-references-unset-param` — function references unset positional param
-- [ ] **M** C125 (SC2367) `cd-without-error-check-in-func` — cd without error handling in function
-- [ ] **M** C126 (SC2368) `continue-outside-loop-in-func` — continue inside function but outside loop
-- [ ] **M** C131 (SC2378) `variable-as-command-name` — unquoted variable as command name
-- [ ] **L** C147 (SC2398) `keyword-function-name` — reserved word as function name
+- [x] **H** C097 (SC2120) `function-called-without-args` — function that reads positional parameters is called with no arguments
+- [x] **H** C123 (SC2364) `function-references-unset-param` — function references unset positional param
+- [x] **M** C125 (SC2367) `cd-without-error-check-in-func` — cd without error handling in function
+- [x] **M** C126 (SC2368) `continue-outside-loop-in-func` — continue inside function but outside loop
+- [x] **M** C131 (SC2378) `variable-as-command-name` — unquoted variable as command name
+- [x] **L** C147 (SC2398) `keyword-function-name` — reserved word as function name
 - [ ] **M** S038 (SC2265) `redundant-return-status` — returns status function already propagates
 - [ ] **L** S041 (SC2276) `function-body-without-braces` — bare compound command as body
 - [ ] **L** S066 (SC2362) `local-declare-combined` — `local` and `declare` combined

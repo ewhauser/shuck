@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 159
+---
+C147 reserved word is used as a function name
+ --> <source>:2:10
+  |
+2 | function for { :; }
+  |

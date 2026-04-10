@@ -17,6 +17,7 @@ pub mod chained_test_branches;
 pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
+pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
 pub mod double_paren_grouping;
 pub mod dynamic_source_path;
@@ -27,12 +28,15 @@ pub mod empty_test;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+pub mod function_called_without_args;
+pub mod function_references_unset_param;
 pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
 pub mod invalid_exit_status;
+pub mod keyword_function_name;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
 pub mod linebreak_in_test;
@@ -72,6 +76,7 @@ pub mod template_brace_in_command;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
 pub mod unchecked_directory_change;
+pub mod unchecked_directory_change_in_function;
 pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
@@ -80,6 +85,7 @@ pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
 pub mod unused_heredoc;
+pub mod variable_as_command_name;
 
 #[cfg(test)]
 mod tests {
@@ -147,15 +153,20 @@ mod tests {
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
+    #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
-    #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
+    #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
+    #[test_case(Rule::FunctionReferencesUnsetParam, Path::new("C123.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
+    #[test_case(Rule::UncheckedDirectoryChangeInFunction, Path::new("C125.sh"))]
+    #[test_case(Rule::ContinueOutsideLoopInFunction, Path::new("C126.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
+    #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
@@ -169,6 +180,7 @@ mod tests {
     #[test_case(Rule::HeredocCloserNotAlone, Path::new("C144.sh"))]
     #[test_case(Rule::MisquotedHeredocClose, Path::new("C145.sh"))]
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
+    #[test_case(Rule::KeywordFunctionName, Path::new("C147.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

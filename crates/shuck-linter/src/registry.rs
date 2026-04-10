@@ -156,6 +156,12 @@ declare_rules! {
         AssignmentLooksLikeComparison
     ),
     (
+        "C097",
+        Category::Correctness,
+        Severity::Error,
+        FunctionCalledWithoutArgs
+    ),
+    (
         "C098",
         Category::Correctness,
         Severity::Warning,
@@ -192,13 +198,37 @@ declare_rules! {
         Severity::Warning,
         PlusPrefixInAssignment
     ),
+    (
+        "C123",
+        Category::Correctness,
+        Severity::Error,
+        FunctionReferencesUnsetParam
+    ),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     ("C127", Category::Correctness, Severity::Warning, UnusedHeredoc),
+    (
+        "C125",
+        Category::Correctness,
+        Severity::Warning,
+        UncheckedDirectoryChangeInFunction
+    ),
+    (
+        "C126",
+        Category::Correctness,
+        Severity::Error,
+        ContinueOutsideLoopInFunction
+    ),
     (
         "C130",
         Category::Correctness,
         Severity::Warning,
         AppendWithEscapedQuotes
+    ),
+    (
+        "C131",
+        Category::Correctness,
+        Severity::Warning,
+        VariableAsCommandName
     ),
     (
         "C132",
@@ -212,8 +242,6 @@ declare_rules! {
         Severity::Warning,
         LocalCrossReference
     ),
-    ("C139", Category::Correctness, Severity::Warning, SpacedAssignment),
-    ("C140", Category::Correctness, Severity::Warning, BadVarName),
     (
         "C137",
         Category::Correctness,
@@ -221,6 +249,8 @@ declare_rules! {
         UnicodeSingleQuoteInSingleQuotes
     ),
     ("C138", Category::Correctness, Severity::Warning, HeredocMissingEnd),
+    ("C139", Category::Correctness, Severity::Warning, SpacedAssignment),
+    ("C140", Category::Correctness, Severity::Warning, BadVarName),
     ("C141", Category::Correctness, Severity::Error, LoopWithoutEnd),
     (
         "C142",
@@ -237,6 +267,7 @@ declare_rules! {
     ),
     ("C145", Category::Correctness, Severity::Warning, MisquotedHeredocClose),
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
+    ("C147", Category::Correctness, Severity::Warning, KeywordFunctionName),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
@@ -442,6 +473,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-025" => Some(Rule::DynamicSourcePath),
         "SH-026" => Some(Rule::UntrackedSourceFile),
         "SH-027" => Some(Rule::UncheckedDirectoryChange),
+        "SH-228" => Some(Rule::FunctionCalledWithoutArgs),
+        "SH-292" => Some(Rule::FunctionReferencesUnsetParam),
+        "SH-295" => Some(Rule::UncheckedDirectoryChangeInFunction),
+        "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
+        "SH-308" => Some(Rule::VariableAsCommandName),
+        "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -636,6 +673,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-157"), Some(Rule::ArrayIndexArithmetic));
         assert_eq!(code_to_rule("S035"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(code_to_rule("SH-161"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(
+            code_to_rule("SH-228"),
+            Some(Rule::FunctionCalledWithoutArgs)
+        );
+        assert_eq!(
+            code_to_rule("SH-292"),
+            Some(Rule::FunctionReferencesUnsetParam)
+        );
         assert_eq!(code_to_rule("S045"), Some(Rule::DollarInArithmetic));
         assert_eq!(code_to_rule("SH-197"), Some(Rule::DollarInArithmetic));
         assert_eq!(code_to_rule("S046"), Some(Rule::LsPipedToXargs));
@@ -824,8 +869,28 @@ mod tests {
         assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
+        assert_eq!(
+            code_to_rule("C125"),
+            Some(Rule::UncheckedDirectoryChangeInFunction)
+        );
+        assert_eq!(
+            code_to_rule("SH-295"),
+            Some(Rule::UncheckedDirectoryChangeInFunction)
+        );
+        assert_eq!(
+            code_to_rule("C126"),
+            Some(Rule::ContinueOutsideLoopInFunction)
+        );
+        assert_eq!(
+            code_to_rule("SH-296"),
+            Some(Rule::ContinueOutsideLoopInFunction)
+        );
+        assert_eq!(code_to_rule("C131"), Some(Rule::VariableAsCommandName));
+        assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
+        assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));
+        assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

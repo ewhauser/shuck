@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 153
+---
+C125 `cd` inside a function should check whether the directory change succeeded
+ --> <source>:3:2
+  |
+3 | 	cd /tmp
+  |
+
+C125 `pushd` inside a function should check whether the directory change succeeded
+ --> <source>:4:2
+  |
+4 | 	pushd /var
+  |
+
+C125 `popd` inside a function should check whether the directory change succeeded
+ --> <source>:5:2
+  |
+5 | 	popd
+  |

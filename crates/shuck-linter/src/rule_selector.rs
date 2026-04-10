@@ -82,7 +82,13 @@ mod tests {
         let selector = RuleSelector::from_str("C12").unwrap();
         assert_eq!(
             selector.into_rule_set().iter().collect::<Vec<_>>(),
-            vec![Rule::UnreachableAfterExit, Rule::UnusedHeredoc]
+            vec![
+                Rule::FunctionReferencesUnsetParam,
+                Rule::UnreachableAfterExit,
+                Rule::UnusedHeredoc,
+                Rule::UncheckedDirectoryChangeInFunction,
+                Rule::ContinueOutsideLoopInFunction,
+            ]
         );
     }
 }

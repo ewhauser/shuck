@@ -3,13 +3,13 @@ legacy_name: function-called-without-args
 new_category: Correctness
 new_code: C097
 runtime_kind: ast
-shellcheck_code: SC2323
+shellcheck_code: SC2120
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: "A function that references `$1` is called without arguments."
+description: A function that reads positional parameters is called with no arguments.
 rationale: Pass the expected arguments or guard against missing parameters.
 source:
   shell_checks_rule: rules/SH-228.yaml

@@ -170,6 +170,14 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::OverwrittenFunction) {
             rules::correctness::overwritten_function::overwritten_function(self);
         }
+        if self.is_rule_enabled(Rule::FunctionCalledWithoutArgs) {
+            rules::correctness::function_called_without_args::function_called_without_args(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionReferencesUnsetParam) {
+            rules::correctness::function_references_unset_param::function_references_unset_param(
+                self,
+            );
+        }
     }
 
     fn check_source_refs(&mut self) {
@@ -184,6 +192,9 @@ impl<'a> Checker<'a> {
     fn check_command_facts(&mut self) {
         if self.is_rule_enabled(Rule::UncheckedDirectoryChange) {
             rules::correctness::unchecked_directory_change::unchecked_directory_change(self);
+        }
+        if self.is_rule_enabled(Rule::UncheckedDirectoryChangeInFunction) {
+            rules::correctness::unchecked_directory_change_in_function::unchecked_directory_change_in_function(self);
         }
         if self.is_rule_enabled(Rule::RmGlobOnVariablePath) {
             rules::security::rm_glob_on_variable_path::rm_glob_on_variable_path(self);
@@ -483,6 +494,17 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::LoopControlOutsideLoop) {
             rules::correctness::loop_control_outside_loop::loop_control_outside_loop(self);
+        }
+        if self.is_rule_enabled(Rule::ContinueOutsideLoopInFunction) {
+            rules::correctness::continue_outside_loop_in_function::continue_outside_loop_in_function(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::VariableAsCommandName) {
+            rules::correctness::variable_as_command_name::variable_as_command_name(self);
+        }
+        if self.is_rule_enabled(Rule::KeywordFunctionName) {
+            rules::correctness::keyword_function_name::keyword_function_name(self);
         }
         if self.is_rule_enabled(Rule::PipeToKill) {
             rules::correctness::pipe_to_kill::pipe_to_kill(self);

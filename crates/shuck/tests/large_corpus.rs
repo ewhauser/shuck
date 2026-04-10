@@ -2275,11 +2275,35 @@ fn validate_selected_rules_for_large_corpus(
 }
 
 fn large_corpus_comparison_mappings(
-    _selected_rules: Option<&shuck_linter::RuleSet>,
+    selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> impl Iterator<Item = (u32, shuck_linter::Rule)> {
-    let mappings: Vec<_> = shuck_linter::ShellCheckCodeMap::default()
+    let mut mappings: Vec<_> = shuck_linter::ShellCheckCodeMap::default()
         .comparison_mappings()
         .collect();
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::UncheckedDirectoryChangeInFunction)
+            && !rules.contains(shuck_linter::Rule::UncheckedDirectoryChange)
+    }) {
+        mappings.push((2164, shuck_linter::Rule::UncheckedDirectoryChangeInFunction));
+    }
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::ContinueOutsideLoopInFunction)
+            && !rules.contains(shuck_linter::Rule::LoopControlOutsideLoop)
+    }) {
+        mappings.push((2104, shuck_linter::Rule::ContinueOutsideLoopInFunction));
+    }
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::VariableAsCommandName)
+            && !rules.contains(shuck_linter::Rule::UnquotedExpansion)
+    }) {
+        mappings.push((2086, shuck_linter::Rule::VariableAsCommandName));
+    }
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::KeywordFunctionName)
+            && !rules.contains(shuck_linter::Rule::FunctionKeyword)
+    }) {
+        mappings.push((2112, shuck_linter::Rule::KeywordFunctionName));
+    }
 
     mappings.into_iter()
 }
@@ -3085,6 +3109,8 @@ mod tests {
         assert_eq!(index.get("X056").map(String::as_str), Some("SC3005"));
         assert_eq!(index.get("X057").map(String::as_str), Some("SC3007"));
         assert_eq!(index.get("X062").map(String::as_str), Some("SC3018"));
+        assert_eq!(index.get("C097").map(String::as_str), Some("SC2120"));
+        assert_eq!(index.get("C123").map(String::as_str), Some("SC2364"));
         assert_eq!(index.get("S035").map(String::as_str), Some("SC2323"));
         assert_eq!(index.get("X016"), None);
         assert_eq!(index.get("X052"), None);
