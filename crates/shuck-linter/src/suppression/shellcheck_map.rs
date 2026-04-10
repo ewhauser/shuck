@@ -171,6 +171,9 @@ impl Default for ShellCheckCodeMap {
             (2112, Rule::FunctionKeyword),
             (2216, Rule::PipeToKill),
             (2156, Rule::FindExecDirWithShell),
+            // ShellCheck 0.11.0 reports redirecting heredoc/stdin input into `echo` as SC2217.
+            // The legacy S033 metadata still references SC2127.
+            (2217, Rule::EchoHereDoc),
             // ShellCheck 0.11.0 reports C-style `for ((...))` loop portability warnings as SC3005.
             // Keep SC3063 as a suppression alias, but prefer the current code for comparisons.
             (3005, Rule::CStyleForInSh),
@@ -418,6 +421,7 @@ impl Default for ShellCheckCodeMap {
                 (2168, Rule::LocalTopLevel),
                 (2194, Rule::ConstantCaseSubject),
                 (2210, Rule::BadRedirectionFdOrder),
+                (2217, Rule::EchoHereDoc),
                 (2154, Rule::UndefinedVariable),
                 (2239, Rule::NonAbsoluteShebang),
                 (2288, Rule::TemplateBraceInCommand),
@@ -634,6 +638,7 @@ mod tests {
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
+        assert_eq!(map.resolve("SC2217"), Some(Rule::EchoHereDoc));
         assert_eq!(map.resolve("SC3005"), Some(Rule::CStyleForInSh));
         assert_eq!(map.resolve("SC3006"), Some(Rule::StandaloneArithmetic));
         assert_eq!(map.resolve("SC3007"), Some(Rule::LegacyArithmeticInSh));
@@ -858,6 +863,7 @@ mod tests {
             (2194, Rule::ConstantCaseSubject),
             (2219, Rule::AvoidLetBuiltin),
             (2210, Rule::BadRedirectionFdOrder),
+            (2217, Rule::EchoHereDoc),
             (2216, Rule::PipeToKill),
             (2233, Rule::SingleTestSubshell),
             (2235, Rule::SubshellTestGroup),
@@ -1042,6 +1048,7 @@ mod tests {
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
         assert!(comparison.contains(&(3048, Rule::WaitOption)));
+        assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));

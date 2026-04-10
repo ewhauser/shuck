@@ -300,6 +300,7 @@ declare_rules! {
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
+    ("S033", Category::Style, Severity::Warning, EchoHereDoc),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
     ("S035", Category::Style, Severity::Warning, ArithmeticScoreLine),
     ("S045", Category::Style, Severity::Warning, DollarInArithmetic),
@@ -408,6 +409,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
         "SH-050" => Some(Rule::ExportCommandSubstitution),
+        "SH-135" => Some(Rule::EchoHereDoc),
         "SH-052" => Some(Rule::LocalTopLevel),
         "SH-060" => Some(Rule::SudoRedirectionOrder),
         "SH-069" => Some(Rule::ConstantComparisonTest),
@@ -604,6 +606,8 @@ mod tests {
             code_to_rule("SH-050"),
             Some(Rule::ExportCommandSubstitution)
         );
+        assert_eq!(code_to_rule("S033"), Some(Rule::EchoHereDoc));
+        assert_eq!(code_to_rule("SH-135"), Some(Rule::EchoHereDoc));
         assert_eq!(code_to_rule("SH-052"), Some(Rule::LocalTopLevel));
         assert_eq!(code_to_rule("SH-060"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(code_to_rule("SH-081"), Some(Rule::PrintfQFormatInSh));

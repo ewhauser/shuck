@@ -388,7 +388,7 @@ misuse.
 - [x] **L** C144 (SC2394) `heredoc-closer-not-alone` — closer on same line as content
 - [x] **M** C145 (SC2395) `misquoted-heredoc-close` — closing marker is only a near match
 - [x] **L** S030 (SC1040) `heredoc-end-space` — trailing whitespace on terminator
-- [ ] **L** S033 (SC2127) `echo-here-doc` — heredoc attached to echo
+- [x] **L** S033 (SC2127) `echo-here-doc` — heredoc attached to echo
 - [ ] **L** S073 (SC2393) `spaced-tabstrip-close` — spaces before `<<-` closer
 
 ### Structural and Syntax Issues

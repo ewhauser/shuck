@@ -236,6 +236,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
             rules::style::export_command_substitution::export_command_substitution(self);
         }
+        if self.is_rule_enabled(Rule::EchoHereDoc) {
+            rules::style::echo_here_doc::echo_here_doc(self);
+        }
         if self.is_rule_enabled(Rule::InvalidExitStatus) {
             rules::correctness::invalid_exit_status::invalid_exit_status(self);
         }
