@@ -205,6 +205,12 @@ declare_rules! {
         MissingDoneInForLoop
     ),
     ("C143", Category::Correctness, Severity::Error, DanglingElse),
+    (
+        "C144",
+        Category::Correctness,
+        Severity::Warning,
+        HeredocCloserNotAlone
+    ),
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
@@ -504,6 +510,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-321" => Some(Rule::LoopWithoutEnd),
         "SH-322" => Some(Rule::MissingDoneInForLoop),
         "SH-327" => Some(Rule::DanglingElse),
+        "SH-332" => Some(Rule::HeredocCloserNotAlone),
         "SH-334" => Some(Rule::UntilMissingDo),
         "SH-353" => Some(Rule::IfBracketGlued),
         _ => None,
@@ -713,6 +720,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-322"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(code_to_rule("C143"), Some(Rule::DanglingElse));
         assert_eq!(code_to_rule("SH-327"), Some(Rule::DanglingElse));
+        assert_eq!(code_to_rule("C144"), Some(Rule::HeredocCloserNotAlone));
+        assert_eq!(code_to_rule("SH-332"), Some(Rule::HeredocCloserNotAlone));
         assert_eq!(code_to_rule("C146"), Some(Rule::UntilMissingDo));
         assert_eq!(code_to_rule("SH-334"), Some(Rule::UntilMissingDo));
         assert_eq!(code_to_rule("C157"), Some(Rule::IfBracketGlued));

@@ -385,7 +385,7 @@ misuse.
 
 - [x] **M** C127 (SC2370) `unused-heredoc` — heredoc opened without consuming command
 - [x] **M** C138 (SC2386) `heredoc-missing-end` — heredoc never gets closing marker
-- [ ] **L** C144 (SC2394) `heredoc-closer-not-alone` — closer on same line as content
+- [x] **L** C144 (SC2394) `heredoc-closer-not-alone` — closer on same line as content
 - [ ] **M** C145 (SC2395) `misquoted-heredoc-close` — closing marker is only a near match
 - [ ] **L** S030 (SC1040) `heredoc-end-space` — trailing whitespace on terminator
 - [ ] **L** S033 (SC2127) `echo-here-doc` — heredoc attached to echo

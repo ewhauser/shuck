@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 153
+---
+C144 this here-document closer must be on its own line
+ --> <source>:3:3
+  |
+3 | x EOF
+  |

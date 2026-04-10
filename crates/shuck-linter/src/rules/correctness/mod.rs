@@ -26,6 +26,7 @@ pub mod empty_function_body;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
 pub mod if_missing_then;
@@ -156,6 +157,7 @@ mod tests {
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
     #[test_case(Rule::DanglingElse, Path::new("C143.sh"))]
+    #[test_case(Rule::HeredocCloserNotAlone, Path::new("C144.sh"))]
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
