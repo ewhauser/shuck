@@ -868,6 +868,7 @@ mod tests {
             (2115, Rule::RmGlobOnVariablePath),
             (2126, Rule::GrepCountPipeline),
             (2127, Rule::BashCaseFallthrough),
+            (2127, Rule::EchoHereDoc),
             (2154, Rule::UndefinedVariable),
             (2155, Rule::ExportCommandSubstitution),
             (2156, Rule::FindExecDirWithShell),
