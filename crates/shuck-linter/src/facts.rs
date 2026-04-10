@@ -4938,7 +4938,7 @@ fn is_unescaped_dollar(bytes: &[u8], index: usize) -> bool {
         cursor -= 1;
     }
 
-    backslash_count % 2 == 0
+    backslash_count.is_multiple_of(2)
 }
 
 fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
