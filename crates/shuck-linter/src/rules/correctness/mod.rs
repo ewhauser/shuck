@@ -13,6 +13,7 @@ pub mod chained_test_branches;
 pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
+pub mod dangling_else;
 pub mod double_paren_grouping;
 pub mod dynamic_source_path;
 pub mod else_if;
@@ -130,6 +131,7 @@ mod tests {
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
+    #[test_case(Rule::DanglingElse, Path::new("C143.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

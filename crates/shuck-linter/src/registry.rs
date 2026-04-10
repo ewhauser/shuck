@@ -163,6 +163,7 @@ declare_rules! {
         Severity::Error,
         MissingDoneInForLoop
     ),
+    ("C143", Category::Correctness, Severity::Error, DanglingElse),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
     ("P003", Category::Performance, Severity::Warning, SingleTestSubshell),
@@ -421,6 +422,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-315" => Some(Rule::UnicodeSingleQuoteInSingleQuotes),
         "SH-321" => Some(Rule::LoopWithoutEnd),
         "SH-322" => Some(Rule::MissingDoneInForLoop),
+        "SH-327" => Some(Rule::DanglingElse),
         _ => None,
     })
 }
@@ -595,6 +597,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-321"), Some(Rule::LoopWithoutEnd));
         assert_eq!(code_to_rule("C142"), Some(Rule::MissingDoneInForLoop));
         assert_eq!(code_to_rule("SH-322"), Some(Rule::MissingDoneInForLoop));
+        assert_eq!(code_to_rule("C143"), Some(Rule::DanglingElse));
+        assert_eq!(code_to_rule("SH-327"), Some(Rule::DanglingElse));
         assert_eq!(code_to_rule("X005"), Some(Rule::BashCaseFallthrough));
         assert_eq!(code_to_rule("X008"), Some(Rule::StandaloneArithmetic));
         assert_eq!(code_to_rule("X009"), Some(Rule::SelectLoop));
