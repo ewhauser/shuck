@@ -220,6 +220,7 @@ declare_rules! {
     ("X074", Category::Portability, Severity::Warning, StickyBitTestInSh),
     ("X075", Category::Portability, Severity::Warning, OwnershipTestInSh),
     ("X080", Category::Portability, Severity::Warning, SourceInsideFunctionInSh),
+    ("K001", Category::Security, Severity::Warning, RmGlobOnVariablePath),
     ("S001", Category::Style, Severity::Warning, UnquotedExpansion),
     ("S002", Category::Style, Severity::Warning, ReadWithoutRaw),
     ("S003", Category::Style, Severity::Warning, LoopFromCommandOutput),
@@ -304,6 +305,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
+        "SH-044" => Some(Rule::RmGlobOnVariablePath),
         "SH-045" => Some(Rule::ChainedTestBranches),
         "SH-046" => Some(Rule::LineOrientedInput),
         "SH-048" => Some(Rule::LeadingGlobArgument),
@@ -462,6 +464,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));
         assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));
+        assert_eq!(code_to_rule("SH-044"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));

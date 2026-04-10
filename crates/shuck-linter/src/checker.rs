@@ -185,6 +185,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UncheckedDirectoryChange) {
             rules::correctness::unchecked_directory_change::unchecked_directory_change(self);
         }
+        if self.is_rule_enabled(Rule::RmGlobOnVariablePath) {
+            rules::security::rm_glob_on_variable_path::rm_glob_on_variable_path(self);
+        }
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }

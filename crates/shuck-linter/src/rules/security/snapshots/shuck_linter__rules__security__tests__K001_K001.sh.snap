@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/security/mod.rs
+expression: $crate::test::print_diagnostics(&$diagnostics, $source)
+---
+K001 recursive `rm` on a variable path can delete more than intended
+ --> <source>:3:8
+  |
+3 | rm -rf "$dir"/*
+  |

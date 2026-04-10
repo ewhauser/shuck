@@ -20,8 +20,8 @@ use shuck_ast::{
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
     ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ParameterExpansion, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript,
+    VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1121,6 +1121,17 @@ impl<'a> UnsetCommandFacts<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RmCommandFacts {
+    dangerous_path_spans: Box<[Span]>,
+}
+
+impl RmCommandFacts {
+    pub fn dangerous_path_spans(&self) -> &[Span] {
+        &self.dangerous_path_spans
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FindCommandFacts {
     pub has_print0: bool,
@@ -1191,6 +1202,7 @@ pub struct SudoFamilyCommandFacts {
 
 #[derive(Debug, Clone, Default)]
 pub struct CommandOptionFacts<'a> {
+    rm: Option<RmCommandFacts>,
     read: Option<ReadCommandFacts>,
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
@@ -1205,6 +1217,10 @@ pub struct CommandOptionFacts<'a> {
 }
 
 impl<'a> CommandOptionFacts<'a> {
+    pub fn rm(&self) -> Option<&RmCommandFacts> {
+        self.rm.as_ref()
+    }
+
     pub fn read(&self) -> Option<&ReadCommandFacts> {
         self.read.as_ref()
     }
@@ -1251,6 +1267,12 @@ impl<'a> CommandOptionFacts<'a> {
 
     fn build(command: &'a Command, normalized: &NormalizedCommand<'a>, source: &str) -> Self {
         Self {
+            rm: normalized
+                .literal_name
+                .as_deref()
+                .is_some_and(|name| name == "rm" && normalized.wrappers.is_empty())
+                .then(|| parse_rm_command(normalized.body_args(), source))
+                .flatten(),
             read: normalized
                 .effective_name_is("read")
                 .then(|| ReadCommandFacts {
@@ -4153,6 +4175,303 @@ fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     )
 }
 
+fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
+    let mut index = 0usize;
+    let mut recursive = false;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        if text == "--recursive"
+            || (text.starts_with('-') && !text.starts_with("--") && text[1..].contains('r'))
+            || (text.starts_with('-') && !text.starts_with("--") && text[1..].contains('R'))
+        {
+            recursive = true;
+        }
+
+        index += 1;
+    }
+
+    if !recursive {
+        return None;
+    }
+
+    let dangerous_path_spans = args[index..]
+        .iter()
+        .filter(|word| rm_path_is_dangerous(word, source))
+        .map(|word| word.span)
+        .collect::<Vec<_>>();
+
+    (!dangerous_path_spans.is_empty()).then_some(RmCommandFacts {
+        dangerous_path_spans: dangerous_path_spans.into_boxed_slice(),
+    })
+}
+
+fn rm_path_is_dangerous(word: &Word, source: &str) -> bool {
+    let segments = rm_path_segments(word, source);
+    if segments.is_empty() || !segments[0].has_unsafe_param {
+        return false;
+    }
+
+    let brace_expansion_active = word.has_active_brace_expansion();
+    let mut saw_literal_barrier = false;
+    let mut saw_pure_unsafe = false;
+    let mut tail_start = 1usize;
+
+    for (index, segment) in segments.iter().enumerate().skip(1) {
+        if rm_path_segment_is_pure_unsafe_parameter(segment) {
+            if saw_literal_barrier {
+                return false;
+            }
+            saw_pure_unsafe = true;
+            tail_start = index + 1;
+            continue;
+        }
+
+        if segment.has_literal_text || segment.has_other_dynamic || segment.has_unsafe_param {
+            if saw_pure_unsafe {
+                let tail = rm_path_tail_text(&segments[index..]);
+                return rm_path_tail_is_dangerous(&tail, brace_expansion_active);
+            }
+
+            saw_literal_barrier = true;
+        }
+    }
+
+    if saw_pure_unsafe {
+        let tail = rm_path_tail_text(&segments[tail_start..]);
+        return tail.is_empty() || rm_path_tail_is_dangerous(&tail, brace_expansion_active);
+    }
+
+    let tail = rm_path_tail_text(&segments[1..]);
+    !tail.is_empty() && rm_path_tail_is_dangerous(&tail, brace_expansion_active)
+}
+
+#[derive(Debug, Default)]
+struct RmPathSegment {
+    has_unsafe_param: bool,
+    has_literal_text: bool,
+    has_other_dynamic: bool,
+    text: String,
+}
+
+fn rm_path_segments(word: &Word, source: &str) -> Vec<RmPathSegment> {
+    let mut segments = vec![RmPathSegment::default()];
+    append_rm_path_segments(&mut segments, &word.parts, source);
+    segments
+}
+
+fn append_rm_path_segments(
+    segments: &mut Vec<RmPathSegment>,
+    parts: &[WordPartNode],
+    source: &str,
+) {
+    for part in parts {
+        append_rm_path_part(segments, &part.kind, part.span, source);
+    }
+}
+
+fn append_rm_path_part(
+    segments: &mut Vec<RmPathSegment>,
+    part: &WordPart,
+    span: Span,
+    source: &str,
+) {
+    match part {
+        WordPart::Literal(text) => append_rm_path_literal(segments, text.as_str(source, span)),
+        WordPart::SingleQuoted {
+            value,
+            dollar: false,
+        } => append_rm_path_literal(segments, value.slice(source)),
+        WordPart::SingleQuoted { dollar: true, .. } => {
+            current_rm_path_segment(segments).has_other_dynamic = true;
+        }
+        WordPart::DoubleQuoted { parts, .. } => append_rm_path_segments(segments, parts, source),
+        WordPart::Variable(_) => {
+            current_rm_path_segment(segments).has_unsafe_param = true;
+        }
+        WordPart::Parameter(parameter) => {
+            if rm_path_parameter_expansion_is_unsafe(parameter) {
+                current_rm_path_segment(segments).has_unsafe_param = true;
+            }
+        }
+        WordPart::ParameterExpansion {
+            operator,
+            colon_variant: _,
+            ..
+        } => {
+            if rm_path_parameter_op_is_unsafe(operator) {
+                current_rm_path_segment(segments).has_unsafe_param = true;
+            }
+        }
+        WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ZshQualifiedGlob(_) => {
+            current_rm_path_segment(segments).has_other_dynamic = true;
+        }
+    }
+}
+
+fn rm_path_parameter_expansion_is_unsafe(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { .. } => true,
+            BourneParameterExpansion::Indirect {
+                operator,
+                operand: _,
+                colon_variant: _,
+                ..
+            } => operator.as_ref().is_none_or(rm_path_parameter_op_is_unsafe),
+            BourneParameterExpansion::Operation { operator, .. } => {
+                rm_path_parameter_op_is_unsafe(&operator)
+            }
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Transformation { .. }
+            | BourneParameterExpansion::PrefixMatch { .. } => false,
+        },
+        ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn rm_path_parameter_op_is_unsafe(operator: &ParameterOp) -> bool {
+    !matches!(
+        operator,
+        ParameterOp::UseDefault | ParameterOp::AssignDefault | ParameterOp::Error
+    )
+}
+
+fn append_rm_path_literal(segments: &mut Vec<RmPathSegment>, text: &str) {
+    for character in text.chars() {
+        if character == '/' {
+            segments.push(RmPathSegment::default());
+            continue;
+        }
+
+        let segment = current_rm_path_segment(segments);
+        segment.has_literal_text = true;
+        segment.text.push(character);
+    }
+}
+
+fn current_rm_path_segment(segments: &mut Vec<RmPathSegment>) -> &mut RmPathSegment {
+    segments
+        .last_mut()
+        .expect("rm path segments always start non-empty")
+}
+
+fn rm_path_segment_is_pure_unsafe_parameter(segment: &RmPathSegment) -> bool {
+    segment.has_unsafe_param && !segment.has_literal_text && !segment.has_other_dynamic
+}
+
+fn rm_path_tail_text(segments: &[RmPathSegment]) -> String {
+    segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+const RM_DANGEROUS_LITERAL_SUFFIXES: &[&str] = &[
+    "bin",
+    "boot",
+    "dev",
+    "etc",
+    "home",
+    "lib",
+    "opt",
+    "usr/bin",
+    "usr/local",
+    "usr/share",
+    "var",
+];
+
+fn rm_path_tail_is_dangerous(tail: &str, brace_expansion_active: bool) -> bool {
+    if brace_expansion_active && let Some((prefix, inner, suffix)) = split_brace_expansion(tail) {
+        return split_brace_alternatives(inner)
+            .into_iter()
+            .any(|alternative| {
+                rm_path_tail_is_dangerous(&format!("{prefix}{alternative}{suffix}"), true)
+            });
+    }
+
+    let tail = tail.trim_start_matches('/');
+    if tail.is_empty() {
+        return false;
+    }
+
+    if let Some(prefix) = tail.strip_suffix('*') {
+        let prefix = prefix.trim_end_matches('/');
+        return prefix.is_empty() || RM_DANGEROUS_LITERAL_SUFFIXES.contains(&prefix);
+    }
+
+    RM_DANGEROUS_LITERAL_SUFFIXES.contains(&tail)
+}
+
+fn split_brace_expansion(text: &str) -> Option<(&str, &str, &str)> {
+    let bytes = text.as_bytes();
+    let open = bytes.iter().position(|byte| *byte == b'{')?;
+    let mut depth = 0usize;
+
+    for (index, byte) in bytes.iter().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some((&text[..open], &text[open + 1..index], &text[index + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn split_brace_alternatives(text: &str) -> Vec<&str> {
+    let mut alternatives = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+
+    for (index, byte) in text.as_bytes().iter().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                alternatives.push(&text[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    alternatives.push(&text[start..]);
+    alternatives
+}
+
 fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
@@ -4912,6 +5231,7 @@ mod tests {
     #[test]
     fn summarizes_command_options_and_invokers() {
         let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -5045,7 +5365,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["pipefail"]
         );
-
+        let rm_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().rm())
+            .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rm_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "\"$dir\"/*",
+                "\"$dir\"/lib",
+                "\"$rootdir/$md_type/$to\"",
+                "\"$md_inst/\"*"
+            ]
+        );
         let grep = facts
             .commands()
             .iter()

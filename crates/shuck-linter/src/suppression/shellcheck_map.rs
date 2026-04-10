@@ -139,6 +139,7 @@ impl Default for ShellCheckCodeMap {
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2086, Rule::UnquotedExpansion),
+            (2115, Rule::RmGlobOnVariablePath),
             (2104, Rule::LoopControlOutsideLoop),
             (2126, Rule::GrepCountPipeline),
             (2112, Rule::FunctionKeyword),
@@ -301,6 +302,7 @@ impl Default for ShellCheckCodeMap {
                 (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
+                (2115, Rule::RmGlobOnVariablePath),
                 (2104, Rule::LoopControlOutsideLoop),
                 (2112, Rule::FunctionKeyword),
                 (2216, Rule::PipeToKill),
@@ -497,6 +499,7 @@ mod tests {
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
+        assert_eq!(map.resolve("SC2115"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));

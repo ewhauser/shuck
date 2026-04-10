@@ -1,0 +1,10 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__build-style__void-cross.sh"
+    line: 683
+    end_line: 683
+    column: 9
+    end_column: 53
+    labels:
+      - shell-collapse
+    reason: "the sysroot path is built from a fixed /usr/<target> staging prefix, so this delete is constrained to the build sysroot rather than an arbitrary user-controlled directory"
