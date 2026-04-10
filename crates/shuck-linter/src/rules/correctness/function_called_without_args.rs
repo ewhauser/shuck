@@ -206,6 +206,24 @@ greet
     }
 
     #[test]
+    fn ignores_functions_that_reset_positional_parameters_with_plain_operands() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set hello
+  echo \"$1\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_functions_that_use_variadic_positional_parameters() {
         let source = "\
 #!/bin/sh

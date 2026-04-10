@@ -201,4 +201,22 @@ greet
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn ignores_plain_set_operands_that_reset_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set hello world
+  echo \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

@@ -7430,6 +7430,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         }
 
         let Some(flags) = text.strip_prefix('-').or_else(|| text.strip_prefix('+')) else {
+            resets_positional_parameters = true;
             break;
         };
         if flags.is_empty() {
