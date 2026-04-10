@@ -39,6 +39,7 @@ pub mod trailing_directive;
 pub mod unquoted_array_expansion;
 pub mod unquoted_command_substitution;
 pub mod unquoted_expansion;
+pub mod unquoted_tr_range;
 
 #[cfg(test)]
 mod tests {
@@ -66,6 +67,7 @@ mod tests {
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
+    #[test_case(Rule::UnquotedTrRange, Path::new("S049.sh"))]
     #[test_case(Rule::LsPipedToXargs, Path::new("S046.sh"))]
     #[test_case(Rule::LsInSubstitution, Path::new("S047.sh"))]
     #[test_case(Rule::AvoidLetBuiltin, Path::new("S022.sh"))]

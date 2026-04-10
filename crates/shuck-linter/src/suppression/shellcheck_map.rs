@@ -116,6 +116,7 @@ impl Default for ShellCheckCodeMap {
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
+            (2021, Rule::UnquotedTrRange),
             (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
             // ShellCheck 0.11.0 reports space-indented `<<-` close candidates as SC1040.
@@ -392,6 +393,7 @@ impl Default for ShellCheckCodeMap {
                 (2263, Rule::RedundantSpacesInEcho),
                 (2294, Rule::LsInSubstitution),
                 (2291, Rule::UnquotedVariableInSed),
+                (2021, Rule::UnquotedTrRange),
                 (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
                 (3050, Rule::BraceFdRedirection),
@@ -531,7 +533,6 @@ impl Default for ShellCheckCodeMap {
                 (2321, Rule::FunctionKeywordInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (2009, Rule::DoubleParenGrouping),
-<<<<<<< HEAD
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -544,6 +545,8 @@ impl Default for ShellCheckCodeMap {
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
                 (2294, Rule::LsInSubstitution),
+                (2298, Rule::UnquotedTrRange),
+                (2060, Rule::UnquotedTrRange),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
                 (2127, Rule::EchoHereDoc),
@@ -621,6 +624,9 @@ mod tests {
         assert_eq!(map.resolve("SC3061"), Some(Rule::ExtglobInSh));
         assert_eq!(map.resolve("SC2258"), Some(Rule::BareRead));
         assert_eq!(map.resolve("SC2291"), Some(Rule::UnquotedVariableInSed));
+        assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
+        assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
+        assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
@@ -633,6 +639,9 @@ mod tests {
             map.resolve_all("SC2291"),
             vec![Rule::UnquotedVariableInSed]
         );
+        assert_eq!(map.resolve_all("SC2298"), vec![Rule::UnquotedTrRange]);
+        assert_eq!(map.resolve_all("SC2021"), vec![Rule::UnquotedTrRange]);
+        assert_eq!(map.resolve_all("SC2060"), vec![Rule::UnquotedTrRange]);
         assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
         assert_eq!(
             map.resolve_all("SC2294"),
@@ -945,6 +954,9 @@ mod tests {
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2291, Rule::UnquotedVariableInSed),
+            (2021, Rule::UnquotedTrRange),
+            (2298, Rule::UnquotedTrRange),
+            (2060, Rule::UnquotedTrRange),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
             (2016, Rule::SingleQuotedLiteral),
@@ -1175,6 +1187,9 @@ mod tests {
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
+        assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
+        assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
+        assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
