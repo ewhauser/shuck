@@ -2298,6 +2298,12 @@ fn large_corpus_comparison_mappings(
     }) {
         mappings.push((2086, shuck_linter::Rule::VariableAsCommandName));
     }
+    if selected_rules.is_some_and(|rules| {
+        rules.contains(shuck_linter::Rule::KeywordFunctionName)
+            && !rules.contains(shuck_linter::Rule::FunctionKeyword)
+    }) {
+        mappings.push((2112, shuck_linter::Rule::KeywordFunctionName));
+    }
 
     mappings.into_iter()
 }

@@ -36,6 +36,7 @@ pub mod if_bracket_glued;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
 pub mod invalid_exit_status;
+pub mod keyword_function_name;
 pub mod leading_glob_argument;
 pub mod line_oriented_input;
 pub mod linebreak_in_test;
@@ -179,6 +180,7 @@ mod tests {
     #[test_case(Rule::HeredocCloserNotAlone, Path::new("C144.sh"))]
     #[test_case(Rule::MisquotedHeredocClose, Path::new("C145.sh"))]
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
+    #[test_case(Rule::KeywordFunctionName, Path::new("C147.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

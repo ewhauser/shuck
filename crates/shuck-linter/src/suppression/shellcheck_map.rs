@@ -599,13 +599,14 @@ impl Default for ShellCheckCodeMap {
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
+                (2377, Rule::AppendWithEscapedQuotes),
                 (2367, Rule::UncheckedDirectoryChangeInFunction),
                 (2368, Rule::ContinueOutsideLoopInFunction),
                 (2378, Rule::VariableAsCommandName),
+                (2384, Rule::LocalCrossReference),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
-                (2384, Rule::LocalCrossReference),
-                (2377, Rule::AppendWithEscapedQuotes),
+                (2398, Rule::KeywordFunctionName),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
@@ -857,6 +858,7 @@ mod tests {
             Some(Rule::ContinueOutsideLoopInFunction)
         );
         assert_eq!(map.resolve("SC2378"), Some(Rule::VariableAsCommandName));
+        assert_eq!(map.resolve("SC2398"), Some(Rule::KeywordFunctionName));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
         assert_eq!(map.resolve("SC2216"), Some(Rule::PipeToKill));
         assert_eq!(map.resolve("SC2217"), Some(Rule::EchoHereDoc));
@@ -1109,6 +1111,7 @@ mod tests {
             (2339, Rule::MapfileProcessSubstitution),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
+            (2398, Rule::KeywordFunctionName),
             (2115, Rule::RmGlobOnVariablePath),
             (2126, Rule::GrepCountPipeline),
             (2127, Rule::BashCaseFallthrough),

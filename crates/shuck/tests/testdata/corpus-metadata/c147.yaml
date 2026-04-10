@@ -1,0 +1,13 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
+    labels:
+      - helper-library
+      - shell-collapse
+    reason: "This helper-library fixture uses the `function` keyword, which the current ShellCheck 0.11.0 oracle reports as SC2112. C147 only covers reserved words used as function names, so this spillover is outside the rule's scope."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__wd___wd.sh"
+    labels:
+      - helper-library
+      - shell-collapse
+    reason: "This helper-library fixture uses the `function` keyword, which the current ShellCheck 0.11.0 oracle reports as SC2112. C147 only covers reserved words used as function names, so this spillover is outside the rule's scope."

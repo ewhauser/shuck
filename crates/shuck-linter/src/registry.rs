@@ -236,13 +236,12 @@ declare_rules! {
         Severity::Warning,
         MisspelledOptionName
     ),
+    (
         "C136",
         Category::Correctness,
         Severity::Warning,
         LocalCrossReference
     ),
-    ("C139", Category::Correctness, Severity::Warning, SpacedAssignment),
-    ("C140", Category::Correctness, Severity::Warning, BadVarName),
     (
         "C137",
         Category::Correctness,
@@ -250,6 +249,8 @@ declare_rules! {
         UnicodeSingleQuoteInSingleQuotes
     ),
     ("C138", Category::Correctness, Severity::Warning, HeredocMissingEnd),
+    ("C139", Category::Correctness, Severity::Warning, SpacedAssignment),
+    ("C140", Category::Correctness, Severity::Warning, BadVarName),
     ("C141", Category::Correctness, Severity::Error, LoopWithoutEnd),
     (
         "C142",
@@ -266,6 +267,7 @@ declare_rules! {
     ),
     ("C145", Category::Correctness, Severity::Warning, MisquotedHeredocClose),
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
+    ("C147", Category::Correctness, Severity::Warning, KeywordFunctionName),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
@@ -473,6 +475,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-027" => Some(Rule::UncheckedDirectoryChange),
         "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
         "SH-308" => Some(Rule::VariableAsCommandName),
+        "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -883,6 +886,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
+        assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));
+        assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),
