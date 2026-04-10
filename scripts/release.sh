@@ -97,8 +97,8 @@ if [ "$BRANCH" != "main" ]; then
     exit 1
 fi
 
-# Bump version in workspace Cargo.toml
-sed -i '' "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" "$CARGO_TOML"
+# Bump version in workspace Cargo.toml (portable across GNU and BSD sed)
+perl -pi -e "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" "$CARGO_TOML"
 
 # Commit and tag
 git -C "$REPO_ROOT" add Cargo.toml
