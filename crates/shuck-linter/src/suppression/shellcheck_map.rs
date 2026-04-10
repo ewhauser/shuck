@@ -237,6 +237,7 @@ impl Default for ShellCheckCodeMap {
             (2273, Rule::EmptyFunctionBody),
             (2274, Rule::BareClosingBrace),
             (2277, Rule::ExtglobInCasePattern),
+            (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2365, Rule::UnreachableAfterExit),
             (3010, Rule::DoubleBracketInSh),
@@ -414,6 +415,7 @@ impl Default for ShellCheckCodeMap {
                 (2273, Rule::EmptyFunctionBody),
                 (2274, Rule::BareClosingBrace),
                 (2277, Rule::ExtglobInCasePattern),
+                (2100, Rule::AssignmentLooksLikeComparison),
                 (2319, Rule::StatusCaptureAfterBranchTest),
                 (2365, Rule::UnreachableAfterExit),
                 (3010, Rule::DoubleBracketInSh),
@@ -430,6 +432,7 @@ impl Default for ShellCheckCodeMap {
                 (1075, Rule::ExtglobCase),
                 (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
+                (2319, Rule::AssignmentLooksLikeComparison),
             ],
             comparison,
         }
@@ -615,8 +618,19 @@ mod tests {
             Some(Rule::StatusCaptureAfterBranchTest)
         );
         assert_eq!(
+            map.resolve("SC2100"),
+            Some(Rule::AssignmentLooksLikeComparison)
+        );
+        assert_eq!(
             map.resolve("SC2319"),
             Some(Rule::StatusCaptureAfterBranchTest)
+        );
+        assert_eq!(
+            map.resolve_all("SC2319"),
+            vec![
+                Rule::StatusCaptureAfterBranchTest,
+                Rule::AssignmentLooksLikeComparison,
+            ]
         );
         assert_eq!(
             map.resolve("SC2257"),
@@ -845,6 +859,8 @@ mod tests {
             (3076, Rule::SignalNameInTrap),
             (3077, Rule::BasePrefixInArithmetic),
             (3084, Rule::SourceInsideFunctionInSh),
+            (2100, Rule::AssignmentLooksLikeComparison),
+            (2319, Rule::AssignmentLooksLikeComparison),
             (2277, Rule::ExtglobInCasePattern),
         ]
         .into_iter()

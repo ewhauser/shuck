@@ -248,7 +248,7 @@ Rules about array assignment, conversion, and element access patterns.
 
 Rules about assignment syntax, variable naming, and value issues.
 
-- [ ] **M** C095 (SC2319) `assignment-looks-like-comparison` — assignment value with dash may be typo
+- [x] **M** C095 (SC2319) `assignment-looks-like-comparison` — assignment value with dash may be typo
 - [ ] **M** C101 (SC2329) `ifs-set-to-literal-backslash-n` — IFS set to literal `\n` not newline
 - [ ] **L** C116 (SC2353) `assignment-to-numeric-variable` — numeric string as variable name
 - [ ] **L** C117 (SC2354) `plus-prefix-in-assignment` — `+` before variable assignment

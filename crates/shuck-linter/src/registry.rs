@@ -149,6 +149,12 @@ declare_rules! {
         CommentedContinuationLine
     ),
     ("C077", Category::Correctness, Severity::Warning, SubshellInArithmetic),
+    (
+        "C095",
+        Category::Correctness,
+        Severity::Warning,
+        AssignmentLooksLikeComparison
+    ),
     ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     ("C124", Category::Correctness, Severity::Warning, UnreachableAfterExit),
     (
@@ -408,6 +414,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-187" => Some(Rule::PositionalParamAsOperator),
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
+        "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
@@ -626,6 +633,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-188"), Some(Rule::DoubleParenGrouping));
         assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(code_to_rule("SH-079"), Some(Rule::AvoidLetBuiltin));
+        assert_eq!(
+            code_to_rule("SH-224"),
+            Some(Rule::AssignmentLooksLikeComparison)
+        );
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));

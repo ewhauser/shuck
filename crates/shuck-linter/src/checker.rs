@@ -545,6 +545,11 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnicodeQuoteInString) {
             rules::correctness::unicode_quote_in_string::unicode_quote_in_string(self);
         }
+        if self.is_rule_enabled(Rule::AssignmentLooksLikeComparison) {
+            rules::correctness::assignment_looks_like_comparison::assignment_looks_like_comparison(
+                self,
+            );
+        }
         if self.is_rule_enabled(Rule::CommentedContinuationLine) {
             rules::correctness::commented_continuation_line::commented_continuation_line(self);
         }

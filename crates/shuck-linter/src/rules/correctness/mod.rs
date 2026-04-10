@@ -1,4 +1,5 @@
 pub mod arithmetic_redirection_target;
+pub mod assignment_looks_like_comparison;
 pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
 pub mod bare_closing_brace;
@@ -130,6 +131,7 @@ mod tests {
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
+    #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
