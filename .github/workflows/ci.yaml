@@ -162,9 +162,10 @@ jobs:
           mkdir -p target/pages/reports/corpus
           python3 scripts/large_corpus_report.py --log target/large-corpus-report/latest.log --output target/pages/reports/corpus/index.html
       - name: "Upload report artifact"
-        if: always() && steps.report.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
+        if: always() && steps.report.outcome == 'success'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
+          name: large-corpus-report
           path: target/pages
       - name: "Summarize large corpus result"
         if: always()
@@ -175,22 +176,3 @@ jobs:
             echo "This job is non-blocking for now, so corpus mismatches do not fail CI." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  deploy-report:
-    name: "deploy corpus report"
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: large-corpus
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      pages: write
-      id-token: write
-    concurrency:
-      group: "pages"
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: "Deploy to GitHub Pages"
-        id: deployment
-        uses: actions/deploy-pages@v4
