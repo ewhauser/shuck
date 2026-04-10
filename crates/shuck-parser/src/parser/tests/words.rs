@@ -2490,6 +2490,34 @@ fn test_comment_ranges_with_unicode() {
 }
 
 #[test]
+fn test_if_condition_semicolon_probe_does_not_duplicate_comments() {
+    let source = "\
+if foo; # keep this once
+bar; then
+  baz
+fi
+";
+    let output = Parser::new(source).parse().unwrap();
+    let comments = collect_file_comments(&output.file);
+    let texts: Vec<&str> = comments
+        .iter()
+        .map(|comment| {
+            let start = usize::from(comment.range.start());
+            let end = usize::from(comment.range.end());
+            &source[start..end]
+        })
+        .collect();
+
+    assert_eq!(texts, vec!["# keep this once"]);
+
+    let (compound, _) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+    assert_eq!(command.condition.len(), 2);
+}
+
+#[test]
 fn test_zsh_dialect_accepts_c_style_for_loops() {
     Parser::with_dialect(
         "for ((i=0; i<2; i++)); do echo hi; done\n",

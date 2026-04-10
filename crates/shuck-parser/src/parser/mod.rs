@@ -313,6 +313,7 @@ struct ParserCheckpoint<'a> {
     peeked_token: Option<LexedToken<'a>>,
     current_depth: usize,
     fuel: usize,
+    comments: Vec<Comment>,
     expand_next_word: bool,
     brace_group_depth: usize,
     brace_body_stack: Vec<BraceBodyContext>,
@@ -3603,6 +3604,7 @@ impl<'a> Parser<'a> {
             peeked_token: self.peeked_token.clone(),
             current_depth: self.current_depth,
             fuel: self.fuel,
+            comments: self.comments.clone(),
             expand_next_word: self.expand_next_word,
             brace_group_depth: self.brace_group_depth,
             brace_body_stack: self.brace_body_stack.clone(),
@@ -3623,6 +3625,7 @@ impl<'a> Parser<'a> {
         self.peeked_token = checkpoint.peeked_token;
         self.current_depth = checkpoint.current_depth;
         self.fuel = checkpoint.fuel;
+        self.comments = checkpoint.comments;
         self.expand_next_word = checkpoint.expand_next_word;
         self.brace_group_depth = checkpoint.brace_group_depth;
         self.brace_body_stack = checkpoint.brace_body_stack;
