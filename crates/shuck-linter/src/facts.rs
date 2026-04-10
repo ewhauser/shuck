@@ -34,7 +34,9 @@ use self::{
         build_subshell_test_group_spans, build_substitution_facts,
     },
     presence::build_presence_tested_names,
-    surface::{build_subscript_index_reference_spans, build_surface_fragment_facts},
+    surface::{
+        SurfaceFragmentFacts, build_subscript_index_reference_spans, build_surface_fragment_facts,
+    },
 };
 use crate::FileContext;
 use crate::context::ContextRegionKind;
@@ -1465,8 +1467,10 @@ pub struct LinterFacts<'a> {
     arithmetic_for_update_operator_spans: Vec<Span>,
     base_prefix_arithmetic_spans: Vec<Span>,
     unicode_smart_quote_spans: Vec<Span>,
+    pattern_exactly_one_extglob_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
+    nested_pattern_charclass_spans: FxHashSet<FactSpan>,
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
@@ -1645,12 +1649,21 @@ impl<'a> LinterFacts<'a> {
         &self.unicode_smart_quote_spans
     }
 
+    pub fn pattern_exactly_one_extglob_spans(&self) -> &[Span] {
+        &self.pattern_exactly_one_extglob_spans
+    }
+
     pub fn pattern_literal_spans(&self) -> &[Span] {
         &self.pattern_literal_spans
     }
 
     pub fn pattern_charclass_spans(&self) -> &[Span] {
         &self.pattern_charclass_spans
+    }
+
+    pub fn is_nested_pattern_charclass_span(&self, span: Span) -> bool {
+        self.nested_pattern_charclass_spans
+            .contains(&FactSpan::new(span))
     }
 
     pub fn nested_parameter_expansion_fragments(&self) -> &[NestedParameterExpansionFragmentFact] {
@@ -1717,6 +1730,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut command_ids_by_span = CommandLookupIndex::default();
         let mut scalar_bindings = FxHashMap::default();
         let mut words = Vec::new();
+        let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
 
@@ -1790,17 +1804,38 @@ impl<'a> LinterFactsBuilder<'a> {
         let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
-        let surface_fragments =
-            build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
+        let SurfaceFragmentFacts {
+            single_quoted,
+            open_double_quotes,
+            backticks,
+            legacy_arithmetic,
+            positional_parameters,
+            positional_parameter_operator_spans,
+            unicode_smart_quote_spans,
+            pattern_exactly_one_extglob_spans: surface_pattern_exactly_one_extglob_spans,
+            pattern_charclass_spans: surface_pattern_charclass_spans,
+            nested_pattern_charclass_spans,
+            nested_parameter_expansions,
+            indirect_expansions,
+            indexed_array_references,
+            substring_expansions,
+            case_modifications,
+            replacement_expansions,
+            subscript_spans,
+        } = build_surface_fragment_facts(self.file, &commands, &command_ids_by_span, self.source);
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
         let arithmetic_for_update_operator_spans =
             build_arithmetic_for_update_operator_spans(&commands, self.source);
         let base_prefix_arithmetic_spans =
             build_base_prefix_arithmetic_spans(&self.file.body, self.source);
-        let subscript_index_reference_spans = build_subscript_index_reference_spans(
-            self._semantic,
-            &surface_fragments.subscript_spans,
-        );
+        let subscript_index_reference_spans =
+            build_subscript_index_reference_spans(self._semantic, &subscript_spans);
+        pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
+        pattern_charclass_spans.extend(surface_pattern_charclass_spans);
+        let nested_pattern_charclass_spans = nested_pattern_charclass_spans
+            .into_iter()
+            .map(FactSpan::new)
+            .collect();
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -1826,25 +1861,26 @@ impl<'a> LinterFactsBuilder<'a> {
             subshell_test_group_spans,
             non_absolute_shebang_span,
             condition_status_capture_spans,
-            single_quoted_fragments: surface_fragments.single_quoted,
-            open_double_quote_fragments: surface_fragments.open_double_quotes,
-            backtick_fragments: surface_fragments.backticks,
-            legacy_arithmetic_fragments: surface_fragments.legacy_arithmetic,
-            positional_parameter_fragments: surface_fragments.positional_parameters,
-            positional_parameter_operator_spans: surface_fragments
-                .positional_parameter_operator_spans,
+            single_quoted_fragments: single_quoted,
+            open_double_quote_fragments: open_double_quotes,
+            backtick_fragments: backticks,
+            legacy_arithmetic_fragments: legacy_arithmetic,
+            positional_parameter_fragments: positional_parameters,
+            positional_parameter_operator_spans,
             double_paren_grouping_spans,
             arithmetic_for_update_operator_spans,
             base_prefix_arithmetic_spans,
-            unicode_smart_quote_spans: surface_fragments.unicode_smart_quote_spans,
+            unicode_smart_quote_spans,
+            pattern_exactly_one_extglob_spans,
             pattern_literal_spans,
             pattern_charclass_spans,
-            nested_parameter_expansion_fragments: surface_fragments.nested_parameter_expansions,
-            indirect_expansion_fragments: surface_fragments.indirect_expansions,
-            indexed_array_reference_fragments: surface_fragments.indexed_array_references,
-            substring_expansion_fragments: surface_fragments.substring_expansions,
-            case_modification_fragments: surface_fragments.case_modifications,
-            replacement_expansion_fragments: surface_fragments.replacement_expansions,
+            nested_pattern_charclass_spans,
+            nested_parameter_expansion_fragments: nested_parameter_expansions,
+            indirect_expansion_fragments: indirect_expansions,
+            indexed_array_reference_fragments: indexed_array_references,
+            substring_expansion_fragments: substring_expansions,
+            case_modification_fragments: case_modifications,
+            replacement_expansion_fragments: replacement_expansions,
         }
     }
 }
