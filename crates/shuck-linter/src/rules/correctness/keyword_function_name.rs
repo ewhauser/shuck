@@ -28,10 +28,15 @@ pub fn keyword_function_name(checker: &mut Checker) {
         .function_headers()
         .iter()
         .flat_map(|header| {
-            header.function().header.entries.iter().filter_map(move |entry| {
-                let name = entry.static_name.as_ref()?.as_str();
-                is_reserved_function_name(shell, name).then_some(entry.word.span)
-            })
+            header
+                .function()
+                .header
+                .entries
+                .iter()
+                .filter_map(move |entry| {
+                    let name = entry.static_name.as_ref()?.as_str();
+                    is_reserved_function_name(shell, name).then_some(entry.word.span)
+                })
         })
         .collect::<Vec<Span>>();
 
@@ -42,13 +47,37 @@ fn is_reserved_function_name(shell: ShellDialect, name: &str) -> bool {
     match shell {
         ShellDialect::Sh | ShellDialect::Dash => matches!(
             name,
-            "if" | "then" | "else" | "elif" | "fi" | "do" | "done" | "case" | "esac" | "for"
-                | "in" | "while" | "until" | "time"
+            "if" | "then"
+                | "else"
+                | "elif"
+                | "fi"
+                | "do"
+                | "done"
+                | "case"
+                | "esac"
+                | "for"
+                | "in"
+                | "while"
+                | "until"
+                | "time"
         ),
         ShellDialect::Bash | ShellDialect::Ksh => matches!(
             name,
-            "if" | "then" | "else" | "elif" | "fi" | "do" | "done" | "case" | "esac" | "for"
-                | "in" | "while" | "until" | "time" | "select" | "coproc"
+            "if" | "then"
+                | "else"
+                | "elif"
+                | "fi"
+                | "do"
+                | "done"
+                | "case"
+                | "esac"
+                | "for"
+                | "in"
+                | "while"
+                | "until"
+                | "time"
+                | "select"
+                | "coproc"
         ),
         _ => false,
     }
