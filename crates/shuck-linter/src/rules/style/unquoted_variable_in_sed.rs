@@ -77,6 +77,14 @@ fn sed_uses_static_substitution_script(fact: &CommandFact<'_>, source: &str) -> 
             continue;
         }
 
+        if let Some(script) = attached_sed_script(text.as_str()) {
+            if is_static_substitution_script(script) {
+                return true;
+            }
+            expects_script = false;
+            continue;
+        }
+
         if expects_script && is_static_substitution_script(&text) {
             return true;
         }
@@ -87,6 +95,19 @@ fn sed_uses_static_substitution_script(fact: &CommandFact<'_>, source: &str) -> 
     }
 
     false
+}
+
+fn attached_sed_script(text: &str) -> Option<&str> {
+    let flags = text.strip_prefix('-')?;
+
+    for (index, flag) in flags.char_indices() {
+        if flag == 'e' {
+            let script = &flags[index + flag.len_utf8()..];
+            return (!script.is_empty()).then_some(script);
+        }
+    }
+
+    None
 }
 
 fn is_static_substitution_script(text: &str) -> bool {
@@ -133,6 +154,8 @@ mod tests {
 #!/bin/bash
 echo $CLASSPATH | sed 's|foo|bar|g'
 echo $HOME | sed -e 's|foo|bar|g'
+echo $USER | sed -e's/foo/bar/'
+echo $SHELL | sed -es/foo/bar/
 echo \"$KEEP\" | sed 's|foo|bar|g'
 echo $PATH | sed -n
 ";
@@ -146,7 +169,7 @@ echo $PATH | sed -n
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$CLASSPATH", "$HOME"]
+            vec!["$CLASSPATH", "$HOME", "$USER", "$SHELL"]
         );
     }
 

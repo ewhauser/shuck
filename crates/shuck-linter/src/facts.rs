@@ -6636,6 +6636,13 @@ fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
+            if let Some(expects_argument) = dynamic_ps_pid_selector(word, source) {
+                has_pid_selector = true;
+                pending_option_arg = expects_argument;
+                index += 1;
+                continue;
+            }
+
             if word_starts_with_literal_dash(word, source) {
                 pending_option_arg = true;
                 index += 1;
@@ -6714,6 +6721,28 @@ fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
     }
 
     PsCommandFacts { has_pid_selector }
+}
+
+fn dynamic_ps_pid_selector(word: &Word, source: &str) -> Option<bool> {
+    let prefix = leading_literal_word_prefix(word, source);
+    if prefix.is_empty() {
+        return None;
+    }
+
+    let has_attached_value = word.span.slice(source).len() > prefix.len();
+
+    match prefix.as_str() {
+        "p" | "q" | "-p" | "-q" | "--pid" | "--ppid" | "--quick-pid" => Some(!has_attached_value),
+        _ if prefix.starts_with("--pid=")
+            || prefix.starts_with("--ppid=")
+            || prefix.starts_with("--quick-pid=")
+            || (prefix.starts_with("-p") && prefix.len() > 2)
+            || (prefix.starts_with("-q") && prefix.len() > 2) =>
+        {
+            Some(false)
+        }
+        _ => None,
+    }
 }
 
 fn ps_option_takes_argument(flag: char) -> bool {
@@ -8092,6 +8121,33 @@ mod tests {
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+    }
+
+    #[test]
+    fn tracks_dynamic_ps_pid_selectors() {
+        let source = "\
+#!/bin/bash
+ps -p\"$pid\" -o comm=
+ps --pid=\"$pid\" -o comm=
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let ps_commands = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ps"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ps_commands.len(), 2);
+        assert!(
+            ps_commands
+                .iter()
+                .all(|fact| fact.options().ps().is_some_and(|ps| ps.has_pid_selector))
+        );
     }
 
     #[test]
