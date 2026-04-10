@@ -156,6 +156,12 @@ declare_rules! {
         AssignmentLooksLikeComparison
     ),
     (
+        "C098",
+        Category::Correctness,
+        Severity::Warning,
+        SetFlagsWithoutDashes
+    ),
+    (
         "C101",
         Category::Correctness,
         Severity::Warning,
@@ -470,6 +476,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
+        "SH-229" => Some(Rule::SetFlagsWithoutDashes),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
@@ -711,6 +718,8 @@ mod tests {
             code_to_rule("SH-194"),
             Some(Rule::CommentedContinuationLine)
         );
+        assert_eq!(code_to_rule("C098"), Some(Rule::SetFlagsWithoutDashes));
+        assert_eq!(code_to_rule("SH-229"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));

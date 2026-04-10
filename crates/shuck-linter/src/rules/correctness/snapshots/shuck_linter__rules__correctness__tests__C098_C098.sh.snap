@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C098 flags passed to `set` should start with `-` or `+`
+ --> <source>:4:5
+  |
+4 | set euox pipefail
+  |
+
+C098 flags passed to `set` should start with `-` or `+`
+ --> <source>:7:5
+  |
+7 | set foo bar
+  |

@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 83 |
+| Implemented | 84 |
 | Scheduled (Tranches 1-3) | 18 |
-| Remaining | 217 |
+| Remaining | 216 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -291,7 +291,7 @@ Rules about assignment syntax, variable naming, and value issues.
 Rules about specific command usage patterns (find, grep, ls, tr, set, etc.).
 Filter command facts by `effective_name_is()` and check options/arguments.
 
-- [ ] **M** C098 (SC2324) `set-flags-without-dashes` — flags to `set` without leading dash
+- [x] [x] **M** C098 (SC2324) `set-flags-without-dashes` — flags to `set` without leading dash
 - [ ] **M** C103 (SC2332) `find-or-without-grouping` — find `-o` without grouping
 - [ ] **M** C109 (SC2339) `mapfile-process-substitution` — mapfile from process substitution
 - [ ] **M** C113 (SC2348) `find-output-in-loop` — find output captured in word-splitting loop

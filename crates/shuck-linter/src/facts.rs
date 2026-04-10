@@ -1214,6 +1214,7 @@ pub struct SetCommandFacts {
     pub pipefail_change: Option<bool>,
     errtrace_option_spans: Box<[Span]>,
     pipefail_option_spans: Box<[Span]>,
+    flags_without_prefix_spans: Box<[Span]>,
 }
 
 impl SetCommandFacts {
@@ -1223,6 +1224,10 @@ impl SetCommandFacts {
 
     pub fn pipefail_option_spans(&self) -> &[Span] {
         &self.pipefail_option_spans
+    }
+
+    pub fn flags_without_prefix_spans(&self) -> &[Span] {
+        &self.flags_without_prefix_spans
     }
 }
 
@@ -6763,7 +6768,18 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut pipefail_change = None;
     let mut errtrace_option_spans = Vec::new();
     let mut pipefail_option_spans = Vec::new();
+    let mut flags_without_prefix_spans = Vec::new();
     let mut index = 0usize;
+
+    if args.len() >= 2
+        && let Some(first_text) = args.first().and_then(|word| static_word_text(word, source))
+        && first_text != "--"
+        && !first_text.starts_with('-')
+        && !first_text.starts_with('+')
+        && is_shell_variable_name(first_text.as_str())
+    {
+        flags_without_prefix_spans.push(args[0].span);
+    }
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -6843,6 +6859,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         pipefail_change,
         errtrace_option_spans: errtrace_option_spans.into_boxed_slice(),
         pipefail_option_spans: pipefail_option_spans.into_boxed_slice(),
+        flags_without_prefix_spans: flags_without_prefix_spans.into_boxed_slice(),
     }
 }
 
@@ -7307,7 +7324,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -7450,6 +7467,20 @@ mod tests {
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["pipefail"]
+        );
+        let set_without_prefix_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("set"))
+            .filter_map(|fact| fact.options().set())
+            .flat_map(|set| set.flags_without_prefix_spans().iter().copied())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            set_without_prefix_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["euox"]
         );
         let rm_spans = facts
             .commands()

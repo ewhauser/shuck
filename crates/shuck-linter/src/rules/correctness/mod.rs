@@ -56,6 +56,7 @@ pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
+pub mod set_flags_without_dashes;
 pub mod single_quoted_literal;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
@@ -143,6 +144,7 @@ mod tests {
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
+    #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
