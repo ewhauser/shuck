@@ -32,12 +32,14 @@ fn su_has_login_or_command_flag(fact: &crate::CommandFact<'_>, source: &str) -> 
             return false;
         };
 
-        is_login_or_command_flag(text.as_str()) && args[index + 1..].iter().any(|_| true)
+        match text.as_str() {
+            "-" | "-l" | "--login" => true,
+            "-c" | "--command" => args.get(index + 1).is_some(),
+            _ if text.starts_with("--command=") => text.len() > "--command=".len(),
+            _ if text.starts_with("-c") => text.len() > 2,
+            _ => false,
+        }
     })
-}
-
-fn is_login_or_command_flag(text: &str) -> bool {
-    matches!(text, "-" | "-l" | "--login" | "-c" | "--command")
 }
 
 #[cfg(test)]
@@ -50,9 +52,8 @@ mod tests {
         let source = "\
 #!/bin/bash
 su librenms
-su -
 su -c
-su -l
+su --command
 command su librenms
 sudo su librenms
 ";
@@ -63,7 +64,7 @@ sudo su librenms
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["su", "su", "su", "su"]
+            vec!["su", "su", "su"]
         );
     }
 
@@ -71,9 +72,12 @@ sudo su librenms
     fn ignores_login_and_command_forms() {
         let source = "\
 #!/bin/bash
+su -
+su -l
 su -l root
 su --login root
 su -c id root
+su -cid root
 su --command id root
 su - root
 su librenms -c id
