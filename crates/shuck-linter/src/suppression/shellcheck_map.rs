@@ -494,6 +494,7 @@ impl Default for ShellCheckCodeMap {
                 (2290, Rule::SpacedAssignment),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
+                (2127, Rule::EchoHereDoc),
             ],
             comparison,
         }
@@ -610,6 +611,10 @@ mod tests {
         assert_eq!(map.resolve("SC3052"), Some(Rule::AmpersandRedirection));
         assert_eq!(map.resolve("SC3058"), Some(Rule::BashCaseFallthrough));
         assert_eq!(map.resolve("SC2127"), Some(Rule::BashCaseFallthrough));
+        assert_eq!(
+            map.resolve_all("SC2127"),
+            vec![Rule::BashCaseFallthrough, Rule::EchoHereDoc]
+        );
         assert_eq!(map.resolve("SC3050"), Some(Rule::BraceFdRedirection));
         assert_eq!(map.resolve("SC3070"), Some(Rule::AmpersandRedirectInSh));
         assert_eq!(map.resolve("SC3073"), Some(Rule::PipeStderrInSh));

@@ -1,5 +1,3 @@
-use shuck_ast::{Redirect, RedirectKind, Span};
-
 use crate::{Checker, Rule, Violation};
 
 pub struct MisquotedHeredocClose;
@@ -15,70 +13,10 @@ impl Violation for MisquotedHeredocClose {
 }
 
 pub fn misquoted_heredoc_close(checker: &mut Checker) {
-    let source = checker.source();
-    let file_end = checker.ast().span.end.offset;
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| fact.redirects().iter())
-        .filter_map(|redirect| misquoted_heredoc_close_span(redirect, source, file_end))
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || MisquotedHeredocClose);
-}
-
-fn misquoted_heredoc_close_span(
-    redirect: &Redirect,
-    source: &str,
-    file_end: usize,
-) -> Option<Span> {
-    if !matches!(
-        redirect.kind,
-        RedirectKind::HereDoc | RedirectKind::HereDocStrip
-    ) {
-        return None;
-    }
-
-    let heredoc = redirect.heredoc()?;
-    if heredoc.body.span.end.offset != file_end {
-        return None;
-    }
-
-    let delimiter = heredoc.delimiter.cooked.as_str();
-    if delimiter.is_empty() {
-        return None;
-    }
-
-    for raw_line in heredoc.body.span.slice(source).split_inclusive('\n') {
-        let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
-        let candidate_line = if heredoc.delimiter.strip_tabs {
-            line_without_newline.trim_start_matches('\t')
-        } else {
-            line_without_newline
-        };
-        if candidate_line == delimiter {
-            continue;
-        }
-
-        if is_quoted_delimiter_variant(candidate_line, delimiter) {
-            return Some(redirect.span);
-        }
-    }
-
-    None
-}
-
-fn is_quoted_delimiter_variant(candidate_line: &str, delimiter: &str) -> bool {
-    if candidate_line == delimiter {
-        return false;
-    }
-
-    trim_quote_like_wrappers(candidate_line) == delimiter
-}
-
-fn trim_quote_like_wrappers(text: &str) -> &str {
-    text.trim_matches(|ch| matches!(ch, '\'' | '"' | '\\'))
+    checker.report_all_dedup(
+        checker.facts().misquoted_heredoc_close_spans().to_vec(),
+        || MisquotedHeredocClose,
+    );
 }
 
 #[cfg(test)]

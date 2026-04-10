@@ -1,5 +1,3 @@
-use shuck_ast::RedirectKind;
-
 use crate::{Checker, Rule, Violation};
 
 pub struct UnusedHeredoc;
@@ -15,23 +13,9 @@ impl Violation for UnusedHeredoc {
 }
 
 pub fn unused_heredoc(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .filter(|fact| fact.literal_name() == Some(""))
-        .filter(|fact| fact.body_span().start.offset == fact.body_span().end.offset)
-        .flat_map(|fact| fact.redirect_facts().iter())
-        .filter_map(|redirect| {
-            matches!(
-                redirect.redirect().kind,
-                RedirectKind::HereDoc | RedirectKind::HereDocStrip
-            )
-            .then_some(redirect.redirect().span)
-        })
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || UnusedHeredoc);
+    checker.report_all_dedup(checker.facts().unused_heredoc_spans().to_vec(), || {
+        UnusedHeredoc
+    });
 }
 
 #[cfg(test)]

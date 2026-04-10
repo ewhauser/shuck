@@ -1557,6 +1557,13 @@ pub struct LinterFacts<'a> {
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
+    unused_heredoc_spans: Vec<Span>,
+    heredoc_missing_end_spans: Vec<Span>,
+    heredoc_closer_not_alone_spans: Vec<Span>,
+    misquoted_heredoc_close_spans: Vec<Span>,
+    heredoc_end_space_spans: Vec<Span>,
+    echo_here_doc_spans: Vec<Span>,
+    spaced_tabstrip_close_spans: Vec<Span>,
     array_index_arithmetic_spans: Vec<Span>,
     arithmetic_score_line_spans: Vec<Span>,
     dollar_in_arithmetic_spans: Vec<Span>,
@@ -1726,6 +1733,34 @@ impl<'a> LinterFacts<'a> {
         &self.condition_status_capture_spans
     }
 
+    pub fn unused_heredoc_spans(&self) -> &[Span] {
+        &self.unused_heredoc_spans
+    }
+
+    pub fn heredoc_missing_end_spans(&self) -> &[Span] {
+        &self.heredoc_missing_end_spans
+    }
+
+    pub fn heredoc_closer_not_alone_spans(&self) -> &[Span] {
+        &self.heredoc_closer_not_alone_spans
+    }
+
+    pub fn misquoted_heredoc_close_spans(&self) -> &[Span] {
+        &self.misquoted_heredoc_close_spans
+    }
+
+    pub fn heredoc_end_space_spans(&self) -> &[Span] {
+        &self.heredoc_end_space_spans
+    }
+
+    pub fn echo_here_doc_spans(&self) -> &[Span] {
+        &self.echo_here_doc_spans
+    }
+
+    pub fn spaced_tabstrip_close_spans(&self) -> &[Span] {
+        &self.spaced_tabstrip_close_spans
+    }
+
     pub fn array_index_arithmetic_spans(&self) -> &[Span] {
         &self.array_index_arithmetic_spans
     }
@@ -1858,6 +1893,17 @@ struct ArithmeticFactSummary {
     dollar_in_arithmetic_spans: Vec<Span>,
     dollar_in_arithmetic_context_spans: Vec<Span>,
     arithmetic_command_substitution_spans: Vec<Span>,
+}
+
+#[derive(Debug, Default)]
+struct HeredocFactSummary {
+    unused_heredoc_spans: Vec<Span>,
+    heredoc_missing_end_spans: Vec<Span>,
+    heredoc_closer_not_alone_spans: Vec<Span>,
+    misquoted_heredoc_close_spans: Vec<Span>,
+    heredoc_end_space_spans: Vec<Span>,
+    echo_here_doc_spans: Vec<Span>,
+    spaced_tabstrip_close_spans: Vec<Span>,
 }
 
 impl<'a> LinterFactsBuilder<'a> {
@@ -1993,6 +2039,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_trailing_directive_comment_spans(self.source, self._indexer);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
+        let heredoc_summary =
+            build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let literal_brace_spans = build_literal_brace_spans(&words, &commands, self.source);
         let SurfaceFragmentFacts {
             single_quoted,
@@ -2075,6 +2123,13 @@ impl<'a> LinterFactsBuilder<'a> {
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
+            unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
+            heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
+            heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
+            misquoted_heredoc_close_spans: heredoc_summary.misquoted_heredoc_close_spans,
+            heredoc_end_space_spans: heredoc_summary.heredoc_end_space_spans,
+            echo_here_doc_spans: heredoc_summary.echo_here_doc_spans,
+            spaced_tabstrip_close_spans: heredoc_summary.spaced_tabstrip_close_spans,
             array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
             arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
             dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
@@ -2108,6 +2163,236 @@ impl<'a> LinterFactsBuilder<'a> {
             conditional_portability,
         }
     }
+}
+
+fn build_heredoc_fact_summary(
+    commands: &[CommandFact<'_>],
+    source: &str,
+    file_end: usize,
+) -> HeredocFactSummary {
+    let mut summary = HeredocFactSummary::default();
+
+    for command in commands {
+        let unused_heredoc_command = command.literal_name() == Some("")
+            && command.body_span().start.offset == command.body_span().end.offset;
+        let echo_here_doc_command = command.effective_name_is("echo")
+            && command
+                .redirects()
+                .iter()
+                .any(|redirect| is_heredoc_redirect_kind(redirect.kind));
+
+        if echo_here_doc_command {
+            summary
+                .echo_here_doc_spans
+                .push(command.span_in_source(source));
+        }
+
+        for redirect in command.redirects() {
+            if !is_heredoc_redirect_kind(redirect.kind) {
+                continue;
+            }
+
+            if unused_heredoc_command {
+                summary.unused_heredoc_spans.push(redirect.span);
+            }
+
+            let Some(heredoc) = redirect.heredoc() else {
+                continue;
+            };
+            let delimiter = heredoc.delimiter.cooked.as_str();
+            if delimiter.is_empty() {
+                continue;
+            }
+
+            if let Some(span) = heredoc_end_space_span(
+                heredoc.body.span,
+                delimiter,
+                heredoc.delimiter.strip_tabs,
+                source,
+            ) {
+                summary.heredoc_end_space_spans.push(span);
+            }
+
+            if redirect.kind == RedirectKind::HereDocStrip {
+                summary
+                    .spaced_tabstrip_close_spans
+                    .extend(spaced_tabstrip_close_spans(
+                        heredoc.body.span,
+                        delimiter,
+                        source,
+                    ));
+            }
+
+            if heredoc.body.span.end.offset != file_end {
+                continue;
+            }
+
+            summary.heredoc_missing_end_spans.push(redirect.span);
+
+            if let Some(span) = heredoc_closer_not_alone_span(
+                heredoc.body.span,
+                delimiter,
+                heredoc.delimiter.strip_tabs,
+                source,
+            ) {
+                summary.heredoc_closer_not_alone_spans.push(span);
+            }
+
+            if has_misquoted_heredoc_close(
+                heredoc.body.span,
+                delimiter,
+                heredoc.delimiter.strip_tabs,
+                source,
+            ) {
+                summary.misquoted_heredoc_close_spans.push(redirect.span);
+            }
+        }
+    }
+
+    summary
+}
+
+fn is_heredoc_redirect_kind(kind: RedirectKind) -> bool {
+    matches!(kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip)
+}
+
+fn heredoc_closer_not_alone_span(
+    body_span: Span,
+    delimiter: &str,
+    strip_tabs: bool,
+    source: &str,
+) -> Option<Span> {
+    let mut line_start_offset = body_span.start.offset;
+    for raw_line in body_span.slice(source).split_inclusive('\n') {
+        let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
+        if !candidate_line.ends_with(delimiter)
+            || is_quoted_delimiter_variant(candidate_line, delimiter)
+        {
+            line_start_offset += raw_line.len();
+            continue;
+        }
+
+        let prefix = &candidate_line[..candidate_line.len() - delimiter.len()];
+        if !prefix.chars().any(|ch| !ch.is_whitespace()) {
+            line_start_offset += raw_line.len();
+            continue;
+        }
+
+        let delimiter_start_offset = line_start_offset + tab_prefix_len + prefix.len();
+        let delimiter_end_offset = delimiter_start_offset + delimiter.len();
+        let start = position_at_offset(source, delimiter_start_offset)?;
+        let end = position_at_offset(source, delimiter_end_offset)?;
+        return Some(Span::from_positions(start, end));
+    }
+
+    None
+}
+
+fn has_misquoted_heredoc_close(
+    body_span: Span,
+    delimiter: &str,
+    strip_tabs: bool,
+    source: &str,
+) -> bool {
+    body_span
+        .slice(source)
+        .split_inclusive('\n')
+        .map(|raw_line| normalized_heredoc_line(raw_line, strip_tabs).0)
+        .filter(|candidate_line| *candidate_line != delimiter)
+        .any(|candidate_line| is_quoted_delimiter_variant(candidate_line, delimiter))
+}
+
+fn heredoc_end_space_span(
+    body_span: Span,
+    delimiter: &str,
+    strip_tabs: bool,
+    source: &str,
+) -> Option<Span> {
+    let mut line_start_offset = body_span.start.offset;
+    for raw_line in body_span.slice(source).split_inclusive('\n') {
+        let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
+        let Some(trailing) = candidate_line.strip_prefix(delimiter) else {
+            line_start_offset += raw_line.len();
+            continue;
+        };
+        if trailing.is_empty() || !trailing.chars().all(|ch| matches!(ch, ' ' | '\t')) {
+            line_start_offset += raw_line.len();
+            continue;
+        }
+
+        let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
+        let trailing_end_offset = trailing_start_offset + trailing.len();
+        let start = position_at_offset(source, trailing_start_offset)?;
+        let end = position_at_offset(source, trailing_end_offset)?;
+        return Some(Span::from_positions(start, end));
+    }
+
+    None
+}
+
+fn spaced_tabstrip_close_spans(body_span: Span, delimiter: &str, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut line_start_offset = body_span.start.offset;
+    for raw_line in body_span.slice(source).split_inclusive('\n') {
+        let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
+        if is_spaced_tabstrip_close_line(line_without_newline, delimiter)
+            && let Some(position) = position_at_offset(source, line_start_offset)
+        {
+            spans.push(Span::from_positions(position, position));
+        }
+        line_start_offset += raw_line.len();
+    }
+
+    spans
+}
+
+fn normalized_heredoc_line(raw_line: &str, strip_tabs: bool) -> (&str, usize) {
+    let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
+    if strip_tabs {
+        let trimmed = line_without_newline.trim_start_matches('\t');
+        (trimmed, line_without_newline.len() - trimmed.len())
+    } else {
+        (line_without_newline, 0)
+    }
+}
+
+fn is_quoted_delimiter_variant(candidate_line: &str, delimiter: &str) -> bool {
+    candidate_line != delimiter && trim_quote_like_wrappers(candidate_line) == delimiter
+}
+
+fn trim_quote_like_wrappers(text: &str) -> &str {
+    text.trim_matches(|ch| matches!(ch, '\'' | '"' | '\\'))
+}
+
+fn is_spaced_tabstrip_close_line(line: &str, delimiter: &str) -> bool {
+    if line.trim_start_matches('\t') == delimiter {
+        return false;
+    }
+
+    let line_without_trailing_ws = line.trim_end_matches([' ', '\t']);
+    let leading_len = line_without_trailing_ws.len()
+        - line_without_trailing_ws
+            .trim_start_matches([' ', '\t'])
+            .len();
+    if leading_len == 0 {
+        return false;
+    }
+
+    let leading = &line_without_trailing_ws[..leading_len];
+    let rest = &line_without_trailing_ws[leading_len..];
+    leading.contains(' ') && rest == delimiter
+}
+
+fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
+    if target_offset > source.len() {
+        return None;
+    }
+
+    let mut position = Position::new();
+    for ch in source[..target_offset].chars() {
+        position.advance(ch);
+    }
+    Some(position)
 }
 
 fn build_base_prefix_arithmetic_spans(body: &StmtSeq, source: &str) -> Vec<Span> {

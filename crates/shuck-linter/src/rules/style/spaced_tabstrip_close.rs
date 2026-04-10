@@ -1,5 +1,3 @@
-use shuck_ast::{Position, Redirect, RedirectKind, Span};
-
 use crate::{Checker, Rule, Violation};
 
 pub struct SpacedTabstripClose;
@@ -15,75 +13,10 @@ impl Violation for SpacedTabstripClose {
 }
 
 pub fn spaced_tabstrip_close(checker: &mut Checker) {
-    let source = checker.source();
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| fact.redirects().iter())
-        .flat_map(|redirect| spaced_tabstrip_close_spans(redirect, source))
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || SpacedTabstripClose);
-}
-
-fn spaced_tabstrip_close_spans(redirect: &Redirect, source: &str) -> Vec<Span> {
-    if redirect.kind != RedirectKind::HereDocStrip {
-        return Vec::new();
-    }
-
-    let Some(heredoc) = redirect.heredoc() else {
-        return Vec::new();
-    };
-    let delimiter = heredoc.delimiter.cooked.as_str();
-    if delimiter.is_empty() {
-        return Vec::new();
-    }
-
-    let mut spans = Vec::new();
-    let mut line_start_offset = heredoc.body.span.start.offset;
-    for raw_line in heredoc.body.span.slice(source).split_inclusive('\n') {
-        let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
-        if is_spaced_tabstrip_close_line(line_without_newline, delimiter)
-            && let Some(position) = position_at_offset(source, line_start_offset)
-        {
-            spans.push(Span::from_positions(position, position));
-        }
-        line_start_offset += raw_line.len();
-    }
-
-    spans
-}
-
-fn is_spaced_tabstrip_close_line(line: &str, delimiter: &str) -> bool {
-    if line.trim_start_matches('\t') == delimiter {
-        return false;
-    }
-
-    let line_without_trailing_ws = line.trim_end_matches([' ', '\t']);
-    let leading_len = line_without_trailing_ws.len()
-        - line_without_trailing_ws
-            .trim_start_matches([' ', '\t'])
-            .len();
-    if leading_len == 0 {
-        return false;
-    }
-
-    let leading = &line_without_trailing_ws[..leading_len];
-    let rest = &line_without_trailing_ws[leading_len..];
-    leading.contains(' ') && rest == delimiter
-}
-
-fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
-    if target_offset > source.len() {
-        return None;
-    }
-
-    let mut position = Position::new();
-    for ch in source[..target_offset].chars() {
-        position.advance(ch);
-    }
-    Some(position)
+    checker.report_all_dedup(
+        checker.facts().spaced_tabstrip_close_spans().to_vec(),
+        || SpacedTabstripClose,
+    );
 }
 
 #[cfg(test)]

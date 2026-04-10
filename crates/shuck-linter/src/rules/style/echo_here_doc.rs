@@ -1,5 +1,3 @@
-use shuck_ast::RedirectKind;
-
 use crate::{Checker, Rule, Violation};
 
 pub struct EchoHereDoc;
@@ -15,24 +13,9 @@ impl Violation for EchoHereDoc {
 }
 
 pub fn echo_here_doc(checker: &mut Checker) {
-    let source = checker.source();
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .filter(|fact| fact.effective_name_is("echo"))
-        .filter(|fact| {
-            fact.redirects().iter().any(|redirect| {
-                matches!(
-                    redirect.kind,
-                    RedirectKind::HereDoc | RedirectKind::HereDocStrip
-                )
-            })
-        })
-        .map(|fact| fact.span_in_source(source))
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || EchoHereDoc);
+    checker.report_all_dedup(checker.facts().echo_here_doc_spans().to_vec(), || {
+        EchoHereDoc
+    });
 }
 
 #[cfg(test)]

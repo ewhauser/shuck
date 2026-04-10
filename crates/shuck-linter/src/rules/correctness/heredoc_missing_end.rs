@@ -1,5 +1,3 @@
-use shuck_ast::RedirectKind;
-
 use crate::{Checker, Rule, Violation};
 
 pub struct HeredocMissingEnd;
@@ -15,28 +13,9 @@ impl Violation for HeredocMissingEnd {
 }
 
 pub fn heredoc_missing_end(checker: &mut Checker) {
-    let file_end = checker.ast().span.end.offset;
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| fact.redirect_facts().iter())
-        .filter_map(|redirect| {
-            matches!(
-                redirect.redirect().kind,
-                RedirectKind::HereDoc | RedirectKind::HereDocStrip
-            )
-            .then_some(redirect.redirect())
-        })
-        .filter(|redirect| {
-            redirect
-                .heredoc()
-                .is_some_and(|heredoc| heredoc.body.span.end.offset == file_end)
-        })
-        .map(|redirect| redirect.span)
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || HeredocMissingEnd);
+    checker.report_all_dedup(checker.facts().heredoc_missing_end_spans().to_vec(), || {
+        HeredocMissingEnd
+    });
 }
 
 #[cfg(test)]
