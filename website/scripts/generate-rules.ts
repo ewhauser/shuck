@@ -50,7 +50,7 @@ const implementedRules = new Map<string, string>();
 
 // Match tuples like: ("C001", Category::Correctness, Severity::Warning, UnusedAssignment),
 // Also handles multiline formatting where the tuple is split across lines.
-const rulePattern = /\(\s*"([A-Z]\d+)",\s*Category::\w+,\s*Severity::(\w+),/gs;
+const rulePattern = /\(\s*"([A-Z]\d+)",\s*Category::\w+,\s*Severity::(\w+),/g;
 let match: RegExpExecArray | null;
 while ((match = rulePattern.exec(registrySource)) !== null) {
   implementedRules.set(match[1], match[2]);

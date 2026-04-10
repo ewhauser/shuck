@@ -14,6 +14,15 @@ export interface RuleData {
   examples: Array<{ kind: string; code: string }>;
 }
 
+/** Lightweight subset for the rules list table (avoids shipping rationale/examples to client). */
+export interface RuleListItem {
+  code: string;
+  name: string;
+  category: string;
+  description: string;
+  implemented: boolean;
+}
+
 export const allRules: RuleData[] = rulesJson as RuleData[];
 
 export function getRuleByCode(code: string): RuleData | undefined {

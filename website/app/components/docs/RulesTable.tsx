@@ -4,12 +4,12 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
-import type { RuleData } from "@/app/lib/rules-data";
+import type { RuleListItem } from "@/app/lib/rules-data";
 import { categories } from "@/app/lib/rules-data";
 import { CategoryBadge } from "./RuleBadge";
 
 interface Props {
-  rules: RuleData[];
+  rules: RuleListItem[];
 }
 
 export default function RulesTable({ rules }: Props) {
@@ -45,7 +45,7 @@ export default function RulesTable({ rules }: Props) {
 
   // Group by category for display
   const grouped = useMemo(() => {
-    const groups: Array<{ category: string; prefix: string; rules: RuleData[] }> = [];
+    const groups: Array<{ category: string; prefix: string; rules: RuleListItem[] }> = [];
     for (const cat of categories) {
       const catRules = filtered.filter((r) => r.category === cat.name);
       if (catRules.length > 0) {

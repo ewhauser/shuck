@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { allRules, categories } from "@/app/lib/rules-data";
+import type { RuleListItem } from "@/app/lib/rules-data";
 import RulesTable from "@/app/components/docs/RulesTable";
 
 export const metadata: Metadata = {
@@ -11,6 +12,11 @@ export const metadata: Metadata = {
 export default function RulesIndexPage() {
   const implemented = allRules.filter((r) => r.implemented).length;
 
+  // Strip heavy fields (rationale, examples, etc.) before sending to the client component.
+  const listRules: RuleListItem[] = allRules.map(({ code, name, category, description, implemented }) => ({
+    code, name, category, description, implemented,
+  }));
+
   return (
     <div className="max-w-5xl">
       <h1 className="mb-2 text-2xl font-bold text-fg-primary">Rules</h1>
@@ -20,7 +26,7 @@ export default function RulesIndexPage() {
         {allRules.length - implemented} planned.
       </p>
       <Suspense>
-        <RulesTable rules={allRules} />
+        <RulesTable rules={listRules} />
       </Suspense>
     </div>
   );
