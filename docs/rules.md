@@ -306,7 +306,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 - [x] [x] **L** S046 (SC2293) `ls-piped-to-xargs` — ls piped to xargs
 - [x] [x] **L** S047 (SC2294) `ls-in-substitution` — ls in command substitution
 - [x] [x] **L** S049 (SC2298) `unquoted-tr-range` — unquoted tr character class
-- [ ] **L** S051 (SC2303) `unquoted-tr-class` — unquoted tr class may glob-expand
+- [x] [x] **L** S051 (SC2303) `unquoted-tr-class` — unquoted tr class may glob-expand
 - [ ] **L** S054 (SC2322) `su-without-flag` — su without `-l` or `-c`
 - [ ] **L** S056 (SC2328) `command-substitution-in-alias` — command substitution in alias
 - [ ] **L** S057 (SC2330) `function-in-alias` — function definition inside alias

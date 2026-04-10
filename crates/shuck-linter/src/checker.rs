@@ -242,6 +242,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedVariableInSed) {
             rules::style::unquoted_variable_in_sed::unquoted_variable_in_sed(self);
         }
+        if self.is_rule_enabled(Rule::UnquotedTrClass) {
+            rules::style::unquoted_tr_class::unquoted_tr_class(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedTrRange) {
             rules::style::unquoted_tr_range::unquoted_tr_range(self);
         }
