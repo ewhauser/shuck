@@ -127,53 +127,40 @@ fn call_site_targets_binding(
     binding_id: BindingId,
     site: &shuck_semantic::CallSite,
 ) -> bool {
+    visible_binding_at_call_site(checker, name, site) == Some(binding_id)
+}
+
+fn visible_binding_at_call_site(
+    checker: &Checker<'_>,
+    name: &Name,
+    site: &shuck_semantic::CallSite,
+) -> Option<BindingId> {
     let semantic = checker.semantic();
-    let binding = semantic.binding(binding_id);
-    let target_scope = semantic
-        .ancestor_scopes(semantic.scope_at(site.span.start.offset))
-        .find(|scope| {
+    let site_offset = site.span.start.offset;
+    let scopes = semantic
+        .ancestor_scopes(semantic.scope_at(site_offset))
+        .collect::<Vec<_>>();
+
+    scopes
+        .iter()
+        .find_map(|scope| {
             semantic
                 .function_definitions(name)
                 .iter()
-                .any(|candidate| semantic.binding(*candidate).scope == *scope)
-        });
-
-    if target_scope != Some(binding.scope) {
-        return false;
-    }
-
-    let site_offset = site.span.start.offset;
-    if has_previous_redefinition(checker, binding_id) && site_offset <= binding.span.start.offset {
-        return false;
-    }
-
-    match next_redefinition_offset(checker, binding_id) {
-        Some(next_offset) => site_offset < next_offset,
-        None => true,
-    }
-}
-
-fn has_previous_redefinition(checker: &Checker<'_>, binding_id: BindingId) -> bool {
-    checker
-        .semantic_analysis()
-        .overwritten_functions()
-        .iter()
-        .any(|overwritten| overwritten.second == binding_id)
-}
-
-fn next_redefinition_offset(checker: &Checker<'_>, binding_id: BindingId) -> Option<usize> {
-    checker
-        .semantic_analysis()
-        .overwritten_functions()
-        .iter()
-        .find(|overwritten| overwritten.first == binding_id)
-        .map(|overwritten| {
-            checker
-                .semantic()
-                .binding(overwritten.second)
-                .span
-                .start
-                .offset
+                .copied()
+                .filter(|candidate| semantic.binding(*candidate).scope == *scope)
+                .filter(|candidate| semantic.binding(*candidate).span.start.offset < site_offset)
+                .max_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
+        })
+        .or_else(|| {
+            scopes.iter().find_map(|scope| {
+                semantic
+                    .function_definitions(name)
+                    .iter()
+                    .copied()
+                    .filter(|candidate| semantic.binding(*candidate).scope == *scope)
+                    .min_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
+            })
         })
 }
 
@@ -447,6 +434,26 @@ greet
             diagnostics[0].span.slice(source),
             "greet() { echo \"$1\"; }"
         );
+    }
+
+    #[test]
+    fn nested_scopes_resolve_calls_to_the_visible_binding() {
+        let source = "\
+#!/bin/sh
+foo() { echo \"$1\"; }
+wrapper() {
+  foo
+  foo() { :; }
+}
+wrapper
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo() { echo \"$1\"; }");
     }
 
     #[test]
