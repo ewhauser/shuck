@@ -2242,8 +2242,16 @@ fn build_rule_to_shellcheck_index(
             .collect();
     }
 
-    large_corpus_comparison_mappings(selected_rules)
-        .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
+    let mut index = HashMap::<String, u32>::new();
+    for (sc_code, rule) in large_corpus_comparison_mappings(selected_rules) {
+        index
+            .entry(rule.code().to_owned())
+            .and_modify(|current| *current = (*current).min(sc_code))
+            .or_insert(sc_code);
+    }
+    index
+        .into_iter()
+        .map(|(rule_code, sc_code)| (rule_code, format!("SC{sc_code}")))
         .collect()
 }
 
@@ -2267,9 +2275,18 @@ fn build_shellcheck_to_rule_index(
         return index;
     }
 
-    large_corpus_comparison_mappings(selected_rules)
-        .map(|(sc_code, rule)| (sc_code, vec![rule.code().to_owned()]))
-        .collect()
+    let mut index = HashMap::<u32, Vec<String>>::new();
+    for (sc_code, rule) in large_corpus_comparison_mappings(selected_rules) {
+        index
+            .entry(sc_code)
+            .or_default()
+            .push(rule.code().to_owned());
+    }
+    for rule_codes in index.values_mut() {
+        rule_codes.sort();
+        rule_codes.dedup();
+    }
+    index
 }
 
 fn build_shellcheck_index() -> HashMap<String, String> {
@@ -2362,7 +2379,7 @@ fn selected_rule_shellcheck_code(rule: shuck_linter::Rule) -> Option<u32> {
         })
         .collect::<Vec<_>>();
 
-    if let Some(sc_code) = comparison_candidates.last().copied() {
+    if let Some(sc_code) = comparison_candidates.iter().copied().min() {
         return Some(sc_code);
     }
 
@@ -3326,6 +3343,14 @@ mod tests {
     }
 
     #[test]
+    fn selected_rule_filter_prefers_first_current_comparison_code() {
+        let rules = parse_large_corpus_rule_set("S074").unwrap();
+        let codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(codes, HashSet::from([1045]));
+    }
+
+    #[test]
     fn selected_rule_filter_uses_oracle_codes_for_portability_aliases() {
         let rules = parse_large_corpus_rule_set("X064,X071,X081").unwrap();
         let codes = build_selected_shellcheck_codes(&rules);
@@ -3338,6 +3363,19 @@ mod tests {
         let rules = parse_large_corpus_rule_set("X045,X064").unwrap();
         let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
 
+        assert_eq!(
+            shellcheck_index.get(&3024).map(Vec::as_slice),
+            Some(&["X045".to_string(), "X064".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn full_comparison_index_preserves_all_rules_for_shared_shellcheck_codes() {
+        let rule_index = build_rule_to_shellcheck_index(None);
+        let shellcheck_index = build_shellcheck_to_rule_index(None);
+
+        assert_eq!(rule_index.get("X045").map(String::as_str), Some("SC3024"));
+        assert_eq!(rule_index.get("X064").map(String::as_str), Some("SC3024"));
         assert_eq!(
             shellcheck_index.get(&3024).map(Vec::as_slice),
             Some(&["X045".to_string(), "X064".to_string()][..])

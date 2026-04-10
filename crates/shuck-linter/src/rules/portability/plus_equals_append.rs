@@ -44,6 +44,7 @@ x+=64
 arr+=(one two)
 readonly value+=suffix
 index[1+2]+=3
+complex[$((i+=1))]+=x
 (( i += 1 ))
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PlusEqualsAppend));
@@ -53,7 +54,7 @@ index[1+2]+=3
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["x", "arr", "value", "index[1+2]"]
+            vec!["x", "arr", "value", "index[1+2]", "complex[$((i+=1))]"]
         );
     }
 

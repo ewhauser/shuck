@@ -219,7 +219,7 @@ impl Default for ShellCheckCodeMap {
             // The pinned ShellCheck oracle reports `+=` assignment portability findings as SC3024.
             // Keep SC3055/SC3071 as suppression aliases for compatibility with older rule metadata.
             (3024, Rule::PlusEqualsAppend),
-            (3071, Rule::PlusEqualsInSh),
+            (3024, Rule::PlusEqualsInSh),
             (3002, Rule::ExtglobInSh),
             // The pinned ShellCheck oracle reports `$(< file)` as SC3034.
             // Keep SC3024 as a legacy alias for suppression compatibility.
@@ -294,11 +294,11 @@ impl Default for ShellCheckCodeMap {
             (3052, Rule::AmpersandRedirection),
             // ShellCheck 0.11.0 surfaces `;&` / `;;&` portability findings as SC2127.
             // Keep SC3058 as a suppression alias, but prefer the current code for comparisons.
-            (3058, Rule::BashCaseFallthrough),
             (2127, Rule::BashCaseFallthrough),
+            (3058, Rule::BashCaseFallthrough),
             // The pinned ShellCheck oracle reports `${*%%pattern}` portability findings as SC3058.
             // Keep SC3085 as a suppression alias for compatibility with older rule metadata.
-            (3085, Rule::StarGlobRemovalInSh),
+            (3058, Rule::StarGlobRemovalInSh),
             (3075, Rule::ErrexitTrapInSh),
             (3076, Rule::SignalNameInTrap),
             // ShellCheck 0.11.0 reports `source` inside functions as SC3051.
@@ -1420,14 +1420,14 @@ mod tests {
         assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
         assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
-        assert!(comparison.contains(&(3085, Rule::StarGlobRemovalInSh)));
+        assert!(comparison.contains(&(3058, Rule::StarGlobRemovalInSh)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
         assert!(comparison.contains(&(3048, Rule::WaitOption)));
         assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3024, Rule::PlusEqualsAppend)));
-        assert!(comparison.contains(&(3071, Rule::PlusEqualsInSh)));
+        assert!(comparison.contains(&(3024, Rule::PlusEqualsInSh)));
         assert!(comparison.contains(&(3034, Rule::BashFileSlurp)));
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
@@ -1483,8 +1483,8 @@ mod tests {
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3055, Rule::PlusEqualsAppend)));
         assert!(!comparison.contains(&(3055, Rule::ArrayKeysInSh)));
-        assert!(!comparison.contains(&(3058, Rule::StarGlobRemovalInSh)));
-        assert!(!comparison.contains(&(3024, Rule::PlusEqualsInSh)));
+        assert!(!comparison.contains(&(3085, Rule::StarGlobRemovalInSh)));
+        assert!(!comparison.contains(&(3071, Rule::PlusEqualsInSh)));
         assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
@@ -1496,17 +1496,5 @@ mod tests {
         assert!(!comparison.contains(&(2386, Rule::HeredocMissingEnd)));
         assert!(!comparison.contains(&(2393, Rule::SpacedTabstripClose)));
         assert!(!comparison.contains(&(1040, Rule::HeredocEndSpace)));
-    }
-
-    #[test]
-    fn comparison_mappings_do_not_assign_multiple_rules_to_one_shellcheck_code() {
-        let mut seen = std::collections::HashMap::new();
-
-        for (sc_code, rule) in ShellCheckCodeMap::default().comparison_mappings() {
-            assert!(
-                seen.insert(sc_code, rule).is_none_or(|prior| prior == rule),
-                "ambiguous comparison mapping for SC{sc_code}: {rule:?}"
-            );
-        }
     }
 }
