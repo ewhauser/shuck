@@ -53,6 +53,9 @@ impl ShellCheckCodeMap {
         if number == 2253 {
             return vec![Rule::StatusCaptureAfterBranchTest];
         }
+        if number == 2263 {
+            return vec![Rule::RedundantSpacesInEcho];
+        }
         if number == 2281 {
             return vec![Rule::BackslashBeforeClosingBacktick];
         }
@@ -103,6 +106,7 @@ impl Default for ShellCheckCodeMap {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
             (2010, Rule::LsGrepPipeline),
+            (2291, Rule::RedundantSpacesInEcho),
             (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
             // ShellCheck 0.11.0 reports space-indented `<<-` close candidates as SC1040.
@@ -375,6 +379,7 @@ impl Default for ShellCheckCodeMap {
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
+                (2291, Rule::RedundantSpacesInEcho),
                 (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
                 (3050, Rule::BraceFdRedirection),
@@ -599,11 +604,21 @@ mod tests {
         assert_eq!(map.resolve("SC3002"), Some(Rule::ExtglobInSh));
         assert_eq!(map.resolve("SC3061"), Some(Rule::ExtglobInSh));
         assert_eq!(map.resolve("SC2258"), Some(Rule::BareRead));
+        assert_eq!(map.resolve("SC2291"), Some(Rule::RedundantSpacesInEcho));
+        assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve("SC3072"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve_all("SC3002"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve_all("SC3061"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve_all("SC2258"), vec![Rule::BareRead]);
+        assert_eq!(
+            map.resolve_all("SC2291"),
+            vec![Rule::RedundantSpacesInEcho]
+        );
+        assert_eq!(
+            map.resolve_all("SC2263"),
+            vec![Rule::RedundantSpacesInEcho]
+        );
         assert_eq!(
             map.resolve_all("SC3026"),
             vec![Rule::CaretNegationInBracket]
@@ -903,6 +918,7 @@ mod tests {
             (2009, Rule::PsGrepPipeline),
             (2009, Rule::DoubleParenGrouping),
             (2010, Rule::LsGrepPipeline),
+            (2291, Rule::RedundantSpacesInEcho),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
             (2016, Rule::SingleQuotedLiteral),
@@ -1129,6 +1145,7 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
+        assert!(comparison.contains(&(2291, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));

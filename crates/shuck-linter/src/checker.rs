@@ -236,6 +236,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EchoedCommandSubstitution) {
             rules::style::echoed_command_substitution::echoed_command_substitution(self);
         }
+        if self.is_rule_enabled(Rule::RedundantSpacesInEcho) {
+            rules::style::redundant_spaces_in_echo::redundant_spaces_in_echo(self);
+        }
         if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
             rules::style::export_command_substitution::export_command_substitution(self);
         }

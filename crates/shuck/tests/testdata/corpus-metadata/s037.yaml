@@ -9,4 +9,4 @@ reviewed_divergences:
       - directive-handling
       - helper-library
       - project-closure
-    reason: "This helper-library fixture uses a continued multi-line stderr `echo` for an internal rehash message, and the current ShellCheck comparison stays silent on SC2263 for that project-closure context while shuck still flags the repeated spacing pattern."
+    reason: "This helper-library fixture keeps the stderr message split across a backslash-continued line, so the indentation is not a standalone run of repeated spaces on one physical echo line. ShellCheck 0.11.0 stays silent here while shuck currently flags the continued spacing pattern."
