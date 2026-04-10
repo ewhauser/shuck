@@ -48,21 +48,12 @@ The reviewed implemented rules below were checked against three gates:
 | Rule | Facts-only / no walks | Duplication | Coverage status | Outcome |
 |---|---|---|---|---|
 | C141 `loop-without-end` | ✅ | ✅ | ✅ positive plus balanced/nested non-trigger tests | vetted |
-| C142 `missing-done-in-for-loop` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
-| C143 `dangling-else` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
-| C146 `until-missing-do` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
-| C157 `if-bracket-glued` | ✅ | ✅ | ❌ only single positive fixture today | keep unvetted |
-| K001 `rm-glob-on-variable-path` | ✅ | ✅ | ❌ lacks non-trigger and precision edge fixtures | keep unvetted |
-| K004 `find-execdir-with-shell` | ✅ | ✅ | ❌ lacks non-trigger and shell-variant fixtures | keep unvetted |
-
-## Validation TODOs
-
-- **C142 `missing-done-in-for-loop`**: add edge-case fixtures for `for` loops with heredocs/line continuations near EOF and a negative case with a valid trailing `done`.
-- **C143 `dangling-else`**: add cases that distinguish parse-recovery noise from true empty `else` branches, including nested `if` blocks.
-- **C146 `until-missing-do`**: add coverage for multiline `until` headers and ensure no finding when `do` appears after comments/blank lines.
-- **C157 `if-bracket-glued`**: add negative tests for valid `if [` formatting variants and quoted strings starting with `if[` to avoid accidental token-text matching.
-- **K001 `rm-glob-on-variable-path`**: add safety-oriented negatives (`rm -rf -- "$dir"`, literal paths, no glob) and cases with indirect/parameter-expanded targets to verify rule precision.
-- **K004 `find-execdir-with-shell`**: add variants for `sh -c`, `bash -c`, and safe `-execdir` forms without shell interpolation to prove matcher breadth is correct.
+| C142 `missing-done-in-for-loop` | ✅ | ✅ | ✅ positive plus heredoc/line-continuation EOF and valid `done` negative tests | vetted |
+| C143 `dangling-else` | ✅ | ✅ | ✅ positive plus nested empty/non-empty parse-recovery tests | vetted |
+| C146 `until-missing-do` | ✅ | ✅ | ✅ positive plus multiline-header and comment/blank-line `do` tests | vetted |
+| C157 `if-bracket-glued` | ✅ | ✅ | ✅ positive plus spacing-variant and quoted-text negative tests | vetted |
+| K001 `rm-glob-on-variable-path` | ✅ | ✅ | ✅ positive plus safe-`rm`, literal-path, and expansion-precision tests | vetted |
+| K004 `find-execdir-with-shell` | ✅ | ✅ | ✅ positive plus `sh -c`, `bash -c`, and safe `-execdir` tests | vetted |
 
 ## Remaining Rules
 
