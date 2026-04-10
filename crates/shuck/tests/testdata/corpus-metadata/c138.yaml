@@ -1,0 +1,14 @@
+comparison_target_notes:
+  - current_shellcheck_code: "SC1044"
+    reason: "The nix-provided ShellCheck 0.11.0 in this workspace reports missing heredoc terminators as SC1044, so C138 corpus comparisons target that code while keeping SC2386 as a compatibility alias."
+
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__tsocks__04_getpeername.patch"
+    line: 33
+    end_line: 33
+    column: 43
+    end_column: 48
+    labels:
+      - patch-file
+    reason: "This fixture is a patch payload embedded in a shell wrapper. The heredoc token appears inside diff context text rather than live shell syntax, so this C138 hit is treated as patch-data noise."

@@ -484,6 +484,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnusedHeredoc) {
             rules::correctness::unused_heredoc::unused_heredoc(self);
         }
+        if self.is_rule_enabled(Rule::HeredocMissingEnd) {
+            rules::correctness::heredoc_missing_end::heredoc_missing_end(self);
+        }
     }
 
     fn check_surface_fragment_facts(&mut self) {

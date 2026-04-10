@@ -196,6 +196,7 @@ declare_rules! {
         Severity::Warning,
         UnicodeSingleQuoteInSingleQuotes
     ),
+    ("C138", Category::Correctness, Severity::Warning, HeredocMissingEnd),
     ("C141", Category::Correctness, Severity::Error, LoopWithoutEnd),
     (
         "C142",
@@ -459,6 +460,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
+        "SH-318" => Some(Rule::HeredocMissingEnd),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -694,6 +696,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("C127"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
+        assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
+        assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

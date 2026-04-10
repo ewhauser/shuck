@@ -95,6 +95,9 @@ impl Default for ShellCheckCodeMap {
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
+            // ShellCheck 0.11.0 reports missing heredoc terminators as SC1044.
+            // Keep SC2386 as a suppression alias for compatibility metadata.
+            (1044, Rule::HeredocMissingEnd),
             // ShellCheck 0.11.0 reports `foo &;` as SC1045.
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
@@ -282,6 +285,7 @@ impl Default for ShellCheckCodeMap {
                 (2235, Rule::SubshellTestGroup),
                 (2259, Rule::SubshellTestGroup),
                 (1037, Rule::PositionalTenBraces),
+                (1044, Rule::HeredocMissingEnd),
                 (1045, Rule::AmpersandSemicolon),
                 (1047, Rule::MissingFi),
                 (1069, Rule::IfBracketGlued),
@@ -302,6 +306,7 @@ impl Default for ShellCheckCodeMap {
                 (1126, Rule::TrailingDirective),
                 (1113, Rule::TrailingDirective),
                 (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
+                (2386, Rule::HeredocMissingEnd),
                 (3002, Rule::ExtglobInSh),
                 (3026, Rule::CaretNegationInBracket),
                 (1127, Rule::CStyleComment),
@@ -491,6 +496,7 @@ mod tests {
         assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC1037"), Some(Rule::PositionalTenBraces));
+        assert_eq!(map.resolve("SC1044"), Some(Rule::HeredocMissingEnd));
         assert_eq!(map.resolve("SC1001"), Some(Rule::EscapedUnderscore));
         assert_eq!(map.resolve("SC1002"), Some(Rule::EscapedUnderscoreLiteral));
         assert_eq!(map.resolve("SC1003"), Some(Rule::SingleQuoteBackslash));
@@ -551,6 +557,7 @@ mod tests {
             map.resolve("SC2385"),
             Some(Rule::UnicodeSingleQuoteInSingleQuotes)
         );
+        assert_eq!(map.resolve("SC2386"), Some(Rule::HeredocMissingEnd));
         assert_eq!(map.resolve("SC1129"), Some(Rule::ZshBraceIf));
         assert_eq!(map.resolve("SC1127"), Some(Rule::CStyleComment));
         assert_eq!(map.resolve("SC1130"), Some(Rule::ZshAlwaysBlock));
@@ -761,6 +768,7 @@ mod tests {
             (1012, Rule::NeedlessBackslashUnderscore),
             (1019, Rule::EmptyTest),
             (1037, Rule::PositionalTenBraces),
+            (1044, Rule::HeredocMissingEnd),
             (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
             (1069, Rule::IfBracketGlued),
@@ -893,6 +901,7 @@ mod tests {
             (2375, Rule::ZshParameterIndexFlag),
             (2385, Rule::UnicodeSingleQuoteInSingleQuotes),
             (2388, Rule::BadVarName),
+            (2386, Rule::HeredocMissingEnd),
             (3001, Rule::ProcessSubstitution),
             (3002, Rule::ExtglobInSh),
             (3003, Rule::AnsiCQuoting),
@@ -1025,6 +1034,7 @@ mod tests {
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2323, Rule::ArithmeticScoreLine)));
         assert!(comparison.contains(&(2370, Rule::UnusedHeredoc)));
+        assert!(comparison.contains(&(1044, Rule::HeredocMissingEnd)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
@@ -1051,6 +1061,7 @@ mod tests {
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));
         assert!(!comparison.contains(&(3064, Rule::LegacyArithmeticInSh)));
         assert!(!comparison.contains(&(3069, Rule::CStyleForArithmeticInSh)));
+        assert!(!comparison.contains(&(2386, Rule::HeredocMissingEnd)));
     }
 
     #[test]

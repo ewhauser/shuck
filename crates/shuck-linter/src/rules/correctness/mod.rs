@@ -26,6 +26,7 @@ pub mod empty_function_body;
 pub mod empty_test;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
@@ -151,6 +152,7 @@ mod tests {
     #[test_case(Rule::BadVarName, Path::new("C140.sh"))]
     #[test_case(Rule::UnusedHeredoc, Path::new("C127.sh"))]
     #[test_case(Rule::UnicodeSingleQuoteInSingleQuotes, Path::new("C137.sh"))]
+    #[test_case(Rule::HeredocMissingEnd, Path::new("C138.sh"))]
     #[test_case(Rule::LoopWithoutEnd, Path::new("C141.sh"))]
     #[test_case(Rule::MissingDoneInForLoop, Path::new("C142.sh"))]
     #[test_case(Rule::DanglingElse, Path::new("C143.sh"))]

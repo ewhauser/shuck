@@ -384,7 +384,7 @@ Rules about heredoc structure: missing/mismatched markers, whitespace, and
 misuse.
 
 - [x] **M** C127 (SC2370) `unused-heredoc` — heredoc opened without consuming command
-- [ ] **M** C138 (SC2386) `heredoc-missing-end` — heredoc never gets closing marker
+- [x] **M** C138 (SC2386) `heredoc-missing-end` — heredoc never gets closing marker
 - [ ] **L** C144 (SC2394) `heredoc-closer-not-alone` — closer on same line as content
 - [ ] **M** C145 (SC2395) `misquoted-heredoc-close` — closing marker is only a near match
 - [ ] **L** S030 (SC1040) `heredoc-end-space` — trailing whitespace on terminator
