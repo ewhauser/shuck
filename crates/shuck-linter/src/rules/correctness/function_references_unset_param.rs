@@ -62,7 +62,7 @@ pub fn function_references_unset_param(checker: &mut Checker) {
         if required_arg_count <= 1 || positional.resets_positional_parameters() {
             continue;
         }
-        if !function_is_called_without_arguments(checker, name) {
+        if !function_is_called_without_arguments(checker, name, binding.scope) {
             continue;
         }
 
@@ -94,10 +94,19 @@ fn function_scope_for(
     })
 }
 
-fn function_is_called_without_arguments(checker: &Checker<'_>, name: &Name) -> bool {
+fn function_is_called_without_arguments(
+    checker: &Checker<'_>,
+    name: &Name,
+    binding_scope: ScopeId,
+) -> bool {
     let mut saw_relevant_call = false;
 
-    for site in checker.semantic().call_sites_for(name) {
+    for site in checker
+        .semantic()
+        .call_sites_for(name)
+        .iter()
+        .filter(|site| call_site_targets_scope(checker, name, binding_scope, site))
+    {
         saw_relevant_call = true;
         if site.arg_count > 0 {
             return false;
@@ -105,6 +114,25 @@ fn function_is_called_without_arguments(checker: &Checker<'_>, name: &Name) -> b
     }
 
     saw_relevant_call
+}
+
+fn call_site_targets_scope(
+    checker: &Checker<'_>,
+    name: &Name,
+    binding_scope: ScopeId,
+    site: &shuck_semantic::CallSite,
+) -> bool {
+    checker
+        .semantic()
+        .ancestor_scopes(checker.semantic().scope_at(site.span.start.offset))
+        .find(|scope| {
+            checker
+                .semantic()
+                .function_definitions(name)
+                .iter()
+                .any(|binding_id| checker.semantic().binding(*binding_id).scope == *scope)
+        })
+        == Some(binding_scope)
 }
 
 fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
@@ -209,6 +237,92 @@ greet
 greet() {
   set hello world
   echo \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn same_name_functions_in_different_scopes_do_not_mask_each_other() {
+        let source = "\
+#!/bin/sh
+outer_without_args() {
+  inner() { echo \"$1 $2\"; }
+  inner
+}
+
+outer_with_args() {
+  inner() { echo \"$1 $2\"; }
+  inner ok yes
+}
+
+outer_without_args
+outer_with_args
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "inner() { echo \"$1 $2\"; }"
+        );
+    }
+
+    #[test]
+    fn nested_command_substitutions_still_count_toward_required_arg_count() {
+        let source = "\
+#!/bin/sh
+greet() {
+  printf '%s\n' \"$(printf '%s' \"$1 $2\")\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() {\n  printf '%s\n' \"$(printf '%s' \"$1 $2\")\"\n}"
+        );
+    }
+
+    #[test]
+    fn earlier_calls_in_same_scope_still_count_toward_mixed_arity() {
+        let source = "\
+#!/bin/sh
+greet ok yes
+greet() { echo \"$1 $2\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn nested_set_commands_still_count_as_positional_parameter_resets() {
+        let source = "\
+#!/bin/sh
+greet() {
+  printf '%s\n' 'hello world' | while read -r first second; do
+    set -- \"$first\" \"$second\"
+    printf '%s\n' \"$2\"
+  done
 }
 greet
 ";

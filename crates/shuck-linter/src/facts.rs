@@ -2998,13 +2998,10 @@ fn build_function_positional_parameter_facts(
                 continue;
             }
 
-            let scope = semantic.scope_at(reference.span.start.offset);
-            if !matches!(
-                semantic.scope_kind(scope),
-                shuck_semantic::ScopeKind::Function(_)
-            ) {
+            let Some(scope) = enclosing_function_scope(semantic, reference.span.start.offset)
+            else {
                 continue;
-            }
+            };
 
             if uses_positional_parameters {
                 facts
@@ -3018,13 +3015,9 @@ fn build_function_positional_parameter_facts(
             continue;
         }
 
-        let scope = semantic.scope_at(reference.span.start.offset);
-        if !matches!(
-            semantic.scope_kind(scope),
-            shuck_semantic::ScopeKind::Function(_)
-        ) {
+        let Some(scope) = enclosing_function_scope(semantic, reference.span.start.offset) else {
             continue;
-        }
+        };
 
         let entry = facts.entry(scope).or_default();
         entry.required_arg_count = entry.required_arg_count.max(index);
@@ -3032,13 +3025,9 @@ fn build_function_positional_parameter_facts(
     }
 
     for command in commands {
-        let scope = semantic.scope_at(command.span().start.offset);
-        if !matches!(
-            semantic.scope_kind(scope),
-            shuck_semantic::ScopeKind::Function(_)
-        ) {
+        let Some(scope) = enclosing_function_scope(semantic, command.span().start.offset) else {
             continue;
-        }
+        };
 
         if command
             .options()
@@ -3050,6 +3039,16 @@ fn build_function_positional_parameter_facts(
     }
 
     facts
+}
+
+fn enclosing_function_scope(semantic: &SemanticModel, offset: usize) -> Option<ScopeId> {
+    let scope = semantic.scope_at(offset);
+    semantic.ancestor_scopes(scope).find(|scope| {
+        matches!(
+            semantic.scope_kind(*scope),
+            shuck_semantic::ScopeKind::Function(_)
+        )
+    })
 }
 
 fn positional_parameter_index(name: &str) -> Option<usize> {
