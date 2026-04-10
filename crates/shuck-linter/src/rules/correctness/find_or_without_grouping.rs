@@ -101,4 +101,15 @@ find . -name a -o -name b -a -exec rm -f {} \\;
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_operator_like_predicate_arguments() {
+        let source = "find . -name '-o' -type f -print\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

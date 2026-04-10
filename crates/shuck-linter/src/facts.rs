@@ -6924,11 +6924,20 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut or_without_grouping_spans = Vec::new();
     let mut group_stack = vec![FindGroupState::default()];
+    let mut pending_argument: Option<FindPendingArgument> = None;
 
     for word in args {
         let Some(text) = static_word_text(word, source) else {
+            if let Some(state) = pending_argument {
+                pending_argument = state.after_consuming_dynamic();
+            }
             continue;
         };
+
+        if let Some(state) = pending_argument {
+            pending_argument = state.after_consuming(text.as_str());
+            continue;
+        }
 
         if text == "-print0" {
             has_print0 = true;
@@ -6969,17 +6978,47 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
                 is_find_reportable_action_token(text.as_str()),
                 &mut or_without_grouping_spans,
             );
+            pending_argument = find_pending_argument(text.as_str());
             continue;
         }
 
         if is_find_predicate_token(text.as_str()) {
             state.note_predicate();
+            pending_argument = find_pending_argument(text.as_str());
         }
     }
 
     FindCommandFacts {
         has_print0,
         or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FindPendingArgument {
+    Words(usize),
+    UntilExecTerminator,
+}
+
+impl FindPendingArgument {
+    fn after_consuming(self, token: &str) -> Option<Self> {
+        match self {
+            Self::Words(remaining) => remaining
+                .checked_sub(1)
+                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::UntilExecTerminator => {
+                (!matches!(token, ";" | "\\;" | "+")).then_some(Self::UntilExecTerminator)
+            }
+        }
+    }
+
+    fn after_consuming_dynamic(self) -> Option<Self> {
+        match self {
+            Self::Words(remaining) => remaining
+                .checked_sub(1)
+                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::UntilExecTerminator => Some(Self::UntilExecTerminator),
+        }
     }
 }
 
@@ -7090,6 +7129,23 @@ fn is_find_branch_action_token(token: &str) -> bool {
 
 fn is_find_reportable_action_token(token: &str) -> bool {
     is_find_action_token(token)
+}
+
+fn find_pending_argument(token: &str) -> Option<FindPendingArgument> {
+    match token {
+        "-fls" | "-fprint" | "-fprint0" | "-printf" => Some(FindPendingArgument::Words(1)),
+        "-fprintf" => Some(FindPendingArgument::Words(2)),
+        "-exec" | "-execdir" | "-ok" | "-okdir" => Some(FindPendingArgument::UntilExecTerminator),
+        "-amin" | "-anewer" | "-atime" | "-cmin" | "-cnewer" | "-context" | "-fstype" | "-gid"
+        | "-group" | "-ilname" | "-iname" | "-inum" | "-ipath" | "-iregex" | "-links"
+        | "-lname" | "-maxdepth" | "-mindepth" | "-mmin" | "-mtime" | "-name" | "-newer"
+        | "-path" | "-perm" | "-regex" | "-samefile" | "-size" | "-type" | "-uid" | "-used"
+        | "-user" | "-xtype" | "-files0-from" => Some(FindPendingArgument::Words(1)),
+        token if token.starts_with("-newer") && token.len() > "-newer".len() => {
+            Some(FindPendingArgument::Words(1))
+        }
+        _ => None,
+    }
 }
 
 fn is_find_predicate_token(token: &str) -> bool {

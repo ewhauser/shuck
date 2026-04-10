@@ -77,6 +77,19 @@ fn sed_uses_static_substitution_script(fact: &CommandFact<'_>, source: &str) -> 
             continue;
         }
 
+        if text == "--expression" {
+            expects_script = true;
+            continue;
+        }
+
+        if let Some(script) = text.strip_prefix("--expression=") {
+            if is_static_substitution_script(script) {
+                return true;
+            }
+            expects_script = false;
+            continue;
+        }
+
         if let Some(script) = attached_sed_script(text.as_str()) {
             if is_static_substitution_script(script) {
                 return true;
@@ -156,6 +169,7 @@ echo $CLASSPATH | sed 's|foo|bar|g'
 echo $HOME | sed -e 's|foo|bar|g'
 echo $USER | sed -e's/foo/bar/'
 echo $SHELL | sed -es/foo/bar/
+echo $LOGNAME | sed --expression='s|foo|bar|g'
 echo \"$KEEP\" | sed 's|foo|bar|g'
 echo $PATH | sed -n
 ";
@@ -169,7 +183,7 @@ echo $PATH | sed -n
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$CLASSPATH", "$HOME", "$USER", "$SHELL"]
+            vec!["$CLASSPATH", "$HOME", "$USER", "$SHELL", "$LOGNAME"]
         );
     }
 
