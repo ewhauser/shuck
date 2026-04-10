@@ -85,9 +85,9 @@ mod tests {
             vec![
                 Rule::FunctionReferencesUnsetParam,
                 Rule::UnreachableAfterExit,
+                Rule::UnusedHeredoc,
                 Rule::UncheckedDirectoryChangeInFunction,
                 Rule::ContinueOutsideLoopInFunction,
-                Rule::UnusedHeredoc,
             ]
         );
     }

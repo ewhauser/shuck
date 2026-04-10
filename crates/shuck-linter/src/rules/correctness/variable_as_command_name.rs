@@ -33,10 +33,7 @@ pub fn variable_as_command_name(checker: &mut Checker) {
                 return None;
             }
 
-            fact.scalar_expansion_spans()
-                .first()
-                .copied()
-                .or(Some(fact.span()))
+            fact.scalar_expansion_spans().first().copied()
         })
         .collect::<Vec<_>>();
 
@@ -85,6 +82,23 @@ f() {
   \"$cmd\" hello
 }
 $cmd world
+f
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_command_substitutions_without_variable_expansions() {
+        let source = "\
+#!/bin/sh
+f() {
+  $(printf echo) hello
+}
 f
 ";
         let diagnostics = test_snippet(

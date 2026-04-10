@@ -73,4 +73,25 @@ continue
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn only_reports_the_function_specific_rule_when_both_are_enabled() {
+        let source = "\
+#!/bin/sh
+f() {
+\tcontinue
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([
+                Rule::LoopControlOutsideLoop,
+                Rule::ContinueOutsideLoopInFunction,
+            ]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ContinueOutsideLoopInFunction);
+        assert_eq!(diagnostics[0].span.slice(source), "continue");
+    }
 }

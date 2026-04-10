@@ -62,7 +62,7 @@ pub fn function_references_unset_param(checker: &mut Checker) {
         if required_arg_count <= 1 || positional.resets_positional_parameters() {
             continue;
         }
-        if !function_is_called_without_arguments(checker, name, binding.scope) {
+        if !function_is_called_without_arguments(checker, name, binding_id) {
             continue;
         }
 
@@ -97,7 +97,7 @@ fn function_scope_for(
 fn function_is_called_without_arguments(
     checker: &Checker<'_>,
     name: &Name,
-    binding_scope: ScopeId,
+    binding_id: BindingId,
 ) -> bool {
     let mut saw_relevant_call = false;
 
@@ -105,7 +105,7 @@ fn function_is_called_without_arguments(
         .semantic()
         .call_sites_for(name)
         .iter()
-        .filter(|site| call_site_targets_scope(checker, name, binding_scope, site))
+        .filter(|site| call_site_targets_binding(checker, name, binding_id, site))
     {
         saw_relevant_call = true;
         if site.arg_count > 0 {
@@ -116,23 +116,60 @@ fn function_is_called_without_arguments(
     saw_relevant_call
 }
 
-fn call_site_targets_scope(
+fn call_site_targets_binding(
     checker: &Checker<'_>,
     name: &Name,
-    binding_scope: ScopeId,
+    binding_id: BindingId,
     site: &shuck_semantic::CallSite,
 ) -> bool {
-    checker
-        .semantic()
-        .ancestor_scopes(checker.semantic().scope_at(site.span.start.offset))
+    let semantic = checker.semantic();
+    let binding = semantic.binding(binding_id);
+    let target_scope = semantic
+        .ancestor_scopes(semantic.scope_at(site.span.start.offset))
         .find(|scope| {
-            checker
-                .semantic()
+            semantic
                 .function_definitions(name)
                 .iter()
-                .any(|binding_id| checker.semantic().binding(*binding_id).scope == *scope)
+                .any(|candidate| semantic.binding(*candidate).scope == *scope)
+        });
+
+    if target_scope != Some(binding.scope) {
+        return false;
+    }
+
+    let site_offset = site.span.start.offset;
+    if has_previous_redefinition(checker, binding_id) && site_offset <= binding.span.start.offset {
+        return false;
+    }
+
+    match next_redefinition_offset(checker, binding_id) {
+        Some(next_offset) => site_offset < next_offset,
+        None => true,
+    }
+}
+
+fn has_previous_redefinition(checker: &Checker<'_>, binding_id: BindingId) -> bool {
+    checker
+        .semantic_analysis()
+        .overwritten_functions()
+        .iter()
+        .any(|overwritten| overwritten.second == binding_id)
+}
+
+fn next_redefinition_offset(checker: &Checker<'_>, binding_id: BindingId) -> Option<usize> {
+    checker
+        .semantic_analysis()
+        .overwritten_functions()
+        .iter()
+        .find(|overwritten| overwritten.first == binding_id)
+        .map(|overwritten| {
+            checker
+                .semantic()
+                .binding(overwritten.second)
+                .span
+                .start
+                .offset
         })
-        == Some(binding_scope)
 }
 
 fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
@@ -228,6 +265,27 @@ greet
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn later_redefinitions_do_not_inherit_argumented_calls_from_earlier_bindings() {
+        let source = "\
+#!/bin/sh
+greet() { echo \"$2\"; }
+greet ok ok
+greet() { echo \"$2\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() { echo \"$2\"; }"
+        );
     }
 
     #[test]

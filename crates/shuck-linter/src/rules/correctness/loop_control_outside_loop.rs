@@ -45,7 +45,7 @@ pub(crate) fn loop_control_violations(
             )),
             _ => None,
         })
-        .filter(|(command_span, _, _)| {
+        .filter(|(command_span, _, keyword)| {
             let scope = checker.semantic().scope_at(command_span.start.offset);
             let inside_function = checker.semantic().ancestor_scopes(scope).any(|ancestor| {
                 matches!(
@@ -54,6 +54,13 @@ pub(crate) fn loop_control_violations(
                 )
             });
             if inside_function_only && !inside_function {
+                return false;
+            }
+            if !inside_function_only
+                && inside_function
+                && *keyword == "continue"
+                && checker.is_rule_enabled(Rule::ContinueOutsideLoopInFunction)
+            {
                 return false;
             }
             checker
@@ -78,9 +85,7 @@ mod tests {
     fn anchors_on_the_loop_control_keyword_only() {
         let source = "\
 #!/bin/sh
-termux_step_make() {
-\tcontinue 2
-}
+continue 2
 ";
         let diagnostics = test_snippet(
             source,
@@ -110,5 +115,60 @@ done
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_continue_inside_functions_when_the_specific_rule_is_disabled() {
+        let source = "\
+#!/bin/sh
+f() {
+\tcontinue
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LoopControlOutsideLoop),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "continue");
+    }
+
+    #[test]
+    fn ignores_continue_inside_functions_when_specific_rule_handles_it() {
+        let source = "\
+#!/bin/sh
+f() {
+\tcontinue
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([
+                Rule::LoopControlOutsideLoop,
+                Rule::ContinueOutsideLoopInFunction,
+            ]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ContinueOutsideLoopInFunction);
+        assert_eq!(diagnostics[0].span.slice(source), "continue");
+    }
+
+    #[test]
+    fn still_reports_break_inside_functions() {
+        let source = "\
+#!/bin/sh
+f() {
+\tbreak
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LoopControlOutsideLoop),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "break");
     }
 }
