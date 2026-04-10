@@ -9205,7 +9205,7 @@ legacy=`nvm ls | grep '^ *\\.'`
     fn marks_redirect_only_input_command_substitutions_as_bash_file_slurps() {
         let source = "\
 #!/bin/bash
-printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>/dev/null) $(cat < portable.txt) $(> out.txt) $(foo=bar)
+printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>/dev/null) $(< muted.txt >/dev/null) $(< closed.txt 0<&-) $(cat < portable.txt) $(> out.txt) $(foo=bar)
 ";
 
         with_facts(source, None, |_, facts| {
@@ -9228,6 +9228,8 @@ printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>
             );
             assert!(substitutions.contains(&("$(0< fd.txt)".to_owned(), true)));
             assert!(substitutions.contains(&("$(< quiet.txt 2>/dev/null)".to_owned(), true)));
+            assert!(substitutions.contains(&("$(< muted.txt >/dev/null)".to_owned(), false)));
+            assert!(substitutions.contains(&("$(< closed.txt 0<&-)".to_owned(), false)));
             assert!(substitutions.contains(&("$(cat < portable.txt)".to_owned(), false)));
             assert!(substitutions.contains(&("$(> out.txt)".to_owned(), false)));
             assert!(substitutions.contains(&("$(foo=bar)".to_owned(), false)));
