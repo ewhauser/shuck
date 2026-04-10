@@ -52,4 +52,18 @@ ssh \"$host\" \"echo $HOME\"
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].span.slice(source), "$HOME");
     }
+
+    #[test]
+    fn reports_expansions_after_static_ssh_options() {
+        let source = "\
+#!/bin/sh
+ssh -i \"$key\" \"$host\" \"echo $HOME\"
+ssh -p 2222 host \"echo $USER\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SshLocalExpansion));
+
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].span.slice(source), "$HOME");
+        assert_eq!(diagnostics[1].span.slice(source), "$USER");
+    }
 }

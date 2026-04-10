@@ -378,15 +378,19 @@ fn find_exec_target_index(
     current_index: usize,
     source: &str,
 ) -> Option<(WrapperKind, usize)> {
+    let mut fallback = None;
+
     for index in current_index + 1..words.len() {
         let Some(arg) = static_word_text(words[index], source) else {
             continue;
         };
         match arg.as_str() {
             "-exec" | "-ok" => {
-                return words
-                    .get(index + 1)
-                    .map(|_| (WrapperKind::FindExec, index + 1));
+                if fallback.is_none() {
+                    fallback = words
+                        .get(index + 1)
+                        .map(|_| (WrapperKind::FindExec, index + 1));
+                }
             }
             "-execdir" => {
                 return words
@@ -394,15 +398,17 @@ fn find_exec_target_index(
                     .map(|_| (WrapperKind::FindExecDir, index + 1));
             }
             "-okdir" => {
-                return words
-                    .get(index + 1)
-                    .map(|_| (WrapperKind::FindExec, index + 1));
+                if fallback.is_none() {
+                    fallback = words
+                        .get(index + 1)
+                        .map(|_| (WrapperKind::FindExec, index + 1));
+                }
             }
             _ => {}
         }
     }
 
-    None
+    fallback
 }
 
 fn sudo_family_target_index(words: &[&Word], current_index: usize, source: &str) -> Option<usize> {
@@ -736,5 +742,22 @@ mod tests {
         assert_eq!(declaration.kind, DeclarationKind::Declare);
         assert!(declaration.assignment_operands.is_empty());
         assert_eq!(declaration.operands.len(), 1);
+    }
+
+    #[test]
+    fn normalize_command_prefers_later_find_execdir_targets() {
+        let source = "find . -exec echo {} \\; -execdir sh -c 'mv {}' \\;\n";
+        let command = parse_first_command(source);
+        let normalized = normalize_command(&command, source);
+
+        assert_eq!(normalized.effective_name.as_deref(), Some("sh"));
+        assert_eq!(normalized.wrappers, vec![WrapperKind::FindExecDir]);
+        assert_eq!(
+            normalized
+                .body_args()
+                .first()
+                .map(|word| word.span.slice(source)),
+            Some("-c")
+        );
     }
 }

@@ -4276,11 +4276,7 @@ fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
 }
 
 fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
-    if ssh_has_option_syntax(args, source) {
-        return None;
-    }
-
-    let (_, remote_args) = args.split_first()?;
+    let remote_args = ssh_remote_args(args, source)?;
     if remote_args.is_empty() {
         return None;
     }
@@ -4295,10 +4291,113 @@ fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
     })
 }
 
-fn ssh_has_option_syntax(args: &[&Word], source: &str) -> bool {
-    args.iter().any(|word| {
-        static_word_text(word, source).is_some_and(|text| text.starts_with('-') && text != "-")
-    })
+fn ssh_remote_args<'a>(args: &'a [&'a Word], source: &str) -> Option<&'a [&'a Word]> {
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        let consumes_next = ssh_option_consumes_next_argument(text.as_str())?;
+        index += 1;
+        if consumes_next {
+            args.get(index)?;
+            index += 1;
+        }
+    }
+
+    let _destination = args.get(index)?;
+    Some(&args[index + 1..])
+}
+
+fn ssh_option_consumes_next_argument(text: &str) -> Option<bool> {
+    if !text.starts_with('-') || text == "-" {
+        return Some(false);
+    }
+    if text == "--" {
+        return Some(false);
+    }
+
+    let bytes = text.as_bytes();
+    let mut index = 1usize;
+    while index < bytes.len() {
+        let flag = bytes[index];
+        if ssh_option_requires_argument(flag) {
+            return Some(index + 1 == bytes.len());
+        }
+        if !ssh_option_is_flag(flag) {
+            return None;
+        }
+        index += 1;
+    }
+
+    Some(false)
+}
+
+fn ssh_option_requires_argument(flag: u8) -> bool {
+    matches!(
+        flag,
+        b'B' | b'b'
+            | b'c'
+            | b'D'
+            | b'E'
+            | b'e'
+            | b'F'
+            | b'I'
+            | b'i'
+            | b'J'
+            | b'L'
+            | b'l'
+            | b'm'
+            | b'O'
+            | b'o'
+            | b'p'
+            | b'P'
+            | b'Q'
+            | b'R'
+            | b'S'
+            | b'W'
+            | b'w'
+    )
+}
+
+fn ssh_option_is_flag(flag: u8) -> bool {
+    ssh_option_requires_argument(flag)
+        || matches!(
+            flag,
+            b'4' | b'6'
+                | b'A'
+                | b'a'
+                | b'C'
+                | b'f'
+                | b'G'
+                | b'g'
+                | b'K'
+                | b'k'
+                | b'M'
+                | b'N'
+                | b'n'
+                | b'q'
+                | b's'
+                | b'T'
+                | b't'
+                | b'V'
+                | b'v'
+                | b'X'
+                | b'x'
+                | b'Y'
+                | b'y'
+        )
 }
 
 fn rm_path_is_dangerous(word: &Word, source: &str) -> bool {
@@ -4776,7 +4875,7 @@ fn parse_find_execdir_shell_command(
         .windows(2)
         .filter_map(|pair| {
             let flag = static_word_text(pair[0], source)?;
-            if flag != "-c" {
+            if !shell_flag_contains_command_string(flag.as_str()) {
                 return None;
             }
             let script = pair[1];
@@ -4791,6 +4890,39 @@ fn parse_find_execdir_shell_command(
     (!shell_command_spans.is_empty()).then_some(FindExecDirCommandFacts {
         shell_command_spans: shell_command_spans.into_boxed_slice(),
     })
+}
+
+fn shell_flag_contains_command_string(flag: &str) -> bool {
+    let Some(cluster) = flag.strip_prefix('-') else {
+        return false;
+    };
+    !cluster.is_empty()
+        && !cluster.starts_with('-')
+        && cluster.bytes().all(shell_short_flag_is_clusterable)
+        && cluster.bytes().any(|byte| byte == b'c')
+}
+
+fn shell_short_flag_is_clusterable(flag: u8) -> bool {
+    matches!(
+        flag,
+        b'a' | b'b'
+            | b'c'
+            | b'e'
+            | b'f'
+            | b'h'
+            | b'i'
+            | b'k'
+            | b'l'
+            | b'm'
+            | b'n'
+            | b'p'
+            | b'r'
+            | b's'
+            | b't'
+            | b'u'
+            | b'v'
+            | b'x'
+    )
 }
 
 fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
@@ -5605,6 +5737,35 @@ find $dir -type f -name \"rename*\" -execdir sh -c 'mv {} $(echo {} | sed \"s|re
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["'mv {} $(echo {} | sed \"s|rename|perl-rename|\")'"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_execdir_command_facts_for_bundled_shell_c_flags() {
+        let source = "\
+#!/bin/sh
+find . -execdir sh -ec 'mv {} \"$target\"' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let find = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+                .expect("expected find -execdir fact");
+
+            let find_execdir = find
+                .options()
+                .find_execdir()
+                .expect("expected shell command fact for bundled -c flags");
+            assert_eq!(
+                find_execdir
+                    .shell_command_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["'mv {} \"$target\"'"]
             );
         });
     }
