@@ -174,6 +174,7 @@ pub(crate) enum RecordedCommandKind {
 #[derive(Debug, Clone)]
 pub(crate) struct RecordedCaseArm {
     pub(crate) terminator: CaseTerminator,
+    pub(crate) matches_anything: bool,
     pub(crate) commands: Vec<RecordedCommand>,
 }
 
@@ -602,15 +603,49 @@ impl<'a> GraphBuilder<'a> {
         let head = self.command_block(command.span);
         self.attach_nested_regions(head, &command.nested_regions, loops);
         let exit_block = self.empty_block();
+        let dispatch_count = arms.len().max(1);
+        let mut dispatch_blocks = Vec::with_capacity(dispatch_count);
+        dispatch_blocks.push(head);
+        for _ in 1..dispatch_count {
+            dispatch_blocks.push(self.empty_block());
+        }
+        let mut arm_sequences = Vec::with_capacity(arms.len());
+        for arm in arms {
+            let mut arm_seq = self.build_sequence(&arm.commands, loops);
+            if arm_seq.entry.is_none() {
+                let empty_arm = self.empty_block();
+                arm_seq.entry = Some(empty_arm);
+                arm_seq.exits.push(empty_arm);
+            }
+            arm_sequences.push(arm_seq);
+        }
+
+        for (dispatch_index, dispatch) in dispatch_blocks.iter().copied().enumerate() {
+            let mut matched_all = false;
+            for (arm_index, arm) in arms.iter().enumerate().skip(dispatch_index) {
+                let arm_entry = arm_sequences[arm_index]
+                    .entry
+                    .expect("empty case arms get a synthetic CFG block");
+                self.add_edge(dispatch, arm_entry, EdgeKind::CaseArm);
+                if arm.matches_anything {
+                    matched_all = true;
+                    break;
+                }
+            }
+            if !matched_all {
+                self.add_edge(dispatch, exit_block, EdgeKind::Sequential);
+            }
+        }
+
         let mut fallthrough_from = Vec::new();
 
-        for arm in arms {
-            let arm_seq = self.build_sequence(&arm.commands, loops);
-            if let Some(arm_entry) = arm_seq.entry {
-                self.add_edge(head, arm_entry, EdgeKind::CaseArm);
-                for block in &fallthrough_from {
-                    self.add_edge(*block, arm_entry, EdgeKind::CaseFallthrough);
-                }
+        for (arm_index, arm) in arms.iter().enumerate() {
+            let arm_seq = &arm_sequences[arm_index];
+            let arm_entry = arm_seq
+                .entry
+                .expect("empty case arms get a synthetic CFG block");
+            for block in &fallthrough_from {
+                self.add_edge(*block, arm_entry, EdgeKind::CaseFallthrough);
             }
 
             match arm.terminator {
@@ -624,27 +659,27 @@ impl<'a> GraphBuilder<'a> {
                     fallthrough_from = arm_seq.exits.clone();
                 }
                 CaseTerminator::Continue => {
-                    fallthrough_from = arm_seq.exits.clone();
-                    for block in &fallthrough_from {
-                        self.successors
-                            .entry(*block)
-                            .or_default()
-                            .push((head, EdgeKind::CaseContinue));
+                    let continue_target = dispatch_blocks
+                        .get(arm_index + 1)
+                        .copied()
+                        .unwrap_or(exit_block);
+                    for block in &arm_seq.exits {
+                        self.add_edge(*block, continue_target, EdgeKind::CaseContinue);
                     }
+                    fallthrough_from.clear();
                 }
                 CaseTerminator::ContinueMatching => {
-                    fallthrough_from = arm_seq.exits.clone();
-                    for block in &fallthrough_from {
-                        self.successors
-                            .entry(*block)
-                            .or_default()
-                            .push((head, EdgeKind::CaseContinue));
+                    let continue_target = dispatch_blocks
+                        .get(arm_index + 1)
+                        .copied()
+                        .unwrap_or(exit_block);
+                    for block in &arm_seq.exits {
+                        self.add_edge(*block, continue_target, EdgeKind::CaseContinue);
                     }
+                    fallthrough_from.clear();
                 }
             }
         }
-
-        self.add_edge(head, exit_block, EdgeKind::Sequential);
 
         SequenceResult {
             entry: Some(head),
