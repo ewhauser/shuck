@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 85 |
+| Implemented | 86 |
 | Scheduled (Tranches 1-3) | 18 |
-| Remaining | 215 |
+| Remaining | 214 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -293,7 +293,7 @@ Filter command facts by `effective_name_is()` and check options/arguments.
 
 - [x] [x] **M** C098 (SC2324) `set-flags-without-dashes` — flags to `set` without leading dash
 - [x] [x] **M** C103 (SC2332) `find-or-without-grouping` — find `-o` without grouping
-- [ ] **M** C109 (SC2339) `mapfile-process-substitution` — mapfile from process substitution
+- [x] [x] **M** C109 (SC2339) `mapfile-process-substitution` — mapfile from process substitution
 - [ ] **M** C113 (SC2348) `find-output-in-loop` — find output captured in word-splitting loop
 - [ ] **M** C132 (SC2380) `misspelled-option-name` — configure option name typo
 - [ ] **L** S012 (SC2009) `ps-grep-pipeline` — piping ps into grep

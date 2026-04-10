@@ -490,6 +490,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::RedirectToCommandName) {
             rules::correctness::redirect_to_command_name::redirect_to_command_name(self);
         }
+        if self.is_rule_enabled(Rule::MapfileProcessSubstitution) {
+            rules::correctness::mapfile_process_substitution::mapfile_process_substitution(self);
+        }
         if self.is_rule_enabled(Rule::UnusedHeredoc) {
             rules::correctness::unused_heredoc::unused_heredoc(self);
         }

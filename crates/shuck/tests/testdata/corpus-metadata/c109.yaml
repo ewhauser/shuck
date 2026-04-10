@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "C109 intentionally flags `mapfile`/`readarray` reads from process substitutions. In the current large-corpus oracle environment, ShellCheck 0.11.0 does not emit SC2339 for these patterns, so this rule remains a stricter Shuck policy check."
