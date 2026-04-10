@@ -161,10 +161,10 @@ pub(super) fn build_conditional_portability_facts<'a>(
     );
 
     for fact in word_facts {
-        if supports_extglob_portability_context(fact.expansion_context()) {
-            if let Some(span) = word_exactly_one_extglob_span(fact.word(), source) {
-                facts.extglob_in_sh.push(span);
-            }
+        if supports_extglob_portability_context(fact.expansion_context())
+            && let Some(span) = word_exactly_one_extglob_span(fact.word(), source)
+        {
+            facts.extglob_in_sh.push(span);
         }
 
         if supports_bracket_glob_portability_context(fact.expansion_context()) {
