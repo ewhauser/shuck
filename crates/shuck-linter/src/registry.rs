@@ -156,10 +156,28 @@ declare_rules! {
         AssignmentLooksLikeComparison
     ),
     (
+        "C098",
+        Category::Correctness,
+        Severity::Warning,
+        SetFlagsWithoutDashes
+    ),
+    (
         "C101",
         Category::Correctness,
         Severity::Warning,
         IfsSetToLiteralBackslashN
+    ),
+    (
+        "C103",
+        Category::Correctness,
+        Severity::Warning,
+        FindOrWithoutGrouping
+    ),
+    (
+        "C109",
+        Category::Correctness,
+        Severity::Warning,
+        MapfileProcessSubstitution
     ),
     ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     (
@@ -181,6 +199,12 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         AppendWithEscapedQuotes
+    ),
+    (
+        "C132",
+        Category::Correctness,
+        Severity::Warning,
+        MisspelledOptionName
     ),
     (
         "C136",
@@ -299,6 +323,27 @@ declare_rules! {
     ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
+    ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
+    ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
+    ("S036", Category::Style, Severity::Warning, BareRead),
+    ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
+    ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
+    ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
+    ("S054", Category::Style, Severity::Warning, SuWithoutFlag),
+    ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
+    ("S057", Category::Style, Severity::Warning, FunctionInAlias),
+    ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
+    ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
+    ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
+    ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
+    ("S047", Category::Style, Severity::Warning, LsInSubstitution),
+    (
+        "S016",
+        Category::Style,
+        Severity::Warning,
+        EchoInsideCommandSubstitution
+    ),
+    ("S019", Category::Style, Severity::Warning, GrepOutputInTest),
     ("S022", Category::Style, Severity::Hint, AvoidLetBuiltin),
     ("S033", Category::Style, Severity::Warning, EchoHereDoc),
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
@@ -379,9 +424,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-157" => Some(Rule::ArrayIndexArithmetic),
         "SH-161" => Some(Rule::ArithmeticScoreLine),
         "SH-197" => Some(Rule::DollarInArithmetic),
+        "SH-198" => Some(Rule::LsPipedToXargs),
         "SH-202" => Some(Rule::DollarInArithmeticContext),
+        "SH-203" => Some(Rule::UnquotedTrRange),
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
+        "SH-208" => Some(Rule::UnquotedTrClass),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
         "SH-173" => Some(Rule::BackslashBeforeCommand),
@@ -399,6 +447,14 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
+        "SH-168" => Some(Rule::RedundantSpacesInEcho),
+        "SH-196" => Some(Rule::UnquotedVariableInSed),
+        "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
+        "SH-199" => Some(Rule::LsInSubstitution),
+        "SH-163" => Some(Rule::BareRead),
+        "SH-245" => Some(Rule::DeprecatedTempfileCommand),
+        "SH-247" => Some(Rule::EgrepDeprecated),
+        "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
@@ -409,6 +465,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-046" => Some(Rule::LineOrientedInput),
         "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
+        "C113" => Some(Rule::FindOutputLoop),
         "SH-050" => Some(Rule::ExportCommandSubstitution),
         "SH-135" => Some(Rule::EchoHereDoc),
         "SH-052" => Some(Rule::LocalTopLevel),
@@ -468,13 +525,23 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
+        "SH-227" => Some(Rule::SuWithoutFlag),
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
+        "SH-229" => Some(Rule::SetFlagsWithoutDashes),
+        "SH-233" => Some(Rule::CommandSubstitutionInAlias),
+        "SH-235" => Some(Rule::FunctionInAlias),
+        "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
+        "SH-244" => Some(Rule::MapfileProcessSubstitution),
+        "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
         "SH-318" => Some(Rule::HeredocMissingEnd),
+        "SH-310" => Some(Rule::MisspelledOptionName),
         "SH-055" => Some(Rule::ExprArithmetic),
+        "SH-056" => Some(Rule::PsGrepPipeline),
+        "SH-057" => Some(Rule::LsGrepPipeline),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
         "SH-164" => Some(Rule::SubshellTestGroup),
@@ -556,6 +623,8 @@ mod tests {
             Some(Rule::LegacyArithmeticExpansion)
         );
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
+        assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
+        assert_eq!(code_to_rule("SH-057"), Some(Rule::LsGrepPipeline));
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));
@@ -569,13 +638,19 @@ mod tests {
         assert_eq!(code_to_rule("SH-161"), Some(Rule::ArithmeticScoreLine));
         assert_eq!(code_to_rule("S045"), Some(Rule::DollarInArithmetic));
         assert_eq!(code_to_rule("SH-197"), Some(Rule::DollarInArithmetic));
+        assert_eq!(code_to_rule("S046"), Some(Rule::LsPipedToXargs));
+        assert_eq!(code_to_rule("SH-198"), Some(Rule::LsPipedToXargs));
+        assert_eq!(code_to_rule("S047"), Some(Rule::LsInSubstitution));
+        assert_eq!(code_to_rule("SH-199"), Some(Rule::LsInSubstitution));
         assert_eq!(code_to_rule("S048"), Some(Rule::DollarInArithmeticContext));
         assert_eq!(
             code_to_rule("SH-202"),
             Some(Rule::DollarInArithmeticContext)
         );
+        assert_eq!(code_to_rule("SH-203"), Some(Rule::UnquotedTrRange));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
+        assert_eq!(code_to_rule("SH-208"), Some(Rule::UnquotedTrClass));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(
             code_to_rule("S039"),
@@ -596,6 +671,14 @@ mod tests {
             code_to_rule("SH-040"),
             Some(Rule::EchoedCommandSubstitution)
         );
+        assert_eq!(
+            code_to_rule("SH-066"),
+            Some(Rule::EchoInsideCommandSubstitution)
+        );
+        assert_eq!(code_to_rule("SH-168"), Some(Rule::RedundantSpacesInEcho));
+        assert_eq!(code_to_rule("SH-196"), Some(Rule::UnquotedVariableInSed));
+        assert_eq!(code_to_rule("SH-163"), Some(Rule::BareRead));
+        assert_eq!(code_to_rule("SH-071"), Some(Rule::GrepOutputInTest));
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
         assert_eq!(code_to_rule("SH-042"), Some(Rule::TrapStringExpansion));
         assert_eq!(code_to_rule("SH-043"), Some(Rule::QuotedBashRegex));
@@ -604,6 +687,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
+        assert_eq!(code_to_rule("C113"), Some(Rule::FindOutputLoop));
         assert_eq!(
             code_to_rule("SH-050"),
             Some(Rule::ExportCommandSubstitution)
@@ -640,6 +724,11 @@ mod tests {
         assert_eq!(code_to_rule("SH-113"), Some(Rule::OpenDoubleQuote));
         assert_eq!(code_to_rule("S028"), Some(Rule::SuspectClosingQuote));
         assert_eq!(code_to_rule("SH-114"), Some(Rule::SuspectClosingQuote));
+        assert_eq!(
+            code_to_rule("SH-245"),
+            Some(Rule::DeprecatedTempfileCommand)
+        );
+        assert_eq!(code_to_rule("SH-247"), Some(Rule::EgrepDeprecated));
         assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("S030"), Some(Rule::HeredocEndSpace));
@@ -703,6 +792,7 @@ mod tests {
             code_to_rule("SH-224"),
             Some(Rule::AssignmentLooksLikeComparison)
         );
+        assert_eq!(code_to_rule("SH-227"), Some(Rule::SuWithoutFlag));
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
@@ -711,6 +801,21 @@ mod tests {
             code_to_rule("SH-194"),
             Some(Rule::CommentedContinuationLine)
         );
+        assert_eq!(code_to_rule("C098"), Some(Rule::SetFlagsWithoutDashes));
+        assert_eq!(code_to_rule("SH-229"), Some(Rule::SetFlagsWithoutDashes));
+        assert_eq!(
+            code_to_rule("SH-233"),
+            Some(Rule::CommandSubstitutionInAlias)
+        );
+        assert_eq!(code_to_rule("SH-235"), Some(Rule::FunctionInAlias));
+        assert_eq!(code_to_rule("C103"), Some(Rule::FindOrWithoutGrouping));
+        assert_eq!(code_to_rule("SH-237"), Some(Rule::FindOrWithoutGrouping));
+        assert_eq!(code_to_rule("C109"), Some(Rule::MapfileProcessSubstitution));
+        assert_eq!(
+            code_to_rule("SH-244"),
+            Some(Rule::MapfileProcessSubstitution)
+        );
+        assert_eq!(code_to_rule("SH-253"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
@@ -719,6 +824,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
+        assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
+        assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

@@ -1,0 +1,12 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-rehash"
+    line: 69
+    column: 7
+    end_line: 70
+    end_column: 86
+    labels:
+      - directive-handling
+      - helper-library
+      - project-closure
+    reason: "This helper-library fixture keeps the stderr message split across a backslash-continued line, so the indentation is not a standalone run of repeated spaces on one physical echo line. ShellCheck 0.11.0 stays silent here while shuck currently flags the continued spacing pattern."

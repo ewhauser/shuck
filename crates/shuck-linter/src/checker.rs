@@ -200,6 +200,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ReadWithoutRaw) {
             rules::style::read_without_raw::read_without_raw(self);
         }
+        if self.is_rule_enabled(Rule::BareRead) {
+            rules::style::bare_read::bare_read(self);
+        }
         if self.is_rule_enabled(Rule::AvoidLetBuiltin) {
             rules::style::avoid_let_builtin::avoid_let_builtin(self);
         }
@@ -233,6 +236,27 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EchoedCommandSubstitution) {
             rules::style::echoed_command_substitution::echoed_command_substitution(self);
         }
+        if self.is_rule_enabled(Rule::RedundantSpacesInEcho) {
+            rules::style::redundant_spaces_in_echo::redundant_spaces_in_echo(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedVariableInSed) {
+            rules::style::unquoted_variable_in_sed::unquoted_variable_in_sed(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedTrClass) {
+            rules::style::unquoted_tr_class::unquoted_tr_class(self);
+        }
+        if self.is_rule_enabled(Rule::SuWithoutFlag) {
+            rules::style::su_without_flag::su_without_flag(self);
+        }
+        if self.is_rule_enabled(Rule::DeprecatedTempfileCommand) {
+            rules::style::deprecated_tempfile_command::deprecated_tempfile_command(self);
+        }
+        if self.is_rule_enabled(Rule::EgrepDeprecated) {
+            rules::style::egrep_deprecated::egrep_deprecated(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedTrRange) {
+            rules::style::unquoted_tr_range::unquoted_tr_range(self);
+        }
         if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
             rules::style::export_command_substitution::export_command_substitution(self);
         }
@@ -261,6 +285,15 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::NonShellSyntaxInScript) {
             rules::correctness::non_shell_syntax_in_script::non_shell_syntax_in_script(self);
+        }
+        if self.is_rule_enabled(Rule::SetFlagsWithoutDashes) {
+            rules::correctness::set_flags_without_dashes::set_flags_without_dashes(self);
+        }
+        if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
+            rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
+        }
+        if self.is_rule_enabled(Rule::MisspelledOptionName) {
+            rules::correctness::misspelled_option_name::misspelled_option_name(self);
         }
         if self.is_rule_enabled(Rule::LocalVariableInSh) {
             rules::portability::local_variable_in_sh::local_variable_in_sh(self);
@@ -421,6 +454,18 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::LoopFromCommandOutput) {
             rules::style::loop_from_command_output::loop_from_command_output(self);
         }
+        if self.is_rule_enabled(Rule::PsGrepPipeline) {
+            rules::style::ps_grep_pipeline::ps_grep_pipeline(self);
+        }
+        if self.is_rule_enabled(Rule::LsGrepPipeline) {
+            rules::style::ls_grep_pipeline::ls_grep_pipeline(self);
+        }
+        if self.is_rule_enabled(Rule::LsPipedToXargs) {
+            rules::style::ls_piped_to_xargs::ls_piped_to_xargs(self);
+        }
+        if self.is_rule_enabled(Rule::LsInSubstitution) {
+            rules::style::ls_in_substitution::ls_in_substitution(self);
+        }
         if self.is_rule_enabled(Rule::ChainedTestBranches) {
             rules::correctness::chained_test_branches::chained_test_branches(self);
         }
@@ -447,6 +492,15 @@ impl<'a> Checker<'a> {
     fn check_redirect_and_substitution_facts(&mut self) {
         if self.is_rule_enabled(Rule::UnquotedCommandSubstitution) {
             rules::style::unquoted_command_substitution::unquoted_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::EchoInsideCommandSubstitution) {
+            rules::style::echo_inside_command_substitution::echo_inside_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::CommandSubstitutionInAlias) {
+            rules::style::command_substitution_in_alias::command_substitution_in_alias(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionInAlias) {
+            rules::style::function_in_alias::function_in_alias(self);
         }
         if self.is_rule_enabled(Rule::SudoRedirectionOrder) {
             rules::correctness::sudo_redirection_order::sudo_redirection_order(self);
@@ -483,6 +537,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::RedirectToCommandName) {
             rules::correctness::redirect_to_command_name::redirect_to_command_name(self);
+        }
+        if self.is_rule_enabled(Rule::MapfileProcessSubstitution) {
+            rules::correctness::mapfile_process_substitution::mapfile_process_substitution(self);
         }
         if self.is_rule_enabled(Rule::UnusedHeredoc) {
             rules::correctness::unused_heredoc::unused_heredoc(self);
@@ -610,6 +667,9 @@ impl<'a> Checker<'a> {
     fn check_test_and_conditional_facts(&mut self) {
         if self.is_rule_enabled(Rule::DoubleBracketInSh) {
             rules::portability::conditional_portability::double_bracket_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::GrepOutputInTest) {
+            rules::style::grep_output_in_test::grep_output_in_test(self);
         }
         if self.is_rule_enabled(Rule::TestEqualityOperator) {
             rules::portability::conditional_portability::test_equality_operator(self);

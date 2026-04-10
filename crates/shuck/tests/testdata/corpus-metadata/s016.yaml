@@ -1,0 +1,25 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__pyqt5__cxx-wrapper"
+    line: 39
+    column: 22
+    end_column: 45
+    reason: "This line lives inside a generated wrapper script body, so shuck does not treat the embedded heredoc text as runtime shell code."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__python-qscintilla__cxx-wrapper"
+    line: 36
+    column: 22
+    end_column: 45
+    reason: "This line lives inside a generated wrapper script body, so shuck does not treat the embedded heredoc text as runtime shell code."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 563
+    column: 33
+    end_column: 59
+    reason: "The corpus fixture resolves through project-closure/helper-library context that ShellCheck does not follow in the single-file comparison."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__disk-usage"
+    line: 16
+    column: 11
+    end_column: 53
+    reason: "The corpus fixture resolves through project-closure context that ShellCheck does not follow in the single-file comparison."

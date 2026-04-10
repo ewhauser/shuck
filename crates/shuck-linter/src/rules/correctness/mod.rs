@@ -24,6 +24,7 @@ pub mod else_if;
 pub mod else_without_then;
 pub mod empty_function_body;
 pub mod empty_test;
+pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod heredoc_closer_not_alone;
@@ -39,10 +40,12 @@ pub mod literal_unary_string_test;
 pub mod local_cross_reference;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
+pub mod mapfile_process_substitution;
 pub mod misquoted_heredoc_close;
 pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
+pub mod misspelled_option_name;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
 pub mod non_shell_syntax_in_script;
@@ -56,6 +59,7 @@ pub mod positional_ten_braces;
 pub mod quoted_bash_regex;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
+pub mod set_flags_without_dashes;
 pub mod single_quoted_literal;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
@@ -143,12 +147,16 @@ mod tests {
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
+    #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
+    #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
+    #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
+    #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
+    #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
-    #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
-    #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
+    #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
     #[test_case(Rule::BadVarName, Path::new("C140.sh"))]

@@ -1,0 +1,94 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__appendtest"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__pyenv.d__rehash__conda.bash"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+  - side: shellcheck-only
+    path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__deploy__unifi.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "asdf-vm__asdf__lib__utils.bash"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "bats-core__bats-core__bin__bats"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__install.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "pi-hole__pi-hole__advanced__Scripts__piholeDebug.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "rbenv__rbenv__libexec__rbenv-init"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__emscripten__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__glib__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__libsoldout__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__opencl-vendor-driver__postinst.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__parallel__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__pypy3__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__pypy__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__rust__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__root-packages__docker__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build-bootstraps.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_setup_cgct_environment.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__carbonyl-host-tools__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__carbonyl__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__chromium-host-tools__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__chromium__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__electron-for-code-oss__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__electron-host-tools-for-code-oss__build.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__qt5-qmake__termux-build-qmake.sh"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__u-boot-menu__files__kernel.d__extlinux"
+    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."

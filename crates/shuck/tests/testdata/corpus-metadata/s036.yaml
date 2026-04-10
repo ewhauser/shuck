@@ -1,0 +1,19 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_has_colors"
+    line: 15
+    column: 37
+    end_column: 41
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This nvm test harness keeps a bare `read` in a pipe-only assertion helper, and the current ShellCheck corpus comparison does not surface SC2258 for that harness path while shuck still reports the bare-read pattern directly."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_stdout_is_terminal"
+    line: 23
+    column: 45
+    end_column: 49
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This nvm test harness keeps a bare `read` in a pipe-only assertion helper, and the current ShellCheck corpus comparison does not surface SC2258 for that harness path while shuck still reports the bare-read pattern directly."

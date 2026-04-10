@@ -1,0 +1,7 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__rvm"
+    line: 189
+    labels:
+      - project-closure
+    reason: "The authored S056 rule only targets command substitutions inside alias definitions, while this fixture uses parameter expansion in an alias assignment. ShellCheck reports SC2139 here, but shuck intentionally leaves plain expansion-only aliases alone."

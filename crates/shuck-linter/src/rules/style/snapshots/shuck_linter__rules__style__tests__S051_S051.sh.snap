@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+assertion_line: 94
+---
+S051 quote `tr` character class operands
+ --> <source>:2:16
+  |
+2 | tr '[:upper:]' [:lower:]
+  |
+
+S051 quote `tr` character class operands
+ --> <source>:3:4
+  |
+3 | tr [:upper:] [:lower:]
+  |
+
+S051 quote `tr` character class operands
+ --> <source>:3:14
+  |
+3 | tr [:upper:] [:lower:]
+  |
+
+S051 quote `tr` character class operands
+ --> <source>:4:4
+  |
+4 | tr [:alpha:] x
+  |
+
+S051 quote `tr` character class operands
+ --> <source>:5:6
+  |
+5 | tr x [:alpha:]
+  |
+
+S051 quote `tr` character class operands
+ --> <source>:7:18
+  |
+7 | tr '[[:upper:]]' [:lower:]
+  |

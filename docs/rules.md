@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 83 |
+| Implemented | 94 |
 | Scheduled (Tranches 1-3) | 18 |
-| Remaining | 217 |
+| Remaining | 206 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -291,27 +291,27 @@ Rules about assignment syntax, variable naming, and value issues.
 Rules about specific command usage patterns (find, grep, ls, tr, set, etc.).
 Filter command facts by `effective_name_is()` and check options/arguments.
 
-- [ ] **M** C098 (SC2324) `set-flags-without-dashes` — flags to `set` without leading dash
-- [ ] **M** C103 (SC2332) `find-or-without-grouping` — find `-o` without grouping
-- [ ] **M** C109 (SC2339) `mapfile-process-substitution` — mapfile from process substitution
-- [ ] **M** C113 (SC2348) `find-output-in-loop` — find output captured in word-splitting loop
-- [ ] **M** C132 (SC2380) `misspelled-option-name` — configure option name typo
-- [ ] **L** S012 (SC2009) `ps-grep-pipeline` — piping ps into grep
-- [ ] **L** S013 (SC2010) `ls-grep-pipeline` — piping ls into grep
-- [ ] **L** S016 (SC2116) `echo-inside-command-substitution` — echo in `$()` is unnecessary
-- [ ] **M** S019 (SC2143) `grep-output-in-test` — grep text as boolean check
-- [ ] **L** S036 (SC2258) `bare-read` — `read` without options
-- [ ] **L** S037 (SC2263) `redundant-spaces-in-echo` — extra spaces in echo collapsed
-- [ ] **M** S044 (SC2291) `unquoted-variable-in-sed` — unquoted variable in sed
-- [ ] **L** S046 (SC2293) `ls-piped-to-xargs` — ls piped to xargs
-- [ ] **L** S047 (SC2294) `ls-in-substitution` — ls in command substitution
-- [ ] **L** S049 (SC2298) `unquoted-tr-range` — unquoted tr character class
-- [ ] **L** S051 (SC2303) `unquoted-tr-class` — unquoted tr class may glob-expand
-- [ ] **L** S054 (SC2322) `su-without-flag` — su without `-l` or `-c`
-- [ ] **L** S056 (SC2328) `command-substitution-in-alias` — command substitution in alias
-- [ ] **L** S057 (SC2330) `function-in-alias` — function definition inside alias
-- [ ] **L** S059 (SC2340) `deprecated-tempfile-command` — deprecated `tempfile` command
-- [ ] **L** S060 (SC2342) `egrep-deprecated` — `egrep` instead of `grep -E`
+- [x] [x] **M** C098 (SC2324) `set-flags-without-dashes` — flags to `set` without leading dash
+- [x] [x] **M** C103 (SC2332) `find-or-without-grouping` — find `-o` without grouping
+- [x] [x] **M** C109 (SC2339) `mapfile-process-substitution` — mapfile from process substitution
+- [x] [x] **M** C113 (SC2348) `find-output-in-loop` — find output captured in word-splitting loop
+- [x] [x] **M** C132 (SC2380) `misspelled-option-name` — configure option name typo
+- [x] [x] **L** S012 (SC2009) `ps-grep-pipeline` — piping ps into grep
+- [x] [x] **L** S013 (SC2010) `ls-grep-pipeline` — piping ls into grep
+- [x] [x] **L** S016 (SC2116) `echo-inside-command-substitution` — echo in `$()` is unnecessary
+- [x] [x] **M** S019 (SC2143) `grep-output-in-test` — grep text as boolean check
+- [x] [x] **L** S036 (SC2258) `bare-read` — `read` without options
+- [x] [x] **L** S037 (SC2263) `redundant-spaces-in-echo` — extra spaces in echo collapsed
+- [x] [x] **M** S044 (SC2291) `unquoted-variable-in-sed` — unquoted variable in sed
+- [x] [x] **L** S046 (SC2293) `ls-piped-to-xargs` — ls piped to xargs
+- [x] [x] **L** S047 (SC2294) `ls-in-substitution` — ls in command substitution
+- [x] [x] **L** S049 (SC2298) `unquoted-tr-range` — unquoted tr character class
+- [x] [x] **L** S051 (SC2303) `unquoted-tr-class` — unquoted tr class may glob-expand
+- [x] [x] **L** S054 (SC2322) `su-without-flag` — su without `-l` or `-c`
+- [x] [x] **L** S056 (SC2328) `command-substitution-in-alias` — command substitution in alias
+- [x] [x] **L** S057 (SC2330) `function-in-alias` — function definition inside alias
+- [x] [x] **L** S059 (SC2340) `deprecated-tempfile-command` — deprecated `tempfile` command
+- [x] [x] **L** S060 (SC2342) `egrep-deprecated` — `egrep` instead of `grep -E`
 - [ ] **L** S061 (SC2343) `fgrep-deprecated` — `fgrep` instead of `grep -F`
 - [ ] **L** S063 (SC2347) `relative-symlink-target` — deep relative symlink path
 - [ ] **L** S064 (SC2350) `xargs-with-inline-replace` — deprecated `-i` flag for xargs

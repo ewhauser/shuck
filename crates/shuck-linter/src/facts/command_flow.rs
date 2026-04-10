@@ -100,6 +100,13 @@ fn collect_or_update_word_substitution_facts<'a>(
             kind: occurrence.kind,
             stdout_intent,
             has_stdout_redirect,
+            body_contains_ls: substitution_body_contains_ls(
+                occurrence.body,
+                commands,
+                command_ids_by_span,
+            ),
+            body_contains_echo: substitution_body_contains_echo(occurrence.body, source),
+            body_contains_grep: substitution_body_contains_grep(occurrence.body, source),
             host_word_span: word.span,
             host_kind,
             unquoted_in_host: occurrence.unquoted_in_host,
@@ -329,6 +336,203 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
         stdout_intent,
         has_stdout_redirect,
     }
+}
+
+fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
+    let mut visits = query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    );
+    let Some(visit) = visits.next() else {
+        return false;
+    };
+    if visits.next().is_some() {
+        return false;
+    }
+
+    let normalized = command::normalize_command(visit.command, source);
+    if !normalized.effective_name_is("echo") {
+        return false;
+    }
+
+    if normalized.body_args().first().is_some_and(|word| {
+        static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
+    }) {
+        return false;
+    }
+
+    normalized
+        .body_args()
+        .iter()
+        .all(|word| !word_contains_unquoted_glob_or_brace(word, source))
+}
+
+fn substitution_body_contains_ls<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    body.stmts
+        .iter()
+        .any(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span))
+}
+
+fn substitution_body_contains_grep(body: &StmtSeq, source: &str) -> bool {
+    let [stmt] = body.stmts.as_slice() else {
+        return false;
+    };
+
+    command_contains_grep_output(&stmt.command, source)
+}
+
+fn stmt_contains_raw_ls<'a>(
+    stmt: &'a Stmt,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    command_fact_for_stmt(stmt, commands, command_ids_by_span)
+        .is_some_and(|fact| fact.literal_name() == Some("ls") && fact.wrappers().is_empty())
+        || match &stmt.command {
+            Command::Binary(binary) => {
+                stmt_contains_raw_ls(&binary.left, commands, command_ids_by_span)
+                    || stmt_contains_raw_ls(&binary.right, commands, command_ids_by_span)
+            }
+            Command::Compound(CompoundCommand::Subshell(body))
+            | Command::Compound(CompoundCommand::BraceGroup(body)) => body
+                .stmts
+                .iter()
+                .any(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span)),
+            Command::Compound(CompoundCommand::Time(command)) => command
+                .command
+                .as_deref()
+                .is_some_and(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span)),
+            Command::Compound(
+                CompoundCommand::If(_)
+                | CompoundCommand::For(_)
+                | CompoundCommand::Repeat(_)
+                | CompoundCommand::Foreach(_)
+                | CompoundCommand::ArithmeticFor(_)
+                | CompoundCommand::While(_)
+                | CompoundCommand::Until(_)
+                | CompoundCommand::Case(_)
+                | CompoundCommand::Select(_)
+                | CompoundCommand::Arithmetic(_)
+                | CompoundCommand::Conditional(_)
+                | CompoundCommand::Coproc(_)
+                | CompoundCommand::Always(_),
+            ) => false,
+            Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
+            Command::Function(_) | Command::AnonymousFunction(_) => false,
+        }
+}
+
+fn command_contains_grep_output(command: &Command, source: &str) -> bool {
+    match command {
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {
+            command_is_grep_family(command, source)
+        }
+        Command::Binary(binary) => match binary.op {
+            BinaryOp::Pipe | BinaryOp::PipeAll => {
+                command_contains_grep_output(&binary.right.command, source)
+            }
+            BinaryOp::And | BinaryOp::Or => false,
+        },
+        Command::Compound(CompoundCommand::Subshell(body))
+        | Command::Compound(CompoundCommand::BraceGroup(body)) => {
+            substitution_body_contains_grep(body, source)
+        }
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_deref()
+            .is_some_and(|stmt| command_contains_grep_output(&stmt.command, source)),
+        Command::Compound(
+            CompoundCommand::If(_)
+            | CompoundCommand::For(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Case(_)
+            | CompoundCommand::Select(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Always(_),
+        ) => false,
+        Command::Function(_) | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn command_name_is_grep_family(name: &str) -> bool {
+    matches!(name, "grep" | "egrep" | "fgrep")
+}
+
+fn command_is_grep_family(command: &Command, source: &str) -> bool {
+    let normalized = command::normalize_command(command, source);
+    if normalized
+        .effective_or_literal_name()
+        .is_some_and(command_name_is_grep_family)
+    {
+        return true;
+    }
+
+    normalized.body_name_word().is_some_and(|word| {
+        let text = word.span.slice(source).trim_start_matches('\\');
+        let name = text.rsplit('/').next().unwrap_or(text);
+        command_name_is_grep_family(name)
+    })
+}
+
+fn word_contains_unquoted_glob_or_brace(word: &Word, source: &str) -> bool {
+    word_parts_contain_unquoted_glob_or_brace(&word.parts, source, false)
+}
+
+fn word_parts_contain_unquoted_glob_or_brace(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                if word_parts_contain_unquoted_glob_or_brace(parts, source, true) {
+                    return true;
+                }
+            }
+            WordPart::Literal(text) => {
+                if !in_double_quotes
+                    && text
+                        .as_str(source, part.span)
+                        .chars()
+                        .any(|ch| matches!(ch, '*' | '?' | '[' | ']' | '{' | '}'))
+                {
+                    return true;
+                }
+            }
+            WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+            WordPart::SingleQuoted { .. } => {}
+        }
+    }
+
+    false
 }
 
 fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {

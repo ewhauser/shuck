@@ -735,6 +735,9 @@ pub struct SubstitutionFact {
     kind: CommandSubstitutionKind,
     stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
+    body_contains_ls: bool,
+    body_contains_echo: bool,
+    body_contains_grep: bool,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
     unquoted_in_host: bool,
@@ -755,6 +758,18 @@ impl SubstitutionFact {
 
     pub fn has_stdout_redirect(&self) -> bool {
         self.has_stdout_redirect
+    }
+
+    pub fn body_contains_ls(&self) -> bool {
+        self.body_contains_ls
+    }
+
+    pub fn body_contains_echo(&self) -> bool {
+        self.body_contains_echo
+    }
+
+    pub fn body_contains_grep(&self) -> bool {
+        self.body_contains_grep
     }
 
     pub fn host_word_span(&self) -> Span {
@@ -1170,9 +1185,16 @@ impl SshCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FindCommandFacts {
     pub has_print0: bool,
+    or_without_grouping_spans: Box<[Span]>,
+}
+
+impl FindCommandFacts {
+    pub fn or_without_grouping_spans(&self) -> &[Span] {
+        &self.or_without_grouping_spans
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1183,6 +1205,17 @@ pub struct FindExecDirCommandFacts {
 impl FindExecDirCommandFacts {
     pub fn shell_command_spans(&self) -> &[Span] {
         &self.shell_command_spans
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MapfileCommandFacts {
+    input_fd: Option<i32>,
+}
+
+impl MapfileCommandFacts {
+    pub fn input_fd(self) -> Option<i32> {
+        self.input_fd
     }
 }
 
@@ -1207,6 +1240,11 @@ pub struct GrepCommandFacts {
     pub uses_only_matching: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PsCommandFacts {
+    pub has_pid_selector: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
@@ -1214,6 +1252,7 @@ pub struct SetCommandFacts {
     pub pipefail_change: Option<bool>,
     errtrace_option_spans: Box<[Span]>,
     pipefail_option_spans: Box<[Span]>,
+    flags_without_prefix_spans: Box<[Span]>,
 }
 
 impl SetCommandFacts {
@@ -1223,6 +1262,21 @@ impl SetCommandFacts {
 
     pub fn pipefail_option_spans(&self) -> &[Span] {
         &self.pipefail_option_spans
+    }
+
+    pub fn flags_without_prefix_spans(&self) -> &[Span] {
+        &self.flags_without_prefix_spans
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigureCommandFacts {
+    misspelled_option_spans: Box<[Span]>,
+}
+
+impl ConfigureCommandFacts {
+    pub fn misspelled_option_spans(&self) -> &[Span] {
+        &self.misspelled_option_spans
     }
 }
 
@@ -1258,10 +1312,13 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     find_execdir: Option<FindExecDirCommandFacts>,
+    mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts>,
+    ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
+    configure: Option<ConfigureCommandFacts>,
     expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
@@ -1296,6 +1353,10 @@ impl<'a> CommandOptionFacts<'a> {
         self.find_execdir.as_ref()
     }
 
+    pub fn mapfile(&self) -> Option<&MapfileCommandFacts> {
+        self.mapfile.as_ref()
+    }
+
     pub fn xargs(&self) -> Option<&XargsCommandFacts> {
         self.xargs.as_ref()
     }
@@ -1308,8 +1369,16 @@ impl<'a> CommandOptionFacts<'a> {
         self.grep.as_ref()
     }
 
+    pub fn ps(&self) -> Option<&PsCommandFacts> {
+        self.ps.as_ref()
+    }
+
     pub fn set(&self) -> Option<&SetCommandFacts> {
         self.set.as_ref()
+    }
+
+    pub fn configure(&self) -> Option<&ConfigureCommandFacts> {
+        self.configure.as_ref()
     }
 
     pub fn expr(&self) -> Option<&ExprCommandFacts> {
@@ -1353,13 +1422,7 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| parse_unset_command(normalized.body_args(), source)),
             find: normalized
                 .effective_name_is("find")
-                .then(|| FindCommandFacts {
-                    has_print0: normalized
-                        .body_args()
-                        .iter()
-                        .filter_map(|word| static_word_text(word, source))
-                        .any(|arg| arg == "-print0"),
-                }),
+                .then(|| parse_find_command(normalized.body_args(), source)),
             find_execdir: normalized
                 .has_wrapper(WrapperKind::FindExecDir)
                 .then(|| {
@@ -1370,6 +1433,9 @@ impl<'a> CommandOptionFacts<'a> {
                     )
                 })
                 .flatten(),
+            mapfile: (normalized.effective_name_is("mapfile")
+                || normalized.effective_name_is("readarray"))
+            .then(|| parse_mapfile_command(normalized.body_args(), source)),
             xargs: normalized
                 .effective_name_is("xargs")
                 .then(|| XargsCommandFacts {
@@ -1391,9 +1457,16 @@ impl<'a> CommandOptionFacts<'a> {
                 .effective_name_is("grep")
                 .then(|| parse_grep_command(normalized.body_args(), source))
                 .flatten(),
+            ps: normalized
+                .effective_name_is("ps")
+                .then(|| parse_ps_command(normalized.body_args(), source)),
             set: normalized
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
+            configure: normalized
+                .effective_or_literal_name()
+                .is_some_and(is_configure_command_name)
+                .then(|| parse_configure_command(normalized.body_args(), source)),
             expr: normalized
                 .effective_name_is("expr")
                 .then_some(())
@@ -6556,6 +6629,176 @@ fn grep_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
 }
 
+fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
+    let mut has_pid_selector = false;
+    let mut pending_option_arg = false;
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if let Some(expects_argument) = dynamic_ps_pid_selector(word, source) {
+                has_pid_selector = true;
+                pending_option_arg = expects_argument;
+                index += 1;
+                continue;
+            }
+
+            if word_starts_with_literal_dash(word, source) {
+                pending_option_arg = true;
+                index += 1;
+                continue;
+            }
+
+            if pending_option_arg {
+                pending_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if matches!(text.as_str(), "p" | "q") {
+            has_pid_selector = true;
+            pending_option_arg = true;
+            index += 1;
+            continue;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            if pending_option_arg {
+                pending_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            if text != "-" && ps_bare_pid_selector(text.as_str()) {
+                has_pid_selector = true;
+                index += 1;
+                continue;
+            }
+
+            if ps_bsd_option_cluster(text.as_str()) {
+                index += 1;
+                continue;
+            }
+
+            break;
+        }
+
+        pending_option_arg = false;
+
+        if text == "-p"
+            || text == "-q"
+            || text == "--pid"
+            || text == "--ppid"
+            || text == "--quick-pid"
+        {
+            has_pid_selector = true;
+            pending_option_arg = true;
+            index += 1;
+            continue;
+        }
+
+        if text.starts_with("--pid=")
+            || text.starts_with("--ppid=")
+            || text.starts_with("--quick-pid=")
+            || (text.starts_with("-p") && text.len() > 2)
+            || (text.starts_with("-q") && text.len() > 2)
+        {
+            has_pid_selector = true;
+            index += 1;
+            continue;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        while let Some(flag) = chars.next() {
+            if flag == 'p' || flag == 'q' {
+                has_pid_selector = true;
+            }
+
+            if ps_option_takes_argument(flag) {
+                if chars.peek().is_none() {
+                    pending_option_arg = true;
+                }
+                break;
+            }
+        }
+
+        index += 1;
+    }
+
+    PsCommandFacts { has_pid_selector }
+}
+
+fn dynamic_ps_pid_selector(word: &Word, source: &str) -> Option<bool> {
+    let prefix = leading_literal_word_prefix(word, source);
+    if prefix.is_empty() {
+        return None;
+    }
+
+    let has_attached_value = word.span.slice(source).len() > prefix.len();
+
+    match prefix.as_str() {
+        "p" | "q" | "-p" | "-q" | "--pid" | "--ppid" | "--quick-pid" => Some(!has_attached_value),
+        _ if prefix.starts_with("--pid=")
+            || prefix.starts_with("--ppid=")
+            || prefix.starts_with("--quick-pid=")
+            || (prefix.starts_with("-p") && prefix.len() > 2)
+            || (prefix.starts_with("-q") && prefix.len() > 2) =>
+        {
+            Some(false)
+        }
+        _ => None,
+    }
+}
+
+fn ps_bare_pid_selector(text: &str) -> bool {
+    text.split(',')
+        .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+fn ps_bsd_option_cluster(text: &str) -> bool {
+    !text.is_empty()
+        && text.chars().all(|ch| {
+            matches!(
+                ch,
+                'A' | 'a'
+                    | 'C'
+                    | 'c'
+                    | 'E'
+                    | 'e'
+                    | 'f'
+                    | 'g'
+                    | 'h'
+                    | 'j'
+                    | 'l'
+                    | 'L'
+                    | 'M'
+                    | 'm'
+                    | 'r'
+                    | 'S'
+                    | 'T'
+                    | 'u'
+                    | 'v'
+                    | 'w'
+                    | 'X'
+                    | 'x'
+            )
+        })
+}
+
+fn ps_option_takes_argument(flag: char) -> bool {
+    matches!(
+        flag,
+        'C' | 'G' | 'N' | 'O' | 'U' | 'g' | 'o' | 'p' | 'q' | 't' | 'u'
+    )
+}
+
 fn option_takes_argument(flag: char) -> bool {
     matches!(flag, 'a' | 'd' | 'i' | 'n' | 'N' | 'p' | 't' | 'u')
 }
@@ -6724,6 +6967,246 @@ fn parse_find_execdir_shell_command(
     })
 }
 
+fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
+    let mut has_print0 = false;
+    let mut or_without_grouping_spans = Vec::new();
+    let mut group_stack = vec![FindGroupState::default()];
+    let mut pending_argument: Option<FindPendingArgument> = None;
+
+    for word in args {
+        let Some(text) = static_word_text(word, source) else {
+            if let Some(state) = pending_argument {
+                pending_argument = state.after_consuming_dynamic();
+            }
+            continue;
+        };
+
+        if let Some(state) = pending_argument {
+            pending_argument = state.after_consuming(text.as_str());
+            continue;
+        }
+
+        if text == "-print0" {
+            has_print0 = true;
+        }
+
+        if is_find_group_open_token(text.as_str()) {
+            group_stack.push(FindGroupState::default());
+            continue;
+        }
+
+        if is_find_group_close_token(text.as_str()) {
+            if let Some(child) = (group_stack.len() > 1).then(|| group_stack.pop()).flatten() {
+                group_stack
+                    .last_mut()
+                    .expect("group stack retains the root frame")
+                    .incorporate_group(child, &mut or_without_grouping_spans);
+            }
+            continue;
+        }
+
+        let state = group_stack
+            .last_mut()
+            .expect("group stack retains the root frame");
+
+        if is_find_or_token(text.as_str()) {
+            state.note_or();
+            continue;
+        }
+
+        if is_find_and_token(text.as_str()) {
+            state.note_and();
+            continue;
+        }
+
+        if is_find_branch_action_token(text.as_str()) {
+            state.note_action(
+                word.span,
+                is_find_reportable_action_token(text.as_str()),
+                &mut or_without_grouping_spans,
+            );
+            pending_argument = find_pending_argument(text.as_str());
+            continue;
+        }
+
+        if is_find_predicate_token(text.as_str()) {
+            state.note_predicate();
+            pending_argument = find_pending_argument(text.as_str());
+        }
+    }
+
+    FindCommandFacts {
+        has_print0,
+        or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FindPendingArgument {
+    Words(usize),
+    UntilExecTerminator,
+}
+
+impl FindPendingArgument {
+    fn after_consuming(self, token: &str) -> Option<Self> {
+        match self {
+            Self::Words(remaining) => remaining
+                .checked_sub(1)
+                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::UntilExecTerminator => {
+                (!matches!(token, ";" | "\\;" | "+")).then_some(Self::UntilExecTerminator)
+            }
+        }
+    }
+
+    fn after_consuming_dynamic(self) -> Option<Self> {
+        match self {
+            Self::Words(remaining) => remaining
+                .checked_sub(1)
+                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::UntilExecTerminator => Some(Self::UntilExecTerminator),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct FindGroupState {
+    saw_or: bool,
+    saw_action_before_current_branch: bool,
+    current_branch_has_predicate: bool,
+    current_branch_has_explicit_and: bool,
+    has_any_predicate: bool,
+    has_any_action: bool,
+    first_action_span_for_parent: Option<Span>,
+}
+
+impl FindGroupState {
+    fn current_branch_can_bind_action(&self) -> bool {
+        !self.current_branch_has_explicit_and && (self.current_branch_has_predicate || self.saw_or)
+    }
+
+    fn note_or(&mut self) {
+        self.saw_or = true;
+        self.current_branch_has_predicate = false;
+        self.current_branch_has_explicit_and = false;
+    }
+
+    fn note_and(&mut self) {
+        self.current_branch_has_explicit_and = true;
+    }
+
+    fn note_predicate(&mut self) {
+        self.current_branch_has_predicate = true;
+        self.has_any_predicate = true;
+    }
+
+    fn note_action(&mut self, span: Span, reportable: bool, spans: &mut Vec<Span>) {
+        if reportable
+            && self.saw_or
+            && !self.saw_action_before_current_branch
+            && self.current_branch_can_bind_action()
+        {
+            spans.push(span);
+        }
+
+        if reportable
+            && self.first_action_span_for_parent.is_none()
+            && self.current_branch_can_bind_action()
+        {
+            self.first_action_span_for_parent = Some(span);
+        }
+
+        self.saw_action_before_current_branch = true;
+        self.has_any_action = true;
+    }
+
+    fn incorporate_group(&mut self, child: Self, spans: &mut Vec<Span>) {
+        if child.has_any_predicate {
+            self.note_predicate();
+        }
+
+        if let Some(span) = child.first_action_span_for_parent {
+            self.note_action(span, true, spans);
+            return;
+        }
+
+        if child.has_any_action {
+            self.saw_action_before_current_branch = true;
+            self.has_any_action = true;
+        }
+    }
+}
+
+fn is_find_group_open_token(token: &str) -> bool {
+    matches!(token, "(" | "\\(" | "-(")
+}
+
+fn is_find_group_close_token(token: &str) -> bool {
+    matches!(token, ")" | "\\)" | "-)")
+}
+
+fn is_find_or_token(token: &str) -> bool {
+    matches!(token, "-o" | "-or")
+}
+
+fn is_find_and_token(token: &str) -> bool {
+    matches!(token, "-a" | "-and" | ",")
+}
+
+fn is_find_action_token(token: &str) -> bool {
+    matches!(
+        token,
+        "-delete"
+            | "-exec"
+            | "-execdir"
+            | "-ok"
+            | "-okdir"
+            | "-print"
+            | "-print0"
+            | "-printf"
+            | "-ls"
+            | "-fls"
+            | "-fprint"
+            | "-fprint0"
+            | "-fprintf"
+    )
+}
+
+fn is_find_branch_action_token(token: &str) -> bool {
+    is_find_reportable_action_token(token) || matches!(token, "-prune" | "-quit")
+}
+
+fn is_find_reportable_action_token(token: &str) -> bool {
+    is_find_action_token(token)
+}
+
+fn find_pending_argument(token: &str) -> Option<FindPendingArgument> {
+    match token {
+        "-fls" | "-fprint" | "-fprint0" | "-printf" => Some(FindPendingArgument::Words(1)),
+        "-fprintf" => Some(FindPendingArgument::Words(2)),
+        "-exec" | "-execdir" | "-ok" | "-okdir" => Some(FindPendingArgument::UntilExecTerminator),
+        "-amin" | "-anewer" | "-atime" | "-cmin" | "-cnewer" | "-context" | "-fstype" | "-gid"
+        | "-group" | "-ilname" | "-iname" | "-inum" | "-ipath" | "-iregex" | "-links"
+        | "-lname" | "-maxdepth" | "-mindepth" | "-mmin" | "-mtime" | "-name" | "-newer"
+        | "-path" | "-perm" | "-regex" | "-samefile" | "-size" | "-type" | "-uid" | "-used"
+        | "-user" | "-xtype" | "-files0-from" => Some(FindPendingArgument::Words(1)),
+        token if token.starts_with("-newer") && token.len() > "-newer".len() => {
+            Some(FindPendingArgument::Words(1))
+        }
+        _ => None,
+    }
+}
+
+fn is_find_predicate_token(token: &str) -> bool {
+    token.starts_with('-')
+        && !is_find_branch_action_token(token)
+        && !is_find_or_token(token)
+        && !is_find_and_token(token)
+        && !is_find_group_open_token(token)
+        && !is_find_group_close_token(token)
+        && !matches!(token, "-not")
+}
+
 fn shell_flag_contains_command_string(flag: &str) -> bool {
     let Some(cluster) = flag.strip_prefix('-') else {
         return false;
@@ -6763,7 +7246,18 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut pipefail_change = None;
     let mut errtrace_option_spans = Vec::new();
     let mut pipefail_option_spans = Vec::new();
+    let mut flags_without_prefix_spans = Vec::new();
     let mut index = 0usize;
+
+    if args.len() >= 2
+        && let Some(first_text) = args.first().and_then(|word| static_word_text(word, source))
+        && first_text != "--"
+        && !first_text.starts_with('-')
+        && !first_text.starts_with('+')
+        && is_shell_variable_name(first_text.as_str())
+    {
+        flags_without_prefix_spans.push(args[0].span);
+    }
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -6843,6 +7337,94 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         pipefail_change,
         errtrace_option_spans: errtrace_option_spans.into_boxed_slice(),
         pipefail_option_spans: pipefail_option_spans.into_boxed_slice(),
+        flags_without_prefix_spans: flags_without_prefix_spans.into_boxed_slice(),
+    }
+}
+
+fn is_configure_command_name(name: &str) -> bool {
+    name == "configure" || name.ends_with("/configure")
+}
+
+fn parse_configure_command(args: &[&Word], source: &str) -> ConfigureCommandFacts {
+    let misspelled_option_spans = args
+        .iter()
+        .filter_map(|word| {
+            let option_name = configure_option_name(word, source)?;
+            configure_option_misspelling(option_name.as_str())
+                .and_then(|_| configure_option_name_span(word, source, option_name.as_str()))
+        })
+        .collect::<Vec<_>>();
+
+    ConfigureCommandFacts {
+        misspelled_option_spans: misspelled_option_spans.into_boxed_slice(),
+    }
+}
+
+fn configure_option_name(word: &Word, source: &str) -> Option<String> {
+    let prefix = leading_literal_word_prefix(word, source);
+    let option_name = prefix
+        .split_once('=')
+        .map_or(prefix.as_str(), |(name, _)| name);
+    option_name
+        .starts_with("--")
+        .then(|| option_name.to_owned())
+}
+
+fn configure_option_name_span(word: &Word, source: &str, option_name: &str) -> Option<Span> {
+    let text = word.span.slice(source);
+    let relative_start = text.find(option_name)?;
+    let start = word.span.start.advanced_by(&text[..relative_start]);
+    let end = start.advanced_by(option_name);
+    Some(Span::from_positions(start, end))
+}
+
+fn configure_option_misspelling(option_name: &str) -> Option<&'static str> {
+    match option_name {
+        "--with-optmizer" => Some("--with-optimizer"),
+        "--without-optmizer" => Some("--without-optimizer"),
+        "--enable-optmizer" => Some("--enable-optimizer"),
+        "--disable-optmizer" => Some("--disable-optimizer"),
+        _ => None,
+    }
+}
+
+fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
+    let mut prefix = String::new();
+    collect_leading_literal_word_parts(&word.parts, source, &mut prefix);
+    prefix
+}
+
+fn collect_leading_literal_word_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    prefix: &mut String,
+) -> bool {
+    for part in parts {
+        if !collect_leading_literal_word_part(part, source, prefix) {
+            return false;
+        }
+    }
+    true
+}
+
+fn collect_leading_literal_word_part(
+    part: &WordPartNode,
+    source: &str,
+    prefix: &mut String,
+) -> bool {
+    match &part.kind {
+        WordPart::Literal(text) => {
+            prefix.push_str(text.as_str(source, part.span));
+            true
+        }
+        WordPart::SingleQuoted { value, .. } => {
+            prefix.push_str(value.slice(source));
+            true
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            collect_leading_literal_word_parts(parts, source, prefix)
+        }
+        _ => false,
     }
 }
 
@@ -6885,6 +7467,62 @@ fn wait_option_consumes_argument(text: &str) -> bool {
     };
 
     p_index + 1 == flags.len()
+}
+
+fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileCommandFacts {
+    let mut input_fd = Some(0);
+    let mut index = 0;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" || !text.starts_with('-') || text == "-" || text.starts_with("--") {
+            break;
+        }
+
+        let flags = &text[1..];
+        let mut recognized = true;
+
+        for (offset, flag) in flags.char_indices() {
+            if !matches!(flag, 't' | 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's') {
+                recognized = false;
+                break;
+            }
+
+            if !mapfile_option_takes_argument(flag) {
+                continue;
+            }
+
+            let remainder = &flags[offset + flag.len_utf8()..];
+            let argument = if remainder.is_empty() {
+                index += 1;
+                args.get(index)
+                    .and_then(|next| static_word_text(next, source))
+            } else {
+                Some(remainder.to_owned())
+            };
+
+            if flag == 'u' {
+                input_fd = argument.and_then(|value| value.parse::<i32>().ok());
+            }
+
+            break;
+        }
+
+        if !recognized {
+            break;
+        }
+
+        index += 1;
+    }
+
+    MapfileCommandFacts { input_fd }
+}
+
+fn mapfile_option_takes_argument(flag: char) -> bool {
+    matches!(flag, 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's')
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
@@ -7307,7 +7945,7 @@ mod tests {
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -7395,6 +8033,15 @@ mod tests {
             .and_then(|fact| fact.options().find())
             .expect("expected find facts");
         assert!(find.has_print0);
+        let find_or_without_grouping_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.or_without_grouping_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
 
         let find_execdir = facts
             .commands()
@@ -7451,6 +8098,38 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["pipefail"]
         );
+        let set_without_prefix_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("set"))
+            .filter_map(|fact| fact.options().set())
+            .flat_map(|set| set.flags_without_prefix_spans().iter().copied())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            set_without_prefix_spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["euox"]
+        );
+        let configure_option_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().configure())
+            .flat_map(|configure| configure.misspelled_option_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            configure_option_spans,
+            vec!["--with-optmizer", "--enable-optmizer"]
+        );
+        let ps_pid_selector_flags = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ps"))
+            .filter_map(|fact| fact.options().ps().map(|ps| ps.has_pid_selector))
+            .collect::<Vec<_>>();
+        assert_eq!(ps_pid_selector_flags, vec![true, true, false]);
         let rm_spans = facts
             .commands()
             .iter()
@@ -7497,6 +8176,137 @@ mod tests {
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
+        let source = "#!/bin/bash\nmapfile -u 3 -t files 3< <(printf '%s\\n' hi)\nfind . \\( -name a -o -name b -print \\)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let mapfile = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("mapfile"))
+            .and_then(|fact| fact.options().mapfile())
+            .expect("expected mapfile facts");
+        assert_eq!(mapfile.input_fd(), Some(3));
+
+        let dynamic_source = "#!/bin/bash\nmapfile -u \"$fd\" -t files < <(printf '%s\\n' hi)\n";
+        let dynamic_output = Parser::new(dynamic_source).parse().unwrap();
+        let dynamic_indexer = Indexer::new(dynamic_source, &dynamic_output);
+        let dynamic_semantic =
+            SemanticModel::build(&dynamic_output.file, dynamic_source, &dynamic_indexer);
+        let dynamic_file_context = classify_file_context(dynamic_source, None, ShellDialect::Bash);
+        let dynamic_facts = LinterFacts::build(
+            &dynamic_output.file,
+            dynamic_source,
+            &dynamic_semantic,
+            &dynamic_indexer,
+            &dynamic_file_context,
+        );
+
+        let dynamic_mapfile = dynamic_facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("mapfile"))
+            .and_then(|fact| fact.options().mapfile())
+            .expect("expected dynamic mapfile facts");
+        assert_eq!(dynamic_mapfile.input_fd(), None);
+
+        let find_or_without_grouping_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.or_without_grouping_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+    }
+
+    #[test]
+    fn tracks_dynamic_ps_pid_selectors() {
+        let source = "\
+#!/bin/bash
+ps -p\"$pid\" -o comm=
+ps --pid=\"$pid\" -o comm=
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let ps_commands = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ps"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ps_commands.len(), 2);
+        assert!(
+            ps_commands
+                .iter()
+                .all(|fact| fact.options().ps().is_some_and(|ps| ps.has_pid_selector))
+        );
+    }
+
+    #[test]
+    fn tracks_bare_ps_pid_operands() {
+        let source = "\
+#!/bin/bash
+ps 1 -o comm=
+ps 1,2 -o comm=
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let ps_commands = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ps"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ps_commands.len(), 2);
+        assert!(
+            ps_commands
+                .iter()
+                .all(|fact| fact.options().ps().is_some_and(|ps| ps.has_pid_selector))
+        );
+    }
+
+    #[test]
+    fn tracks_ps_pid_selectors_after_bsd_style_clusters() {
+        let source = "\
+#!/bin/bash
+ps aux -p 1 -o comm=
+ps ax -q 1 -o comm=
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let ps_commands = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ps"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ps_commands.len(), 2);
+        assert!(
+            ps_commands
+                .iter()
+                .all(|fact| fact.options().ps().is_some_and(|ps| ps.has_pid_selector))
+        );
     }
 
     #[test]
@@ -7791,6 +8601,9 @@ declare -A map=([$(printf key)]=1)
 out=$(printf hi > out.txt)
 drop=$(printf hi >/dev/null 2>&1)
 mixed=$(jq -r . <<< \"$status\" || die >&2)
+x=$(echo direct)
+y=$(foo $(echo nested))
+z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
 ";
 
         with_facts(source, None, |_, facts| {
@@ -7804,6 +8617,8 @@ mixed=$(jq -r . <<< \"$status\" || die >&2)
                         fact.stdout_intent(),
                         fact.host_kind(),
                         fact.unquoted_in_host(),
+                        fact.body_contains_ls(),
+                        fact.body_contains_echo(),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -7813,17 +8628,23 @@ mixed=$(jq -r . <<< \"$status\" || die >&2)
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
                 true,
+                false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf decl-assign)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::DeclarationAssignmentValue,
                 true,
+                false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf quoted)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
+                false,
+                false,
                 false,
             )));
             assert!(substitutions.contains(&(
@@ -7831,37 +8652,182 @@ mixed=$(jq -r . <<< \"$status\" || die >&2)
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::AssignmentTargetSubscript,
                 true,
+                false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf decl-name)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::DeclarationNameSubscript,
                 true,
+                false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf key)".to_owned(),
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::ArrayKeySubscript,
                 true,
+                false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf hi > out.txt)".to_owned(),
                 SubstitutionOutputIntent::Rerouted,
                 SubstitutionHostKind::Other,
                 true,
+                false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(printf hi >/dev/null 2>&1)".to_owned(),
                 SubstitutionOutputIntent::Discarded,
                 SubstitutionHostKind::Other,
                 true,
+                false,
+                false,
             )));
             assert!(substitutions.contains(&(
                 "$(jq -r . <<< \"$status\" || die >&2)".to_owned(),
                 SubstitutionOutputIntent::Mixed,
                 SubstitutionHostKind::Other,
                 true,
+                false,
+                false,
             )));
+            assert!(substitutions.contains(&(
+                "$(echo direct)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::Other,
+                true,
+                false,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(foo $(echo nested))".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::Other,
+                true,
+                false,
+                false,
+            )));
+            assert!(substitutions.contains(&(
+                "$(echo nested)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::CommandArgument,
+                true,
+                false,
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(ls layout.*.h | cut -d. -f2 | xargs echo)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::Other,
+                true,
+                true,
+                false,
+            )));
+        });
+    }
+
+    #[test]
+    fn identifies_command_substitutions_that_echo_plain_text_or_expansions() {
+        let source = "\
+#!/bin/sh
+plain=$(echo foo)
+expanded=$(echo $foo)
+quoted=$(echo \"$foo\")
+var_suffix=$(echo foo$foo)
+command_subst=$(echo foo $(date))
+option_like=$(echo -en \"\\001\")
+glob_like=$(echo O*)
+brace_like=$(echo {a,b})
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.body_contains_echo(),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+
+            assert_eq!(substitutions.get("$(echo foo)"), Some(&true));
+            assert_eq!(substitutions.get("$(echo $foo)"), Some(&true));
+            assert_eq!(substitutions.get("$(echo \"$foo\")"), Some(&true));
+            assert_eq!(substitutions.get("$(echo foo$foo)"), Some(&true));
+            assert_eq!(substitutions.get("$(echo foo $(date))"), Some(&true));
+            assert_eq!(substitutions.get("$(echo -en \"\\001\")"), Some(&false));
+            assert_eq!(substitutions.get("$(echo O*)"), Some(&false));
+            assert_eq!(substitutions.get("$(echo {a,b})"), Some(&false));
+        });
+    }
+
+    #[test]
+    fn identifies_command_substitutions_that_grep_output_directly() {
+        let source = "\
+#!/bin/sh
+plain=$(grep foo input.txt)
+quiet=$(grep -q foo input.txt)
+egrep_plain=$(egrep foo input.txt)
+fgrep_plain=$(fgrep foo input.txt)
+nested_pipeline=$(echo foo | grep foo input.txt)
+escaped_pipeline=$(echo foo | \\grep foo input.txt)
+nested=$(foo $(grep foo input.txt))
+mixed=$(grep foo input.txt)$(date)
+pipeline=$(grep foo input.txt | wc -l)
+sequence=$(foo; grep foo input.txt)
+and_chain=$(foo && grep foo input.txt)
+legacy=`nvm ls | grep '^ *\\.'`
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.body_contains_grep(),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+
+            assert_eq!(substitutions.get("$(grep foo input.txt)"), Some(&true));
+            assert_eq!(substitutions.get("$(grep -q foo input.txt)"), Some(&true));
+            assert_eq!(substitutions.get("$(egrep foo input.txt)"), Some(&true));
+            assert_eq!(substitutions.get("$(fgrep foo input.txt)"), Some(&true));
+            assert_eq!(
+                substitutions.get("$(echo foo | grep foo input.txt)"),
+                Some(&true)
+            );
+            assert_eq!(
+                substitutions.get("$(echo foo | \\grep foo input.txt)"),
+                Some(&true)
+            );
+            assert_eq!(
+                substitutions.get("$(foo $(grep foo input.txt))"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(grep foo input.txt | wc -l)"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(foo; grep foo input.txt)"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(foo && grep foo input.txt)"),
+                Some(&false)
+            );
+            assert_eq!(substitutions.get("`nvm ls | grep '^ *\\.'`"), Some(&true));
         });
     }
 

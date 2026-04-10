@@ -53,6 +53,42 @@ impl ShellCheckCodeMap {
         if number == 2253 {
             return vec![Rule::StatusCaptureAfterBranchTest];
         }
+        if number == 2291 {
+            return vec![Rule::UnquotedVariableInSed];
+        }
+        if number == 2117 {
+            return vec![Rule::SuWithoutFlag];
+        }
+        if number == 2139 {
+            return vec![Rule::CommandSubstitutionInAlias];
+        }
+        if number == 2142 {
+            return vec![Rule::FunctionInAlias];
+        }
+        if number == 2340 {
+            return vec![Rule::DeprecatedTempfileCommand];
+        }
+        if number == 2186 {
+            return vec![Rule::DeprecatedTempfileCommand];
+        }
+        if number == 2342 {
+            return vec![Rule::EgrepDeprecated];
+        }
+        if number == 2196 {
+            return vec![Rule::EgrepDeprecated];
+        }
+        if number == 2303 {
+            return vec![Rule::UnquotedTrClass];
+        }
+        if number == 2060 {
+            return vec![Rule::UnquotedTrClass, Rule::UnquotedTrRange];
+        }
+        if number == 2293 {
+            return vec![Rule::LsPipedToXargs];
+        }
+        if number == 2294 {
+            return vec![Rule::LsInSubstitution, Rule::EvalOnArray];
+        }
         if number == 2281 {
             return vec![Rule::BackslashBeforeClosingBacktick];
         }
@@ -61,6 +97,12 @@ impl ShellCheckCodeMap {
         }
         if number == 2283 {
             return vec![Rule::DoubleParenGrouping];
+        }
+        if number == 2143 {
+            return vec![Rule::GrepOutputInTest];
+        }
+        if number == 2258 {
+            return vec![Rule::BareRead];
         }
         if number == 2284 {
             return vec![Rule::UnicodeQuoteInString];
@@ -91,9 +133,34 @@ impl Default for ShellCheckCodeMap {
         let comparison = vec![
             (2003, Rule::ExprArithmetic),
             (2005, Rule::EchoedCommandSubstitution),
+            (2116, Rule::EchoInsideCommandSubstitution),
+            (2143, Rule::GrepOutputInTest),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
-            (2009, Rule::DoubleParenGrouping),
+            (2009, Rule::PsGrepPipeline),
+            (2010, Rule::LsGrepPipeline),
+            (2293, Rule::LsPipedToXargs),
+            (2294, Rule::LsInSubstitution),
+            (2263, Rule::RedundantSpacesInEcho),
+            (2291, Rule::UnquotedVariableInSed),
+            (2117, Rule::SuWithoutFlag),
+            // ShellCheck 0.11.0 reports tempfile deprecation warnings as SC2186.
+            // Keep SC2340 as a suppression alias for the authored S059 rule code.
+            (2186, Rule::DeprecatedTempfileCommand),
+            // ShellCheck 0.11.0 reports egrep deprecation warnings as SC2196.
+            // Keep SC2342 as a suppression alias for the authored S060 rule code.
+            (2196, Rule::EgrepDeprecated),
+            // ShellCheck 0.11.0 reports command substitutions inside alias definitions as SC2139.
+            // Keep SC2328 as a suppression alias for historical compatibility.
+            (2139, Rule::CommandSubstitutionInAlias),
+            // ShellCheck 0.11.0 reports alias function-definition issues as SC2142.
+            // Keep SC2330 as a suppression alias for the authored S057 rule code.
+            (2142, Rule::FunctionInAlias),
+            // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
+            // Keep SC2303 as a suppression alias for the authored S051 rule code.
+            (2060, Rule::UnquotedTrClass),
+            (2021, Rule::UnquotedTrRange),
+            (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
             // ShellCheck 0.11.0 reports space-indented `<<-` close candidates as SC1040.
             // Keep SC2393 as a suppression alias for compatibility metadata.
@@ -140,7 +207,11 @@ impl Default for ShellCheckCodeMap {
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),
             (2035, Rule::LeadingGlobArgument),
+            (2143, Rule::GrepOutputInTest),
+            // ShellCheck 0.11.0 reports `find` output-in-loop warnings as SC2044.
+            // Keep SC2348 as a suppression alias for historical compatibility.
             (2044, Rule::FindOutputLoop),
+            (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
@@ -168,6 +239,13 @@ impl Default for ShellCheckCodeMap {
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2086, Rule::UnquotedExpansion),
+            // ShellCheck 0.11.0 reports ungrouped `find ... -o ...` actions as SC2146.
+            // Keep SC2332 as a suppression alias for historical compatibility.
+            (2146, Rule::FindOrWithoutGrouping),
+            // ShellCheck 0.11.0 reports `set` flag-prefix issues as SC2121.
+            // Keep SC2324 as a suppression alias for historical compatibility.
+            (2121, Rule::SetFlagsWithoutDashes),
+            (2339, Rule::MapfileProcessSubstitution),
             (2115, Rule::RmGlobOnVariablePath),
             (2104, Rule::LoopControlOutsideLoop),
             (2126, Rule::GrepCountPipeline),
@@ -229,7 +307,6 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2290 assigned to C077 in comparisons so large-corpus attribution stays stable.
             (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
-            (2294, Rule::EvalOnArray),
             (2297, Rule::DollarInArithmeticContext),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
@@ -241,6 +318,7 @@ impl Default for ShellCheckCodeMap {
             (2241, Rule::InvalidExitStatus),
             (2242, Rule::CasePatternVar),
             (2248, Rule::BareSlashMarker),
+            (2258, Rule::BareRead),
             (2257, Rule::ArithmeticRedirectionTarget),
             (2004, Rule::DollarInArithmetic),
             (2321, Rule::ArrayIndexArithmetic),
@@ -291,11 +369,19 @@ impl Default for ShellCheckCodeMap {
                 (1012, Rule::NeedlessBackslashUnderscore),
                 (2267, Rule::LiteralBackslashInSingleQuotes),
                 (2005, Rule::EchoedCommandSubstitution),
+                (2116, Rule::EchoInsideCommandSubstitution),
                 (2006, Rule::LegacyBackticks),
                 (2007, Rule::LegacyArithmeticExpansion),
                 (2003, Rule::ExprArithmetic),
                 (2126, Rule::GrepCountPipeline),
-                (2009, Rule::DoubleParenGrouping),
+                (2009, Rule::PsGrepPipeline),
+                (2010, Rule::LsGrepPipeline),
+                (2293, Rule::LsPipedToXargs),
+                (2117, Rule::SuWithoutFlag),
+                (2196, Rule::EgrepDeprecated),
+                (2139, Rule::CommandSubstitutionInAlias),
+                (2142, Rule::FunctionInAlias),
+                (2283, Rule::DoubleParenGrouping),
                 (2233, Rule::SingleTestSubshell),
                 (2235, Rule::SubshellTestGroup),
                 (2259, Rule::SubshellTestGroup),
@@ -329,6 +415,7 @@ impl Default for ShellCheckCodeMap {
                 (2394, Rule::HeredocCloserNotAlone),
                 (2395, Rule::MisquotedHeredocClose),
                 (3002, Rule::ExtglobInSh),
+                (3061, Rule::ExtglobInSh),
                 (3026, Rule::CaretNegationInBracket),
                 (1127, Rule::CStyleComment),
                 (1129, Rule::ZshBraceIf),
@@ -349,6 +436,14 @@ impl Default for ShellCheckCodeMap {
                 (2371, Rule::ZshArraySubscriptInCase),
                 (2375, Rule::ZshParameterIndexFlag),
                 (2164, Rule::UncheckedDirectoryChange),
+                (2263, Rule::RedundantSpacesInEcho),
+                (2143, Rule::GrepOutputInTest),
+                (2294, Rule::LsInSubstitution),
+                (2291, Rule::UnquotedVariableInSed),
+                (2060, Rule::UnquotedTrClass),
+                (2021, Rule::UnquotedTrRange),
+                (2186, Rule::DeprecatedTempfileCommand),
+                (2258, Rule::BareRead),
                 (3025, Rule::PrintfQFormatInSh),
                 (3052, Rule::AmpersandRedirection),
                 (3050, Rule::BraceFdRedirection),
@@ -363,6 +458,8 @@ impl Default for ShellCheckCodeMap {
                 (2034, Rule::UnusedAssignment),
                 (2035, Rule::LeadingGlobArgument),
                 (2044, Rule::FindOutputLoop),
+                (2348, Rule::FindOutputLoop),
+                (2380, Rule::MisspelledOptionName),
                 (2045, Rule::LoopFromCommandOutput),
                 (2046, Rule::UnquotedCommandSubstitution),
                 (2059, Rule::PrintfFormatVariable),
@@ -387,6 +484,10 @@ impl Default for ShellCheckCodeMap {
                 (2068, Rule::UnquotedArrayExpansion),
                 (2076, Rule::QuotedBashRegex),
                 (2086, Rule::UnquotedExpansion),
+                (2146, Rule::FindOrWithoutGrouping),
+                (2332, Rule::FindOrWithoutGrouping),
+                (2121, Rule::SetFlagsWithoutDashes),
+                (2324, Rule::SetFlagsWithoutDashes),
                 (2115, Rule::RmGlobOnVariablePath),
                 (2104, Rule::LoopControlOutsideLoop),
                 (2112, Rule::FunctionKeyword),
@@ -413,6 +514,7 @@ impl Default for ShellCheckCodeMap {
                 (3075, Rule::ErrexitTrapInSh),
                 (3076, Rule::SignalNameInTrap),
                 (2323, Rule::ArithmeticScoreLine),
+                (2339, Rule::MapfileProcessSubstitution),
                 (3051, Rule::SourceInsideFunctionInSh),
                 (3084, Rule::SourceInsideFunctionInSh),
                 (2155, Rule::ExportCommandSubstitution),
@@ -479,8 +581,16 @@ impl Default for ShellCheckCodeMap {
                 (1040, Rule::HeredocEndSpace),
                 (1075, Rule::ExtglobCase),
                 (2321, Rule::FunctionKeywordInSh),
-                (3061, Rule::ExtglobInSh),
                 (3072, Rule::CaretNegationInBracket),
+                (2009, Rule::DoubleParenGrouping),
+                (2294, Rule::LsInSubstitution),
+                (2322, Rule::SuWithoutFlag),
+                (2340, Rule::DeprecatedTempfileCommand),
+                (2342, Rule::EgrepDeprecated),
+                (2328, Rule::CommandSubstitutionInAlias),
+                (2330, Rule::FunctionInAlias),
+                (2298, Rule::UnquotedTrRange),
+                (2303, Rule::UnquotedTrClass),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -492,6 +602,7 @@ impl Default for ShellCheckCodeMap {
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
+                (2060, Rule::UnquotedTrRange),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
                 (2127, Rule::EchoHereDoc),
@@ -511,12 +622,24 @@ mod tests {
 
         assert_eq!(map.resolve("SC2034"), Some(Rule::UnusedAssignment));
         assert_eq!(map.resolve("SC2005"), Some(Rule::EchoedCommandSubstitution));
+        assert_eq!(
+            map.resolve("SC2116"),
+            Some(Rule::EchoInsideCommandSubstitution)
+        );
+        assert_eq!(map.resolve("SC2143"), Some(Rule::GrepOutputInTest));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
         assert_eq!(map.resolve("SC2219"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
-        assert_eq!(map.resolve("SC2009"), Some(Rule::DoubleParenGrouping));
+        assert_eq!(map.resolve("SC2009"), Some(Rule::PsGrepPipeline));
+        assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
+        assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
+        assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
+        assert_eq!(
+            map.resolve_all("SC2009"),
+            vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
+        );
         assert_eq!(map.resolve("SC2233"), Some(Rule::SingleTestSubshell));
         assert_eq!(map.resolve("SC2235"), Some(Rule::SubshellTestGroup));
         assert_eq!(map.resolve("SC2259"), Some(Rule::SubshellTestGroup));
@@ -555,10 +678,67 @@ mod tests {
         );
         assert_eq!(map.resolve("SC3002"), Some(Rule::ExtglobInSh));
         assert_eq!(map.resolve("SC3061"), Some(Rule::ExtglobInSh));
+        assert_eq!(map.resolve("SC2258"), Some(Rule::BareRead));
+        assert_eq!(map.resolve("SC2291"), Some(Rule::UnquotedVariableInSed));
+        assert_eq!(map.resolve("SC2322"), Some(Rule::SuWithoutFlag));
+        assert_eq!(map.resolve("SC2117"), Some(Rule::SuWithoutFlag));
+        assert_eq!(map.resolve("SC2340"), Some(Rule::DeprecatedTempfileCommand));
+        assert_eq!(map.resolve("SC2186"), Some(Rule::DeprecatedTempfileCommand));
+        assert_eq!(map.resolve("SC2342"), Some(Rule::EgrepDeprecated));
+        assert_eq!(map.resolve("SC2196"), Some(Rule::EgrepDeprecated));
+        assert_eq!(
+            map.resolve("SC2139"),
+            Some(Rule::CommandSubstitutionInAlias)
+        );
+        assert_eq!(map.resolve("SC2142"), Some(Rule::FunctionInAlias));
+        assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
+        assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
+        assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
+        assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
+        assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
+        assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve("SC3072"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve_all("SC3002"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve_all("SC3061"), vec![Rule::ExtglobInSh]);
+        assert_eq!(map.resolve_all("SC2258"), vec![Rule::BareRead]);
+        assert_eq!(map.resolve_all("SC2291"), vec![Rule::UnquotedVariableInSed]);
+        assert_eq!(map.resolve_all("SC2322"), vec![Rule::SuWithoutFlag]);
+        assert_eq!(map.resolve_all("SC2117"), vec![Rule::SuWithoutFlag]);
+        assert_eq!(
+            map.resolve_all("SC2340"),
+            vec![Rule::DeprecatedTempfileCommand]
+        );
+        assert_eq!(
+            map.resolve_all("SC2186"),
+            vec![Rule::DeprecatedTempfileCommand]
+        );
+        assert_eq!(map.resolve_all("SC2342"), vec![Rule::EgrepDeprecated]);
+        assert_eq!(map.resolve_all("SC2196"), vec![Rule::EgrepDeprecated]);
+        assert_eq!(
+            map.resolve_all("SC2139"),
+            vec![Rule::CommandSubstitutionInAlias]
+        );
+        assert_eq!(map.resolve_all("SC2142"), vec![Rule::FunctionInAlias]);
+        assert_eq!(
+            map.resolve_all("SC2328"),
+            vec![Rule::CommandSubstitutionInAlias]
+        );
+        assert_eq!(map.resolve_all("SC2330"), vec![Rule::FunctionInAlias]);
+        assert_eq!(map.resolve_all("SC2303"), vec![Rule::UnquotedTrClass]);
+        assert_eq!(map.resolve_all("SC2298"), vec![Rule::UnquotedTrRange]);
+        assert_eq!(map.resolve_all("SC2021"), vec![Rule::UnquotedTrRange]);
+        assert_eq!(
+            map.resolve_all("SC2060"),
+            vec![Rule::UnquotedTrClass, Rule::UnquotedTrRange]
+        );
+        assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
+        assert_eq!(
+            map.resolve_all("SC2294"),
+            vec![Rule::LsInSubstitution, Rule::EvalOnArray]
+        );
+        assert_eq!(map.resolve_all("SC2263"), vec![Rule::RedundantSpacesInEcho]);
         assert_eq!(
             map.resolve_all("SC3026"),
             vec![Rule::CaretNegationInBracket]
@@ -626,6 +806,8 @@ mod tests {
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
+        assert_eq!(map.resolve("SC2348"), Some(Rule::FindOutputLoop));
+        assert_eq!(map.resolve("SC2380"), Some(Rule::MisspelledOptionName));
         assert_eq!(map.resolve("SC2045"), Some(Rule::LoopFromCommandOutput));
         assert_eq!(
             map.resolve("SC2046"),
@@ -649,6 +831,10 @@ mod tests {
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
+        assert_eq!(map.resolve("SC2146"), Some(Rule::FindOrWithoutGrouping));
+        assert_eq!(map.resolve("SC2332"), Some(Rule::FindOrWithoutGrouping));
+        assert_eq!(map.resolve("SC2121"), Some(Rule::SetFlagsWithoutDashes));
+        assert_eq!(map.resolve("SC2324"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(map.resolve("SC2115"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(map.resolve("SC2104"), Some(Rule::LoopControlOutsideLoop));
         assert_eq!(map.resolve("SC2112"), Some(Rule::FunctionKeyword));
@@ -680,6 +866,10 @@ mod tests {
             vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]
         );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(
+            map.resolve("SC2339"),
+            Some(Rule::MapfileProcessSubstitution)
+        );
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC2370"), Some(Rule::UnusedHeredoc));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
@@ -842,9 +1032,33 @@ mod tests {
             (1132, Rule::CPrototypeFragment),
             (2003, Rule::ExprArithmetic),
             (2005, Rule::EchoedCommandSubstitution),
+            (2116, Rule::EchoInsideCommandSubstitution),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
+            (2009, Rule::PsGrepPipeline),
             (2009, Rule::DoubleParenGrouping),
+            (2010, Rule::LsGrepPipeline),
+            (2293, Rule::LsPipedToXargs),
+            (2294, Rule::LsInSubstitution),
+            (2263, Rule::RedundantSpacesInEcho),
+            (2143, Rule::GrepOutputInTest),
+            (2291, Rule::UnquotedVariableInSed),
+            (2117, Rule::SuWithoutFlag),
+            (2186, Rule::DeprecatedTempfileCommand),
+            (2196, Rule::EgrepDeprecated),
+            (2139, Rule::CommandSubstitutionInAlias),
+            (2142, Rule::FunctionInAlias),
+            (2021, Rule::UnquotedTrRange),
+            (2060, Rule::UnquotedTrClass),
+            (2060, Rule::UnquotedTrRange),
+            (2303, Rule::UnquotedTrClass),
+            (2322, Rule::SuWithoutFlag),
+            (2340, Rule::DeprecatedTempfileCommand),
+            (2342, Rule::EgrepDeprecated),
+            (2328, Rule::CommandSubstitutionInAlias),
+            (2330, Rule::FunctionInAlias),
+            (2298, Rule::UnquotedTrRange),
+            (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
             (2016, Rule::SingleQuotedLiteral),
@@ -853,6 +1067,8 @@ mod tests {
             (2035, Rule::LeadingGlobArgument),
             (2038, Rule::FindOutputToXargs),
             (2044, Rule::FindOutputLoop),
+            (2348, Rule::FindOutputLoop),
+            (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
@@ -863,6 +1079,9 @@ mod tests {
             (2078, Rule::TruthyLiteralTest),
             (2089, Rule::AppendWithEscapedQuotes),
             (2086, Rule::UnquotedExpansion),
+            (2146, Rule::FindOrWithoutGrouping),
+            (2121, Rule::SetFlagsWithoutDashes),
+            (2339, Rule::MapfileProcessSubstitution),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
             (2115, Rule::RmGlobOnVariablePath),
@@ -920,6 +1139,7 @@ mod tests {
             (2279, Rule::CshSyntaxInSh),
             (2280, Rule::IfsEqualsAmbiguity),
             (2282, Rule::BadVarName),
+            (2283, Rule::DoubleParenGrouping),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
@@ -934,6 +1154,9 @@ mod tests {
             (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
             (2323, Rule::ArithmeticScoreLine),
+            (2332, Rule::FindOrWithoutGrouping),
+            (2339, Rule::MapfileProcessSubstitution),
+            (2324, Rule::SetFlagsWithoutDashes),
             (2333, Rule::NonShellSyntaxInScript),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
@@ -1060,8 +1283,37 @@ mod tests {
         assert!(comparison.contains(&(3026, Rule::CaretNegationInBracket)));
         assert!(comparison.contains(&(3039, Rule::LetCommand)));
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
+        assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
+        assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
+        assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
+        assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
+        assert!(!comparison.contains(&(2294, Rule::EvalOnArray)));
+        assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
+        assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
+        assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
+        assert!(comparison.contains(&(2186, Rule::DeprecatedTempfileCommand)));
+        assert!(comparison.contains(&(2196, Rule::EgrepDeprecated)));
+        assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
+        assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
+        assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
+        assert!(!comparison.contains(&(2340, Rule::DeprecatedTempfileCommand)));
+        assert!(!comparison.contains(&(2342, Rule::EgrepDeprecated)));
+        assert!(!comparison.contains(&(2328, Rule::CommandSubstitutionInAlias)));
+        assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
+        assert!(comparison.contains(&(2258, Rule::BareRead)));
+        assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
+        assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
+        assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
+        assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
+        assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
+        assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
+        assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
+        assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
+        assert!(comparison.contains(&(2339, Rule::MapfileProcessSubstitution)));
+        assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
+        assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));
         assert!(comparison.contains(&(3058, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
@@ -1093,6 +1345,7 @@ mod tests {
         assert!(comparison.contains(&(1044, Rule::HeredocMissingEnd)));
         assert!(comparison.contains(&(1118, Rule::HeredocEndSpace)));
         assert!(comparison.contains(&(1040, Rule::SpacedTabstripClose)));
+        assert!(!comparison.contains(&(2009, Rule::DoubleParenGrouping)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
@@ -1113,6 +1366,7 @@ mod tests {
         assert!(!comparison.contains(&(1075, Rule::ExtglobCase)));
         assert!(!comparison.contains(&(2321, Rule::FunctionKeywordInSh)));
         assert!(!comparison.contains(&(3061, Rule::ExtglobInSh)));
+        assert!(!comparison.contains(&(3061, Rule::BareRead)));
         assert!(!comparison.contains(&(3072, Rule::CaretNegationInBracket)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
         assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));

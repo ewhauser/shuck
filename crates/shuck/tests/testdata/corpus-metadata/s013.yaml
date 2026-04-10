@@ -1,0 +1,7 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    labels:
+      - helper-library
+      - project-closure
+    reason: "In this helper-library fixture, ShellCheck's project-closure analysis omits SC2010 for these ls|grep pipelines, while Shuck still reports S013 from direct pipeline facts."
