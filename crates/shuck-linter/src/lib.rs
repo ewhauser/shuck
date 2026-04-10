@@ -24,14 +24,14 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
     ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
-    ConditionalOperatorFamily, ConditionalUnaryFact, ExitCommandFacts, FactSpan, FindCommandFacts,
-    ForHeaderFact, FunctionHeaderFact, LegacyArithmeticFragmentFact, LinterFacts, ListFact,
-    ListOperatorFact, LoopHeaderWordFact, PipelineFact, PipelineOperatorFact, PipelineSegmentFact,
-    PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts, RedirectFact,
-    SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
-    SingleQuotedFragmentFact, SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts,
-    SudoFamilyInvoker, UnsetCommandFacts, WaitCommandFacts, WordFact, WordFactContext,
-    WordFactHostKind, XargsCommandFacts,
+    ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
+    FactSpan, FindCommandFacts, ForHeaderFact, FunctionHeaderFact, LegacyArithmeticFragmentFact,
+    LinterFacts, ListFact, ListOperatorFact, LoopHeaderWordFact, PipelineFact,
+    PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts,
+    ReadCommandFacts, RedirectFact, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily,
+    SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, SubstitutionFact,
+    SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
+    WaitCommandFacts, WordFact, WordFactContext, WordFactHostKind, XargsCommandFacts,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
