@@ -3822,9 +3822,11 @@ impl<'a> WordFactCollector<'a> {
                 .into_boxed_slice(),
             array_expansion_spans: span::array_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
-            all_elements_array_expansion_spans:
-                span::all_elements_array_expansion_part_spans(word_ref, self.source)
-                    .into_boxed_slice(),
+            all_elements_array_expansion_spans: span::all_elements_array_expansion_part_spans(
+                word_ref,
+                self.source,
+            )
+            .into_boxed_slice(),
             unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(
                 word_ref,
                 self.source,
@@ -4420,7 +4422,7 @@ fn rm_path_parameter_expansion_is_unsafe(parameter: &ParameterExpansion) -> bool
                 ..
             } => operator.as_ref().is_none_or(rm_path_parameter_op_is_unsafe),
             BourneParameterExpansion::Operation { operator, .. } => {
-                rm_path_parameter_op_is_unsafe(&operator)
+                rm_path_parameter_op_is_unsafe(operator)
             }
             BourneParameterExpansion::Length { .. }
             | BourneParameterExpansion::Indices { .. }
@@ -4452,7 +4454,7 @@ fn append_rm_path_literal(segments: &mut Vec<RmPathSegment>, text: &str) {
     }
 }
 
-fn current_rm_path_segment(segments: &mut Vec<RmPathSegment>) -> &mut RmPathSegment {
+fn current_rm_path_segment(segments: &mut [RmPathSegment]) -> &mut RmPathSegment {
     segments
         .last_mut()
         .expect("rm path segments always start non-empty")
@@ -5430,7 +5432,10 @@ mod tests {
             .iter()
             .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
             .and_then(|fact| fact.options().find_execdir());
-        assert!(find_execdir.is_none(), "fixture without execdir should not match");
+        assert!(
+            find_execdir.is_none(),
+            "fixture without execdir should not match"
+        );
 
         let xargs = facts
             .commands()
@@ -6801,5 +6806,4 @@ printf '%s\\n' $0 $1 $* $@
             assert!(argument_words.contains(&"$@".to_owned()));
         });
     }
-
 }

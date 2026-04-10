@@ -1,5 +1,5 @@
-pub mod find_execdir_with_shell;
 pub mod eval_on_array;
+pub mod find_execdir_with_shell;
 pub mod rm_glob_on_variable_path;
 pub mod ssh_local_expansion;
 

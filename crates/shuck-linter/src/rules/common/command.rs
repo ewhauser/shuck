@@ -308,12 +308,14 @@ fn resolve_command_resolution(
             kind: WrapperKind::Busybox,
             target_index: words.get(current_index + 1).map(|_| current_index + 1),
         }),
-        "find" => find_exec_target_index(words, current_index, source).map(|(kind, target_index)| {
-            CommandResolution::Wrapper {
-                kind,
-                target_index: Some(target_index),
-            }
-        }),
+        "find" => {
+            find_exec_target_index(words, current_index, source).map(|(kind, target_index)| {
+                CommandResolution::Wrapper {
+                    kind,
+                    target_index: Some(target_index),
+                }
+            })
+        }
         "sudo" | "doas" | "run0" => Some(CommandResolution::Wrapper {
             kind: WrapperKind::SudoFamily,
             target_index: sudo_family_target_index(words, current_index, source),
@@ -381,13 +383,21 @@ fn find_exec_target_index(
             continue;
         };
         match arg.as_str() {
-            "-exec" | "-ok" => return words.get(index + 1).map(|_| (WrapperKind::FindExec, index + 1)),
+            "-exec" | "-ok" => {
+                return words
+                    .get(index + 1)
+                    .map(|_| (WrapperKind::FindExec, index + 1));
+            }
             "-execdir" => {
                 return words
                     .get(index + 1)
                     .map(|_| (WrapperKind::FindExecDir, index + 1));
             }
-            "-okdir" => return words.get(index + 1).map(|_| (WrapperKind::FindExec, index + 1)),
+            "-okdir" => {
+                return words
+                    .get(index + 1)
+                    .map(|_| (WrapperKind::FindExec, index + 1));
+            }
             _ => {}
         }
     }

@@ -437,25 +437,25 @@ fn collect_all_elements_array_expansion_spans(
                 collect_all_elements_array_expansion_spans(parts, source, spans)
             }
             WordPart::Variable(name) if name.as_str() == "@" => {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source)
-                {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
                     spans.push(span);
                 }
             }
             WordPart::ArrayAccess(reference)
                 if matches!(
-                    reference.subscript.as_ref().and_then(|subscript| subscript.selector()),
+                    reference
+                        .subscript
+                        .as_ref()
+                        .and_then(|subscript| subscript.selector()),
                     Some(SubscriptSelector::At)
                 ) =>
             {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source)
-                {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
                     spans.push(span);
                 }
             }
             WordPart::Parameter(_parameter) => {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source)
-                {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
                     spans.push(span);
                 }
             }
@@ -486,7 +486,9 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
             return Some(Span::from_positions(start, end));
         }
 
-        if remainder.starts_with("${") && let Some(relative_end) = remainder.find('}') {
+        if remainder.starts_with("${")
+            && let Some(relative_end) = remainder.find('}')
+        {
             let candidate = &remainder[..=relative_end];
             if candidate.contains("[@]") {
                 let end = position_at_offset(source, absolute_start + candidate.len())?;
@@ -1403,7 +1405,8 @@ mod tests {
 
     #[test]
     fn all_elements_array_expansion_spans_only_return_at_style_parts() {
-        let source = "printf '%s\\n' $@ $* \"$@\" \"$*\" ${arr[@]} ${arr[*]} ${arr[@]:1:2} ${arr[*]:1:2}\n";
+        let source =
+            "printf '%s\\n' $@ $* \"$@\" \"$*\" ${arr[@]} ${arr[*]} ${arr[@]:1:2} ${arr[*]:1:2}\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
