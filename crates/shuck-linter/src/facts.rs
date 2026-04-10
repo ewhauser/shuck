@@ -4280,7 +4280,12 @@ fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
         return None;
     }
 
-    let local_expansion_spans = args
+    let remote_args = &args[1..];
+    if remote_args.is_empty() {
+        return None;
+    }
+
+    let local_expansion_spans = remote_args
         .iter()
         .flat_map(|word| expansion_part_spans(word))
         .collect::<Vec<_>>();
