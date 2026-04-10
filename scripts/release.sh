@@ -97,15 +97,34 @@ if [ "$BRANCH" != "main" ]; then
     exit 1
 fi
 
+RELEASE_BRANCH="release/v$NEW_VERSION"
+
+# Create release branch
+git -C "$REPO_ROOT" checkout -b "$RELEASE_BRANCH"
+
 # Bump version in workspace Cargo.toml (portable across GNU and BSD sed)
 perl -pi -e "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" "$CARGO_TOML"
 
-# Commit and tag
+# Commit
 git -C "$REPO_ROOT" add Cargo.toml
 git -C "$REPO_ROOT" commit -m "release: v$NEW_VERSION"
-git -C "$REPO_ROOT" tag "v$NEW_VERSION"
+
+# Push branch and create PR
+echo
+echo "Pushing release branch..."
+git -C "$REPO_ROOT" push -u origin "$RELEASE_BRANCH"
+
+echo "Creating pull request..."
+PR_URL=$(gh pr create \
+    --title "release: v$NEW_VERSION" \
+    --body "Bump version $CURRENT → $NEW_VERSION." \
+    --base main \
+    --head "$RELEASE_BRANCH")
 
 echo
-echo "Pushing release v$NEW_VERSION..."
-git -C "$REPO_ROOT" push
-git -C "$REPO_ROOT" push --tags
+echo "Pull request created: $PR_URL"
+echo "After merging, tag the release with:"
+echo "  git pull && git tag v$NEW_VERSION && git push --tags"
+
+# Return to main
+git -C "$REPO_ROOT" checkout main
