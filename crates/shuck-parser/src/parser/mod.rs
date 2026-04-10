@@ -1,6 +1,22 @@
-//! Parser module for shuck
+//! Recursive-descent shell parser used by `shuck-parser`.
 //!
-//! Implements a recursive descent parser for bash scripts.
+//! This module provides the lexer-facing [`Parser`] implementation plus the
+//! parser entry-point data types used by higher layers.
+//!
+//! # What this module is responsible for
+//! - token consumption and lookahead orchestration over [`Lexer`]
+//! - dialect-aware parsing via [`ShellDialect`]
+//! - AST construction into [`shuck_ast::File`]
+//! - parse recovery diagnostics via [`ParseDiagnostic`] and [`RecoveredParse`]
+//! - preserving source spans and comment ranges for downstream tooling
+//!
+//! # Public API highlights
+//! - [`Parser`] constructors for default and caller-defined resource limits
+//! - word-fragment helpers like [`Parser::parse_word_string`]
+//! - dialect selection with [`ShellDialect`] and [`ShellDialect::from_name`]
+//!
+//! The parser is designed to keep AST/source span fidelity high while still
+//! supporting pragmatic recovery for partial or invalid input.
 
 // Parser uses chars().next().unwrap() after validating character presence.
 // This is safe because we check bounds before accessing.
