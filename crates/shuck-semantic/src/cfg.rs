@@ -607,12 +607,18 @@ impl<'a> GraphBuilder<'a> {
         let mut fallthrough_from = Vec::new();
 
         for arm in arms {
-            let arm_seq = self.build_sequence(&arm.commands, loops);
-            if let Some(arm_entry) = arm_seq.entry {
-                self.add_edge(head, arm_entry, EdgeKind::CaseArm);
-                for block in &fallthrough_from {
-                    self.add_edge(*block, arm_entry, EdgeKind::CaseFallthrough);
-                }
+            let mut arm_seq = self.build_sequence(&arm.commands, loops);
+            if arm_seq.entry.is_none() {
+                let empty_arm = self.empty_block();
+                arm_seq.entry = Some(empty_arm);
+                arm_seq.exits.push(empty_arm);
+            }
+            let arm_entry = arm_seq
+                .entry
+                .expect("empty case arms get a synthetic CFG block");
+            self.add_edge(head, arm_entry, EdgeKind::CaseArm);
+            for block in &fallthrough_from {
+                self.add_edge(*block, arm_entry, EdgeKind::CaseFallthrough);
             }
 
             match arm.terminator {
