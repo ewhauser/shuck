@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Terminal screen glow -->
+    <radialGradient id="screenGlow" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#141820"/>
+      <stop offset="100%" stop-color="#08090a"/>
+    </radialGradient>
+
+    <!-- Turtle shell gradient -->
+    <linearGradient id="shellTop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3a8a5c"/>
+      <stop offset="100%" stop-color="#2a6844"/>
+    </linearGradient>
+
+    <!-- Turtle skin gradient -->
+    <linearGradient id="turtleSkin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5ab87a"/>
+      <stop offset="100%" stop-color="#3a8a5c"/>
+    </linearGradient>
+
+    <!-- Terminal bezel shadow -->
+    <filter id="bezelShadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+
+    <!-- Inner glow for screen -->
+    <filter id="innerGlow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur"/>
+      <feOffset dx="0" dy="0"/>
+      <feComposite in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1"/>
+      <feFlood flood-color="#70b8ff" flood-opacity="0.06"/>
+      <feComposite operator="in" in2="blur"/>
+      <feComposite in2="SourceGraphic"/>
+    </filter>
+
+    <!-- Cursor blink animation -->
+    <style>
+      @keyframes blink {
+        0%, 49% { opacity: 1; }
+        50%, 100% { opacity: 0; }
+      }
+      .cursor { animation: blink 1.2s step-end infinite; }
+    </style>
+  </defs>
+
+  <!-- === TERMINAL BODY === -->
+  <!-- Outer bezel -->
+  <rect x="32" y="32" width="448" height="448" rx="38" ry="38"
+        fill="#1e1f21" filter="url(#bezelShadow)"/>
+  <!-- Inner bezel bevel -->
+  <rect x="38" y="38" width="436" height="436" rx="34" ry="34"
+        fill="#141516"/>
+  <!-- Bezel highlight (top edge) -->
+  <rect x="38" y="38" width="436" height="6" rx="3" ry="3"
+        fill="#fff" opacity="0.06"/>
+
+  <!-- Screen inset -->
+  <rect x="52" y="72" width="408" height="388" rx="12" ry="12"
+        fill="url(#screenGlow)" filter="url(#innerGlow)"/>
+
+  <!-- Scanline overlay -->
+  <g opacity="0.03">
+    <line x1="52" y1="76" x2="460" y2="76" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="80" x2="460" y2="80" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="84" x2="460" y2="84" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="88" x2="460" y2="88" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="92" x2="460" y2="92" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="96" x2="460" y2="96" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="100" x2="460" y2="100" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="104" x2="460" y2="104" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="108" x2="460" y2="108" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="112" x2="460" y2="112" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="116" x2="460" y2="116" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="120" x2="460" y2="120" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="124" x2="460" y2="124" stroke="#70b8ff" stroke-width="1"/>
+    <line x1="52" y1="128" x2="460" y2="128" stroke="#70b8ff" stroke-width="1"/>
+  </g>
+
+  <!-- === TITLE BAR === -->
+  <rect x="32" y="32" width="448" height="44" rx="38" ry="38" fill="#1e1f21"/>
+  <rect x="32" y="56" width="448" height="20" fill="#1e1f21"/>
+  <!-- Separator line -->
+  <line x1="52" y1="75" x2="460" y2="75" stroke="#000" stroke-width="1" opacity="0.5"/>
+
+  <!-- Window buttons -->
+  <circle cx="72" cy="54" r="7" fill="#ff5f57"/>
+  <circle cx="96" cy="54" r="7" fill="#febc2e"/>
+  <circle cx="120" cy="54" r="7" fill="#28c840"/>
+
+  <!-- Title text -->
+  <text x="256" y="59" text-anchor="middle"
+        font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace"
+        font-size="13" font-weight="600" fill="rgba(255,255,255,0.45)" letter-spacing="1.5">
+    shuck
+  </text>
+
+  <!-- === TURTLE CHARACTER === -->
+  <g transform="translate(256, 250)">
+
+    <!-- Shell (dome behind the head/body) — slimmed down -->
+    <ellipse cx="0" cy="15" rx="78" ry="68" fill="url(#shellTop)"/>
+    <!-- Shell highlight rim -->
+    <ellipse cx="0" cy="-12" rx="62" ry="22" fill="#4aa870" opacity="0.3"/>
+
+    <!-- Shell scute pattern -->
+    <!-- Center column -->
+    <ellipse cx="0" cy="-8" rx="22" ry="19" fill="none" stroke="#2a6844" stroke-width="2.5" opacity="0.6"/>
+    <ellipse cx="0" cy="30" rx="20" ry="17" fill="none" stroke="#2a6844" stroke-width="2.5" opacity="0.5"/>
+    <!-- Left column -->
+    <ellipse cx="-38" cy="2" rx="19" ry="18" fill="none" stroke="#2a6844" stroke-width="2.5" opacity="0.5"/>
+    <ellipse cx="-30" cy="40" rx="17" ry="16" fill="none" stroke="#2a6844" stroke-width="2.5" opacity="0.4"/>
+    <!-- Right column -->
+    <ellipse cx="38" cy="2" rx="19" ry="18" fill="none" stroke="#2a6844" stroke-width="2.5" opacity="0.5"/>
+    <ellipse cx="30" cy="40" rx="17" ry="16" fill="none" stroke="#2a6844" stroke-width="2.5" opacity="0.4"/>
+
+    <!-- === ARMS holding terminal edges === -->
+    <!-- Left arm -->
+    <g transform="translate(-72, 48)">
+      <ellipse cx="-6" cy="0" rx="18" ry="12" fill="#3a8a5c" transform="rotate(-15)"/>
+      <!-- Fingers -->
+      <circle cx="-20" cy="-5" r="5.5" fill="#4aa870"/>
+      <circle cx="-22" cy="5" r="5" fill="#4aa870"/>
+      <circle cx="-18" cy="13" r="4.5" fill="#4aa870"/>
+    </g>
+
+    <!-- Right arm -->
+    <g transform="translate(72, 48)">
+      <ellipse cx="6" cy="0" rx="18" ry="12" fill="#3a8a5c" transform="rotate(15)"/>
+      <!-- Fingers -->
+      <circle cx="20" cy="-5" r="5.5" fill="#4aa870"/>
+      <circle cx="22" cy="5" r="5" fill="#4aa870"/>
+      <circle cx="18" cy="13" r="4.5" fill="#4aa870"/>
+    </g>
+
+    <!-- Head — slimmer -->
+    <ellipse cx="0" cy="-58" rx="48" ry="44" fill="url(#turtleSkin)"/>
+
+    <!-- === EYES === -->
+    <!-- Left eye white -->
+    <ellipse cx="-18" cy="-68" rx="18" ry="21" fill="#fff"/>
+    <!-- Left eye pupil -->
+    <circle cx="-15" cy="-65" r="10" fill="#1a1a1a"/>
+    <!-- Left eye highlight -->
+    <circle cx="-10" cy="-71" r="4.5" fill="#fff"/>
+    <circle cx="-17" cy="-61" r="2" fill="#fff" opacity="0.6"/>
+
+    <!-- Right eye white -->
+    <ellipse cx="18" cy="-68" rx="18" ry="21" fill="#fff"/>
+    <!-- Right eye pupil -->
+    <circle cx="21" cy="-65" r="10" fill="#1a1a1a"/>
+    <!-- Right eye highlight -->
+    <circle cx="26" cy="-71" r="4.5" fill="#fff"/>
+    <circle cx="19" cy="-61" r="2" fill="#fff" opacity="0.6"/>
+
+    <!-- Nostrils -->
+    <circle cx="-5" cy="-48" r="2.5" fill="#2a6844"/>
+    <circle cx="5" cy="-48" r="2.5" fill="#2a6844"/>
+
+    <!-- Friendly smile -->
+    <path d="M-18 -38 Q0 -26 18 -38" stroke="#2a6844" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+
+    <!-- Cheek blush -->
+    <ellipse cx="-34" cy="-48" rx="10" ry="7" fill="#4aa870" opacity="0.5"/>
+    <ellipse cx="34" cy="-48" rx="10" ry="7" fill="#4aa870" opacity="0.5"/>
+  </g>
+
+  <!-- === SPARKLES (cleaning/linting) === -->
+  <!-- Large sparkle top-right -->
+  <g transform="translate(400, 120)">
+    <path d="M0 -14 L4 -4 L14 0 L4 4 L0 14 L-4 4 L-14 0 L-4 -4 Z" fill="#70b8ff" opacity="0.8"/>
+  </g>
+  <!-- Medium sparkle top-left -->
+  <g transform="translate(112, 140)">
+    <path d="M0 -9 L2.5 -2.5 L9 0 L2.5 2.5 L0 9 L-2.5 2.5 L-9 0 L-2.5 -2.5 Z" fill="#70b8ff" opacity="0.6"/>
+  </g>
+  <!-- Small sparkle right -->
+  <g transform="translate(420, 180)">
+    <path d="M0 -6 L1.8 -1.8 L6 0 L1.8 1.8 L0 6 L-1.8 1.8 L-6 0 L-1.8 -1.8 Z" fill="#70b8ff" opacity="0.5"/>
+  </g>
+
+  <!-- === PROMPT LINE === -->
+  <text x="82" y="420"
+        font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace"
+        font-size="22" font-weight="700" fill="#70b8ff" opacity="0.9">
+    $
+  </text>
+  <text x="104" y="420"
+        font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace"
+        font-size="20" font-weight="400" fill="#70b8ff" opacity="0.7">
+    shuck check .
+  </text>
+
+  <!-- Blinking cursor -->
+  <rect class="cursor" x="280" y="404" width="11" height="20" rx="1" fill="#70b8ff" opacity="0.9"/>
+
+  <!-- === POWER LED === -->
+  <circle cx="450" cy="470" r="3" fill="#70b8ff" opacity="0.6"/>
+</svg>

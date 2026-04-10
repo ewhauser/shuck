@@ -35,6 +35,10 @@ dist/
 # Node
 node_modules/
 
+# Website
+website/.next/
+website/out/
+
 # WASM build artifacts
 *.wasm
 .claude/settings.local.json
