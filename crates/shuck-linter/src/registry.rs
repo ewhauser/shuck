@@ -326,6 +326,7 @@ declare_rules! {
     ("X057", Category::Portability, Severity::Warning, LegacyArithmeticInSh),
     ("X062", Category::Portability, Severity::Warning, CStyleForArithmeticInSh),
     ("X064", Category::Portability, Severity::Warning, PlusEqualsInSh),
+    ("X071", Category::Portability, Severity::Warning, ArrayKeysInSh),
     ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
     ("X078", Category::Portability, Severity::Warning, ZshArraySubscriptInCase),
     ("X079", Category::Portability, Severity::Warning, ZshParameterIndexFlag),
@@ -608,6 +609,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-264" => Some(Rule::LegacyArithmeticInSh),
         "SH-269" => Some(Rule::CStyleForArithmeticInSh),
         "SH-271" => Some(Rule::PlusEqualsInSh),
+        "SH-278" => Some(Rule::ArrayKeysInSh),
         "SH-286" => Some(Rule::ZshParameterFlag),
         "SH-299" => Some(Rule::ZshArraySubscriptInCase),
         "SH-303" => Some(Rule::ZshParameterIndexFlag),
@@ -960,6 +962,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-269"), Some(Rule::CStyleForArithmeticInSh));
         assert_eq!(code_to_rule("X064"), Some(Rule::PlusEqualsInSh));
         assert_eq!(code_to_rule("SH-271"), Some(Rule::PlusEqualsInSh));
+        assert_eq!(code_to_rule("X071"), Some(Rule::ArrayKeysInSh));
+        assert_eq!(code_to_rule("SH-278"), Some(Rule::ArrayKeysInSh));
         assert_eq!(code_to_rule("X076"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("SH-286"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("X078"), Some(Rule::ZshArraySubscriptInCase));

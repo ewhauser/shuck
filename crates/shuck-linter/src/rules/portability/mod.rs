@@ -1,6 +1,7 @@
 pub mod ampersand_redirect_in_sh;
 pub mod ampersand_redirection;
 pub mod ansi_c_quoting;
+pub mod array_keys_in_sh;
 pub mod array_assignment;
 pub mod array_reference;
 pub mod base_prefix_in_arithmetic;
@@ -124,6 +125,7 @@ mod tests {
     #[test_case(Rule::LegacyArithmeticInSh, Path::new("X057.sh"))]
     #[test_case(Rule::CStyleForArithmeticInSh, Path::new("X062.sh"))]
     #[test_case(Rule::PlusEqualsInSh, Path::new("X064.sh"))]
+    #[test_case(Rule::ArrayKeysInSh, Path::new("X071.sh"))]
     #[test_case(Rule::CaretNegationInBracket, Path::new("X065.sh"))]
     #[test_case(Rule::ZshParameterFlag, Path::new("X076.sh"))]
     #[test_case(Rule::ZshArraySubscriptInCase, Path::new("X078.sh"))]

@@ -237,6 +237,9 @@ impl Default for ShellCheckCodeMap {
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
             (3053, Rule::IndirectExpansion),
+            // The pinned ShellCheck oracle reports `${!arr[*]}` portability findings as SC3055.
+            // Keep SC3078 as a suppression alias for compatibility with older rule metadata.
+            (3055, Rule::ArrayKeysInSh),
             (2219, Rule::AvoidLetBuiltin),
             // ShellCheck 0.11.0 reports array references as SC3054.
             // Keep SC3028 as a suppression alias, but prefer the current code for comparisons.
@@ -487,6 +490,7 @@ impl Default for ShellCheckCodeMap {
                 (3011, Rule::HereString),
                 (3030, Rule::ArrayAssignment),
                 (3053, Rule::IndirectExpansion),
+                (3078, Rule::ArrayKeysInSh),
                 (2219, Rule::AvoidLetBuiltin),
                 (2321, Rule::ArrayIndexArithmetic),
                 (2323, Rule::ArithmeticScoreLine),
@@ -601,6 +605,7 @@ impl Default for ShellCheckCodeMap {
                 (2321, Rule::FunctionKeywordInSh),
                 (3024, Rule::BashFileSlurp),
                 (3055, Rule::PlusEqualsAppend),
+                (3055, Rule::ArrayKeysInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (3062, Rule::DollarStringInSh),
                 (3061, Rule::ExtglobInSh),
@@ -871,6 +876,11 @@ mod tests {
         assert_eq!(map.resolve("SC3028"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC3030"), Some(Rule::ArrayAssignment));
         assert_eq!(map.resolve("SC3053"), Some(Rule::IndirectExpansion));
+        assert_eq!(map.resolve("SC3078"), Some(Rule::ArrayKeysInSh));
+        assert_eq!(
+            map.resolve_all("SC3055"),
+            vec![Rule::PlusEqualsAppend, Rule::ArrayKeysInSh]
+        );
         assert_eq!(map.resolve("SC3054"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC3057"), Some(Rule::SubstringExpansion));
         assert_eq!(map.resolve("SC3059"), Some(Rule::CaseModificationExpansion));
@@ -1289,6 +1299,7 @@ mod tests {
             (3051, Rule::SourceInsideFunctionInSh),
             (3052, Rule::AmpersandRedirection),
             (3053, Rule::IndirectExpansion),
+            (3055, Rule::ArrayKeysInSh),
             (3054, Rule::ArrayReference),
             (3055, Rule::PlusEqualsAppend),
             (3071, Rule::PlusEqualsInSh),
@@ -1305,6 +1316,7 @@ mod tests {
             (3067, Rule::OwnershipTestInSh),
             (3069, Rule::CStyleForArithmeticInSh),
             (3070, Rule::AmpersandRedirectInSh),
+            (3078, Rule::ArrayKeysInSh),
             (3072, Rule::CaretNegationInBracket),
             (3073, Rule::PipeStderrInSh),
             (3075, Rule::ErrexitTrapInSh),
@@ -1407,6 +1419,7 @@ mod tests {
         assert!(comparison.contains(&(3011, Rule::HereString)));
         assert!(comparison.contains(&(3030, Rule::ArrayAssignment)));
         assert!(comparison.contains(&(3053, Rule::IndirectExpansion)));
+        assert!(comparison.contains(&(3055, Rule::ArrayKeysInSh)));
         assert!(comparison.contains(&(3054, Rule::ArrayReference)));
         assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
         assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
