@@ -123,8 +123,7 @@ PR_URL=$(gh pr create \
 
 echo
 echo "Pull request created: $PR_URL"
-echo "After merging, tag the release with:"
-echo "  git pull && git tag v$NEW_VERSION && git push --tags"
+echo "Merging the PR will automatically tag v$NEW_VERSION and trigger the release workflow."
 
 # Return to main
 git -C "$REPO_ROOT" checkout main
