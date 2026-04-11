@@ -6456,10 +6456,10 @@ fn build_conditional_operand_fact<'a>(
     let expression = strip_parenthesized_conditionals(expression);
     let word = match expression {
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => Some(word),
+        ConditionalExpr::Pattern(pattern) => conditional_pattern_single_word(pattern),
         ConditionalExpr::Binary(_)
         | ConditionalExpr::Unary(_)
         | ConditionalExpr::Parenthesized(_)
-        | ConditionalExpr::Pattern(_)
         | ConditionalExpr::VarRef(_) => None,
     };
 
@@ -6468,6 +6468,20 @@ fn build_conditional_operand_fact<'a>(
         class: classify_conditional_operand(expression, source),
         word,
         word_classification: word.map(|word| classify_word(word, source)),
+    }
+}
+
+fn conditional_pattern_single_word(pattern: &Pattern) -> Option<&Word> {
+    match pattern.parts.as_slice() {
+        [part] => match &part.kind {
+            PatternPart::Word(word) => Some(word),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_)
+            | PatternPart::Group { .. } => None,
+        },
+        _ => None,
     }
 }
 
@@ -8542,7 +8556,7 @@ fn compound_span(command: &CompoundCommand) -> Span {
 mod tests {
     use std::path::Path;
 
-    use shuck_ast::BinaryOp;
+    use shuck_ast::{BinaryOp, ConditionalBinaryOp};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
     use shuck_semantic::SemanticModel;
@@ -10150,7 +10164,7 @@ for version ($versions); do :; done
         let source = "\
 #!/bin/bash
 [[ ( ( -z foo ) ) ]]
-[[ foo && -n \"$bar\" && left == right && $value =~ ^\"foo\"bar$ && left == *.sh ]]
+[[ foo && -n \"$bar\" && left == right && $value =~ ^\"foo\"bar$ && left == *.sh && left == $rhs ]]
 ";
 
         with_facts(source, None, |_, facts| {
@@ -10183,6 +10197,15 @@ for version ($versions); do :; done
             assert!(logical.nodes().iter().any(|node| matches!(node, ConditionalNodeFact::Unary(unary) if unary.operator_family() == ConditionalOperatorFamily::StringUnary)));
             assert!(logical.nodes().iter().any(|node| matches!(node, ConditionalNodeFact::Binary(binary) if binary.operator_family() == ConditionalOperatorFamily::StringBinary && binary.right().class().is_fixed_literal())));
             assert!(logical.nodes().iter().any(|node| matches!(node, ConditionalNodeFact::Binary(binary) if binary.operator_family() == ConditionalOperatorFamily::StringBinary && !binary.right().class().is_fixed_literal())));
+            assert!(logical.nodes().iter().any(|node| matches!(
+                node,
+                ConditionalNodeFact::Binary(binary)
+                    if matches!(binary.op(), ConditionalBinaryOp::PatternEq)
+                        && binary
+                            .right()
+                            .word()
+                            .is_some_and(|word| word.span.slice(source) == "$rhs")
+            )));
 
             let regex = logical.regex_nodes().next().expect("expected regex node");
             assert_eq!(regex.operator_family(), ConditionalOperatorFamily::Regex);

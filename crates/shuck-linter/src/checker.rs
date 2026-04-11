@@ -746,6 +746,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::GrepOutputInTest) {
             rules::style::grep_output_in_test::grep_output_in_test(self);
         }
+        if self.is_rule_enabled(Rule::GlobInStringComparison) {
+            rules::correctness::glob_in_string_comparison::glob_in_string_comparison(self);
+        }
         if self.is_rule_enabled(Rule::TestEqualityOperator) {
             rules::portability::conditional_portability::test_equality_operator(self);
         }

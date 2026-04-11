@@ -151,6 +151,7 @@ declare_rules! {
     ("C077", Category::Correctness, Severity::Warning, SubshellInArithmetic),
     ("C078", Category::Correctness, Severity::Warning, UnquotedGlobsInFind),
     ("C080", Category::Correctness, Severity::Warning, GlobInGrepPattern),
+    ("C081", Category::Correctness, Severity::Warning, GlobInStringComparison),
     (
         "C079",
         Category::Correctness,
@@ -622,6 +623,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-200" => Some(Rule::UnquotedGlobsInFind),
         "SH-204" => Some(Rule::GlobInGrepPattern),
+        "SH-206" => Some(Rule::GlobInStringComparison),
         "SH-229" => Some(Rule::SetFlagsWithoutDashes),
         "SH-233" => Some(Rule::CommandSubstitutionInAlias),
         "SH-235" => Some(Rule::FunctionInAlias),
@@ -918,6 +920,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-200"), Some(Rule::UnquotedGlobsInFind));
         assert_eq!(code_to_rule("C080"), Some(Rule::GlobInGrepPattern));
         assert_eq!(code_to_rule("SH-204"), Some(Rule::GlobInGrepPattern));
+        assert_eq!(code_to_rule("C081"), Some(Rule::GlobInStringComparison));
+        assert_eq!(code_to_rule("SH-206"), Some(Rule::GlobInStringComparison));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C076"), Some(Rule::CommentedContinuationLine));
