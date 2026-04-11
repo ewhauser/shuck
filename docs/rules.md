@@ -261,7 +261,7 @@ Rules about array assignment, conversion, and element access patterns.
 - [x] **M** C108 (SC2338) `unset-associative-array-element` — associative array element unset with quoted key
 - [x] **M** C133 (SC2381) `array-to-string-conversion` — array flattened to string
 - [x] **M** C148 (SC2399) `broken-assoc-key` — associative array key missing closing bracket
-- [ ] **M** C151 (SC2054) `comma-array-elements` — commas in bash array literal
+- [x] **M** C151 (SC2054) `comma-array-elements` — commas in bash array literal
 
 ### Variable and Assignment
 

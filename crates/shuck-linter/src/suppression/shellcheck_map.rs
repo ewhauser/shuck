@@ -264,6 +264,7 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports array-to-scalar rebinding as SC2178.
             // Keep SC2381 as a suppression alias for authored C133 metadata.
             (2178, Rule::ArrayToStringConversion),
+            (2054, Rule::CommaArrayElements),
             (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2115, Rule::RmGlobOnVariablePath),
@@ -553,6 +554,7 @@ impl Default for ShellCheckCodeMap {
                     (3076, Rule::SignalNameInTrap),
                     (2323, Rule::ArithmeticScoreLine),
                     (2399, Rule::BrokenAssocKey),
+                    (2054, Rule::CommaArrayElements),
                     (2336, Rule::AppendToArrayAsString),
                     (2339, Rule::MapfileProcessSubstitution),
                     (3051, Rule::SourceInsideFunctionInSh),
@@ -983,6 +985,7 @@ mod tests {
             Some(Rule::FunctionReferencesUnsetParam)
         );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(map.resolve("SC2054"), Some(Rule::CommaArrayElements));
         assert_eq!(map.resolve("SC2336"), Some(Rule::AppendToArrayAsString));
         assert_eq!(
             map.resolve("SC2339"),
@@ -1224,6 +1227,7 @@ mod tests {
             (2146, Rule::FindOrWithoutGrouping),
             (2121, Rule::SetFlagsWithoutDashes),
             (2399, Rule::BrokenAssocKey),
+            (2054, Rule::CommaArrayElements),
             (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2104, Rule::LoopControlOutsideLoop),
@@ -1307,6 +1311,7 @@ mod tests {
             (2323, Rule::ArithmeticScoreLine),
             (2332, Rule::FindOrWithoutGrouping),
             (2399, Rule::BrokenAssocKey),
+            (2054, Rule::CommaArrayElements),
             (2339, Rule::MapfileProcessSubstitution),
             (2324, Rule::SetFlagsWithoutDashes),
             (2333, Rule::NonShellSyntaxInScript),
@@ -1480,6 +1485,7 @@ mod tests {
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
+        assert!(comparison.contains(&(2054, Rule::CommaArrayElements)));
         assert!(comparison.contains(&(2399, Rule::BrokenAssocKey)));
         assert!(comparison.contains(&(2336, Rule::AppendToArrayAsString)));
         assert!(comparison.contains(&(2339, Rule::MapfileProcessSubstitution)));

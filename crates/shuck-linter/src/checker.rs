@@ -159,6 +159,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BrokenAssocKey) {
             rules::correctness::broken_assoc_key::broken_assoc_key(self);
         }
+        if self.is_rule_enabled(Rule::CommaArrayElements) {
+            rules::correctness::comma_array_elements::comma_array_elements(self);
+        }
     }
 
     fn check_references(&mut self) {

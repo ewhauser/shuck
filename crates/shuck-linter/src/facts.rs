@@ -1671,6 +1671,7 @@ pub struct LinterFacts<'a> {
     elif_condition_command_ids: FxHashSet<CommandId>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
     broken_assoc_key_spans: Vec<Span>,
+    comma_array_assignment_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
@@ -1785,6 +1786,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn broken_assoc_key_spans(&self) -> &[Span] {
         &self.broken_assoc_key_spans
+    }
+
+    pub fn comma_array_assignment_spans(&self) -> &[Span] {
+        &self.comma_array_assignment_spans
     }
 
     pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
@@ -2097,6 +2102,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut command_ids_by_span = CommandLookupIndex::default();
         let mut scalar_bindings = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
+        let mut comma_array_assignment_spans = Vec::new();
         let mut words = Vec::new();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
@@ -2122,6 +2128,11 @@ impl<'a> LinterFactsBuilder<'a> {
 
             collect_scalar_bindings(visit.command, &mut scalar_bindings);
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
+            collect_comma_array_assignment_spans(
+                visit.command,
+                self.source,
+                &mut comma_array_assignment_spans,
+            );
             let normalized = command::normalize_command(visit.command, self.source);
             let nested_word_command = !structural_commands.contains(&key);
             if !nested_word_command {
@@ -2275,6 +2286,7 @@ impl<'a> LinterFactsBuilder<'a> {
             elif_condition_command_ids,
             scalar_bindings,
             broken_assoc_key_spans,
+            comma_array_assignment_spans,
             presence_tested_names,
             subscript_index_reference_spans,
             words,
@@ -8088,6 +8100,153 @@ fn has_unclosed_assoc_key_prefix(text: &str) -> bool {
     saw_equals
 }
 
+fn collect_comma_array_assignment_spans(command: &Command, source: &str, spans: &mut Vec<Span>) {
+    for assignment in query::command_assignments(command) {
+        if let Some(span) = comma_array_assignment_span(assignment, source) {
+            spans.push(span);
+        }
+    }
+
+    for operand in query::declaration_operands(command) {
+        let DeclOperand::Assignment(assignment) = operand else {
+            continue;
+        };
+        if let Some(span) = comma_array_assignment_span(assignment, source) {
+            spans.push(span);
+        }
+    }
+}
+
+fn comma_array_assignment_span(assignment: &Assignment, source: &str) -> Option<Span> {
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        return None;
+    };
+    if !array_value_has_unquoted_comma(array, source) {
+        return None;
+    }
+
+    compound_assignment_paren_span(assignment, source)
+}
+
+fn array_value_has_unquoted_comma(array: &shuck_ast::ArrayExpr, source: &str) -> bool {
+    array.elements.iter().any(|element| match element {
+        ArrayElem::Sequential(word) => word_has_unquoted_array_comma(word, source),
+        ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+            word_has_unquoted_array_comma(value, source)
+        }
+    })
+}
+
+fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
+    word.parts.iter().any(|part| {
+        let WordPart::Literal(text) = &part.kind else {
+            return false;
+        };
+        let text = text.as_str(source, part.span);
+
+        text.char_indices().any(|(index, ch)| {
+            if ch != ',' {
+                return false;
+            }
+
+            let prefix = &text[..index];
+            let comma = part.span.start.advanced_by(prefix);
+            let escaped = trailing_backslashes(prefix) % 2 == 1;
+            !comma_is_brace_separator(word, source, comma.offset, escaped)
+        })
+    })
+}
+
+fn comma_is_brace_separator(word: &Word, source: &str, offset: usize, escaped: bool) -> bool {
+    if escaped {
+        return false;
+    }
+
+    inside_active_brace_expansion(word, offset) || inside_unquoted_brace_group(word, source, offset)
+}
+
+fn inside_active_brace_expansion(word: &Word, offset: usize) -> bool {
+    word.brace_syntax()
+        .iter()
+        .copied()
+        .filter(|brace| brace.expands())
+        .any(|brace| brace.span.start.offset <= offset && offset < brace.span.end.offset)
+}
+
+fn inside_unquoted_brace_group(word: &Word, source: &str, target_offset: usize) -> bool {
+    let text = word.span.slice(source);
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut brace_depth = 0usize;
+
+    for (index, ch) in text.char_indices() {
+        let absolute = word.span.start.offset + index;
+
+        if absolute == target_offset {
+            return brace_depth > 0;
+        }
+
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !in_single => {
+                escaped = true;
+                continue;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+                continue;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                continue;
+            }
+            _ => {}
+        }
+
+        if in_single || in_double {
+            continue;
+        }
+
+        match ch {
+            '{' if !text[..index].ends_with('$') => brace_depth += 1,
+            '}' if brace_depth > 0 => brace_depth -= 1,
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn trailing_backslashes(text: &str) -> usize {
+    text.chars().rev().take_while(|ch| *ch == '\\').count()
+}
+
+fn compound_assignment_paren_span(assignment: &Assignment, source: &str) -> Option<Span> {
+    let AssignmentValue::Compound(_) = &assignment.value else {
+        return None;
+    };
+
+    let text = assignment.span.slice(source);
+    let equals = text.find('=')?;
+    let open = text[equals + 1..].find('(')? + equals + 1;
+    let close = text.rfind(')')?;
+    if close < open {
+        return None;
+    }
+
+    let start = assignment.span.start.advanced_by(&text[..open]);
+    let end = assignment
+        .span
+        .start
+        .advanced_by(&text[..close + ')'.len_utf8()]);
+    Some(Span::from_positions(start, end))
+}
+
 fn command_span(command: &Command) -> Span {
     match command {
         Command::Simple(command) => command.span,
@@ -8425,6 +8584,31 @@ complex[$((i+=1))]+=x
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["[right=2", "[broken=2"]
+        );
+    }
+
+    #[test]
+    fn collects_comma_array_assignment_spans_from_compound_values() {
+        let source = "#!/bin/bash\na=(alpha,beta)\nb=(\"alpha,beta\")\nc=({x,y})\nd=([k]=v, [q]=w)\ne=(x,$y)\nf=(x\\, y)\ng=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)\nh=(foo,{x,y},bar)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert_eq!(
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "(alpha,beta)",
+                "([k]=v, [q]=w)",
+                "(x,$y)",
+                "(x\\, y)",
+                "(foo,{x,y},bar)"
+            ]
         );
     }
 

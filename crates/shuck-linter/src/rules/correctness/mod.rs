@@ -16,6 +16,7 @@ pub mod c_prototype_fragment;
 pub mod c_style_comment;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
+pub mod comma_array_elements;
 pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
@@ -188,6 +189,7 @@ mod tests {
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     #[test_case(Rule::KeywordFunctionName, Path::new("C147.sh"))]
     #[test_case(Rule::BrokenAssocKey, Path::new("C148.sh"))]
+    #[test_case(Rule::CommaArrayElements, Path::new("C151.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

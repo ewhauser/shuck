@@ -1,0 +1,44 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C151 separate array literal elements with whitespace, not commas
+ --> <source>:4:7
+  |
+4 | parts=(alpha,beta)
+  |
+
+C151 separate array literal elements with whitespace, not commas
+ --> <source>:5:7
+  |
+5 | parts=(alpha, beta)
+  |
+
+C151 separate array literal elements with whitespace, not commas
+ --> <source>:6:8
+  |
+6 | parts+=(gamma,delta)
+  |
+
+C151 separate array literal elements with whitespace, not commas
+ --> <source>:7:18
+  |
+7 | declare -a flags=(--one,--two)
+  |
+
+C151 separate array literal elements with whitespace, not commas
+ --> <source>:8:18
+  |
+8 | declare -A assoc=([left]=1, [right]=2)
+  |
+
+C151 separate array literal elements with whitespace, not commas
+ --> <source>:9:8
+  |
+9 | values=(head,$tail)
+  |
+
+C151 separate array literal elements with whitespace, not commas
+  --> <source>:10:7
+   |
+10 | mixed=(head,{left,right},tail)
+   |
