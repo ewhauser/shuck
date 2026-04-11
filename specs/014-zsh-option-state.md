@@ -348,7 +348,9 @@ impl Parser<'_> {
 
 The parser does not re-run the full semantic analysis to determine option state. Instead, it uses a lightweight single-pass pre-scan that identifies `emulate` and `setopt`/`unsetopt` commands by their lexical shape before the main parse. This pre-scan builds a sorted list of `(offset, option_change)` entries. During parsing, the parser binary-searches this list to determine the effective grammar options at the current token position.
 
-The pre-scan is intentionally approximate: it recognizes only top-level and function-entry `emulate`/`setopt` commands that appear as simple command words. It does not attempt to resolve aliases, evaluate conditionals, or follow control flow. This is sufficient because grammar-affecting option changes in real zsh code are overwhelmingly at function entry (`emulate -L sh`) or file top-level (`emulate sh`). The semantic builder's more precise analysis handles the full picture for linting.
+The pre-scan recognizes `emulate`, `setopt`, `unsetopt`, `set -o`, and `set +o` commands **at any position** in the source, not only at function entry or file top level. It scans all simple command words that match these patterns and records the grammar-affecting option changes with their source offsets. This ensures that a mid-function `setopt SHORT_LOOPS` followed by short-form syntax is parsed correctly.
+
+The pre-scan is intentionally approximate in other ways: it does not attempt to resolve aliases, evaluate conditionals, or follow control flow. A `setopt` inside an `if` branch is recorded at its source offset and treated as effective from that point forward within its lexical scope (matched by brace/function nesting depth). This is a conservative over-approximation — it may enable a grammar feature slightly early on paths where the `setopt` is not reached, but it will not miss a grammar change that does execute. The semantic builder's more precise scope-aware analysis handles the full picture for linting; the parser pre-scan only needs to avoid false parse errors on valid code.
 
 ### Threading into Expansion Analysis
 
