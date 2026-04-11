@@ -1,5 +1,7 @@
+pub mod append_to_array_as_string;
 pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
+pub mod array_to_string_conversion;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
 pub mod backslash_before_closing_backtick;
@@ -7,6 +9,7 @@ pub mod bad_redirection_fd_order;
 pub mod bad_var_name;
 pub mod bare_closing_brace;
 pub mod bare_slash_marker;
+pub mod broken_assoc_key;
 mod broken_test_common;
 pub mod broken_test_end;
 pub mod broken_test_parse;
@@ -14,6 +17,7 @@ pub mod c_prototype_fragment;
 pub mod c_style_comment;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
+pub mod comma_array_elements;
 pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
@@ -81,6 +85,7 @@ pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unreachable_after_exit;
+pub mod unset_associative_array_element;
 pub mod until_missing_do;
 pub mod untracked_source_file;
 pub mod unused_assignment;
@@ -158,6 +163,8 @@ mod tests {
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
+    #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
+    #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
@@ -168,6 +175,7 @@ mod tests {
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
+    #[test_case(Rule::ArrayToStringConversion, Path::new("C133.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
     #[test_case(Rule::BadVarName, Path::new("C140.sh"))]
@@ -181,6 +189,8 @@ mod tests {
     #[test_case(Rule::MisquotedHeredocClose, Path::new("C145.sh"))]
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     #[test_case(Rule::KeywordFunctionName, Path::new("C147.sh"))]
+    #[test_case(Rule::BrokenAssocKey, Path::new("C148.sh"))]
+    #[test_case(Rule::CommaArrayElements, Path::new("C151.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

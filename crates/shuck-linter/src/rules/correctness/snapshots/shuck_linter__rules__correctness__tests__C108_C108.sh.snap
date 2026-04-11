@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 183
+---
+C108 quote associative-array unset targets as `'name[key]'` to keep keys literal
+ --> <source>:7:7
+  |
+7 | unset parts["one"]
+  |
+
+C108 quote associative-array unset targets as `'name[key]'` to keep keys literal
+ --> <source>:8:7
+  |
+8 | unset parts['two']
+  |
+
+C108 quote associative-array unset targets as `'name[key]'` to keep keys literal
+  --> <source>:10:7
+   |
+10 | unset parts["$key"]
+   |

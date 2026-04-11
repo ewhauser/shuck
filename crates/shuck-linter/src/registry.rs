@@ -180,12 +180,29 @@ declare_rules! {
         FindOrWithoutGrouping
     ),
     (
+        "C104",
+        Category::Correctness,
+        Severity::Warning,
+        NonShellSyntaxInScript
+    ),
+    (
+        "C106",
+        Category::Correctness,
+        Severity::Warning,
+        AppendToArrayAsString
+    ),
+    (
+        "C108",
+        Category::Correctness,
+        Severity::Warning,
+        UnsetAssociativeArrayElement
+    ),
+    (
         "C109",
         Category::Correctness,
         Severity::Warning,
         MapfileProcessSubstitution
     ),
-    ("C104", Category::Correctness, Severity::Warning, NonShellSyntaxInScript),
     (
         "C116",
         Category::Correctness,
@@ -237,6 +254,12 @@ declare_rules! {
         MisspelledOptionName
     ),
     (
+        "C133",
+        Category::Correctness,
+        Severity::Warning,
+        ArrayToStringConversion
+    ),
+    (
         "C136",
         Category::Correctness,
         Severity::Warning,
@@ -268,6 +291,8 @@ declare_rules! {
     ("C145", Category::Correctness, Severity::Warning, MisquotedHeredocClose),
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
     ("C147", Category::Correctness, Severity::Warning, KeywordFunctionName),
+    ("C148", Category::Correctness, Severity::Warning, BrokenAssocKey),
+    ("C151", Category::Correctness, Severity::Warning, CommaArrayElements),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
@@ -485,7 +510,10 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-295" => Some(Rule::UncheckedDirectoryChangeInFunction),
         "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
         "SH-308" => Some(Rule::VariableAsCommandName),
+        "SH-311" => Some(Rule::ArrayToStringConversion),
         "SH-336" => Some(Rule::KeywordFunctionName),
+        "SH-337" => Some(Rule::BrokenAssocKey),
+        "SH-340" => Some(Rule::CommaArrayElements),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -577,6 +605,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-235" => Some(Rule::FunctionInAlias),
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
+        "SH-241" => Some(Rule::AppendToArrayAsString),
+        "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
         "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
@@ -867,14 +897,24 @@ mod tests {
         assert_eq!(code_to_rule("SH-235"), Some(Rule::FunctionInAlias));
         assert_eq!(code_to_rule("C103"), Some(Rule::FindOrWithoutGrouping));
         assert_eq!(code_to_rule("SH-237"), Some(Rule::FindOrWithoutGrouping));
+        assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
+        assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
+        assert_eq!(
+            code_to_rule("C108"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
+        assert_eq!(
+            code_to_rule("SH-243"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
         assert_eq!(code_to_rule("C109"), Some(Rule::MapfileProcessSubstitution));
         assert_eq!(
             code_to_rule("SH-244"),
             Some(Rule::MapfileProcessSubstitution)
         );
         assert_eq!(code_to_rule("SH-253"), Some(Rule::FindOutputLoop));
-        assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
-        assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("C127"), Some(Rule::UnusedHeredoc));
@@ -901,8 +941,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
+        assert_eq!(code_to_rule("C133"), Some(Rule::ArrayToStringConversion));
+        assert_eq!(code_to_rule("SH-311"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
+        assert_eq!(code_to_rule("C148"), Some(Rule::BrokenAssocKey));
+        assert_eq!(code_to_rule("SH-337"), Some(Rule::BrokenAssocKey));
+        assert_eq!(code_to_rule("C151"), Some(Rule::CommaArrayElements));
+        assert_eq!(code_to_rule("SH-340"), Some(Rule::CommaArrayElements));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

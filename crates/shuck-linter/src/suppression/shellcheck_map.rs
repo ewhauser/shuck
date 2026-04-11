@@ -258,6 +258,14 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `set` flag-prefix issues as SC2121.
             // Keep SC2324 as a suppression alias for historical compatibility.
             (2121, Rule::SetFlagsWithoutDashes),
+            // ShellCheck 0.11.0 reports quoted associative-array unset keys as SC2184.
+            // Keep SC2338 as a suppression alias for historical compatibility.
+            (2184, Rule::UnsetAssociativeArrayElement),
+            // ShellCheck 0.11.0 reports array-to-scalar rebinding as SC2178.
+            // Keep SC2381 as a suppression alias for authored C133 metadata.
+            (2178, Rule::ArrayToStringConversion),
+            (2054, Rule::CommaArrayElements),
+            (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2115, Rule::RmGlobOnVariablePath),
             (2104, Rule::LoopControlOutsideLoop),
@@ -328,6 +336,7 @@ impl Default for ShellCheckCodeMap {
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
+            (2399, Rule::BrokenAssocKey),
             (2392, Rule::LinebreakBeforeAnd),
             (2396, Rule::UntilMissingDo),
             (2397, Rule::AmpersandSemicolon),
@@ -515,6 +524,8 @@ impl Default for ShellCheckCodeMap {
                     (2332, Rule::FindOrWithoutGrouping),
                     (2121, Rule::SetFlagsWithoutDashes),
                     (2324, Rule::SetFlagsWithoutDashes),
+                    (2184, Rule::UnsetAssociativeArrayElement),
+                    (2178, Rule::ArrayToStringConversion),
                     (2115, Rule::RmGlobOnVariablePath),
                     (2104, Rule::LoopControlOutsideLoop),
                     (2112, Rule::FunctionKeyword),
@@ -542,6 +553,9 @@ impl Default for ShellCheckCodeMap {
                     (3075, Rule::ErrexitTrapInSh),
                     (3076, Rule::SignalNameInTrap),
                     (2323, Rule::ArithmeticScoreLine),
+                    (2399, Rule::BrokenAssocKey),
+                    (2054, Rule::CommaArrayElements),
+                    (2336, Rule::AppendToArrayAsString),
                     (2339, Rule::MapfileProcessSubstitution),
                     (3051, Rule::SourceInsideFunctionInSh),
                     (3084, Rule::SourceInsideFunctionInSh),
@@ -603,6 +617,8 @@ impl Default for ShellCheckCodeMap {
                     (3015, Rule::RegexMatchInSh),
                     (3016, Rule::VTestInSh),
                     (3017, Rule::ATestInSh),
+                    (2338, Rule::UnsetAssociativeArrayElement),
+                    (2381, Rule::ArrayToStringConversion),
                     (3062, Rule::OptionTestInSh),
                     (3065, Rule::StickyBitTestInSh),
                     (3067, Rule::OwnershipTestInSh),
@@ -878,6 +894,16 @@ mod tests {
         assert_eq!(map.resolve("SC3055"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3071"), Some(Rule::PlusEqualsInSh));
         assert_eq!(
+            map.resolve("SC2184"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
+        assert_eq!(
+            map.resolve("SC2338"),
+            Some(Rule::UnsetAssociativeArrayElement)
+        );
+        assert_eq!(map.resolve("SC2178"), Some(Rule::ArrayToStringConversion));
+        assert_eq!(map.resolve("SC2381"), Some(Rule::ArrayToStringConversion));
+        assert_eq!(
             map.resolve_all("SC3024"),
             vec![
                 Rule::PlusEqualsAppend,
@@ -959,10 +985,13 @@ mod tests {
             Some(Rule::FunctionReferencesUnsetParam)
         );
         assert_eq!(map.resolve("SC2323"), Some(Rule::ArithmeticScoreLine));
+        assert_eq!(map.resolve("SC2054"), Some(Rule::CommaArrayElements));
+        assert_eq!(map.resolve("SC2336"), Some(Rule::AppendToArrayAsString));
         assert_eq!(
             map.resolve("SC2339"),
             Some(Rule::MapfileProcessSubstitution)
         );
+        assert_eq!(map.resolve("SC2399"), Some(Rule::BrokenAssocKey));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(map.resolve("SC2370"), Some(Rule::UnusedHeredoc));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
@@ -1166,6 +1195,8 @@ mod tests {
             (2060, Rule::UnquotedTrClass),
             (2060, Rule::UnquotedTrRange),
             (2303, Rule::UnquotedTrClass),
+            (2184, Rule::UnsetAssociativeArrayElement),
+            (2178, Rule::ArrayToStringConversion),
             (2322, Rule::SuWithoutFlag),
             (2340, Rule::DeprecatedTempfileCommand),
             (2342, Rule::EgrepDeprecated),
@@ -1195,6 +1226,9 @@ mod tests {
             (2086, Rule::UnquotedExpansion),
             (2146, Rule::FindOrWithoutGrouping),
             (2121, Rule::SetFlagsWithoutDashes),
+            (2399, Rule::BrokenAssocKey),
+            (2054, Rule::CommaArrayElements),
+            (2336, Rule::AppendToArrayAsString),
             (2339, Rule::MapfileProcessSubstitution),
             (2104, Rule::LoopControlOutsideLoop),
             (2112, Rule::FunctionKeyword),
@@ -1276,6 +1310,8 @@ mod tests {
             (2120, Rule::FunctionCalledWithoutArgs),
             (2323, Rule::ArithmeticScoreLine),
             (2332, Rule::FindOrWithoutGrouping),
+            (2399, Rule::BrokenAssocKey),
+            (2054, Rule::CommaArrayElements),
             (2339, Rule::MapfileProcessSubstitution),
             (2324, Rule::SetFlagsWithoutDashes),
             (2333, Rule::NonShellSyntaxInScript),
@@ -1327,6 +1363,8 @@ mod tests {
             (3030, Rule::ArrayAssignment),
             (3032, Rule::Coproc),
             (3033, Rule::SelectLoop),
+            (2338, Rule::UnsetAssociativeArrayElement),
+            (2381, Rule::ArrayToStringConversion),
             (3039, Rule::LetCommand),
             (3040, Rule::PipefailOption),
             (3042, Rule::LetCommand),
@@ -1427,6 +1465,8 @@ mod tests {
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
         assert!(comparison.contains(&(2186, Rule::DeprecatedTempfileCommand)));
         assert!(comparison.contains(&(2196, Rule::EgrepDeprecated)));
+        assert!(comparison.contains(&(2184, Rule::UnsetAssociativeArrayElement)));
+        assert!(comparison.contains(&(2178, Rule::ArrayToStringConversion)));
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
@@ -1445,6 +1485,9 @@ mod tests {
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
+        assert!(comparison.contains(&(2054, Rule::CommaArrayElements)));
+        assert!(comparison.contains(&(2399, Rule::BrokenAssocKey)));
+        assert!(comparison.contains(&(2336, Rule::AppendToArrayAsString)));
         assert!(comparison.contains(&(2339, Rule::MapfileProcessSubstitution)));
         assert!(comparison.contains(&(2380, Rule::MisspelledOptionName)));
         assert!(!comparison.contains(&(2348, Rule::FindOutputLoop)));
@@ -1496,6 +1539,8 @@ mod tests {
         assert!(comparison.contains(&(2282, Rule::BadVarName)));
         assert!(comparison.contains(&(2270, Rule::AssignmentToNumericVariable)));
         assert!(comparison.contains(&(2276, Rule::PlusPrefixInAssignment)));
+        assert!(!comparison.contains(&(2338, Rule::UnsetAssociativeArrayElement)));
+        assert!(!comparison.contains(&(2381, Rule::ArrayToStringConversion)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
         assert!(!comparison.contains(&(2290, Rule::SpacedAssignment)));

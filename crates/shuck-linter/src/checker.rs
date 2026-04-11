@@ -150,6 +150,18 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnusedAssignment) {
             rules::correctness::unused_assignment::unused_assignment(self);
         }
+        if self.is_rule_enabled(Rule::AppendToArrayAsString) {
+            rules::correctness::append_to_array_as_string::append_to_array_as_string(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayToStringConversion) {
+            rules::correctness::array_to_string_conversion::array_to_string_conversion(self);
+        }
+        if self.is_rule_enabled(Rule::BrokenAssocKey) {
+            rules::correctness::broken_assoc_key::broken_assoc_key(self);
+        }
+        if self.is_rule_enabled(Rule::CommaArrayElements) {
+            rules::correctness::comma_array_elements::comma_array_elements(self);
+        }
     }
 
     fn check_references(&mut self) {
@@ -302,6 +314,11 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
             rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
+        }
+        if self.is_rule_enabled(Rule::UnsetAssociativeArrayElement) {
+            rules::correctness::unset_associative_array_element::unset_associative_array_element(
+                self,
+            );
         }
         if self.is_rule_enabled(Rule::MisspelledOptionName) {
             rules::correctness::misspelled_option_name::misspelled_option_name(self);

@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 185
+---
+C133 array values are flattened to a scalar string before later scalar use
+ --> <source>:5:1
+  |
+5 | exts="${exts[*]}"
+  |
