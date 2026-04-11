@@ -197,6 +197,12 @@ declare_rules! {
         GlobInTestComparison
     ),
     (
+        "C091",
+        Category::Correctness,
+        Severity::Warning,
+        TildeInStringComparison
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -683,6 +689,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-215" => Some(Rule::MixedAndOrInCondition),
         "SH-216" => Some(Rule::QuotedCommandInTest),
         "SH-217" => Some(Rule::GlobInTestComparison),
+        "SH-219" => Some(Rule::TildeInStringComparison),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),
