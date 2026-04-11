@@ -201,7 +201,7 @@ Rules about `[`, `[[`, test operators, and conditional structure. Use
 - [x] **M** C086 (SC2308) `greater-than-in-test` — `>` in `[ ]` creates file instead of comparing
 - [x] **M** C087 (SC2309) `string-comparison-for-version` — `<` in `[[ ]]` compares lexicographically
 - [x] **M** C088 (SC2310) `mixed-and-or-in-condition` — `&&`/`||` without grouping in `[[ ]]`
-- [ ] **M** C089 (SC2311) `quoted-command-in-test` — pipeline quoted as string in test
+- [x] **M** C089 (SC2311) `quoted-command-in-test` — pipeline quoted as string in test
 - [ ] **M** C090 (SC2312) `glob-in-test-comparison` — glob on RHS of `==` in `[ ]`
 - [ ] **M** C091 (SC2314) `tilde-in-string-comparison` — literal tilde in quoted comparison
 - [ ] **M** C092 (SC2315) `if-dollar-command` — command substitution output as condition

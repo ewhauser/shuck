@@ -185,6 +185,12 @@ declare_rules! {
         MixedAndOrInCondition
     ),
     (
+        "C089",
+        Category::Correctness,
+        Severity::Warning,
+        QuotedCommandInTest
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -669,6 +675,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-213" => Some(Rule::GreaterThanInTest),
         "SH-214" => Some(Rule::StringComparisonForVersion),
         "SH-215" => Some(Rule::MixedAndOrInCondition),
+        "SH-216" => Some(Rule::QuotedCommandInTest),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),

@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 211
+---
+C089 this test uses a quoted pipeline literal instead of command output
+ --> <source>:4:3
+  |
+4 | [ "lsmod | grep v4l2loopback" ]
+  |
+
+C089 this test uses a quoted pipeline literal instead of command output
+ --> <source>:7:6
+  |
+7 | [ -n "modprobe | grep snd" ]
+  |
+
+C089 this test uses a quoted pipeline literal instead of command output
+  --> <source>:10:13
+   |
+10 | [[ "$ok" && "lsmod | grep v4l2loopback" ]]
+   |

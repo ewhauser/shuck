@@ -887,6 +887,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::MixedAndOrInCondition) {
             rules::correctness::mixed_and_or_in_condition::mixed_and_or_in_condition(self);
         }
+        if self.is_rule_enabled(Rule::QuotedCommandInTest) {
+            rules::correctness::quoted_command_in_test::quoted_command_in_test(self);
+        }
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
         }
