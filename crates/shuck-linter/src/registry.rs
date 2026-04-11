@@ -204,6 +204,12 @@ declare_rules! {
     ),
     ("C092", Category::Correctness, Severity::Warning, IfDollarCommand),
     (
+        "C093",
+        Category::Correctness,
+        Severity::Warning,
+        BacktickInCommandPosition
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -692,6 +698,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-217" => Some(Rule::GlobInTestComparison),
         "SH-219" => Some(Rule::TildeInStringComparison),
         "SH-220" => Some(Rule::IfDollarCommand),
+        "SH-221" => Some(Rule::BacktickInCommandPosition),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),

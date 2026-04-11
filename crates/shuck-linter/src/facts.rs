@@ -1813,6 +1813,7 @@ pub struct LinterFacts<'a> {
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
     condition_command_substitution_spans: Vec<Span>,
+    backtick_command_name_spans: Vec<Span>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2024,6 +2025,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn condition_command_substitution_spans(&self) -> &[Span] {
         &self.condition_command_substitution_spans
+    }
+
+    pub fn backtick_command_name_spans(&self) -> &[Span] {
+        &self.backtick_command_name_spans
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -2380,6 +2385,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_condition_status_capture_spans(&self.file.body, self.source);
         let condition_command_substitution_spans =
             build_condition_command_substitution_spans(&self.file.body, self.source);
+        let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
@@ -2472,6 +2478,7 @@ impl<'a> LinterFactsBuilder<'a> {
             trailing_directive_comment_spans,
             condition_status_capture_spans,
             condition_command_substitution_spans,
+            backtick_command_name_spans,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -4428,6 +4435,35 @@ fn build_condition_command_substitution_spans(commands: &StmtSeq, source: &str) 
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans
+}
+
+fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
+    let mut spans = commands
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Simple(command) => plain_backtick_command_name_span(&command.name),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn plain_backtick_command_name_span(word: &Word) -> Option<Span> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+
+    match &part.kind {
+        WordPart::CommandSubstitution {
+            syntax: CommandSubstitutionSyntax::Backtick,
+            ..
+        } => Some(part.span),
+        _ => None,
+    }
 }
 
 fn collect_condition_command_substitution_from_body(

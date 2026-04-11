@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 219
+---
+C093 run the command directly instead of executing backtick output as a command name
+ --> <source>:4:1
+  |
+4 | `echo hello` | cat
+  |
+
+C093 run the command directly instead of executing backtick output as a command name
+ --> <source>:5:4
+  |
+5 | if `echo true`; then :; fi
+  |
+
+C093 run the command directly instead of executing backtick output as a command name
+ --> <source>:6:7
+  |
+6 | FOO=1 `echo run`
+  |

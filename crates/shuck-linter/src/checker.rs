@@ -327,6 +327,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
             rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
         }
+        if self.is_rule_enabled(Rule::BacktickInCommandPosition) {
+            rules::correctness::backtick_in_command_position::backtick_in_command_position(self);
+        }
         if self.is_rule_enabled(Rule::UnsetAssociativeArrayElement) {
             rules::correctness::unset_associative_array_element::unset_associative_array_element(
                 self,
