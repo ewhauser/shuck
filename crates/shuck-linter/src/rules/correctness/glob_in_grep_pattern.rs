@@ -115,6 +115,8 @@ grep 'foo*bar' out.txt
 grep foo*bar out.txt
 grep -efoo* out.txt
 grep --regexp start* out.txt
+grep --exclude '*.txt' foo*bar out.txt
+grep --label stdin foo*bar out.txt
 grep \"foo*bar\" out.txt
 grep item\\* out.txt
 grep -E \"foo*bar\" out.txt
@@ -133,6 +135,8 @@ grep -E \"foo*bar\" out.txt
                 "foo*bar",
                 "-efoo*",
                 "start*",
+                "foo*bar",
+                "foo*bar",
                 "\"foo*bar\"",
                 "item\\*",
                 "\"foo*bar\"",

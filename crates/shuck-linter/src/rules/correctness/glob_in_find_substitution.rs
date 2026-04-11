@@ -35,6 +35,7 @@ mod tests {
         let source = "\
 #!/bin/bash
 find ./ -name *.jar
+find ./ -name \"$prefix\"*.jar
 for f in $(find ./ -name *.cfg); do :; done
 printf '%s\\n' \"$(find . -path */tmp/*)\"
 ";
@@ -48,7 +49,7 @@ printf '%s\\n' \"$(find . -path */tmp/*)\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["*.jar", "*.cfg", "*/tmp/*"]
+            vec!["*.jar", "\"$prefix\"*.jar", "*.cfg", "*/tmp/*"]
         );
     }
 

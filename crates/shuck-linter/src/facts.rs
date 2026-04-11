@@ -7127,7 +7127,13 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         }
 
         if text.starts_with("--") {
-            index += 1;
+            index += if grep_long_option_takes_argument(text.as_str())
+                && args.get(index + 1).is_some()
+            {
+                2
+            } else {
+                1
+            };
             continue;
         }
 
@@ -7204,6 +7210,33 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
 fn grep_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
+}
+
+fn grep_long_option_takes_argument(option: &str) -> bool {
+    let Some(name) = option.strip_prefix("--") else {
+        return false;
+    };
+    if name.contains('=') {
+        return false;
+    }
+
+    matches!(
+        name,
+        "after-context"
+            | "before-context"
+            | "binary-files"
+            | "devices"
+            | "directories"
+            | "exclude"
+            | "exclude-dir"
+            | "exclude-from"
+            | "file"
+            | "group-separator"
+            | "include"
+            | "label"
+            | "max-count"
+            | "regexp"
+    )
 }
 
 fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
@@ -7554,6 +7587,11 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     for word in args {
         let Some(text) = static_word_text(word, source) else {
             if let Some(state) = pending_argument {
+                if state.expects_pattern_operand()
+                    && !span::word_unquoted_glob_pattern_spans(word, source).is_empty()
+                {
+                    glob_pattern_operand_spans.push(word.span);
+                }
                 pending_argument = state.after_consuming_dynamic();
             }
             continue;
@@ -8899,7 +8937,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -9004,7 +9042,10 @@ complex[$((i+=1))]+=x
             .flat_map(|find| find.glob_pattern_operand_spans().iter().copied())
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
-        assert_eq!(find_glob_pattern_operand_spans, vec!["*.cfg"]);
+        assert_eq!(
+            find_glob_pattern_operand_spans,
+            vec!["*.cfg", "\"$prefix\"*.jar"]
+        );
 
         let find_execdir = facts
             .commands()
@@ -9245,6 +9286,9 @@ grep -F -- item* data.txt
 grep -f patterns.txt item* data.txt
 grep -F -E foo*bar data.txt
 grep -E -F foo*bar data.txt
+grep --exclude '*.txt' foo* data.txt
+grep --label stdin foo* data.txt
+grep --color foo* data.txt
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -9282,6 +9326,9 @@ grep -E -F foo*bar data.txt
                 (Vec::new(), false),
                 (vec!["foo*bar"], false),
                 (vec!["foo*bar"], true),
+                (vec!["foo*"], false),
+                (vec!["foo*"], false),
+                (vec!["foo*"], false),
             ]
         );
     }

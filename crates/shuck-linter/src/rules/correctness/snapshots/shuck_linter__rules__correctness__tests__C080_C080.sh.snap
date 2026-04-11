@@ -38,19 +38,31 @@ C080 use regex-style wildcards in grep patterns, not glob-style `*`
   |
 
 C080 use regex-style wildcards in grep patterns, not glob-style `*`
- --> <source>:8:6
+ --> <source>:8:24
   |
-8 | grep "foo*bar" out.txt
-  |
-
-C080 use regex-style wildcards in grep patterns, not glob-style `*`
- --> <source>:9:6
-  |
-9 | grep item\* out.txt
+8 | grep --exclude '*.txt' foo*bar out.txt
   |
 
 C080 use regex-style wildcards in grep patterns, not glob-style `*`
-  --> <source>:10:9
+ --> <source>:9:20
+  |
+9 | grep --label stdin foo*bar out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:10:6
    |
-10 | grep -E "foo*bar" out.txt
+10 | grep "foo*bar" out.txt
+   |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:11:6
+   |
+11 | grep item\* out.txt
+   |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:12:9
+   |
+12 | grep -E "foo*bar" out.txt
    |

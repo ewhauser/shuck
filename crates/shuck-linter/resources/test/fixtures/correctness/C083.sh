@@ -1,5 +1,6 @@
 #!/bin/bash
 find ./ -name *.jar
+find ./ -name "$prefix"*.jar
 for f in $(find ./ -name *.cfg); do :; done
 printf '%s\n' "$(find . -path */tmp/*)"
 
