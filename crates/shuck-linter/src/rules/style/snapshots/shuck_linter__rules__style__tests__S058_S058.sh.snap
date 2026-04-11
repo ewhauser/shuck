@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+---
+S058 quote mkdir path expansions
+ --> <source>:3:7
+  |
+3 | mkdir $dir
+  |
+
+S058 quote mkdir path expansions
+ --> <source>:4:10
+  |
+4 | mkdir -p $PKG/var/lib/app
+  |
+
+S058 quote mkdir path expansions
+ --> <source>:5:20
+  |
+5 | mkdir -m 750 prefix$leaf
+  |
+
+S058 quote mkdir path expansions
+ --> <source>:6:18
+  |
+6 | mkdir --mode=700 ${root}/bin
+  |
+
+S058 quote mkdir path expansions
+ --> <source>:7:15
+  |
+7 | command mkdir $other
+  |

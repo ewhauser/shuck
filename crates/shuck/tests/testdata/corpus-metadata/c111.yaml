@@ -1,0 +1,21 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_print_npm_version"
+    line: 19
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This test-harness fixture compares quoted positional parameters inside a single-bracket string test, and the oracle attributes it to SC2198 while shuck currently compares C111 through SC2199."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_print_npm_version"
+    line: 19
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This test-harness fixture compares quoted positional parameters inside a single-bracket string test, and shuck currently reports it through the SC2199 comparison target while the oracle uses SC2198."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 757
+    labels:
+      - project-closure
+    reason: "C111 is scoped to positional-parameter at-splats, while this SC2199 finding is for an array expansion `${sources[@]}` inside a string comparison."

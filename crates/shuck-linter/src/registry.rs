@@ -166,6 +166,7 @@ declare_rules! {
         Severity::Warning,
         AssignmentLooksLikeComparison
     ),
+    ("C096", Category::Correctness, Severity::Warning, UnquotedPipeInEcho),
     (
         "C097",
         Category::Correctness,
@@ -177,6 +178,18 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         SetFlagsWithoutDashes
+    ),
+    (
+        "C099",
+        Category::Correctness,
+        Severity::Warning,
+        QuotedArraySlice
+    ),
+    (
+        "C100",
+        Category::Correctness,
+        Severity::Warning,
+        QuotedBashSource
     ),
     (
         "C101",
@@ -197,6 +210,12 @@ declare_rules! {
         NonShellSyntaxInScript
     ),
     (
+        "C105",
+        Category::Correctness,
+        Severity::Warning,
+        ExportWithPositionalParams
+    ),
+    (
         "C106",
         Category::Correctness,
         Severity::Warning,
@@ -213,6 +232,18 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         MapfileProcessSubstitution
+    ),
+    (
+        "C111",
+        Category::Correctness,
+        Severity::Warning,
+        AtSignInStringCompare
+    ),
+    (
+        "C112",
+        Category::Correctness,
+        Severity::Warning,
+        ArraySliceInComparison
     ),
     (
         "C114",
@@ -410,12 +441,19 @@ declare_rules! {
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
     ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
+    ("S014", Category::Style, Severity::Warning, UnquotedDollarStar),
+    ("S015", Category::Style, Severity::Warning, QuotedDollarStarLoop),
+    ("S017", Category::Style, Severity::Warning, UnquotedArraySplit),
+    ("S018", Category::Style, Severity::Warning, CommandOutputArraySplit),
+    ("S021", Category::Style, Severity::Warning, PositionalArgsInString),
     ("S020", Category::Style, Severity::Warning, SingleIterationLoop),
     ("S032", Category::Style, Severity::Warning, ConditionalAssignmentShortcut),
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
+    ("S050", Category::Style, Severity::Hint, UnquotedWordBetweenQuotes),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
+    ("S052", Category::Style, Severity::Warning, UnquotedVariableInTest),
     ("S054", Category::Style, Severity::Warning, SuWithoutFlag),
     (
         "S055",
@@ -425,8 +463,14 @@ declare_rules! {
     ),
     ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
     ("S057", Category::Style, Severity::Warning, FunctionInAlias),
+    ("S058", Category::Style, Severity::Warning, UnquotedPathInMkdir),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
+    ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
+    ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
+    ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
+    ("S071", Category::Style, Severity::Warning, EnvPrefixQuoting),
+    ("S076", Category::Style, Severity::Warning, MixedQuoteWord),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
     ("S047", Category::Style, Severity::Warning, LsInSubstitution),
@@ -524,6 +568,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
         "SH-208" => Some(Rule::UnquotedTrClass),
+        "SH-212" => Some(Rule::UnquotedVariableInTest),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
         "SH-173" => Some(Rule::BackslashBeforeCommand),
@@ -553,11 +598,15 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
         "SH-196" => Some(Rule::UnquotedVariableInSed),
+        "SH-205" => Some(Rule::UnquotedWordBetweenQuotes),
         "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
         "SH-199" => Some(Rule::LsInSubstitution),
         "SH-163" => Some(Rule::BareRead),
         "SH-245" => Some(Rule::DeprecatedTempfileCommand),
         "SH-247" => Some(Rule::EgrepDeprecated),
+        "SH-306" => Some(Rule::DoubleQuoteNesting),
+        "SH-309" => Some(Rule::EnvPrefixQuoting),
+        "SH-350" => Some(Rule::MixedQuoteWord),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-076" => Some(Rule::SingleIterationLoop),
         "SH-128" => Some(Rule::ConditionalAssignmentShortcut),
@@ -632,6 +681,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
+        "SH-225" => Some(Rule::UnquotedPipeInEcho),
         "SH-227" => Some(Rule::SuWithoutFlag),
         "SH-231" => Some(Rule::GlobAssignedToVariable),
         "SH-194" => Some(Rule::CommentedContinuationLine),
@@ -642,10 +692,17 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-209" => Some(Rule::GlobInFindSubstitution),
         "SH-210" => Some(Rule::UnquotedGrepRegex),
         "SH-229" => Some(Rule::SetFlagsWithoutDashes),
+        "SH-230" => Some(Rule::QuotedArraySlice),
+        "SH-232" => Some(Rule::QuotedBashSource),
         "SH-233" => Some(Rule::CommandSubstitutionInAlias),
         "SH-235" => Some(Rule::FunctionInAlias),
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
+        "SH-239" => Some(Rule::ExportWithPositionalParams),
+        "SH-240" => Some(Rule::UnquotedPathInMkdir),
+        "SH-249" => Some(Rule::AtSignInStringCompare),
+        "SH-250" => Some(Rule::ArraySliceInComparison),
+        "SH-251" => Some(Rule::DefaultValueInColonAssign),
         "SH-241" => Some(Rule::AppendToArrayAsString),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
@@ -658,6 +715,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-056" => Some(Rule::PsGrepPipeline),
         "SH-057" => Some(Rule::LsGrepPipeline),
+        "SH-062" => Some(Rule::UnquotedDollarStar),
+        "SH-063" => Some(Rule::QuotedDollarStarLoop),
+        "SH-067" => Some(Rule::UnquotedArraySplit),
+        "SH-068" => Some(Rule::CommandOutputArraySplit),
+        "SH-294" => Some(Rule::BacktickOutputToCommand),
+        "SH-077" => Some(Rule::PositionalArgsInString),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
         "SH-164" => Some(Rule::SubshellTestGroup),
@@ -746,6 +809,22 @@ mod tests {
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
         assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
         assert_eq!(code_to_rule("SH-057"), Some(Rule::LsGrepPipeline));
+        assert_eq!(code_to_rule("S014"), Some(Rule::UnquotedDollarStar));
+        assert_eq!(code_to_rule("SH-062"), Some(Rule::UnquotedDollarStar));
+        assert_eq!(code_to_rule("S015"), Some(Rule::QuotedDollarStarLoop));
+        assert_eq!(code_to_rule("SH-063"), Some(Rule::QuotedDollarStarLoop));
+        assert_eq!(code_to_rule("S017"), Some(Rule::UnquotedArraySplit));
+        assert_eq!(code_to_rule("SH-067"), Some(Rule::UnquotedArraySplit));
+        assert_eq!(code_to_rule("S018"), Some(Rule::CommandOutputArraySplit));
+        assert_eq!(code_to_rule("SH-068"), Some(Rule::CommandOutputArraySplit));
+        assert_eq!(code_to_rule("S067"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("SH-294"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixQuoting));
+        assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixQuoting));
+        assert_eq!(code_to_rule("S076"), Some(Rule::MixedQuoteWord));
+        assert_eq!(code_to_rule("SH-350"), Some(Rule::MixedQuoteWord));
+        assert_eq!(code_to_rule("S021"), Some(Rule::PositionalArgsInString));
+        assert_eq!(code_to_rule("SH-077"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));
         assert_eq!(code_to_rule("SH-076"), Some(Rule::SingleIterationLoop));
         assert_eq!(
@@ -791,7 +870,15 @@ mod tests {
         assert_eq!(code_to_rule("SH-203"), Some(Rule::UnquotedTrRange));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
+        assert_eq!(code_to_rule("S052"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(code_to_rule("SH-208"), Some(Rule::UnquotedTrClass));
+        assert_eq!(code_to_rule("SH-212"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(code_to_rule("S058"), Some(Rule::UnquotedPathInMkdir));
+        assert_eq!(code_to_rule("S062"), Some(Rule::DefaultValueInColonAssign));
+        assert_eq!(
+            code_to_rule("SH-251"),
+            Some(Rule::DefaultValueInColonAssign)
+        );
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(
             code_to_rule("S039"),
@@ -934,7 +1021,10 @@ mod tests {
             code_to_rule("SH-224"),
             Some(Rule::AssignmentLooksLikeComparison)
         );
+        assert_eq!(code_to_rule("C096"), Some(Rule::UnquotedPipeInEcho));
+        assert_eq!(code_to_rule("SH-225"), Some(Rule::UnquotedPipeInEcho));
         assert_eq!(code_to_rule("SH-227"), Some(Rule::SuWithoutFlag));
+        assert_eq!(code_to_rule("SH-240"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
         assert_eq!(code_to_rule("C078"), Some(Rule::UnquotedGlobsInFind));
         assert_eq!(code_to_rule("SH-200"), Some(Rule::UnquotedGlobsInFind));
@@ -955,6 +1045,10 @@ mod tests {
         );
         assert_eq!(code_to_rule("C098"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(code_to_rule("SH-229"), Some(Rule::SetFlagsWithoutDashes));
+        assert_eq!(code_to_rule("C099"), Some(Rule::QuotedArraySlice));
+        assert_eq!(code_to_rule("SH-230"), Some(Rule::QuotedArraySlice));
+        assert_eq!(code_to_rule("C100"), Some(Rule::QuotedBashSource));
+        assert_eq!(code_to_rule("SH-232"), Some(Rule::QuotedBashSource));
         assert_eq!(
             code_to_rule("SH-233"),
             Some(Rule::CommandSubstitutionInAlias)
@@ -964,6 +1058,15 @@ mod tests {
         assert_eq!(code_to_rule("SH-237"), Some(Rule::FindOrWithoutGrouping));
         assert_eq!(code_to_rule("C104"), Some(Rule::NonShellSyntaxInScript));
         assert_eq!(code_to_rule("SH-238"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(code_to_rule("C105"), Some(Rule::ExportWithPositionalParams));
+        assert_eq!(
+            code_to_rule("SH-239"),
+            Some(Rule::ExportWithPositionalParams)
+        );
+        assert_eq!(code_to_rule("C111"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(code_to_rule("SH-249"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(code_to_rule("C112"), Some(Rule::ArraySliceInComparison));
+        assert_eq!(code_to_rule("SH-250"), Some(Rule::ArraySliceInComparison));
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
         assert_eq!(

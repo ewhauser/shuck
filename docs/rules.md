@@ -233,25 +233,25 @@ Filter command facts and word facts for unquoted glob characters.
 Rules about missing or incorrect quoting, word splitting, and expansion
 contexts. Use word facts and expansion word facts.
 
-- [ ] **M** C096 (SC2320) `unquoted-pipe-in-echo` — pipe/brace in echo may be interpreted
-- [ ] **M** C099 (SC2325) `quoted-array-slice` — quoted array slice prevents splitting
-- [ ] **M** C100 (SC2327) `quoted-bash-source` — `$BASH_SOURCE` quoted without array syntax
-- [ ] **M** C105 (SC2334) `export-with-positional-params` — export with `$@`
-- [ ] **M** C111 (SC2344) `at-sign-in-string-compare` — `$@` in string comparison folds args
-- [ ] **M** C112 (SC2345) `array-slice-in-comparison` — array slice in string comparison
-- [ ] **M** S014 (SC2048) `unquoted-dollar-star` — `$*` without quotes
-- [ ] **M** S015 (SC2066) `quoted-dollar-star-loop` — `"$*"` in loop turns args into one item
-- [ ] **M** S017 (SC2206) `unquoted-array-split` — unquoted value split into array
-- [ ] **M** S018 (SC2207) `command-output-array-split` — raw command output into array
-- [ ] **M** S021 (SC2145) `positional-args-in-string` — positional params folded into string
-- [ ] **L** S050 (SC2300) `unquoted-word-between-quotes` — unquoted word between single-quoted segments
-- [ ] **M** S052 (SC2307) `unquoted-variable-in-test` — unquoted variable in `[ -n ]`
-- [ ] **M** S058 (SC2335) `unquoted-path-in-mkdir` — unquoted variable in mkdir
-- [ ] **M** S062 (SC2346) `default-value-in-colon-assign` — unquoted default in colon-assign
-- [ ] **M** S067 (SC2366) `backtick-output-to-command` — backtick output word-split as args
-- [ ] **M** S070 (SC2376) `double-quote-nesting` — double-quoted var between unquoted text
-- [ ] **M** S071 (SC2379) `env-prefix-quoting` — unnecessary quoting on env prefix
-- [ ] **M** S076 (SC2140) `mixed-quote-word` — alternating quoted/bare fragments in one arg
+- [x] **M** C096 (SC2320) `unquoted-pipe-in-echo` — pipe/brace in echo may be interpreted
+- [x] **M** C099 (SC2325) `quoted-array-slice` — quoted array slice prevents splitting
+- [x] **M** C100 (SC2327) `quoted-bash-source` — `$BASH_SOURCE` quoted without array syntax
+- [x] **M** C105 (SC2334) `export-with-positional-params` — export with `$@`
+- [x] **M** C111 (SC2344) `at-sign-in-string-compare` — `$@` in string comparison folds args
+- [x] **M** C112 (SC2345) `array-slice-in-comparison` — array slice in string comparison
+- [x] **M** S014 (SC2048) `unquoted-dollar-star` — `$*` without quotes
+- [x] **M** S015 (SC2066) `quoted-dollar-star-loop` — `"$*"` in loop turns args into one item
+- [x] **M** S017 (SC2206) `unquoted-array-split` — unquoted value split into array
+- [x] **M** S018 (SC2207) `command-output-array-split` — raw command output into array
+- [x] **M** S021 (SC2145) `positional-args-in-string` — positional params folded into string
+- [x] **L** S050 (SC2300) `unquoted-word-between-quotes` — unquoted word between single-quoted segments
+- [x] **M** S052 (SC2307) `unquoted-variable-in-test` — unquoted variable in `[ -n ]`
+- [x] **M** S058 (SC2335) `unquoted-path-in-mkdir` — unquoted variable in mkdir
+- [x] **M** S062 (SC2346) `default-value-in-colon-assign` — unquoted default in colon-assign
+- [x] **M** S067 (SC2366) `backtick-output-to-command` — backtick output word-split as args
+- [x] **M** S070 (SC2376) `double-quote-nesting` — double-quoted var between unquoted text
+- [x] **M** S071 (SC2379) `env-prefix-quoting` — unnecessary quoting on env prefix
+- [x] **M** S076 (SC2140) `mixed-quote-word` — alternating quoted/bare fragments in one arg
 
 ### Array Operations
 

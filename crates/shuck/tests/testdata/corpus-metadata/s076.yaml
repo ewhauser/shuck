@@ -1,0 +1,36 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "scripts/rvm__rvm__scripts__functions__build_config"
+    line: 170
+    column: 87
+    end_line: 170
+    end_column: 88
+    reason: "S076 intentionally keeps warning when reopened double quotes appear inside embedded awk source passed through a shell word, even though current ShellCheck leaves this nested command-substitution string alone."
+  - side: shuck-only
+    path_suffix: "scripts/termux__termux-packages__packages__rust__tests__0004-broken-symlink.sh"
+    line: 17
+    column: 63
+    end_line: 17
+    end_column: 73
+    reason: "S076 intentionally flags nested quoted fragments inside human-readable shell command strings, while current ShellCheck skips these display-string forms."
+  - side: shuck-only
+    path_suffix: "scripts/termux__termux-packages__packages__rust__tests__0004-broken-symlink.sh"
+    line: 22
+    column: 63
+    end_line: 22
+    end_column: 71
+    reason: "S076 intentionally flags nested quoted fragments inside human-readable shell command strings, while current ShellCheck skips these display-string forms."
+  - side: shuck-only
+    path_suffix: "scripts/termux__termux-packages__packages__starship__build.sh"
+    line: 27
+    column: 35
+    end_line: 27
+    end_column: 47
+    reason: "S076 intentionally warns when a quoted fragment is spliced into a constructed export-assignment word, even though current ShellCheck leaves this dynamic assignment-name form unreported."
+  - side: shuck-only
+    path_suffix: "scripts/termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 48
+    column: 7
+    end_line: 48
+    end_column: 12
+    reason: "S076 intentionally flags nested quoted fragments inside a GraphQL query string assembled in one shell word, while current ShellCheck skips this string-literal construction."

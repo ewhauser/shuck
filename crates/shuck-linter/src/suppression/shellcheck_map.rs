@@ -34,11 +34,11 @@ impl ShellCheckCodeMap {
 
     /// Look up all shellcheck mappings for a code like `SC2086`.
     pub fn resolve_all(&self, sc_code: &str) -> Vec<Rule> {
-        let Some(number) = sc_code
+        let code = sc_code
             .strip_prefix("SC")
             .or_else(|| sc_code.strip_prefix("sc"))
-            .and_then(|code| code.parse().ok())
-        else {
+            .unwrap_or(sc_code);
+        let Some(number) = code.parse().ok() else {
             return Vec::new();
         };
         if number == 2262 {
@@ -135,6 +135,18 @@ impl Default for ShellCheckCodeMap {
             (2005, Rule::EchoedCommandSubstitution),
             (2116, Rule::EchoInsideCommandSubstitution),
             (2143, Rule::GrepOutputInTest),
+            (2145, Rule::PositionalArgsInString),
+            (2198, Rule::AtSignInStringCompare),
+            (2199, Rule::ArraySliceInComparison),
+            // Modern ShellCheck reuses SC2320 for a different echo/printf `$?` warning.
+            // Keep the historical SC2320 comparison slot for C096 and review known corpus deltas.
+            (2320, Rule::UnquotedPipeInEcho),
+            // ShellCheck 0.11.0 reports quoted array-to-scalar assignments as SC2124.
+            // Keep SC2325 as a suppression alias for the authored C099 rule code.
+            (2124, Rule::QuotedArraySlice),
+            // ShellCheck 0.11.0 reports quoted unindexed BASH_SOURCE expansions as SC2128.
+            // Keep SC2327 as a suppression alias for the authored C100 rule code.
+            (2128, Rule::QuotedBashSource),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
@@ -142,6 +154,9 @@ impl Default for ShellCheckCodeMap {
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            // ShellCheck 0.11.0 reports single-quoted split-word cases as SC2026.
+            // Keep SC2300 as a suppression alias for the authored S050 rule code.
+            (2026, Rule::UnquotedWordBetweenQuotes),
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
             // ShellCheck 0.11.0 reports tempfile deprecation warnings as SC2186.
@@ -156,9 +171,22 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports alias function-definition issues as SC2142.
             // Keep SC2330 as a suppression alias for the authored S057 rule code.
             (2142, Rule::FunctionInAlias),
+            // ShellCheck 0.11.0 reports split double-quoted strings around variables as SC2027.
+            // Keep SC2376 as a suppression alias for the authored S070 rule code.
+            (2027, Rule::DoubleQuoteNesting),
+            // SC2379 remains the authored compatibility code for env-prefix quoting checks.
+            (2379, Rule::EnvPrefixQuoting),
+            (2140, Rule::MixedQuoteWord),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
+            (2335, Rule::UnquotedPathInMkdir),
+            // ShellCheck 0.11.0 reports unquoted `-n` test operands as SC2070.
+            // Keep SC2307 as a suppression alias for the authored S052 rule code.
+            (2070, Rule::UnquotedVariableInTest),
+            // ShellCheck 0.11.0 reports unquoted default-assignment expansions as SC2223.
+            // Keep SC2346 as a suppression alias for the authored S062 rule code.
+            (2223, Rule::DefaultValueInColonAssign),
             (2021, Rule::UnquotedTrRange),
             (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
@@ -242,6 +270,9 @@ impl Default for ShellCheckCodeMap {
             (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
+            (2048, Rule::UnquotedDollarStar),
+            (2198, Rule::AtSignInStringCompare),
+            (2199, Rule::AtSignInStringCompare),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
             (2352, Rule::DefaultElseInShortCircuit),
@@ -278,6 +309,10 @@ impl Default for ShellCheckCodeMap {
             (3060, Rule::ReplacementExpansion),
             (2038, Rule::FindOutputToXargs),
             (2064, Rule::TrapStringExpansion),
+            (2066, Rule::QuotedDollarStarLoop),
+            (2206, Rule::UnquotedArraySplit),
+            (2207, Rule::CommandOutputArraySplit),
+            (2366, Rule::BacktickOutputToCommand),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2086, Rule::UnquotedExpansion),
@@ -362,6 +397,9 @@ impl Default for ShellCheckCodeMap {
             (2292, Rule::DollarInArithmetic),
             (2297, Rule::DollarInArithmeticContext),
             (2333, Rule::NonShellSyntaxInScript),
+            // ShellCheck 0.11.0 reports `export "$@"`-style findings as SC2163.
+            // Keep SC2334 as a suppression alias for the authored C105 rule code.
+            (2163, Rule::ExportWithPositionalParams),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
@@ -498,9 +536,21 @@ impl Default for ShellCheckCodeMap {
                     (2164, Rule::UncheckedDirectoryChange),
                     (2263, Rule::RedundantSpacesInEcho),
                     (2143, Rule::GrepOutputInTest),
+                    (2145, Rule::PositionalArgsInString),
+                    (2198, Rule::AtSignInStringCompare),
+                    (2199, Rule::ArraySliceInComparison),
+                    (2124, Rule::QuotedArraySlice),
+                    (2128, Rule::QuotedBashSource),
                     (2294, Rule::LsInSubstitution),
                     (2291, Rule::UnquotedVariableInSed),
+                    (2026, Rule::UnquotedWordBetweenQuotes),
+                    (2027, Rule::DoubleQuoteNesting),
+                    (2379, Rule::EnvPrefixQuoting),
+                    (2140, Rule::MixedQuoteWord),
                     (2060, Rule::UnquotedTrClass),
+                    (2335, Rule::UnquotedPathInMkdir),
+                    (2070, Rule::UnquotedVariableInTest),
+                    (2223, Rule::DefaultValueInColonAssign),
                     (2021, Rule::UnquotedTrRange),
                     (2186, Rule::DeprecatedTempfileCommand),
                     (2258, Rule::BareRead),
@@ -534,6 +584,7 @@ impl Default for ShellCheckCodeMap {
                     (2380, Rule::MisspelledOptionName),
                     (2045, Rule::LoopFromCommandOutput),
                     (2046, Rule::UnquotedCommandSubstitution),
+                    (2048, Rule::UnquotedDollarStar),
                     (2059, Rule::PrintfFormatVariable),
                     (2029, Rule::SshLocalExpansion),
                     (2352, Rule::DefaultElseInShortCircuit),
@@ -547,6 +598,7 @@ impl Default for ShellCheckCodeMap {
                     (3053, Rule::IndirectExpansion),
                     (3078, Rule::ArrayKeysInSh),
                     (2219, Rule::AvoidLetBuiltin),
+                    (2320, Rule::UnquotedPipeInEcho),
                     (2321, Rule::ArrayIndexArithmetic),
                     (2323, Rule::ArithmeticScoreLine),
                     (3028, Rule::ArrayReference),
@@ -556,6 +608,10 @@ impl Default for ShellCheckCodeMap {
                     (3060, Rule::ReplacementExpansion),
                     (2038, Rule::FindOutputToXargs),
                     (2064, Rule::TrapStringExpansion),
+                    (2066, Rule::QuotedDollarStarLoop),
+                    (2206, Rule::UnquotedArraySplit),
+                    (2207, Rule::CommandOutputArraySplit),
+                    (2366, Rule::BacktickOutputToCommand),
                     (2068, Rule::UnquotedArrayExpansion),
                     (2076, Rule::QuotedBashRegex),
                     (2086, Rule::UnquotedExpansion),
@@ -618,6 +674,8 @@ impl Default for ShellCheckCodeMap {
                     (2292, Rule::DollarInArithmetic),
                     (2294, Rule::EvalOnArray),
                     (2333, Rule::NonShellSyntaxInScript),
+                    (2163, Rule::ExportWithPositionalParams),
+                    (2334, Rule::ExportWithPositionalParams),
                     (2389, Rule::LoopWithoutEnd),
                     (2390, Rule::MissingDoneInForLoop),
                     (2391, Rule::DanglingElse),
@@ -693,8 +751,12 @@ impl Default for ShellCheckCodeMap {
                 (2342, Rule::EgrepDeprecated),
                 (2328, Rule::CommandSubstitutionInAlias),
                 (2330, Rule::FunctionInAlias),
+                (2376, Rule::DoubleQuoteNesting),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
+                (2307, Rule::UnquotedVariableInTest),
+                (2300, Rule::UnquotedWordBetweenQuotes),
+                (2346, Rule::DefaultValueInColonAssign),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -706,6 +768,10 @@ impl Default for ShellCheckCodeMap {
                 (2384, Rule::LocalCrossReference),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
+                (2344, Rule::AtSignInStringCompare),
+                (2345, Rule::ArraySliceInComparison),
+                (2325, Rule::QuotedArraySlice),
+                (2327, Rule::QuotedBashSource),
                 (2398, Rule::KeywordFunctionName),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
@@ -742,6 +808,7 @@ mod tests {
             Some(Rule::EchoInsideCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2143"), Some(Rule::GrepOutputInTest));
+        assert_eq!(map.resolve("SC2145"), Some(Rule::PositionalArgsInString));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
@@ -751,6 +818,16 @@ mod tests {
         assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
+        assert_eq!(map.resolve("2048"), Some(Rule::UnquotedDollarStar));
+        assert_eq!(map.resolve("SC2198"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(map.resolve("SC2199"), Some(Rule::ArraySliceInComparison));
+        assert_eq!(map.resolve("SC2344"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(map.resolve("SC2345"), Some(Rule::ArraySliceInComparison));
+        assert_eq!(map.resolve("SC2124"), Some(Rule::QuotedArraySlice));
+        assert_eq!(map.resolve("SC2325"), Some(Rule::QuotedArraySlice));
+        assert_eq!(map.resolve("SC2128"), Some(Rule::QuotedBashSource));
+        assert_eq!(map.resolve("SC2327"), Some(Rule::QuotedBashSource));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -807,9 +884,35 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2142"), Some(Rule::FunctionInAlias));
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
+        assert_eq!(map.resolve("SC2335"), Some(Rule::UnquotedPathInMkdir));
+        assert_eq!(map.resolve("SC2307"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(map.resolve("SC2379"), Some(Rule::EnvPrefixQuoting));
+        assert_eq!(map.resolve("SC2140"), Some(Rule::MixedQuoteWord));
+        assert_eq!(map.resolve("SC2320"), Some(Rule::UnquotedPipeInEcho));
+        assert_eq!(map.resolve("SC2223"), Some(Rule::DefaultValueInColonAssign));
+        assert_eq!(map.resolve("SC2346"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
+        assert_eq!(map.resolve("SC2070"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
+        assert_eq!(map.resolve("SC2206"), Some(Rule::UnquotedArraySplit));
+        assert_eq!(map.resolve("SC2207"), Some(Rule::CommandOutputArraySplit));
+        assert_eq!(map.resolve("SC2366"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(map.resolve_all("SC2198"), vec![Rule::AtSignInStringCompare]);
+        assert_eq!(
+            map.resolve_all("SC2199"),
+            vec![Rule::ArraySliceInComparison]
+        );
+        assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
+        assert_eq!(
+            map.resolve_all("SC2345"),
+            vec![Rule::ArraySliceInComparison]
+        );
+        assert_eq!(map.resolve_all("SC2124"), vec![Rule::QuotedArraySlice]);
+        assert_eq!(map.resolve_all("SC2325"), vec![Rule::QuotedArraySlice]);
+        assert_eq!(map.resolve_all("SC2128"), vec![Rule::QuotedBashSource]);
+        assert_eq!(map.resolve_all("SC2327"), vec![Rule::QuotedBashSource]);
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
@@ -819,6 +922,11 @@ mod tests {
         assert_eq!(map.resolve_all("SC3061"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve_all("SC2258"), vec![Rule::BareRead]);
         assert_eq!(map.resolve_all("SC2291"), vec![Rule::UnquotedVariableInSed]);
+        assert_eq!(
+            map.resolve_all("SC2145"),
+            vec![Rule::PositionalArgsInString]
+        );
+        assert_eq!(map.resolve_all("SC2320"), vec![Rule::UnquotedPipeInEcho]);
         assert_eq!(map.resolve_all("SC2322"), vec![Rule::SuWithoutFlag]);
         assert_eq!(map.resolve_all("SC2117"), vec![Rule::SuWithoutFlag]);
         assert_eq!(
@@ -842,17 +950,48 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2330"), vec![Rule::FunctionInAlias]);
         assert_eq!(map.resolve_all("SC2303"), vec![Rule::UnquotedTrClass]);
+        assert_eq!(map.resolve_all("SC2335"), vec![Rule::UnquotedPathInMkdir]);
+        assert_eq!(
+            map.resolve_all("SC2307"),
+            vec![Rule::UnquotedVariableInTest]
+        );
+        assert_eq!(map.resolve_all("SC2379"), vec![Rule::EnvPrefixQuoting]);
+        assert_eq!(map.resolve_all("SC2140"), vec![Rule::MixedQuoteWord]);
+        assert_eq!(
+            map.resolve_all("SC2223"),
+            vec![Rule::DefaultValueInColonAssign]
+        );
+        assert_eq!(
+            map.resolve_all("SC2346"),
+            vec![Rule::DefaultValueInColonAssign]
+        );
         assert_eq!(map.resolve_all("SC2298"), vec![Rule::UnquotedTrRange]);
         assert_eq!(map.resolve_all("SC2021"), vec![Rule::UnquotedTrRange]);
         assert_eq!(
             map.resolve_all("SC2060"),
             vec![Rule::UnquotedTrClass, Rule::UnquotedTrRange]
         );
+        assert_eq!(
+            map.resolve_all("SC2070"),
+            vec![Rule::UnquotedVariableInTest]
+        );
+        assert_eq!(map.resolve_all("SC2066"), vec![Rule::QuotedDollarStarLoop]);
+        assert_eq!(map.resolve_all("SC2206"), vec![Rule::UnquotedArraySplit]);
+        assert_eq!(
+            map.resolve_all("SC2207"),
+            vec![Rule::CommandOutputArraySplit]
+        );
+        assert_eq!(
+            map.resolve_all("SC2366"),
+            vec![Rule::BacktickOutputToCommand]
+        );
         assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
         assert_eq!(
             map.resolve_all("SC2294"),
             vec![Rule::LsInSubstitution, Rule::EvalOnArray]
         );
+        assert_eq!(map.resolve_all("SC2048"), vec![Rule::UnquotedDollarStar]);
+        assert_eq!(map.resolve_all("2048"), vec![Rule::UnquotedDollarStar]);
         assert_eq!(map.resolve_all("SC2263"), vec![Rule::RedundantSpacesInEcho]);
         assert_eq!(
             map.resolve_all("SC3026"),
@@ -1003,6 +1142,7 @@ mod tests {
             map.resolve("SC2046"),
             Some(Rule::UnquotedCommandSubstitution)
         );
+        assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
         assert_eq!(
             map.resolve("SC2114"),
@@ -1053,6 +1193,10 @@ mod tests {
         assert_eq!(map.resolve("SC3060"), Some(Rule::ReplacementExpansion));
         assert_eq!(map.resolve("SC2038"), Some(Rule::FindOutputToXargs));
         assert_eq!(map.resolve("SC2064"), Some(Rule::TrapStringExpansion));
+        assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
+        assert_eq!(map.resolve("SC2206"), Some(Rule::UnquotedArraySplit));
+        assert_eq!(map.resolve("SC2207"), Some(Rule::CommandOutputArraySplit));
+        assert_eq!(map.resolve("SC2366"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
@@ -1115,6 +1259,14 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2399"), Some(Rule::BrokenAssocKey));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
+        assert_eq!(
+            map.resolve("SC2163"),
+            Some(Rule::ExportWithPositionalParams)
+        );
+        assert_eq!(
+            map.resolve("SC2334"),
+            Some(Rule::ExportWithPositionalParams)
+        );
         assert_eq!(map.resolve("SC2370"), Some(Rule::UnusedHeredoc));
         assert_eq!(map.resolve("SC2389"), Some(Rule::LoopWithoutEnd));
         assert_eq!(map.resolve("SC2390"), Some(Rule::MissingDoneInForLoop));
@@ -1306,7 +1458,15 @@ mod tests {
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            (2026, Rule::UnquotedWordBetweenQuotes),
+            (2027, Rule::DoubleQuoteNesting),
             (2143, Rule::GrepOutputInTest),
+            (2145, Rule::PositionalArgsInString),
+            (2198, Rule::AtSignInStringCompare),
+            (2199, Rule::ArraySliceInComparison),
+            (2320, Rule::UnquotedPipeInEcho),
+            (2124, Rule::QuotedArraySlice),
+            (2128, Rule::QuotedBashSource),
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
             (2186, Rule::DeprecatedTempfileCommand),
@@ -1315,15 +1475,29 @@ mod tests {
             (2142, Rule::FunctionInAlias),
             (2021, Rule::UnquotedTrRange),
             (2060, Rule::UnquotedTrClass),
+            (2335, Rule::UnquotedPathInMkdir),
+            (2070, Rule::UnquotedVariableInTest),
+            (2223, Rule::DefaultValueInColonAssign),
             (2060, Rule::UnquotedTrRange),
             (2303, Rule::UnquotedTrClass),
+            (2335, Rule::UnquotedPathInMkdir),
+            (2307, Rule::UnquotedVariableInTest),
+            (2379, Rule::EnvPrefixQuoting),
+            (2140, Rule::MixedQuoteWord),
+            (2300, Rule::UnquotedWordBetweenQuotes),
+            (2346, Rule::DefaultValueInColonAssign),
             (2184, Rule::UnsetAssociativeArrayElement),
             (2178, Rule::ArrayToStringConversion),
             (2322, Rule::SuWithoutFlag),
             (2340, Rule::DeprecatedTempfileCommand),
             (2342, Rule::EgrepDeprecated),
+            (2344, Rule::AtSignInStringCompare),
+            (2345, Rule::ArraySliceInComparison),
+            (2325, Rule::QuotedArraySlice),
+            (2327, Rule::QuotedBashSource),
             (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
+            (2376, Rule::DoubleQuoteNesting),
             (2298, Rule::UnquotedTrRange),
             (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
@@ -1347,11 +1521,16 @@ mod tests {
             (2380, Rule::MisspelledOptionName),
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
+            (2048, Rule::UnquotedDollarStar),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
             (2209, Rule::ConditionalAssignmentShortcut),
             (2352, Rule::DefaultElseInShortCircuit),
             (2064, Rule::TrapStringExpansion),
+            (2066, Rule::QuotedDollarStarLoop),
+            (2206, Rule::UnquotedArraySplit),
+            (2207, Rule::CommandOutputArraySplit),
+            (2366, Rule::BacktickOutputToCommand),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2078, Rule::TruthyLiteralTest),
@@ -1379,6 +1558,7 @@ mod tests {
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),
             (2162, Rule::ReadWithoutRaw),
+            (2163, Rule::ExportWithPositionalParams),
             (2164, Rule::UncheckedDirectoryChange),
             (2168, Rule::LocalTopLevel),
             (2194, Rule::ConstantCaseSubject),
@@ -1446,6 +1626,7 @@ mod tests {
             (2354, Rule::PlusPrefixInAssignment),
             (2377, Rule::AppendWithEscapedQuotes),
             (2329, Rule::IfsSetToLiteralBackslashN),
+            (2320, Rule::UnquotedPipeInEcho),
             (2321, Rule::ArrayIndexArithmetic),
             (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
@@ -1458,6 +1639,7 @@ mod tests {
             (2324, Rule::SetFlagsWithoutDashes),
             (2326, Rule::GlobAssignedToVariable),
             (2333, Rule::NonShellSyntaxInScript),
+            (2334, Rule::ExportWithPositionalParams),
             (2389, Rule::LoopWithoutEnd),
             (2390, Rule::MissingDoneInForLoop),
             (2391, Rule::DanglingElse),
@@ -1617,6 +1799,7 @@ mod tests {
         assert!(!comparison.contains(&(2349, Rule::GlobWithExpansionInLoop)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
+        assert!(comparison.contains(&(2026, Rule::UnquotedWordBetweenQuotes)));
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
         assert!(comparison.contains(&(2186, Rule::DeprecatedTempfileCommand)));
         assert!(comparison.contains(&(2196, Rule::EgrepDeprecated)));
@@ -1624,19 +1807,42 @@ mod tests {
         assert!(comparison.contains(&(2178, Rule::ArrayToStringConversion)));
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
+        assert!(comparison.contains(&(2027, Rule::DoubleQuoteNesting)));
+        assert!(comparison.contains(&(2379, Rule::EnvPrefixQuoting)));
+        assert!(comparison.contains(&(2140, Rule::MixedQuoteWord)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
         assert!(!comparison.contains(&(2340, Rule::DeprecatedTempfileCommand)));
         assert!(!comparison.contains(&(2342, Rule::EgrepDeprecated)));
         assert!(!comparison.contains(&(2328, Rule::CommandSubstitutionInAlias)));
         assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
+        assert!(!comparison.contains(&(2376, Rule::DoubleQuoteNesting)));
         assert!(comparison.contains(&(2258, Rule::BareRead)));
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
+        assert!(comparison.contains(&(2335, Rule::UnquotedPathInMkdir)));
+        assert!(comparison.contains(&(2070, Rule::UnquotedVariableInTest)));
+        assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
+        assert!(comparison.contains(&(2223, Rule::DefaultValueInColonAssign)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
+        assert!(!comparison.contains(&(2300, Rule::UnquotedWordBetweenQuotes)));
+        assert!(!comparison.contains(&(2307, Rule::UnquotedVariableInTest)));
+        assert!(!comparison.contains(&(2346, Rule::DefaultValueInColonAssign)));
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
+        assert!(comparison.contains(&(2145, Rule::PositionalArgsInString)));
+        assert!(comparison.contains(&(2198, Rule::AtSignInStringCompare)));
+        assert!(comparison.contains(&(2199, Rule::ArraySliceInComparison)));
+        assert!(comparison.contains(&(2124, Rule::QuotedArraySlice)));
+        assert!(!comparison.contains(&(2325, Rule::QuotedArraySlice)));
+        assert!(comparison.contains(&(2128, Rule::QuotedBashSource)));
+        assert!(!comparison.contains(&(2327, Rule::QuotedBashSource)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
+        assert!(comparison.contains(&(2066, Rule::QuotedDollarStarLoop)));
+        assert!(comparison.contains(&(2206, Rule::UnquotedArraySplit)));
+        assert!(comparison.contains(&(2207, Rule::CommandOutputArraySplit)));
+        assert!(comparison.contains(&(2366, Rule::BacktickOutputToCommand)));
+        assert!(comparison.contains(&(2048, Rule::UnquotedDollarStar)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
         assert!(comparison.contains(&(2121, Rule::SetFlagsWithoutDashes)));
@@ -1676,6 +1882,7 @@ mod tests {
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
+        assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2120, Rule::FunctionCalledWithoutArgs)));
         assert!(comparison.contains(&(2364, Rule::FunctionReferencesUnsetParam)));

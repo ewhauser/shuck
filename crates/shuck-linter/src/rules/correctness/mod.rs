@@ -1,9 +1,11 @@
 pub mod append_to_array_as_string;
 pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
+pub mod array_slice_in_comparison;
 pub mod array_to_string_conversion;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
+pub mod at_sign_in_string_compare;
 pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
 pub mod bad_var_name;
@@ -30,6 +32,7 @@ pub mod else_if;
 pub mod else_without_then;
 pub mod empty_function_body;
 pub mod empty_test;
+pub mod export_with_positional_params;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
@@ -69,7 +72,9 @@ pub mod pipe_to_kill;
 pub mod plus_prefix_in_assignment;
 pub mod positional_param_as_operator;
 pub mod positional_ten_braces;
+pub mod quoted_array_slice;
 pub mod quoted_bash_regex;
+pub mod quoted_bash_source;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
@@ -92,6 +97,7 @@ pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unquoted_globs_in_find;
 pub mod unquoted_grep_regex;
+pub mod unquoted_pipe_in_echo;
 pub mod unreachable_after_exit;
 pub mod unset_associative_array_element;
 pub mod until_missing_do;
@@ -173,11 +179,17 @@ mod tests {
     #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
     #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
+    #[test_case(Rule::UnquotedPipeInEcho, Path::new("C096.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
+    #[test_case(Rule::QuotedArraySlice, Path::new("C099.sh"))]
+    #[test_case(Rule::QuotedBashSource, Path::new("C100.sh"))]
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
+    #[test_case(Rule::ExportWithPositionalParams, Path::new("C105.sh"))]
+    #[test_case(Rule::AtSignInStringCompare, Path::new("C111.sh"))]
+    #[test_case(Rule::ArraySliceInComparison, Path::new("C112.sh"))]
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
     #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]

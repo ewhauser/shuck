@@ -2340,7 +2340,10 @@ fn validate_selected_rules_for_large_corpus(
 ) -> Result<(), String> {
     let comparable_rules: HashSet<_> = selected_rules
         .iter()
-        .filter(|rule| !selected_rule_shellcheck_codes(*rule).is_empty())
+        .filter(|rule| {
+            !selected_rule_shellcheck_codes(*rule).is_empty()
+                || selected_rule_has_reviewed_comparison_target(*rule)
+        })
         .collect();
     let mut missing_rules: Vec<_> = selected_rules
         .iter()
@@ -2357,6 +2360,12 @@ fn validate_selected_rules_for_large_corpus(
             missing_rules.join(", ")
         ))
     }
+}
+
+fn selected_rule_has_reviewed_comparison_target(rule: shuck_linter::Rule) -> bool {
+    !load_rule_corpus_metadata(rule.code())
+        .comparison_target_notes
+        .is_empty()
 }
 
 fn selected_rule_shellcheck_code(rule: shuck_linter::Rule) -> Option<u32> {
@@ -3316,6 +3325,14 @@ mod tests {
         let rules = parse_large_corpus_rule_set("C001,X080").unwrap();
 
         assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
+    }
+
+    #[test]
+    fn selected_rule_filter_accepts_reviewed_metadata_only_rules() {
+        let rules = parse_large_corpus_rule_set("C096,S071").unwrap();
+
+        assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
+        assert!(build_selected_shellcheck_codes(&rules).is_empty());
     }
 
     #[test]

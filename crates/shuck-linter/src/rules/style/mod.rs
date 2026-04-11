@@ -3,16 +3,21 @@ pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
+pub mod backtick_output_to_command;
 pub mod bare_read;
+pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
 pub mod conditional_assignment_shortcut;
+pub mod default_value_in_colon_assign;
 pub mod deprecated_tempfile_command;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
+pub mod double_quote_nesting;
 pub mod echo_here_doc;
 pub mod echo_inside_command_substitution;
 pub mod echoed_command_substitution;
 pub mod egrep_deprecated;
+pub mod env_prefix_quoting;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
@@ -31,9 +36,12 @@ pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
+pub mod mixed_quote_word;
 pub mod needless_backslash_underscore;
+pub mod positional_args_in_string;
 pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
+pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
 pub mod redundant_spaces_in_echo;
 pub mod single_iteration_loop;
@@ -44,11 +52,16 @@ pub mod suspect_closing_quote;
 pub mod syntax;
 pub mod trailing_directive;
 pub mod unquoted_array_expansion;
+pub mod unquoted_array_split;
 pub mod unquoted_command_substitution;
+pub mod unquoted_dollar_star;
 pub mod unquoted_expansion;
+pub mod unquoted_path_in_mkdir;
 pub mod unquoted_tr_class;
 pub mod unquoted_tr_range;
 pub mod unquoted_variable_in_sed;
+pub mod unquoted_variable_in_test;
+pub mod unquoted_word_between_quotes;
 
 #[cfg(test)]
 mod tests {
@@ -73,16 +86,29 @@ mod tests {
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
+    #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
+    #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
+    #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
+    #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]
+    #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
+    #[test_case(Rule::UnquotedDollarStar, Path::new("S014.sh"))]
+    #[test_case(Rule::QuotedDollarStarLoop, Path::new("S015.sh"))]
+    #[test_case(Rule::UnquotedArraySplit, Path::new("S017.sh"))]
+    #[test_case(Rule::CommandOutputArraySplit, Path::new("S018.sh"))]
+    #[test_case(Rule::PositionalArgsInString, Path::new("S021.sh"))]
     #[test_case(Rule::SingleIterationLoop, Path::new("S020.sh"))]
     #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
+    #[test_case(Rule::UnquotedWordBetweenQuotes, Path::new("S050.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]
+    #[test_case(Rule::UnquotedVariableInTest, Path::new("S052.sh"))]
+    #[test_case(Rule::UnquotedPathInMkdir, Path::new("S058.sh"))]
     #[test_case(Rule::SuWithoutFlag, Path::new("S054.sh"))]
     #[test_case(Rule::GlobAssignedToVariable, Path::new("S055.sh"))]
     #[test_case(Rule::UnquotedTrRange, Path::new("S049.sh"))]

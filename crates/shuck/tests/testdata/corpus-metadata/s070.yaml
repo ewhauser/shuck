@@ -1,0 +1,19 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "scripts/bats-core__bats-core__libexec__bats-core__bats-gather-tests"
+    line: 237
+    reason: "S070 intentionally keeps the split-quote warning inside parameter-expansion prefix patterns even when current ShellCheck omits SC2027 for that form."
+  - side: shuck-only
+    path_suffix: "scripts/dylanaraps__neofetch__neofetch"
+    line: 4297
+    reason: "S070 intentionally reports split quoting in assignment words that wrap command substitutions, while the current oracle does not consistently emit SC2027 for this assignment form."
+  - side: shuck-only
+    path_suffix: "scripts/rvm__rvm__scripts__fetch"
+    line: 150
+    reason: "S070 intentionally reports split quoting in assignment words that embed command substitutions and here-strings, where current ShellCheck output misses SC2027."
+  - side: shuck-only
+    path_suffix: "scripts/termux__termux-packages__packages__ncurses__build.sh"
+    reason: "S070 intentionally flags split quoting in assignment entries built from sourced command substitutions; current ShellCheck releases do not emit matching SC2027 diagnostics for these rows."
+  - side: shuck-only
+    path_suffix: "scripts/termux__termux-packages__x11-packages__kitty__build.sh"
+    reason: "S070 intentionally flags split quoting in assignment entries built from sourced command substitutions; current ShellCheck releases do not emit matching SC2027 diagnostics for these rows."

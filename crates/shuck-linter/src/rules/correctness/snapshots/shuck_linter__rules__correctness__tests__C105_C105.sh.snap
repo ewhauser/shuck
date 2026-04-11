@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C105 export variable names directly instead of positional-parameter splats
+ --> <source>:4:8
+  |
+4 | export "$@"
+  |
+
+C105 export variable names directly instead of positional-parameter splats
+ --> <source>:5:8
+  |
+5 | export ${@}
+  |
+
+C105 export variable names directly instead of positional-parameter splats
+ --> <source>:6:8
+  |
+6 | export "${@:2}"
+  |
+
+C105 export variable names directly instead of positional-parameter splats
+ --> <source>:7:11
+  |
+7 | export -- "$@"
+  |

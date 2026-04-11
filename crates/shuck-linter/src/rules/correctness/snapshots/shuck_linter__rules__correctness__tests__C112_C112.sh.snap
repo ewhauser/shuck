@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C112 array-slice expansions collapse when used in string comparisons
+ --> <source>:6:8
+  |
+6 | if [[ "${sel[@]:0:4}" == "HELP" ]]; then :; fi
+  |
+
+C112 array-slice expansions collapse when used in string comparisons
+ --> <source>:7:9
+  |
+7 | if [[ "x${@:2}y" == "x" ]]; then :; fi
+  |
