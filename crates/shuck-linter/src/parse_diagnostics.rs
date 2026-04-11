@@ -238,6 +238,7 @@ fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Spa
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut double_quote_escape = false;
+    let mut parameter_expansion_depth = 0usize;
     let mut index = 0usize;
 
     while index + 2 < bytes.len() {
@@ -263,6 +264,26 @@ fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Spa
             continue;
         }
 
+        if parameter_expansion_depth > 0 {
+            match byte {
+                b'\\' => {
+                    index += 2.min(bytes.len().saturating_sub(index));
+                }
+                b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                    parameter_expansion_depth += 1;
+                    index += 2;
+                }
+                b'}' => {
+                    parameter_expansion_depth -= 1;
+                    index += 1;
+                }
+                _ => {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+
         match byte {
             b'\'' => {
                 in_single_quotes = true;
@@ -276,6 +297,11 @@ fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Spa
             }
             b'\\' => {
                 index += 2.min(bytes.len().saturating_sub(index));
+                continue;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                parameter_expansion_depth = 1;
+                index += 2;
                 continue;
             }
             b'#' if shell_comment_starts_at(bytes, index) => break,
@@ -1178,6 +1204,22 @@ fi
     #[test]
     fn ignores_parameter_expansion_text_containing_if_bracket_on_expected_command_lines_for_c157() {
         let source = "#!/bin/sh\ntrue\n&& echo ${x#if[}\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_spaced_parameter_expansion_patterns_containing_if_bracket_for_c157() {
+        let source = "#!/bin/sh\ntrue\n&& echo ${x# if[}\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
