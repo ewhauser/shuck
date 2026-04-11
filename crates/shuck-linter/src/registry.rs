@@ -191,6 +191,12 @@ declare_rules! {
         QuotedCommandInTest
     ),
     (
+        "C090",
+        Category::Correctness,
+        Severity::Warning,
+        GlobInTestComparison
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -676,6 +682,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-214" => Some(Rule::StringComparisonForVersion),
         "SH-215" => Some(Rule::MixedAndOrInCondition),
         "SH-216" => Some(Rule::QuotedCommandInTest),
+        "SH-217" => Some(Rule::GlobInTestComparison),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),

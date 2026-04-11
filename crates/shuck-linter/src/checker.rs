@@ -890,6 +890,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::QuotedCommandInTest) {
             rules::correctness::quoted_command_in_test::quoted_command_in_test(self);
         }
+        if self.is_rule_enabled(Rule::GlobInTestComparison) {
+            rules::correctness::glob_in_test_comparison::glob_in_test_comparison(self);
+        }
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
         }
