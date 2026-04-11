@@ -57,6 +57,7 @@ pub use rules::common::span::{
     word_standalone_literal_backslash_span, word_unquoted_assign_default_spans,
     word_has_unquoted_brace_expansion,
     word_unquoted_escaped_pipe_or_brace_spans_in_source,
+    word_unquoted_literal_between_double_quoted_segments_spans,
     word_unquoted_glob_pattern_spans,
     word_unquoted_scalar_between_double_quoted_segments_spans,
     word_unquoted_star_parameter_spans, word_unquoted_star_splat_spans,
@@ -66,6 +67,7 @@ pub use rules::common::span::{
 pub use rules::common::word::{
     TestOperandClass, conditional_binary_op_is_string_match, static_word_text,
     word_is_standalone_variable_like,
+};
 };
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;

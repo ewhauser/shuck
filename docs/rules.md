@@ -251,7 +251,7 @@ contexts. Use word facts and expansion word facts.
 - [x] **M** S067 (SC2366) `backtick-output-to-command` — backtick output word-split as args
 - [x] **M** S070 (SC2376) `double-quote-nesting` — double-quoted var between unquoted text
 - [x] **M** S071 (SC2379) `env-prefix-quoting` — unnecessary quoting on env prefix
-- [ ] **M** S076 (SC2140) `mixed-quote-word` — alternating quoted/bare fragments in one arg
+- [x] **M** S076 (SC2140) `mixed-quote-word` — alternating quoted/bare fragments in one arg
 
 ### Array Operations
 

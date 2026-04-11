@@ -36,6 +36,7 @@ pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
+pub mod mixed_quote_word;
 pub mod needless_backslash_underscore;
 pub mod positional_args_in_string;
 pub mod printf_format_variable;
@@ -89,6 +90,7 @@ mod tests {
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]
+    #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]

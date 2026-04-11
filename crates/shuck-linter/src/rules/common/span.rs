@@ -308,6 +308,41 @@ pub fn word_unquoted_word_between_single_quoted_segments_spans(
         .collect()
 }
 
+pub fn word_unquoted_literal_between_double_quoted_segments_spans(
+    word: &Word,
+    source: &str,
+) -> Vec<Span> {
+    word.parts
+        .windows(3)
+        .filter_map(|window| {
+            let [left, middle, right] = window else {
+                return None;
+            };
+            let WordPart::DoubleQuoted {
+                parts: left_inner, ..
+            } = &left.kind
+            else {
+                return None;
+            };
+            let WordPart::Literal(text) = &middle.kind else {
+                return None;
+            };
+            let WordPart::DoubleQuoted {
+                parts: right_inner, ..
+            } = &right.kind
+            else {
+                return None;
+            };
+
+            let neighbor_has_literal = double_quoted_parts_contain_literal_content(left_inner)
+                || double_quoted_parts_contain_literal_content(right_inner);
+            (neighbor_has_literal
+                && literal_is_warnable_between_double_quotes(text.as_str(source, middle.span)))
+            .then_some(middle.span)
+        })
+        .collect::<Vec<_>>()
+}
+
 pub fn word_unquoted_scalar_between_double_quoted_segments_spans(
     word: &Word,
     candidate_spans: &[Span],
@@ -1168,6 +1203,24 @@ fn collect_double_quoted_scalar_only_expansion_spans(
     }
 
     true
+}
+
+fn literal_is_warnable_between_double_quotes(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+
+    if text.chars().any(|ch| ch.is_ascii_alphanumeric()) {
+        return !text.chars().any(char::is_whitespace);
+    }
+
+    if text.chars().all(|ch| ch == ':') {
+        return text.len() > 1;
+    }
+
+    text.chars().all(|ch| {
+        ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '@' | '+' | '-' | '%' | ':')
+    })
 }
 
 fn literal_part_is_parameter_operator_tail(
@@ -2249,6 +2302,29 @@ fn double_quoted_parts_contain_dynamic_content(parts: &[WordPartNode]) -> bool {
     })
 }
 
+fn double_quoted_parts_contain_literal_content(parts: &[WordPartNode]) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => double_quoted_parts_contain_literal_content(parts),
+        WordPart::Variable(_)
+        | WordPart::Parameter(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => false,
+    })
+}
+
 fn neighbor_is_literal(part: Option<&WordPartNode>) -> bool {
     matches!(part.map(|part| &part.kind), Some(WordPart::Literal(_)))
 }
@@ -2338,6 +2414,7 @@ mod tests {
         word_quoted_all_elements_array_slice_spans, word_quoted_star_splat_spans,
         word_quoted_unindexed_bash_source_span_in_source, word_unquoted_assign_default_spans,
         word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_unquoted_literal_between_double_quoted_segments_spans,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
         word_unquoted_word_between_single_quoted_segments_spans,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
@@ -3012,6 +3089,29 @@ printf '%s\\n' \"$a\" \"$a\"\"$b\" \"prefix$a\" \"$a$(printf '%s' x)\" $a \"$a\"
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec!["$a", "$a", "$b"]);
+    }
+
+    #[test]
+    fn word_unquoted_literal_between_double_quoted_segments_tracks_word_like_middle_parts() {
+        let source = "\
+printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\".\"bar\" \"foo\"::\"bar\" \"--sysroot=$tool\"/sysroot,\"-I${prefix}/include\" \"$left\"-\"$right\" \"foo\"?\"bar\" \"foo\"$(printf '%s' x)\"bar\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| {
+                word_unquoted_literal_between_double_quoted_segments_spans(word, source)
+            })
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["bar", "-", ".", "::", "/sysroot,"]);
     }
 
     #[test]
