@@ -1140,6 +1140,7 @@ fn build_pipeline_segment_fact<'a>(
 pub(super) fn build_list_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
+    source: &str,
 ) -> Vec<ListFact<'a>> {
     let mut nested_list_commands = FxHashSet::default();
 
@@ -1177,16 +1178,167 @@ pub(super) fn build_list_facts<'a>(
 
             let mut operators = Vec::new();
             collect_short_circuit_operators(command, &mut operators);
+            let segments =
+                build_list_segment_facts(command, commands, command_ids_by_span, source)?;
             let mixed_short_circuit_span = mixed_short_circuit_operator_span(&operators);
+            let mixed_short_circuit_kind =
+                mixed_short_circuit_span.map(|_| classify_mixed_short_circuit_kind(&segments));
 
             Some(ListFact {
                 key: fact.key(),
                 command,
                 operators: operators.into_boxed_slice(),
+                segments,
                 mixed_short_circuit_span,
+                mixed_short_circuit_kind,
             })
         })
         .collect()
+}
+
+fn build_list_segment_facts<'a>(
+    command: &BinaryCommand,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Option<Box<[ListSegmentFact]>> {
+    let mut segments = Vec::new();
+    collect_list_segment_facts(
+        command,
+        commands,
+        command_ids_by_span,
+        source,
+        &mut segments,
+    )?;
+    Some(segments.into_boxed_slice())
+}
+
+fn collect_list_segment_facts<'a>(
+    command: &BinaryCommand,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    segments: &mut Vec<ListSegmentFact>,
+) -> Option<()> {
+    collect_list_stmt_segment_facts(
+        &command.left,
+        commands,
+        command_ids_by_span,
+        source,
+        segments,
+    )?;
+    collect_list_stmt_segment_facts(
+        &command.right,
+        commands,
+        command_ids_by_span,
+        source,
+        segments,
+    )?;
+    Some(())
+}
+
+fn collect_list_stmt_segment_facts<'a>(
+    stmt: &Stmt,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    segments: &mut Vec<ListSegmentFact>,
+) -> Option<()> {
+    if let Command::Binary(binary) = &stmt.command
+        && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
+    {
+        return collect_list_segment_facts(binary, commands, command_ids_by_span, source, segments);
+    }
+
+    let id = command_id_for_command(&stmt.command, command_ids_by_span)?;
+    let fact = command_fact(commands, id);
+    let assignment_target = list_segment_assignment_target(fact, source)
+        .map(str::to_owned)
+        .map(String::into_boxed_str);
+
+    segments.push(ListSegmentFact {
+        command_id: id,
+        span: fact.span_in_source(source),
+        kind: list_segment_kind(fact, source),
+        assignment_target,
+    });
+    Some(())
+}
+
+fn list_segment_kind(fact: &CommandFact<'_>, source: &str) -> ListSegmentKind {
+    if list_segment_is_condition(fact) {
+        ListSegmentKind::Condition
+    } else if list_segment_assignment_target(fact, source).is_some() {
+        ListSegmentKind::AssignmentOnly
+    } else {
+        ListSegmentKind::Other
+    }
+}
+
+fn list_segment_is_condition(fact: &CommandFact<'_>) -> bool {
+    fact.simple_test().is_some()
+        || fact.conditional().is_some()
+        || matches!(fact.effective_or_literal_name(), Some("true" | "false"))
+}
+
+fn list_segment_assignment_target<'a>(fact: &'a CommandFact<'a>, source: &str) -> Option<&'a str> {
+    match fact.command() {
+        Command::Simple(command)
+            if command.args.is_empty()
+                && !command.assignments.is_empty()
+                && static_word_text(&command.name, source).as_deref() == Some("") =>
+        {
+            single_assignment_target(&command.assignments)
+        }
+        Command::Decl(command) => declaration_assignment_target(command),
+        _ => None,
+    }
+}
+
+fn single_assignment_target<'a>(assignments: &'a [Assignment]) -> Option<&'a str> {
+    (assignments.len() == 1).then_some(assignments[0].target.name.as_str())
+}
+
+fn declaration_assignment_target<'a>(command: &'a DeclClause) -> Option<&'a str> {
+    if !command.assignments.is_empty() {
+        return None;
+    }
+
+    let assignment_operands = command
+        .operands
+        .iter()
+        .map(|operand| match operand {
+            DeclOperand::Assignment(assignment) => Some(assignment),
+            DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    (assignment_operands.len() == 1).then_some(assignment_operands[0].target.name.as_str())
+}
+
+fn classify_mixed_short_circuit_kind(segments: &[ListSegmentFact]) -> MixedShortCircuitKind {
+    if segments
+        .iter()
+        .all(|segment| segment.kind() == ListSegmentKind::Condition)
+    {
+        MixedShortCircuitKind::TestChain
+    } else if matches_assignment_ternary(segments) {
+        MixedShortCircuitKind::AssignmentTernary
+    } else {
+        MixedShortCircuitKind::Fallthrough
+    }
+}
+
+fn matches_assignment_ternary(segments: &[ListSegmentFact]) -> bool {
+    let [condition, then_branch, else_branch] = segments else {
+        return false;
+    };
+
+    condition.kind() == ListSegmentKind::Condition
+        && then_branch.kind() == ListSegmentKind::AssignmentOnly
+        && else_branch.kind() == ListSegmentKind::AssignmentOnly
+        && then_branch.assignment_target().is_some()
+        && then_branch.assignment_target() == else_branch.assignment_target()
 }
 
 pub(super) fn build_single_test_subshell_spans<'a>(

@@ -1,3 +1,4 @@
+use crate::facts::MixedShortCircuitKind;
 use crate::{Checker, Rule, Violation};
 
 pub struct ChainedTestBranches;
@@ -17,6 +18,7 @@ pub fn chained_test_branches(checker: &mut Checker) {
         .facts()
         .lists()
         .iter()
+        .filter(|list| list.mixed_short_circuit_kind() == Some(MixedShortCircuitKind::TestChain))
         .filter_map(|list| list.mixed_short_circuit_span())
         .collect::<Vec<_>>();
 
@@ -31,9 +33,10 @@ mod tests {
     #[test]
     fn anchors_on_the_operator_that_introduces_mixed_short_circuiting() {
         let source = "\
-true && false || printf '%s\\n' fallback
-false || true && printf '%s\\n' fallback
+[ \"$x\" = foo ] && [ \"$x\" = bar ] || [ \"$x\" = baz ]
+false || true && [ \"$x\" = baz ]
 true && false; false || printf '%s\\n' ok
+[ -n \"$x\" ] && out=foo || out=bar
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));

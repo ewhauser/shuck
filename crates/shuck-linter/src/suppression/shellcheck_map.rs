@@ -203,6 +203,7 @@ impl Default for ShellCheckCodeMap {
             (2016, Rule::SingleQuotedLiteral),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
+            (2296, Rule::ShortCircuitFallthrough),
             (1019, Rule::EmptyTest),
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),
@@ -487,6 +488,7 @@ impl Default for ShellCheckCodeMap {
                     (2016, Rule::SingleQuotedLiteral),
                     (2013, Rule::LineOrientedInput),
                     (2015, Rule::ChainedTestBranches),
+                    (2296, Rule::ShortCircuitFallthrough),
                     (1019, Rule::EmptyTest),
                     (2024, Rule::SudoRedirectionOrder),
                     (2034, Rule::UnusedAssignment),
@@ -641,6 +643,11 @@ impl Default for ShellCheckCodeMap {
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
+                // The pinned ShellCheck oracle still reports ordinary `A && B || C`
+                // fallthrough chains as SC2015. Keep that older code as a
+                // compatibility alias so targeted large-corpus validation can
+                // compare C079 against the actual oracle output.
+                (2015, Rule::ShortCircuitFallthrough),
                 (2322, Rule::SuWithoutFlag),
                 (2340, Rule::DeprecatedTempfileCommand),
                 (2342, Rule::EgrepDeprecated),
@@ -875,6 +882,11 @@ mod tests {
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
+        assert_eq!(
+            map.resolve_all("SC2015"),
+            vec![Rule::ChainedTestBranches, Rule::ShortCircuitFallthrough]
+        );
+        assert_eq!(map.resolve("SC2296"), Some(Rule::ShortCircuitFallthrough));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC1045"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
@@ -1206,6 +1218,7 @@ mod tests {
             (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
+            (2296, Rule::ShortCircuitFallthrough),
             (2016, Rule::SingleQuotedLiteral),
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),

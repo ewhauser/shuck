@@ -9,7 +9,7 @@ C010 chaining `&&` and `||` makes the fallback depend on the middle command stat
   |
 
 C010 chaining `&&` and `||` makes the fallback depend on the middle command status
- --> <source>:9:6
+ --> <source>:9:7
   |
-9 | true && false || printf '%s\n' fallback
+9 | false || true && [ "$x" = baz ]
   |

@@ -1117,12 +1117,54 @@ impl ListOperatorFact {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListSegmentKind {
+    Condition,
+    AssignmentOnly,
+    Other,
+}
+
+#[derive(Debug, Clone)]
+pub struct ListSegmentFact {
+    command_id: CommandId,
+    span: Span,
+    kind: ListSegmentKind,
+    assignment_target: Option<Box<str>>,
+}
+
+impl ListSegmentFact {
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> ListSegmentKind {
+        self.kind
+    }
+
+    pub fn assignment_target(&self) -> Option<&str> {
+        self.assignment_target.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MixedShortCircuitKind {
+    TestChain,
+    AssignmentTernary,
+    Fallthrough,
+}
+
 #[derive(Debug, Clone)]
 pub struct ListFact<'a> {
     key: FactSpan,
     command: &'a BinaryCommand,
     operators: Box<[ListOperatorFact]>,
+    segments: Box<[ListSegmentFact]>,
     mixed_short_circuit_span: Option<Span>,
+    mixed_short_circuit_kind: Option<MixedShortCircuitKind>,
 }
 
 impl<'a> ListFact<'a> {
@@ -1142,8 +1184,16 @@ impl<'a> ListFact<'a> {
         &self.operators
     }
 
+    pub fn segments(&self) -> &[ListSegmentFact] {
+        &self.segments
+    }
+
     pub fn mixed_short_circuit_span(&self) -> Option<Span> {
         self.mixed_short_circuit_span
+    }
+
+    pub fn mixed_short_circuit_kind(&self) -> Option<MixedShortCircuitKind> {
+        self.mixed_short_circuit_kind
     }
 }
 
@@ -2202,7 +2252,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let case_items = build_case_item_facts(&commands);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
-        let lists = build_list_facts(&commands, &command_ids_by_span);
+        let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let single_test_subshell_spans =
             build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
         let subshell_test_group_spans =
@@ -9792,6 +9842,47 @@ true && false || printf '%s\\n' fallback
                 list.mixed_short_circuit_span()
                     .map(|span| span.slice(source)),
                 Some("&&")
+            );
+            assert_eq!(
+                list.mixed_short_circuit_kind(),
+                Some(crate::facts::MixedShortCircuitKind::Fallthrough)
+            );
+            assert_eq!(
+                list.segments()
+                    .iter()
+                    .map(|segment| segment.kind())
+                    .collect::<Vec<_>>(),
+                vec![
+                    crate::facts::ListSegmentKind::Condition,
+                    crate::facts::ListSegmentKind::Other,
+                    crate::facts::ListSegmentKind::Other,
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn classifies_mixed_short_circuit_lists_by_shape() {
+        let source = "\
+#!/bin/sh
+[ \"$x\" = foo ] && [ \"$x\" = bar ] || [ \"$x\" = baz ]
+[ -n \"$x\" ] && out=foo || out=bar
+[ \"$dir\" = vendor ] && mv go-* \"$dir\" || mv pkg-* \"$dir\"
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(facts.lists().len(), 3);
+            assert_eq!(
+                facts
+                    .lists()
+                    .iter()
+                    .map(|list| list.mixed_short_circuit_kind())
+                    .collect::<Vec<_>>(),
+                vec![
+                    Some(crate::facts::MixedShortCircuitKind::TestChain),
+                    Some(crate::facts::MixedShortCircuitKind::AssignmentTernary),
+                    Some(crate::facts::MixedShortCircuitKind::Fallthrough),
+                ]
             );
         });
     }

@@ -509,6 +509,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ChainedTestBranches) {
             rules::correctness::chained_test_branches::chained_test_branches(self);
         }
+        if self.is_rule_enabled(Rule::ShortCircuitFallthrough) {
+            rules::correctness::short_circuit_fallthrough::short_circuit_fallthrough(self);
+        }
         if self.is_rule_enabled(Rule::LineOrientedInput) {
             rules::correctness::line_oriented_input::line_oriented_input(self);
         }

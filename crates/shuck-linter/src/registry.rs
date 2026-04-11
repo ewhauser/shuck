@@ -150,6 +150,12 @@ declare_rules! {
     ),
     ("C077", Category::Correctness, Severity::Warning, SubshellInArithmetic),
     (
+        "C079",
+        Category::Correctness,
+        Severity::Warning,
+        ShortCircuitFallthrough
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -534,6 +540,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-047" => Some(Rule::SshLocalExpansion),
         "SH-151" => Some(Rule::EvalOnArray),
         "SH-045" => Some(Rule::ChainedTestBranches),
+        "SH-201" => Some(Rule::ShortCircuitFallthrough),
         "SH-046" => Some(Rule::LineOrientedInput),
         "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
@@ -772,6 +779,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-044"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(code_to_rule("SH-047"), Some(Rule::SshLocalExpansion));
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
+        assert_eq!(code_to_rule("SH-201"), Some(Rule::ShortCircuitFallthrough));
         assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("C113"), Some(Rule::FindOutputLoop));
