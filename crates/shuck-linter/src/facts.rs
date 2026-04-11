@@ -640,6 +640,7 @@ pub struct WordFact<'a> {
     static_text: Option<Box<str>>,
     has_literal_affixes: bool,
     scalar_expansion_spans: Box<[Span]>,
+    unquoted_scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
     all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_array_expansion_spans: Box<[Span]>,
@@ -719,6 +720,10 @@ impl<'a> WordFact<'a> {
 
     pub fn scalar_expansion_spans(&self) -> &[Span] {
         &self.scalar_expansion_spans
+    }
+
+    pub fn unquoted_scalar_expansion_spans(&self) -> &[Span] {
+        &self.unquoted_scalar_expansion_spans
     }
 
     pub fn array_expansion_spans(&self) -> &[Span] {
@@ -1770,6 +1775,7 @@ pub struct LinterFacts<'a> {
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
     word_index: FxHashMap<FactSpan, Vec<usize>>,
+    array_assignment_split_word_indices: Vec<usize>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
@@ -1935,6 +1941,12 @@ impl<'a> LinterFacts<'a> {
             .get(&FactSpan::new(span))
             .and_then(|indices| indices.first().copied())
             .map(|index| &self.words[index])
+    }
+
+    pub fn array_assignment_split_word_facts(&self) -> impl Iterator<Item = &WordFact<'a>> + '_ {
+        self.array_assignment_split_word_indices
+            .iter()
+            .map(|&index| &self.words[index])
     }
 
     pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {
@@ -2204,6 +2216,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut comma_array_assignment_spans = Vec::new();
         let mut words = Vec::new();
         let mut compound_assignment_value_word_spans = FxHashSet::default();
+        let mut array_assignment_split_word_indices = Vec::new();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
@@ -2242,6 +2255,13 @@ impl<'a> LinterFactsBuilder<'a> {
                 build_word_facts_for_command(visit, self.source, id, nested_word_command);
             compound_assignment_value_word_spans
                 .extend(collected_words.compound_assignment_value_word_spans);
+            let word_index_offset = words.len();
+            array_assignment_split_word_indices.extend(
+                collected_words
+                    .array_assignment_split_word_indices
+                    .iter()
+                    .map(|index| word_index_offset + *index),
+            );
             words.extend(collected_words.facts);
             pattern_literal_spans.extend(collected_words.pattern_literal_spans);
             pattern_charclass_spans.extend(collected_words.pattern_charclass_spans);
@@ -2394,6 +2414,7 @@ impl<'a> LinterFactsBuilder<'a> {
             compound_assignment_value_word_spans,
             words,
             word_index,
+            array_assignment_split_word_indices,
             function_headers,
             for_headers,
             select_headers,
@@ -4852,6 +4873,7 @@ fn build_word_facts_for_command<'a>(
 struct CollectedWordFacts<'a> {
     facts: Vec<WordFact<'a>>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
+    array_assignment_split_word_indices: Vec<usize>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -4862,6 +4884,7 @@ struct WordFactCollector<'a> {
     command_id: CommandId,
     nested_word_command: bool,
     facts: Vec<WordFact<'a>>,
+    array_assignment_split_word_indices: Vec<usize>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     pattern_literal_spans: Vec<Span>,
@@ -4876,6 +4899,7 @@ impl<'a> WordFactCollector<'a> {
             command_id,
             nested_word_command,
             facts: Vec::new(),
+            array_assignment_split_word_indices: Vec::new(),
             seen: FxHashSet::default(),
             compound_assignment_value_word_spans: FxHashSet::default(),
             pattern_literal_spans: Vec::new(),
@@ -4888,6 +4912,7 @@ impl<'a> WordFactCollector<'a> {
         CollectedWordFacts {
             facts: self.facts,
             compound_assignment_value_word_spans: self.compound_assignment_value_word_spans,
+            array_assignment_split_word_indices: self.array_assignment_split_word_indices,
             pattern_literal_spans: self.pattern_literal_spans,
             pattern_charclass_spans: self.pattern_charclass_spans,
             arithmetic: self.arithmetic,
@@ -5191,7 +5216,7 @@ impl<'a> WordFactCollector<'a> {
 
         match &assignment.value {
             AssignmentValue::Scalar(word) => {
-                self.push_word(word, context, WordFactHostKind::Direct)
+                self.push_word(word, context, WordFactHostKind::Direct);
             }
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
@@ -5199,7 +5224,11 @@ impl<'a> WordFactCollector<'a> {
                         ArrayElem::Sequential(word) => {
                             self.compound_assignment_value_word_spans
                                 .insert(FactSpan::new(word.span));
-                            self.push_word(word, context, WordFactHostKind::Direct);
+                            if let Some(index) =
+                                self.push_word(word, context, WordFactHostKind::Direct)
+                            {
+                                self.array_assignment_split_word_indices.push(index);
+                            }
                         }
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
                             query::visit_subscript_words(Some(key), self.source, &mut |word| {
@@ -5245,7 +5274,9 @@ impl<'a> WordFactCollector<'a> {
                         self.collect_pattern_context_words(pattern, context, host_kind);
                     }
                 }
-                PatternPart::Word(word) => self.push_owned_word(word.clone(), context, host_kind),
+                PatternPart::Word(word) => {
+                    self.push_owned_word(word.clone(), context, host_kind);
+                }
                 PatternPart::Literal(_) | PatternPart::CharClass(_) if is_case_pattern => {}
                 PatternPart::AnyString | PatternPart::AnyChar => {}
                 PatternPart::Literal(_) | PatternPart::CharClass(_) => {}
@@ -5276,16 +5307,20 @@ impl<'a> WordFactCollector<'a> {
             ConditionalExpr::Parenthesized(expr) => {
                 self.collect_conditional_expansion_words(&expr.expr)
             }
-            ConditionalExpr::Word(word) => self.push_word(
-                word,
-                WordFactContext::Expansion(ExpansionContext::StringTestOperand),
-                WordFactHostKind::Direct,
-            ),
-            ConditionalExpr::Regex(word) => self.push_word(
-                word,
-                WordFactContext::Expansion(ExpansionContext::RegexOperand),
-                WordFactHostKind::Direct,
-            ),
+            ConditionalExpr::Word(word) => {
+                self.push_word(
+                    word,
+                    WordFactContext::Expansion(ExpansionContext::StringTestOperand),
+                    WordFactHostKind::Direct,
+                );
+            }
+            ConditionalExpr::Regex(word) => {
+                self.push_word(
+                    word,
+                    WordFactContext::Expansion(ExpansionContext::RegexOperand),
+                    WordFactHostKind::Direct,
+                );
+            }
             ConditionalExpr::Pattern(_) => {}
             ConditionalExpr::VarRef(reference) => {
                 query::visit_var_ref_subscript_words_with_source(
@@ -5382,8 +5417,13 @@ impl<'a> WordFactCollector<'a> {
         }
     }
 
-    fn push_word(&mut self, word: &'a Word, context: WordFactContext, host_kind: WordFactHostKind) {
-        self.push_cow_word(Cow::Borrowed(word), context, host_kind);
+    fn push_word(
+        &mut self,
+        word: &'a Word,
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+    ) -> Option<usize> {
+        self.push_cow_word(Cow::Borrowed(word), context, host_kind)
     }
 
     fn push_owned_word(
@@ -5391,8 +5431,8 @@ impl<'a> WordFactCollector<'a> {
         word: Word,
         context: WordFactContext,
         host_kind: WordFactHostKind,
-    ) {
-        self.push_cow_word(Cow::Owned(word), context, host_kind);
+    ) -> Option<usize> {
+        self.push_cow_word(Cow::Owned(word), context, host_kind)
     }
 
     fn push_cow_word(
@@ -5400,11 +5440,11 @@ impl<'a> WordFactCollector<'a> {
         word: Cow<'a, Word>,
         context: WordFactContext,
         host_kind: WordFactHostKind,
-    ) {
+    ) -> Option<usize> {
         let word_ref = word.as_ref();
         let key = FactSpan::new(word_ref.span);
         if !self.seen.insert((key, context, host_kind)) {
-            return;
+            return None;
         }
 
         self.collect_word_parameter_patterns(&word_ref.parts, host_kind);
@@ -5436,12 +5476,18 @@ impl<'a> WordFactCollector<'a> {
             | WordFactContext::ArithmeticCommand => None,
         };
 
+        let index = self.facts.len();
         self.facts.push(WordFact {
             key,
             static_text: static_word_text(word_ref, self.source).map(String::into_boxed_str),
             has_literal_affixes: word_has_literal_affixes(word_ref),
             scalar_expansion_spans: span::scalar_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
+            unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(
+                word_ref,
+                self.source,
+            )
+            .into_boxed_slice(),
             array_expansion_spans: span::array_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
             all_elements_array_expansion_spans: span::all_elements_array_expansion_part_spans(
@@ -5454,12 +5500,14 @@ impl<'a> WordFactCollector<'a> {
                 self.source,
             )
             .into_boxed_slice(),
-            command_substitution_spans: span::command_substitution_part_spans(word_ref)
-                .into_boxed_slice(),
-            unquoted_command_substitution_spans: span::unquoted_command_substitution_part_spans(
+            command_substitution_spans: span::command_substitution_part_spans_in_source(
                 word_ref,
+                self.source,
             )
             .into_boxed_slice(),
+            unquoted_command_substitution_spans:
+                span::unquoted_command_substitution_part_spans_in_source(word_ref, self.source)
+                    .into_boxed_slice(),
             double_quoted_expansion_spans: double_quoted_expansion_part_spans(word_ref)
                 .into_boxed_slice(),
             word,
@@ -5471,6 +5519,7 @@ impl<'a> WordFactCollector<'a> {
             runtime_literal,
             operand_class,
         });
+        Some(index)
     }
 
     fn collect_arithmetic_summary(
@@ -11157,6 +11206,97 @@ printf '%s\\n' $0 $1 $* $@
             assert!(argument_words.contains(&"$1".to_owned()));
             assert!(argument_words.contains(&"$*".to_owned()));
             assert!(argument_words.contains(&"$@".to_owned()));
+        });
+    }
+
+    #[test]
+    fn builds_array_assignment_split_word_facts() {
+        let source = "\
+#!/bin/bash
+scalar=$x
+arr=($x \"$y\" prefix$z $(cmd) \"${items[@]}\" ${items[@]})
+declare declared=($alpha \"$(cmd)\" ${beta})
+declare -A map=([k]=$v)
+arr+=($tail)
+";
+
+        with_facts(source, None, |_, facts| {
+            let split_words = facts
+                .array_assignment_split_word_facts()
+                .map(|fact| fact.span().slice(source).to_owned())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                split_words,
+                vec![
+                    "$x",
+                    "\"$y\"",
+                    "prefix$z",
+                    "$(cmd)",
+                    "\"${items[@]}\"",
+                    "${items[@]}",
+                    "$alpha",
+                    "\"$(cmd)\"",
+                    "${beta}",
+                    "$tail",
+                ]
+            );
+
+            let unquoted_scalar = facts
+                .array_assignment_split_word_facts()
+                .flat_map(|fact| {
+                    fact.unquoted_scalar_expansion_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                unquoted_scalar,
+                vec!["$x", "$z", "$alpha", "${beta}", "$tail"]
+            );
+
+            let unquoted_array = facts
+                .array_assignment_split_word_facts()
+                .flat_map(|fact| {
+                    fact.unquoted_array_expansion_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(unquoted_array, vec!["${items[@]}"]);
+        });
+    }
+
+    #[test]
+    fn array_assignment_split_facts_track_command_substitution_boundaries() {
+        let source = "\
+#!/bin/bash
+arr=(\"$(printf '%s\\n' \"$x\")\")
+";
+
+        with_facts(source, None, |_, facts| {
+            let split_facts = facts
+                .array_assignment_split_word_facts()
+                .collect::<Vec<_>>();
+            assert_eq!(split_facts.len(), 1);
+            let fact = split_facts[0];
+
+            assert_eq!(
+                fact.command_substitution_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$(printf '%s\\n' \"$x\")"]
+            );
+            assert_eq!(
+                fact.unquoted_scalar_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$x"]
+            );
         });
     }
 }

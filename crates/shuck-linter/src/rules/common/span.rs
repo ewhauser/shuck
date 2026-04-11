@@ -41,6 +41,13 @@ pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+pub fn command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
+    command_substitution_part_spans(word)
+        .into_iter()
+        .map(|span| normalize_command_substitution_span(span, source))
+        .collect()
+}
+
 pub fn arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_arithmetic_expansion_spans(&word.parts, &mut spans);
@@ -57,6 +64,13 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_unquoted_command_substitution_spans(&word.parts, false, &mut spans);
     spans
+}
+
+pub fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
+    unquoted_command_substitution_part_spans(word)
+        .into_iter()
+        .map(|span| normalize_command_substitution_span(span, source))
+        .collect()
 }
 
 pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
@@ -93,10 +107,7 @@ pub fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -
         .find(|span| !span_is_escaped(*span, source))
 }
 
-pub fn word_quoted_unindexed_bash_source_span_in_source(
-    word: &Word,
-    source: &str,
-) -> Option<Span> {
+pub fn word_quoted_unindexed_bash_source_span_in_source(word: &Word, source: &str) -> Option<Span> {
     let mut spans = Vec::new();
     collect_quoted_unindexed_bash_source_spans(&word.parts, false, source, &mut spans);
     spans.into_iter().next()
@@ -116,7 +127,13 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
 
 pub fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_scalar_expansion_spans(&word.parts, &mut spans);
+    collect_scalar_expansion_spans(&word.parts, false, false, &mut spans);
+    spans
+}
+
+pub fn unquoted_scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_scalar_expansion_spans(&word.parts, false, true, &mut spans);
     spans
 }
 
@@ -646,7 +663,9 @@ fn collect_quoted_unindexed_bash_source_spans(
                 collect_quoted_unindexed_bash_source_spans(parts, true, source, spans)
             }
             WordPart::Variable(name)
-                if quoted && name.as_str() == "BASH_SOURCE" && !span_is_escaped(part.span, source) =>
+                if quoted
+                    && name.as_str() == "BASH_SOURCE"
+                    && !span_is_escaped(part.span, source) =>
             {
                 spans.push(part.span);
             }
@@ -697,6 +716,139 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
     }
 
     widen_all_elements_array_expansion_span(span, source)
+}
+
+fn normalize_command_substitution_span(span: Span, source: &str) -> Span {
+    let text = span.slice(source);
+    if text.starts_with("$(")
+        && !text.ends_with(')')
+        && let Some(normalized) = widen_dollar_paren_command_substitution_span(span, source)
+    {
+        return normalized;
+    }
+
+    if text.starts_with('`')
+        && !text.ends_with('`')
+        && let Some(normalized) = widen_backtick_command_substitution_span(span, source)
+    {
+        return normalized;
+    }
+
+    span
+}
+
+fn widen_dollar_paren_command_substitution_span(span: Span, source: &str) -> Option<Span> {
+    let mut index = span.start.offset;
+    let bytes = source.as_bytes();
+    if bytes.get(index)? != &b'$' || bytes.get(index + 1)? != &b'(' {
+        return None;
+    }
+    index += 2;
+
+    let mut depth = 1usize;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+
+        if in_single_quote {
+            if byte == b'\'' {
+                in_single_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if in_double_quote {
+            match byte {
+                b'\\' => {
+                    index = index.saturating_add(2);
+                    continue;
+                }
+                b'"' => {
+                    in_double_quote = false;
+                    index += 1;
+                    continue;
+                }
+                b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                    depth += 1;
+                    index += 2;
+                    continue;
+                }
+                b')' => {
+                    depth = depth.saturating_sub(1);
+                    index += 1;
+                    if depth == 0 {
+                        let start = position_at_offset(source, span.start.offset)?;
+                        let end = position_at_offset(source, index)?;
+                        return Some(Span::from_positions(start, end));
+                    }
+                    continue;
+                }
+                _ => {
+                    index += 1;
+                    continue;
+                }
+            }
+        }
+
+        match byte {
+            b'\\' => {
+                index = index.saturating_add(2);
+            }
+            b'\'' => {
+                in_single_quote = true;
+                index += 1;
+            }
+            b'"' => {
+                in_double_quote = true;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                depth += 1;
+                index += 2;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                index += 1;
+                if depth == 0 {
+                    let start = position_at_offset(source, span.start.offset)?;
+                    let end = position_at_offset(source, index)?;
+                    return Some(Span::from_positions(start, end));
+                }
+            }
+            _ => {
+                index += 1;
+            }
+        }
+    }
+
+    None
+}
+
+fn widen_backtick_command_substitution_span(span: Span, source: &str) -> Option<Span> {
+    let mut index = span.start.offset;
+    let bytes = source.as_bytes();
+    if bytes.get(index)? != &b'`' {
+        return None;
+    }
+    index += 1;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = index.saturating_add(2),
+            b'`' => {
+                index += 1;
+                let start = position_at_offset(source, span.start.offset)?;
+                let end = position_at_offset(source, index)?;
+                return Some(Span::from_positions(start, end));
+            }
+            _ => index += 1,
+        }
+    }
+
+    None
 }
 
 fn widen_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
@@ -789,15 +941,22 @@ fn collect_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     }
 }
 
-fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+fn collect_scalar_expansion_spans(
+    parts: &[WordPartNode],
+    quoted: bool,
+    only_unquoted: bool,
+    spans: &mut Vec<Span>,
+) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => collect_scalar_expansion_spans(parts, spans),
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_scalar_expansion_spans(parts, true, only_unquoted, spans)
+            }
             WordPart::ZshQualifiedGlob(_) => {}
             WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
             WordPart::Parameter(parameter) => {
-                if parameter_is_scalar_like(parameter) {
+                if parameter_is_scalar_like(parameter) && (!only_unquoted || !quoted) {
                     spans.push(part.span);
                 }
             }
@@ -810,9 +969,13 @@ fn collect_scalar_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>)
             | WordPart::Substring { .. }
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. } => spans.push(part.span),
+            | WordPart::Transformation { .. } => {
+                if !only_unquoted || !quoted {
+                    spans.push(part.span);
+                }
+            }
             WordPart::ArrayAccess(reference) => {
-                if !reference.has_array_selector() {
+                if !reference.has_array_selector() && (!only_unquoted || !quoted) {
                     spans.push(part.span);
                 }
             }
@@ -1845,16 +2008,15 @@ mod tests {
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
+        word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
-        word_all_elements_array_slice_spans, word_has_quoted_all_elements_array_slice,
-        word_all_elements_array_slice_span_in_source,
         word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
-        word_has_folded_positional_at_splat, word_is_pure_positional_at_splat,
-        word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
-        word_quoted_all_elements_array_slice_spans,
+        word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
+        word_is_pure_positional_at_splat, word_positional_at_splat_span_in_source,
+        word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
-        word_quoted_unindexed_bash_source_span_in_source,
-        word_quoted_star_splat_spans, word_unquoted_star_splat_spans,
+        word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
+        word_unquoted_star_splat_spans,
     };
 
     #[test]

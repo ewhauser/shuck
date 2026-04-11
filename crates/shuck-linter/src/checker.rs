@@ -446,6 +446,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::QuotedDollarStarLoop) {
             rules::style::quoted_dollar_star_loop::quoted_dollar_star_loop(self);
         }
+        if self.is_rule_enabled(Rule::UnquotedArraySplit) {
+            rules::style::unquoted_array_split::unquoted_array_split(self);
+        }
         if self.is_rule_enabled(Rule::PositionalArgsInString) {
             rules::style::positional_args_in_string::positional_args_in_string(self);
         }

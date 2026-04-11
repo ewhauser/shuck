@@ -442,6 +442,7 @@ declare_rules! {
     ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
     ("S014", Category::Style, Severity::Warning, UnquotedDollarStar),
     ("S015", Category::Style, Severity::Warning, QuotedDollarStarLoop),
+    ("S017", Category::Style, Severity::Warning, UnquotedArraySplit),
     ("S021", Category::Style, Severity::Warning, PositionalArgsInString),
     ("S020", Category::Style, Severity::Warning, SingleIterationLoop),
     ("S032", Category::Style, Severity::Warning, ConditionalAssignmentShortcut),
@@ -698,6 +699,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-057" => Some(Rule::LsGrepPipeline),
         "SH-062" => Some(Rule::UnquotedDollarStar),
         "SH-063" => Some(Rule::QuotedDollarStarLoop),
+        "SH-067" => Some(Rule::UnquotedArraySplit),
         "SH-077" => Some(Rule::PositionalArgsInString),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -791,6 +793,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-062"), Some(Rule::UnquotedDollarStar));
         assert_eq!(code_to_rule("S015"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(code_to_rule("SH-063"), Some(Rule::QuotedDollarStarLoop));
+        assert_eq!(code_to_rule("S017"), Some(Rule::UnquotedArraySplit));
+        assert_eq!(code_to_rule("SH-067"), Some(Rule::UnquotedArraySplit));
         assert_eq!(code_to_rule("S021"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("SH-077"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));

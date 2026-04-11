@@ -46,6 +46,7 @@ pub mod suspect_closing_quote;
 pub mod syntax;
 pub mod trailing_directive;
 pub mod unquoted_array_expansion;
+pub mod unquoted_array_split;
 pub mod unquoted_command_substitution;
 pub mod unquoted_dollar_star;
 pub mod unquoted_expansion;
@@ -82,6 +83,7 @@ mod tests {
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
     #[test_case(Rule::UnquotedDollarStar, Path::new("S014.sh"))]
     #[test_case(Rule::QuotedDollarStarLoop, Path::new("S015.sh"))]
+    #[test_case(Rule::UnquotedArraySplit, Path::new("S017.sh"))]
     #[test_case(Rule::PositionalArgsInString, Path::new("S021.sh"))]
     #[test_case(Rule::SingleIterationLoop, Path::new("S020.sh"))]
     #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]

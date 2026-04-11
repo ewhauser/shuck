@@ -241,7 +241,7 @@ contexts. Use word facts and expansion word facts.
 - [x] **M** C112 (SC2345) `array-slice-in-comparison` — array slice in string comparison
 - [x] **M** S014 (SC2048) `unquoted-dollar-star` — `$*` without quotes
 - [x] **M** S015 (SC2066) `quoted-dollar-star-loop` — `"$*"` in loop turns args into one item
-- [ ] **M** S017 (SC2206) `unquoted-array-split` — unquoted value split into array
+- [x] **M** S017 (SC2206) `unquoted-array-split` — unquoted value split into array
 - [ ] **M** S018 (SC2207) `command-output-array-split` — raw command output into array
 - [x] **M** S021 (SC2145) `positional-args-in-string` — positional params folded into string
 - [ ] **L** S050 (SC2300) `unquoted-word-between-quotes` — unquoted word between single-quoted segments
