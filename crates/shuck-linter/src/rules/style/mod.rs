@@ -17,6 +17,7 @@ pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod function_in_alias;
+pub mod glob_assigned_to_variable;
 pub mod grep_output_in_test;
 pub mod heredoc_end_space;
 pub mod ifs_equals_ambiguity;
@@ -83,6 +84,7 @@ mod tests {
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]
     #[test_case(Rule::SuWithoutFlag, Path::new("S054.sh"))]
+    #[test_case(Rule::GlobAssignedToVariable, Path::new("S055.sh"))]
     #[test_case(Rule::UnquotedTrRange, Path::new("S049.sh"))]
     #[test_case(Rule::LsPipedToXargs, Path::new("S046.sh"))]
     #[test_case(Rule::LsInSubstitution, Path::new("S047.sh"))]

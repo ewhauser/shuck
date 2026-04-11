@@ -148,6 +148,10 @@ pub fn word_unquoted_glob_pattern_spans(word: &Word, source: &str) -> Vec<Span> 
     spans
 }
 
+pub fn word_has_unquoted_brace_expansion(word: &Word, source: &str) -> bool {
+    parts_have_unquoted_brace_expansion(&word.parts, source, false)
+}
+
 pub fn word_standalone_literal_backslash_span(word: &Word, source: &str) -> Option<Span> {
     let [part] = word.parts.as_slice() else {
         return None;
@@ -782,12 +786,15 @@ fn collect_unquoted_glob_pattern_spans(
     in_double_quotes: bool,
     spans: &mut Vec<Span>,
 ) {
-    for part in parts {
+    for (index, part) in parts.iter().enumerate() {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_unquoted_glob_pattern_spans(parts, source, true, spans)
             }
-            WordPart::Literal(_) if !in_double_quotes => {
+            WordPart::Literal(_)
+                if !in_double_quotes
+                    && !literal_part_is_parameter_operator_tail(parts, index, source) =>
+            {
                 spans.extend(literal_glob_pattern_spans(part.span, source));
             }
             WordPart::Literal(_)
@@ -810,6 +817,94 @@ fn collect_unquoted_glob_pattern_spans(
             | WordPart::ZshQualifiedGlob(_) => {}
         }
     }
+}
+
+fn parts_have_unquoted_brace_expansion(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                if parts_have_unquoted_brace_expansion(parts, source, true) {
+                    return true;
+                }
+            }
+            WordPart::Literal(_) if !in_double_quotes => {
+                if literal_contains_brace_expansion(part.span.slice(source)) {
+                    return true;
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+
+    false
+}
+
+fn literal_contains_brace_expansion(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+
+        if bytes[index] != b'{' {
+            index += 1;
+            continue;
+        }
+
+        let mut depth = 1usize;
+        let mut saw_comma = false;
+        let mut cursor = index + 1;
+        while cursor < bytes.len() {
+            if bytes[cursor] == b'\\' {
+                cursor = (cursor + 2).min(bytes.len());
+                continue;
+            }
+
+            match bytes[cursor] {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        if saw_comma {
+                            return true;
+                        }
+                        break;
+                    }
+                }
+                b',' if depth == 1 => saw_comma = true,
+                _ => {}
+            }
+            cursor += 1;
+        }
+
+        index += 1;
+    }
+
+    false
 }
 
 fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
@@ -1620,6 +1715,29 @@ mod tests {
         assert!(
             word_unquoted_glob_pattern_spans(&command.args[6], source).is_empty(),
             "escaped bracket expression should not be reported"
+        );
+    }
+
+    #[test]
+    fn word_unquoted_glob_pattern_spans_ignore_parameter_operator_tails() {
+        let source = r#"echo ${path/*\/} ${name#*:} ${name##*foo}"#;
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(
+            word_unquoted_glob_pattern_spans(&command.args[0], source).is_empty(),
+            "parameter replacement operator tails should not be reported as pathname globs"
+        );
+        assert!(
+            word_unquoted_glob_pattern_spans(&command.args[1], source).is_empty(),
+            "parameter prefix operator tails should not be reported as pathname globs"
+        );
+        assert!(
+            word_unquoted_glob_pattern_spans(&command.args[2], source).is_empty(),
+            "parameter longest-prefix operator tails should not be reported as pathname globs"
         );
     }
 

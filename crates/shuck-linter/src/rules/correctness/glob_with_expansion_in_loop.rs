@@ -1,7 +1,8 @@
 use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFact, word_unquoted_glob_pattern_spans,
+    Checker, ExpansionContext, Rule, Violation, WordFact, word_has_unquoted_brace_expansion,
+    word_unquoted_glob_pattern_spans,
 };
-use shuck_ast::{Span, Word, WordPart, WordPartNode};
+use shuck_ast::Span;
 
 pub struct GlobWithExpansionInLoop;
 
@@ -38,97 +39,6 @@ fn unquoted_expansion_prefix_spans(fact: &WordFact<'_>) -> Vec<Span> {
         .collect::<Vec<_>>();
     spans.extend(fact.unquoted_command_substitution_spans().iter().copied());
     spans
-}
-
-fn word_has_unquoted_brace_expansion(word: &Word, source: &str) -> bool {
-    parts_have_unquoted_brace_expansion(&word.parts, source, false)
-}
-
-fn parts_have_unquoted_brace_expansion(
-    parts: &[WordPartNode],
-    source: &str,
-    in_double_quotes: bool,
-) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                if parts_have_unquoted_brace_expansion(parts, source, true) {
-                    return true;
-                }
-            }
-            WordPart::Literal(_) if !in_double_quotes => {
-                if literal_contains_brace_expansion(part.span.slice(source)) {
-                    return true;
-                }
-            }
-            WordPart::Literal(_)
-            | WordPart::SingleQuoted { .. }
-            | WordPart::Variable(_)
-            | WordPart::CommandSubstitution { .. }
-            | WordPart::ProcessSubstitution { .. }
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. }
-            | WordPart::ZshQualifiedGlob(_) => {}
-        }
-    }
-    false
-}
-
-fn literal_contains_brace_expansion(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut index = 0usize;
-
-    while index < bytes.len() {
-        if bytes[index] == b'\\' {
-            index = (index + 2).min(bytes.len());
-            continue;
-        }
-
-        if bytes[index] != b'{' {
-            index += 1;
-            continue;
-        }
-
-        let mut depth = 1usize;
-        let mut saw_comma = false;
-        let mut cursor = index + 1;
-        while cursor < bytes.len() {
-            if bytes[cursor] == b'\\' {
-                cursor = (cursor + 2).min(bytes.len());
-                continue;
-            }
-
-            match bytes[cursor] {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        if saw_comma {
-                            return true;
-                        }
-                        break;
-                    }
-                }
-                b',' if depth == 1 => saw_comma = true,
-                _ => {}
-            }
-            cursor += 1;
-        }
-
-        index += 1;
-    }
-
-    false
 }
 
 #[cfg(test)]

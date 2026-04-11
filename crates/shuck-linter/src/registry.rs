@@ -417,6 +417,12 @@ declare_rules! {
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
     ("S054", Category::Style, Severity::Warning, SuWithoutFlag),
+    (
+        "S055",
+        Category::Style,
+        Severity::Warning,
+        GlobAssignedToVariable
+    ),
     ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
     ("S057", Category::Style, Severity::Warning, FunctionInAlias),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
@@ -627,6 +633,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-227" => Some(Rule::SuWithoutFlag),
+        "SH-231" => Some(Rule::GlobAssignedToVariable),
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
         "SH-200" => Some(Rule::UnquotedGlobsInFind),
@@ -779,6 +786,8 @@ mod tests {
             code_to_rule("SH-202"),
             Some(Rule::DollarInArithmeticContext)
         );
+        assert_eq!(code_to_rule("S055"), Some(Rule::GlobAssignedToVariable));
+        assert_eq!(code_to_rule("SH-231"), Some(Rule::GlobAssignedToVariable));
         assert_eq!(code_to_rule("SH-203"), Some(Rule::UnquotedTrRange));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));

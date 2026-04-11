@@ -1,6 +1,7 @@
-use shuck_ast::{ConditionalBinaryOp, Word, WordPart};
-
-use crate::{Checker, ConditionalNodeFact, Rule, Violation, WordQuote};
+use crate::{
+    Checker, ConditionalNodeFact, Rule, Violation, WordQuote,
+    conditional_binary_op_is_string_match, word_is_standalone_variable_like,
+};
 
 pub struct GlobInStringComparison;
 
@@ -22,7 +23,9 @@ pub fn glob_in_string_comparison(checker: &mut Checker) {
         .filter_map(|fact| fact.conditional())
         .flat_map(|conditional| conditional.nodes())
         .filter_map(|node| match node {
-            ConditionalNodeFact::Binary(binary) if conditional_string_match_op(binary.op()) => {
+            ConditionalNodeFact::Binary(binary)
+                if conditional_binary_op_is_string_match(binary.op()) =>
+            {
                 Some(binary)
             }
             ConditionalNodeFact::BareWord(_)
@@ -37,41 +40,11 @@ pub fn glob_in_string_comparison(checker: &mut Checker) {
             }
 
             let word = right.word()?;
-            standalone_variable_like_word(word).then_some(word.span)
+            word_is_standalone_variable_like(word).then_some(word.span)
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || GlobInStringComparison);
-}
-
-fn conditional_string_match_op(op: ConditionalBinaryOp) -> bool {
-    matches!(
-        op,
-        ConditionalBinaryOp::PatternEqShort
-            | ConditionalBinaryOp::PatternEq
-            | ConditionalBinaryOp::PatternNe
-    )
-}
-
-fn standalone_variable_like_word(word: &Word) -> bool {
-    match word.parts.as_slice() {
-        [part] => matches!(
-            part.kind,
-            WordPart::Variable(_)
-                | WordPart::Parameter(_)
-                | WordPart::ParameterExpansion { .. }
-                | WordPart::Length(_)
-                | WordPart::ArrayAccess(_)
-                | WordPart::ArrayLength(_)
-                | WordPart::ArrayIndices(_)
-                | WordPart::Substring { .. }
-                | WordPart::ArraySlice { .. }
-                | WordPart::IndirectExpansion { .. }
-                | WordPart::PrefixMatch { .. }
-                | WordPart::Transformation { .. }
-        ),
-        _ => false,
-    }
 }
 
 #[cfg(test)]

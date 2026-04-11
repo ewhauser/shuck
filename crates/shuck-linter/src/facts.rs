@@ -1747,6 +1747,7 @@ pub struct LinterFacts<'a> {
     comma_array_assignment_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
+    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
     word_index: FxHashMap<FactSpan, Vec<usize>>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
@@ -1880,6 +1881,11 @@ impl<'a> LinterFacts<'a> {
 
     pub fn word_facts(&self) -> &[WordFact<'a>] {
         &self.words
+    }
+
+    pub fn is_compound_assignment_value_word(&self, fact: &WordFact<'_>) -> bool {
+        self.compound_assignment_value_word_spans
+            .contains(&fact.key())
     }
 
     pub fn expansion_word_facts(
@@ -2177,6 +2183,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut words = Vec::new();
+        let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
@@ -2213,6 +2220,8 @@ impl<'a> LinterFactsBuilder<'a> {
             }
             let collected_words =
                 build_word_facts_for_command(visit, self.source, id, nested_word_command);
+            compound_assignment_value_word_spans
+                .extend(collected_words.compound_assignment_value_word_spans);
             words.extend(collected_words.facts);
             pattern_literal_spans.extend(collected_words.pattern_literal_spans);
             pattern_charclass_spans.extend(collected_words.pattern_charclass_spans);
@@ -2362,6 +2371,7 @@ impl<'a> LinterFactsBuilder<'a> {
             comma_array_assignment_spans,
             presence_tested_names,
             subscript_index_reference_spans,
+            compound_assignment_value_word_spans,
             words,
             word_index,
             function_headers,
@@ -4821,6 +4831,7 @@ fn build_word_facts_for_command<'a>(
 
 struct CollectedWordFacts<'a> {
     facts: Vec<WordFact<'a>>,
+    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -4832,6 +4843,7 @@ struct WordFactCollector<'a> {
     nested_word_command: bool,
     facts: Vec<WordFact<'a>>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
+    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -4845,6 +4857,7 @@ impl<'a> WordFactCollector<'a> {
             nested_word_command,
             facts: Vec::new(),
             seen: FxHashSet::default(),
+            compound_assignment_value_word_spans: FxHashSet::default(),
             pattern_literal_spans: Vec::new(),
             pattern_charclass_spans: Vec::new(),
             arithmetic: ArithmeticFactSummary::default(),
@@ -4854,6 +4867,7 @@ impl<'a> WordFactCollector<'a> {
     fn finish(self) -> CollectedWordFacts<'a> {
         CollectedWordFacts {
             facts: self.facts,
+            compound_assignment_value_word_spans: self.compound_assignment_value_word_spans,
             pattern_literal_spans: self.pattern_literal_spans,
             pattern_charclass_spans: self.pattern_charclass_spans,
             arithmetic: self.arithmetic,
@@ -5163,6 +5177,8 @@ impl<'a> WordFactCollector<'a> {
                 for element in &array.elements {
                     match element {
                         ArrayElem::Sequential(word) => {
+                            self.compound_assignment_value_word_spans
+                                .insert(FactSpan::new(word.span));
                             self.push_word(word, context, WordFactHostKind::Direct);
                         }
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
@@ -5173,6 +5189,8 @@ impl<'a> WordFactCollector<'a> {
                                     WordFactHostKind::ArrayKeySubscript,
                                 );
                             });
+                            self.compound_assignment_value_word_spans
+                                .insert(FactSpan::new(value.span));
                             self.push_word(value, context, WordFactHostKind::Direct);
                         }
                     }

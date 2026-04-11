@@ -1,4 +1,6 @@
-use shuck_ast::{ConditionalExpr, Pattern, PatternPart, Word, WordPart, WordPartNode};
+use shuck_ast::{
+    ConditionalBinaryOp, ConditionalExpr, Pattern, PatternPart, Word, WordPart, WordPartNode,
+};
 
 pub use super::expansion::{
     ExpansionContext, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
@@ -59,6 +61,36 @@ impl TestOperandClass {
 pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+}
+
+pub fn conditional_binary_op_is_string_match(op: ConditionalBinaryOp) -> bool {
+    matches!(
+        op,
+        ConditionalBinaryOp::PatternEqShort
+            | ConditionalBinaryOp::PatternEq
+            | ConditionalBinaryOp::PatternNe
+    )
+}
+
+pub fn word_is_standalone_variable_like(word: &Word) -> bool {
+    match word.parts.as_slice() {
+        [part] => matches!(
+            part.kind,
+            WordPart::Variable(_)
+                | WordPart::Parameter(_)
+                | WordPart::ParameterExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::Transformation { .. }
+        ),
+        _ => false,
+    }
 }
 
 pub(crate) fn classify_word(word: &Word, source: &str) -> WordClassification {
