@@ -4752,6 +4752,24 @@ print *
     }
 
     #[test]
+    fn zsh_option_analysis_applies_top_level_local_options_to_function_leaks() {
+        let source = "\
+setopt localoptions
+fn() {
+  setopt no_glob
+}
+fn
+print *
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.glob, OptionValue::On);
+    }
+
+    #[test]
     fn zsh_option_analysis_leaks_function_option_updates_by_default() {
         let source = "\
 fn() {
@@ -4819,5 +4837,21 @@ fn
             .expect("expected merged function zsh options");
 
         assert_eq!(options.sh_word_split, OptionValue::Unknown);
+    }
+
+    #[test]
+    fn zsh_option_analysis_tracks_wrapped_option_builtins() {
+        let source = "\
+command setopt no_glob
+builtin unsetopt short_loops
+print *
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh option effects");
+
+        assert_eq!(options.glob, OptionValue::Off);
+        assert_eq!(options.short_loops, OptionValue::Off);
     }
 }

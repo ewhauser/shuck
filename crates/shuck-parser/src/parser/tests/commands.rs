@@ -3193,6 +3193,44 @@ fn test_parse_zsh_wrapped_unsetopt_short_repeat_demotes_repeat_to_simple_command
 }
 
 #[test]
+fn test_parse_zsh_function_subshell_body_does_not_leak_short_repeat_prescan() {
+    let source = "f() ( unsetopt short_repeat )\nrepeat 2 echo global\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&output.body[0]);
+    let (compound, _) = expect_compound(function.body.as_ref());
+    assert!(matches!(compound, AstCompoundCommand::Subshell(_)));
+
+    let (compound, _) = expect_compound(&output.body[1]);
+    let AstCompoundCommand::Repeat(command) = compound else {
+        panic!("expected top-level repeat command");
+    };
+    assert_eq!(command.count.render(source), "2");
+}
+
+#[test]
+fn test_parse_zsh_function_if_body_does_not_leak_short_repeat_prescan() {
+    let source = "f() if true; then unsetopt short_repeat; fi\nrepeat 2 echo global\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&output.body[0]);
+    let (compound, _) = expect_compound(function.body.as_ref());
+    assert!(matches!(compound, AstCompoundCommand::If(_)));
+
+    let (compound, _) = expect_compound(&output.body[1]);
+    let AstCompoundCommand::Repeat(command) = compound else {
+        panic!("expected top-level repeat command");
+    };
+    assert_eq!(command.count.render(source), "2");
+}
+
+#[test]
 fn test_parse_zsh_midfile_unsetopt_short_loops_rejects_foreach_loop() {
     Parser::with_dialect("foreach x (a b c) { echo $x; }\n", ShellDialect::Zsh)
         .parse()

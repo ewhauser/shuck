@@ -602,17 +602,16 @@ impl<'a> Analyzer<'a> {
         state: &mut EvalState,
         leak: LeakBehavior,
         update: &RecordedZshOptionUpdate,
-        in_function: bool,
+        _in_function: bool,
     ) {
         match update {
-            RecordedZshOptionUpdate::LocalOptions { enable } if in_function => {
+            RecordedZshOptionUpdate::LocalOptions { enable } => {
                 state.current.local_options = if *enable {
                     OptionValue::On
                 } else {
                     OptionValue::Off
                 };
             }
-            RecordedZshOptionUpdate::LocalOptions { .. } => {}
             RecordedZshOptionUpdate::Named { name, enable } => {
                 let Some(field) = field_for_option_name(name) else {
                     return;

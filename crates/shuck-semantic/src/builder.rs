@@ -2831,35 +2831,35 @@ fn recorded_simple_command_info(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let mut name_index = 0usize;
     let mut static_callee = static_word_text(&command.name, source);
 
     if static_callee.as_deref() == Some("noglob") {
-        name_index = 1;
-        static_callee = words
-            .get(name_index)
-            .and_then(|word| static_word_text(word, source));
+        static_callee = words.get(1).and_then(|word| static_word_text(word, source));
     }
 
     let mut info = RecordedCommandInfo {
         static_callee,
         zsh_effects: Vec::new(),
     };
-    let args = words.get(name_index + 1..).unwrap_or(&[]);
+    let Some((effect_callee, effect_index)) = normalize_recorded_zsh_effect_command(&words, source)
+    else {
+        return info;
+    };
+    let args = words.get(effect_index + 1..).unwrap_or(&[]);
 
-    match info.static_callee.as_deref() {
-        Some("emulate") => info.zsh_effects = parse_emulate_effects(args, source),
-        Some("setopt") => {
+    match effect_callee.as_str() {
+        "emulate" => info.zsh_effects = parse_emulate_effects(args, source),
+        "setopt" => {
             info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
                 updates: parse_setopt_updates(args, source, true),
             }];
         }
-        Some("unsetopt") => {
+        "unsetopt" => {
             info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
                 updates: parse_setopt_updates(args, source, false),
             }];
         }
-        Some("set") => {
+        "set" => {
             let updates = parse_set_builtin_option_updates(args, source);
             if !updates.is_empty() {
                 info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions { updates }];
@@ -2873,6 +2873,87 @@ fn recorded_simple_command_info(
         RecordedZshCommandEffect::SetOptions { updates } => !updates.is_empty(),
     });
     info
+}
+
+fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Option<(String, usize)> {
+    let mut index = 0usize;
+
+    while let Some(word) = words.get(index) {
+        let text = static_word_text(word, source)?;
+        if is_recorded_assignment_word(&text) {
+            index += 1;
+            continue;
+        }
+
+        match text.as_str() {
+            "noglob" => {
+                index += 1;
+                continue;
+            }
+            "command" | "builtin" => {
+                index = skip_recorded_wrapper_options(words, source, index + 1);
+                continue;
+            }
+            "exec" => {
+                index = skip_recorded_exec_wrapper_options(words, source, index + 1);
+                continue;
+            }
+            _ => return Some((text, index)),
+        }
+    }
+
+    None
+}
+
+fn skip_recorded_wrapper_options(words: &[&Word], source: &str, mut index: usize) -> usize {
+    while let Some(word) = words.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if text.starts_with('-') && text != "-" {
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    index
+}
+
+fn skip_recorded_exec_wrapper_options(words: &[&Word], source: &str, mut index: usize) -> usize {
+    while let Some(word) = words.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if text == "-a" {
+            index = (index + 2).min(words.len());
+            continue;
+        }
+        if text.starts_with('-') && text != "-" {
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    index
+}
+
+fn is_recorded_assignment_word(word: &str) -> bool {
+    let Some((name, _value)) = word.split_once('=') else {
+        return false;
+    };
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommandEffect> {

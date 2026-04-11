@@ -610,6 +610,71 @@ enum PrescanSeparator {
 struct PrescanLocalScope {
     saved_state: ZshOptionState,
     brace_depth: usize,
+    paren_depth: usize,
+    compounds: Vec<PrescanCompound>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrescanCompound {
+    If,
+    Loop,
+    Case,
+}
+
+impl PrescanLocalScope {
+    fn simple(saved_state: ZshOptionState) -> Self {
+        Self {
+            saved_state,
+            brace_depth: 0,
+            paren_depth: 0,
+            compounds: Vec::new(),
+        }
+    }
+
+    fn brace_group(saved_state: ZshOptionState) -> Self {
+        Self {
+            brace_depth: 1,
+            ..Self::simple(saved_state)
+        }
+    }
+
+    fn subshell(saved_state: ZshOptionState) -> Self {
+        Self {
+            paren_depth: 1,
+            ..Self::simple(saved_state)
+        }
+    }
+
+    fn update_for_command(&mut self, words: &[String]) {
+        let Some(command) = words.first().map(String::as_str) else {
+            return;
+        };
+
+        match command {
+            "if" => self.compounds.push(PrescanCompound::If),
+            "case" => self.compounds.push(PrescanCompound::Case),
+            "for" | "select" | "while" | "until" => {
+                self.compounds.push(PrescanCompound::Loop);
+            }
+            "repeat" if words.iter().any(|word| word == "do") => {
+                self.compounds.push(PrescanCompound::Loop);
+            }
+            "fi" => self.pop_compound(PrescanCompound::If),
+            "done" => self.pop_compound(PrescanCompound::Loop),
+            "esac" => self.pop_compound(PrescanCompound::Case),
+            _ => {}
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        self.brace_depth == 0 && self.paren_depth == 0 && self.compounds.is_empty()
+    }
+
+    fn pop_compound(&mut self, compound: PrescanCompound) {
+        if self.compounds.last().copied() == Some(compound) {
+            self.compounds.pop();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -642,6 +707,10 @@ impl<'a> ZshOptionPrescanner<'a> {
         while let Some(token) = self.next_token() {
             match token {
                 PrescanToken::Word { text, end } => {
+                    if is_prescan_function_body_start(function_header) {
+                        local_scopes.push(PrescanLocalScope::simple(self.state.clone()));
+                        function_header = PrescanFunctionHeaderState::None;
+                    }
                     command_end = end;
                     function_header = match function_header {
                         PrescanFunctionHeaderState::None => {
@@ -660,6 +729,15 @@ impl<'a> ZshOptionPrescanner<'a> {
                 }
                 PrescanToken::Separator { kind, start, end } => {
                     self.finish_command(&words, command_end.max(start));
+                    if let Some(scope) = local_scopes.last_mut() {
+                        scope.update_for_command(&words);
+                    }
+                    if matches!(
+                        kind,
+                        PrescanSeparator::Newline | PrescanSeparator::Semicolon
+                    ) {
+                        self.restore_completed_local_scopes(&mut local_scopes, end);
+                    }
                     words.clear();
                     command_end = end;
 
@@ -679,15 +757,23 @@ impl<'a> ZshOptionPrescanner<'a> {
                             function_header = PrescanFunctionHeaderState::None;
                         }
                         PrescanSeparator::OpenParen => {
-                            function_header = match function_header {
-                                PrescanFunctionHeaderState::AfterWord => {
-                                    PrescanFunctionHeaderState::AfterWordOpenParen
+                            if is_prescan_function_body_start(function_header) {
+                                local_scopes.push(PrescanLocalScope::subshell(self.state.clone()));
+                                function_header = PrescanFunctionHeaderState::None;
+                            } else {
+                                function_header = match function_header {
+                                    PrescanFunctionHeaderState::AfterWord => {
+                                        PrescanFunctionHeaderState::AfterWordOpenParen
+                                    }
+                                    PrescanFunctionHeaderState::AfterFunctionName => {
+                                        PrescanFunctionHeaderState::AfterFunctionNameOpenParen
+                                    }
+                                    _ => PrescanFunctionHeaderState::None,
+                                };
+                                if let Some(scope) = local_scopes.last_mut() {
+                                    scope.paren_depth += 1;
                                 }
-                                PrescanFunctionHeaderState::AfterFunctionName => {
-                                    PrescanFunctionHeaderState::AfterFunctionNameOpenParen
-                                }
-                                _ => PrescanFunctionHeaderState::None,
-                            };
+                            }
                         }
                         PrescanSeparator::CloseParen => {
                             function_header = match function_header {
@@ -697,38 +783,29 @@ impl<'a> ZshOptionPrescanner<'a> {
                                 }
                                 _ => PrescanFunctionHeaderState::None,
                             };
+                            if let Some(scope) = local_scopes.last_mut()
+                                && scope.paren_depth > 0
+                            {
+                                scope.paren_depth -= 1;
+                            }
+                            self.restore_completed_local_scopes(&mut local_scopes, end);
                         }
                         PrescanSeparator::OpenBrace => {
-                            if matches!(
-                                function_header,
-                                PrescanFunctionHeaderState::AfterFunctionName
-                                    | PrescanFunctionHeaderState::ReadyForBrace
-                            ) {
-                                local_scopes.push(PrescanLocalScope {
-                                    saved_state: self.state.clone(),
-                                    brace_depth: 1,
-                                });
+                            if is_prescan_function_body_start(function_header) {
+                                local_scopes
+                                    .push(PrescanLocalScope::brace_group(self.state.clone()));
                             } else if let Some(scope) = local_scopes.last_mut() {
                                 scope.brace_depth += 1;
                             }
                             function_header = PrescanFunctionHeaderState::None;
                         }
                         PrescanSeparator::CloseBrace => {
-                            if let Some(scope) = local_scopes.last_mut() {
+                            if let Some(scope) = local_scopes.last_mut()
+                                && scope.brace_depth > 0
+                            {
                                 scope.brace_depth -= 1;
-                                if scope.brace_depth == 0 {
-                                    let scope = local_scopes.pop().expect("scope just matched");
-                                    if self.state != scope.saved_state {
-                                        self.state = scope.saved_state.clone();
-                                        self.entries.push(ZshOptionTimelineEntry {
-                                            offset: end,
-                                            state: scope.saved_state,
-                                        });
-                                    } else {
-                                        self.state = scope.saved_state;
-                                    }
-                                }
                             }
+                            self.restore_completed_local_scopes(&mut local_scopes, end);
                             function_header = PrescanFunctionHeaderState::None;
                         }
                     }
@@ -737,6 +814,10 @@ impl<'a> ZshOptionPrescanner<'a> {
         }
 
         self.finish_command(&words, command_end.max(self.input.len()));
+        if let Some(scope) = local_scopes.last_mut() {
+            scope.update_for_command(&words);
+        }
+        self.restore_completed_local_scopes(&mut local_scopes, self.input.len());
         self.entries
     }
 
@@ -912,10 +993,39 @@ impl<'a> ZshOptionPrescanner<'a> {
         self.offset += ch.len_utf8();
         Some(ch)
     }
+
+    fn restore_completed_local_scopes(
+        &mut self,
+        local_scopes: &mut Vec<PrescanLocalScope>,
+        offset: usize,
+    ) {
+        while local_scopes
+            .last()
+            .is_some_and(PrescanLocalScope::is_complete)
+        {
+            let scope = local_scopes.pop().expect("scope just matched");
+            if self.state != scope.saved_state {
+                self.state = scope.saved_state.clone();
+                self.entries.push(ZshOptionTimelineEntry {
+                    offset,
+                    state: scope.saved_state,
+                });
+            } else {
+                self.state = scope.saved_state;
+            }
+        }
+    }
 }
 
 fn is_prescan_separator(ch: char) -> bool {
     matches!(ch, '\n' | ';' | '|' | '&' | '(' | ')' | '{' | '}')
+}
+
+fn is_prescan_function_body_start(state: PrescanFunctionHeaderState) -> bool {
+    matches!(
+        state,
+        PrescanFunctionHeaderState::AfterFunctionName | PrescanFunctionHeaderState::ReadyForBrace
+    )
 }
 
 fn apply_prescan_command_effects(words: &[String], state: &mut ZshOptionState) -> bool {
