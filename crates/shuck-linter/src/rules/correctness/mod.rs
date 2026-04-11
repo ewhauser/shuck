@@ -71,6 +71,7 @@ pub mod pipe_to_kill;
 pub mod plus_prefix_in_assignment;
 pub mod positional_param_as_operator;
 pub mod positional_ten_braces;
+pub mod quoted_array_slice;
 pub mod quoted_bash_regex;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
@@ -177,6 +178,7 @@ mod tests {
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
+    #[test_case(Rule::QuotedArraySlice, Path::new("C099.sh"))]
     #[test_case(Rule::IfsSetToLiteralBackslashN, Path::new("C101.sh"))]
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]

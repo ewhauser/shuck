@@ -315,6 +315,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SetFlagsWithoutDashes) {
             rules::correctness::set_flags_without_dashes::set_flags_without_dashes(self);
         }
+        if self.is_rule_enabled(Rule::QuotedArraySlice) {
+            rules::correctness::quoted_array_slice::quoted_array_slice(self);
+        }
         if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
             rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
         }

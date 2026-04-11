@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C099 quoted array-slice expansions collapse into one string value
+ --> <source>:6:8
+  |
+6 | params="${@:5}"
+  |
+
+C099 quoted array-slice expansions collapse into one string value
+ --> <source>:7:8
+  |
+7 | joined="prefix${@:2}suffix"
+  |
+
+C099 quoted array-slice expansions collapse into one string value
+ --> <source>:8:18
+  |
+8 | declare declared="${arr[@]:1}"
+  |
+
+C099 quoted array-slice expansions collapse into one string value
+ --> <source>:9:17
+  |
+9 | readonly packed="${arr[@]:1:2}"
+  |
+
+C099 quoted array-slice expansions collapse into one string value
+  --> <source>:12:16
+   |
+12 |   local nested="${@:3}"
+   |

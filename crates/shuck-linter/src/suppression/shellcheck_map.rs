@@ -137,6 +137,9 @@ impl Default for ShellCheckCodeMap {
             (2143, Rule::GrepOutputInTest),
             (2198, Rule::AtSignInStringCompare),
             (2199, Rule::AtSignInStringCompare),
+            // ShellCheck 0.11.0 reports quoted array-to-scalar assignments as SC2124.
+            // Keep SC2325 as a suppression alias for the authored C099 rule code.
+            (2124, Rule::QuotedArraySlice),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
@@ -509,6 +512,7 @@ impl Default for ShellCheckCodeMap {
                     (2143, Rule::GrepOutputInTest),
                     (2198, Rule::AtSignInStringCompare),
                     (2199, Rule::AtSignInStringCompare),
+                    (2124, Rule::QuotedArraySlice),
                     (2294, Rule::LsInSubstitution),
                     (2291, Rule::UnquotedVariableInSed),
                     (2060, Rule::UnquotedTrClass),
@@ -772,6 +776,8 @@ mod tests {
         assert_eq!(map.resolve("SC2198"), Some(Rule::AtSignInStringCompare));
         assert_eq!(map.resolve("SC2199"), Some(Rule::AtSignInStringCompare));
         assert_eq!(map.resolve("SC2344"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(map.resolve("SC2124"), Some(Rule::QuotedArraySlice));
+        assert_eq!(map.resolve("SC2325"), Some(Rule::QuotedArraySlice));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -835,6 +841,8 @@ mod tests {
         assert_eq!(map.resolve_all("SC2198"), vec![Rule::AtSignInStringCompare]);
         assert_eq!(map.resolve_all("SC2199"), vec![Rule::AtSignInStringCompare]);
         assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
+        assert_eq!(map.resolve_all("SC2124"), vec![Rule::QuotedArraySlice]);
+        assert_eq!(map.resolve_all("SC2325"), vec![Rule::QuotedArraySlice]);
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
@@ -1358,10 +1366,11 @@ mod tests {
             (2184, Rule::UnsetAssociativeArrayElement),
             (2178, Rule::ArrayToStringConversion),
             (2322, Rule::SuWithoutFlag),
-            (2340, Rule::DeprecatedTempfileCommand),
-            (2342, Rule::EgrepDeprecated),
-            (2344, Rule::AtSignInStringCompare),
-            (2328, Rule::CommandSubstitutionInAlias),
+                (2340, Rule::DeprecatedTempfileCommand),
+                (2342, Rule::EgrepDeprecated),
+                (2344, Rule::AtSignInStringCompare),
+                (2325, Rule::QuotedArraySlice),
+                (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
             (2298, Rule::UnquotedTrRange),
             (2258, Rule::BareRead),
@@ -1680,6 +1689,8 @@ mod tests {
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
         assert!(comparison.contains(&(2198, Rule::AtSignInStringCompare)));
         assert!(comparison.contains(&(2199, Rule::AtSignInStringCompare)));
+        assert!(comparison.contains(&(2124, Rule::QuotedArraySlice)));
+        assert!(!comparison.contains(&(2325, Rule::QuotedArraySlice)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2066, Rule::QuotedDollarStarLoop)));
