@@ -124,6 +124,37 @@ jobs:
       - name: "Run tests"
         run: cargo test --workspace --all-features
 
+  fuzz-smoke:
+    name: "fuzz smoke"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: "Install nightly toolchain"
+        run: rustup toolchain install nightly --profile minimal
+      - name: "Install cargo-fuzz"
+        run: cargo fuzz --help >/dev/null 2>&1 || cargo install cargo-fuzz --locked
+      - name: "Run cargo-fuzz smoke targets"
+        run: make fuzz-smoke
+      - name: "Build shuck"
+        run: cargo build -p shuck
+      - name: "Run CLI fuzzer smoke (sh)"
+        run: python3 ./scripts/fuzz_cli.py --shuck-bin ./target/debug/shuck --dialect sh --profile smoke --count 25 --seed 0 --workers 1
+      - name: "Run CLI fuzzer smoke (bash)"
+        run: python3 ./scripts/fuzz_cli.py --shuck-bin ./target/debug/shuck --dialect bash --profile smoke --count 25 --seed 25 --workers 1
+      - name: "Upload fuzz artifacts"
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: fuzz-smoke-artifacts
+          if-no-files-found: ignore
+          path: fuzz/artifacts
+
   large-corpus:
     name: "large corpus"
     runs-on: ubuntu-latest
@@ -175,4 +206,3 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "This job is non-blocking for now, so corpus mismatches do not fail CI." >> "$GITHUB_STEP_SUMMARY"
           fi
-

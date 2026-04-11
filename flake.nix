@@ -16,8 +16,10 @@
           packages = [
             pkgs.hyperfine
             pkgs.samply
+            pkgs.python3
             pkgs.shellcheck
             pkgs.shfmt
+            pkgs.cargo-fuzz
             pkgs.cargo-udeps
             pkgs.yq
           ];

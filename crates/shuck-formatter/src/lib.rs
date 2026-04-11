@@ -1403,4 +1403,22 @@ print hidden &!
             assert_idempotent(source, Some(Path::new(filename)), &options);
         }
     }
+
+    #[test]
+    fn preserves_group_spacing_idempotently_for_nested_subshells() {
+        assert_idempotent(
+            "foo(foo()) \n",
+            Some(Path::new("nested_subshell_spacing.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn preserves_legacy_bracket_arithmetic_idempotently() {
+        assert_idempotent(
+            "#!/bin/sh\n\ni=$[$i+1]\n",
+            Some(Path::new("legacy_bracket_arithmetic.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
 }

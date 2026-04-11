@@ -17,7 +17,7 @@ use crate::command::{
     binary_operator, case_terminator, command_format_span, line_gap_break_count,
     multiline_compound_assignment_lines, render_assignment_head_to_buf,
     render_assignment_with_facts_to_buf, render_background_operator, render_var_ref_to_buf,
-    slice_span, stmt_span, stmt_verbatim_span,
+    slice_span, stmt_render_start_line, stmt_span, stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
@@ -592,7 +592,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         for (index, stmt) in statements.iter().enumerate() {
             if let Some(attachment) = attachments.as_ref() {
-                let next_line = self.facts().stmt(stmt).attachment_span().start.line;
+                let next_line =
+                    stmt_render_start_line(stmt, self.source(), self.source_map(), self.options());
                 self.emit_leading_comments(attachment.leading_for(index), next_line);
             }
 
@@ -609,13 +610,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                         let next_start = attachments
                             .as_ref()
                             .map(|attachment| attachment.first_rendered_line_for(index + 1))
-                            .unwrap_or(
-                                self.facts()
-                                    .stmt(&statements[index + 1])
-                                    .attachment_span()
-                                    .start
-                                    .line,
-                            );
+                            .unwrap_or(stmt_render_start_line(
+                                &statements[index + 1],
+                                self.source(),
+                                self.source_map(),
+                                self.options(),
+                            ));
                         self.write_line_breaks(line_gap_break_count(current_end, next_start));
                     } else {
                         self.write_space();
@@ -627,13 +627,12 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     let next_start = attachments
                         .as_ref()
                         .map(|attachment| attachment.first_rendered_line_for(index + 1))
-                        .unwrap_or(
-                            self.facts()
-                                .stmt(&statements[index + 1])
-                                .attachment_span()
-                                .start
-                                .line,
-                        );
+                        .unwrap_or(stmt_render_start_line(
+                            &statements[index + 1],
+                            self.source(),
+                            self.source_map(),
+                            self.options(),
+                        ));
                     self.write_line_breaks(line_gap_break_count(current_end, next_start));
                 }
             }

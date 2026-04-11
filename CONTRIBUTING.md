@@ -77,6 +77,98 @@ make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001
 make test-large-corpus SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
 ```
 
+## Fuzzing
+
+Shuck keeps fuzzing under the repo-root `fuzz/` workspace, with helper scripts under `scripts/`.
+
+Initialize the fuzz toolchain, generated corpora, and artifact directories with:
+
+```bash
+bash ./scripts/fuzz-init.sh
+```
+
+For CI or non-interactive setup:
+
+```bash
+bash ./scripts/fuzz-init.sh --ci
+```
+
+The setup script seeds repository-owned fixtures into two generated corpora:
+
+- `fuzz/corpus/common` for parser, recovered-parser, arithmetic, glob, and linter targets
+- `fuzz/corpus/formatter` for formatter targets, seeded from formatter-owned stable fixtures
+
+Seed sources:
+
+- `crates/shuck-linter/resources/test/fixtures`
+- `crates/shuck-formatter/tests/oracle-fixtures`
+- `crates/shuck-benchmark/resources/files`
+- `scripts`
+
+If `rustup` is not installed yet, the setup script bootstraps it so fuzzing can use nightly
+without changing the repo's default stable toolchain.
+
+List fuzz targets:
+
+```bash
+make fuzz-list
+```
+
+Blocking smoke coverage:
+
+```bash
+make fuzz-smoke
+```
+
+`make fuzz-smoke` is intentionally deterministic. It runs each PR-blocking fuzz target with
+`-runs=1` to verify toolchain setup, corpus wiring, and harness startup. Longer mutation-heavy
+fuzzing belongs in the scheduled GitHub Actions workflow or in manual local runs.
+
+Run one target with a longer budget:
+
+```bash
+make fuzz-run FUZZ_TARGET=formatter_consistency_fuzz FUZZ_ARGS='-max_total_time=60'
+```
+
+Available `cargo-fuzz` targets:
+
+- `parser_fuzz`
+- `lexer_fuzz`
+- `arithmetic_fuzz`
+- `glob_fuzz`
+- `recovered_parser_fuzz`
+- `formatter_consistency_fuzz`
+- `formatter_validity_fuzz`
+- `linter_no_panic_fuzz`
+
+Run the CLI generator-driven fuzzer:
+
+```bash
+make fuzz-cli FUZZ_CLI_ARGS='--dialect bash --profile full --count 50 --seed 100'
+```
+
+Useful CLI fuzzer flags:
+
+- `--dialect {sh,bash}`
+- `--profile {smoke,full}`
+- `--count N`
+- `--seed N`
+- `--workers N`
+- `--artifact-dir PATH`
+- `--timeout SECONDS`
+
+The blocking PR smoke job uses the conservative `smoke` profile. The scheduled fuzz workflow uses
+the broader `full` profile.
+
+To minimize a `cargo-fuzz` crash:
+
+```bash
+cd fuzz
+cargo +nightly fuzz tmin parser_fuzz artifacts/parser_fuzz/crash-...
+```
+
+CLI fuzzer failures are minimized automatically and written under `fuzz/artifacts/cli/`.
+
 ## Project Structure
 
 | Crate | Purpose |

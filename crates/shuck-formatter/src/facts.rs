@@ -12,8 +12,8 @@ use crate::ast_format::flatten_comments;
 use crate::command::{
     case_item_was_inline_in_source, group_attachment_span, group_open_suffix,
     group_was_inline_in_source, rendered_stmt_end_line, should_render_verbatim,
-    stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_span,
-    stmt_verbatim_span,
+    stmt_attachment_span, stmt_format_span, stmt_has_trailing_comment, stmt_render_start_line,
+    stmt_span, stmt_verbatim_span,
 };
 use crate::comments::{SourceComment, SourceMap, inspect_sequence_comments_in_window};
 use crate::options::ResolvedShellFormatOptions;
@@ -335,7 +335,12 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
                 facts.first_rendered_lines[index] = facts.leading[index]
                     .first()
                     .map(SourceComment::line)
-                    .unwrap_or(self.facts.stmt(stmt).attachment_span().start.line);
+                    .unwrap_or(stmt_render_start_line(
+                        stmt,
+                        self.source,
+                        self.source_map(),
+                        self.options,
+                    ));
             }
         }
 

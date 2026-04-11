@@ -2582,6 +2582,73 @@ pub(crate) fn stmt_attachment_span(
     }
 }
 
+pub(crate) fn stmt_render_start_line(
+    stmt: &Stmt,
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> usize {
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            group_render_start_line(stmt, commands.as_slice(), source, source_map, '{', options)
+        }
+        Command::Compound(CompoundCommand::Subshell(commands)) => {
+            group_render_start_line(stmt, commands.as_slice(), source, source_map, '(', options)
+        }
+        _ => {
+            stmt_attachment_span(stmt, source, source_map, options)
+                .start
+                .line
+        }
+    }
+}
+
+fn group_render_start_line(
+    stmt: &Stmt,
+    commands: &[Stmt],
+    source: &str,
+    source_map: &crate::comments::SourceMap<'_>,
+    open: char,
+    options: &crate::options::ResolvedShellFormatOptions,
+) -> usize {
+    group_attachment_span(commands, source_map, open, matching_group_close(open))
+        .map(|span| span.start.line)
+        .or_else(|| {
+            find_empty_group_open_offset(source, stmt_span(stmt).start.offset, open)
+                .map(|offset| source_map.line_number_for_offset(offset))
+        })
+        .unwrap_or_else(|| {
+            stmt_attachment_span(stmt, source, source_map, options)
+                .start
+                .line
+        })
+}
+
+fn matching_group_close(open: char) -> char {
+    match open {
+        '{' => '}',
+        '(' => ')',
+        other => other,
+    }
+}
+
+fn find_empty_group_open_offset(
+    source: &str,
+    mut close_offset: usize,
+    open: char,
+) -> Option<usize> {
+    close_offset = close_offset.min(source.len());
+    while close_offset > 0 {
+        let ch = source[..close_offset].chars().next_back()?;
+        close_offset -= ch.len_utf8();
+        if ch.is_whitespace() {
+            continue;
+        }
+        return (ch == open).then_some(close_offset);
+    }
+    None
+}
+
 fn stmt_has_alignment_sensitive_padding(
     stmt: &Stmt,
     source_map: &crate::comments::SourceMap<'_>,
