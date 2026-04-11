@@ -46,9 +46,9 @@ use self::{
 use crate::FileContext;
 use crate::context::ContextRegionKind;
 use crate::rules::common::expansion::{
-    ExpansionAnalysis, ExpansionContext, RedirectTargetAnalysis, SubstitutionOutputIntent,
-    WordExpansionKind, WordLiteralness, WordSubstitutionShape, analyze_literal_runtime,
-    analyze_redirect_target, analyze_word,
+    ExpansionAnalysis, ExpansionContext, RedirectTargetAnalysis, RuntimeLiteralAnalysis,
+    SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordSubstitutionShape,
+    analyze_literal_runtime, analyze_redirect_target, analyze_word,
 };
 use crate::rules::common::span::expansion_part_spans;
 use crate::rules::common::{
@@ -635,6 +635,7 @@ pub struct WordFact<'a> {
     context: WordFactContext,
     host_kind: WordFactHostKind,
     analysis: ExpansionAnalysis,
+    runtime_literal: RuntimeLiteralAnalysis,
     operand_class: Option<TestOperandClass>,
     static_text: Option<Box<str>>,
     has_literal_affixes: bool,
@@ -694,6 +695,10 @@ impl<'a> WordFact<'a> {
 
     pub fn analysis(&self) -> ExpansionAnalysis {
         self.analysis
+    }
+
+    pub fn runtime_literal(&self) -> RuntimeLiteralAnalysis {
+        self.runtime_literal
     }
 
     pub fn classification(&self) -> WordClassification {
@@ -1117,12 +1122,59 @@ impl ListOperatorFact {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListSegmentKind {
+    Condition,
+    AssignmentOnly,
+    Other,
+}
+
+#[derive(Debug, Clone)]
+pub struct ListSegmentFact {
+    command_id: CommandId,
+    span: Span,
+    kind: ListSegmentKind,
+    assignment_target: Option<Box<str>>,
+    assignment_span: Option<Span>,
+}
+
+impl ListSegmentFact {
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> ListSegmentKind {
+        self.kind
+    }
+
+    pub fn assignment_target(&self) -> Option<&str> {
+        self.assignment_target.as_deref()
+    }
+
+    pub fn assignment_span(&self) -> Option<Span> {
+        self.assignment_span
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MixedShortCircuitKind {
+    TestChain,
+    AssignmentTernary,
+    Fallthrough,
+}
+
 #[derive(Debug, Clone)]
 pub struct ListFact<'a> {
     key: FactSpan,
     command: &'a BinaryCommand,
     operators: Box<[ListOperatorFact]>,
+    segments: Box<[ListSegmentFact]>,
     mixed_short_circuit_span: Option<Span>,
+    mixed_short_circuit_kind: Option<MixedShortCircuitKind>,
 }
 
 impl<'a> ListFact<'a> {
@@ -1142,8 +1194,16 @@ impl<'a> ListFact<'a> {
         &self.operators
     }
 
+    pub fn segments(&self) -> &[ListSegmentFact] {
+        &self.segments
+    }
+
     pub fn mixed_short_circuit_span(&self) -> Option<Span> {
         self.mixed_short_circuit_span
+    }
+
+    pub fn mixed_short_circuit_kind(&self) -> Option<MixedShortCircuitKind> {
+        self.mixed_short_circuit_kind
     }
 }
 
@@ -2202,7 +2262,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let case_items = build_case_item_facts(&commands);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
-        let lists = build_list_facts(&commands, &command_ids_by_span);
+        let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let single_test_subshell_spans =
             build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
         let subshell_test_group_spans =
@@ -5300,12 +5360,19 @@ impl<'a> WordFactCollector<'a> {
         self.collect_arithmetic_summary(word_ref, context, host_kind);
 
         let analysis = analyze_word(word_ref, self.source);
+        let runtime_literal = match context {
+            WordFactContext::Expansion(context) => {
+                analyze_literal_runtime(word_ref, self.source, context)
+            }
+            WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
+                RuntimeLiteralAnalysis::default()
+            }
+        };
         let operand_class = match context {
             WordFactContext::Expansion(context) if word_context_supports_operand_class(context) => {
                 Some(
                     if analysis.literalness == WordLiteralness::Expanded
-                        || analyze_literal_runtime(word_ref, self.source, context)
-                            .is_runtime_sensitive()
+                        || runtime_literal.is_runtime_sensitive()
                     {
                         TestOperandClass::RuntimeSensitive
                     } else {
@@ -5350,6 +5417,7 @@ impl<'a> WordFactCollector<'a> {
             context,
             host_kind,
             analysis,
+            runtime_literal,
             operand_class,
         });
     }
@@ -9793,6 +9861,90 @@ true && false || printf '%s\\n' fallback
                     .map(|span| span.slice(source)),
                 Some("&&")
             );
+            assert_eq!(
+                list.mixed_short_circuit_kind(),
+                Some(crate::facts::MixedShortCircuitKind::Fallthrough)
+            );
+            assert_eq!(
+                list.segments()
+                    .iter()
+                    .map(|segment| segment.kind())
+                    .collect::<Vec<_>>(),
+                vec![
+                    crate::facts::ListSegmentKind::Condition,
+                    crate::facts::ListSegmentKind::Condition,
+                    crate::facts::ListSegmentKind::Other,
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn classifies_mixed_short_circuit_lists_by_shape() {
+        let source = "\
+#!/bin/sh
+[ \"$x\" = foo ] && [ \"$x\" = bar ] || [ \"$x\" = baz ]
+[ -n \"$x\" ] && out=foo || out=bar
+[ -n \"$x\" ] || out=foo && out=bar
+[ \"$dir\" = vendor ] && mv go-* \"$dir\" || mv pkg-* \"$dir\"
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(facts.lists().len(), 4);
+            assert_eq!(
+                facts
+                    .lists()
+                    .iter()
+                    .map(|list| list.mixed_short_circuit_kind())
+                    .collect::<Vec<_>>(),
+                vec![
+                    Some(crate::facts::MixedShortCircuitKind::TestChain),
+                    Some(crate::facts::MixedShortCircuitKind::AssignmentTernary),
+                    Some(crate::facts::MixedShortCircuitKind::Fallthrough),
+                    Some(crate::facts::MixedShortCircuitKind::Fallthrough),
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn flagged_declaration_assignments_still_classify_as_assignment_segments() {
+        let source = "\
+#!/bin/bash
+[ -n \"$x\" ] && declare -r out=foo || declare -r out=bar
+true && declare -x flag=1
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(facts.lists().len(), 2);
+
+            let ternary = &facts.lists()[0];
+            assert_eq!(
+                ternary.mixed_short_circuit_kind(),
+                Some(crate::facts::MixedShortCircuitKind::AssignmentTernary)
+            );
+            assert_eq!(
+                ternary
+                    .segments()
+                    .iter()
+                    .map(|segment| segment.assignment_target())
+                    .collect::<Vec<_>>(),
+                vec![None, Some("out"), Some("out")]
+            );
+
+            let shortcut = &facts.lists()[1];
+            assert_eq!(
+                shortcut
+                    .segments()
+                    .iter()
+                    .map(|segment| segment.kind())
+                    .collect::<Vec<_>>(),
+                vec![
+                    crate::facts::ListSegmentKind::Condition,
+                    crate::facts::ListSegmentKind::AssignmentOnly,
+                ]
+            );
+            assert_eq!(shortcut.segments()[1].assignment_target(), Some("flag"));
         });
     }
 

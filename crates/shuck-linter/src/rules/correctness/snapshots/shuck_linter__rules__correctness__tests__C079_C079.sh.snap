@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 999
+---
+C079 mixing `&&` and `||` here can make the fallback depend on the middle command
+ --> <source>:6:21
+  |
+6 | [ "$dir" = vendor ] && mv go-* "$dir" || mv pkg-* "$dir"
+  |
+
+C079 mixing `&&` and `||` here can make the fallback depend on the middle command
+ --> <source>:9:6
+  |
+9 | true && false || printf '%s\n' fallback
+  |

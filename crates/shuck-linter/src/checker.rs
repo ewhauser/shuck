@@ -491,6 +491,12 @@ impl<'a> Checker<'a> {
     }
 
     fn check_loop_list_and_pipeline_facts(&mut self) {
+        if self.is_rule_enabled(Rule::SingleIterationLoop) {
+            rules::style::single_iteration_loop::single_iteration_loop(self);
+        }
+        if self.is_rule_enabled(Rule::ConditionalAssignmentShortcut) {
+            rules::style::conditional_assignment_shortcut::conditional_assignment_shortcut(self);
+        }
         if self.is_rule_enabled(Rule::LoopFromCommandOutput) {
             rules::style::loop_from_command_output::loop_from_command_output(self);
         }
@@ -508,6 +514,12 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::ChainedTestBranches) {
             rules::correctness::chained_test_branches::chained_test_branches(self);
+        }
+        if self.is_rule_enabled(Rule::ShortCircuitFallthrough) {
+            rules::correctness::short_circuit_fallthrough::short_circuit_fallthrough(self);
+        }
+        if self.is_rule_enabled(Rule::DefaultElseInShortCircuit) {
+            rules::correctness::default_else_in_short_circuit::default_else_in_short_circuit(self);
         }
         if self.is_rule_enabled(Rule::LineOrientedInput) {
             rules::correctness::line_oriented_input::line_oriented_input(self);

@@ -1,0 +1,41 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__dnsapi__dns_porkbun.sh"
+    line: 142
+    reason: "This helper uses an assignment-only `&&`/`||` value-selection shortcut while assembling request data. Shuck keeps that authored C115 pattern, but the pinned large-corpus oracle stays silent here, so this site is tracked as a reviewed policy divergence."
+  - side: shuck-only
+    path_suffix: "dehydrated-io__dehydrated__dehydrated"
+    line: 1882
+    reason: "This alias selection uses an assignment-only shortcut to choose between two string forms. Shuck still treats that as the authored C115 ternary pattern, while the current oracle does not, so the mismatch is recorded as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 2345
+    reason: "This platform probe assigns one of two status strings through an assignment-only `&&`/`||` chain. Shuck intentionally keeps warning on that authored C115 shape even though the pinned oracle is silent on this corpus site."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 3557
+    reason: "This binary path selection uses an assignment-only fallback chain. Shuck continues to flag that authored C115 shortcut pattern, while the current oracle build does not report it in the corpus."
+  - side: shuck-only
+    path_suffix: "nvm-sh__nvm__test__install_script__nvm_install_dir"
+    line: 22
+    reason: "This test fixture chooses a fallback directory with an assignment-only short-circuit chain. Shuck preserves the authored C115 policy here, but the pinned oracle remains silent, so the delta is reviewed rather than treated as an implementation bug."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__rvm_pkg"
+    line: 16
+    reason: "This helper picks a read-flag value with an assignment-only `&&`/`||` chain. Shuck intentionally keeps that within C115's authored scope even though the current oracle does not emit a matching comparison signal."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__unknown"
+    line: 73
+    reason: "This flag-selection shortcut is the same assignment-only ternary shape that C115 is authored to catch. The pinned large-corpus oracle stays silent on it, so the difference is documented as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__tools"
+    line: 128
+    reason: "This target-path selection uses an assignment-only fallback chain. Shuck still reports that authored C115 pattern, while the current oracle build does not, so this mismatch is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__properties.sh"
+    line: 837
+    reason: "This rootfs-dependent home-path selection uses an assignment-only short-circuit ternary. Shuck intentionally keeps warning on that C115 shape, but the pinned oracle is silent on this corpus site."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__properties.sh"
+    line: 947
+    reason: "This prefix-path selection uses the same assignment-only `&&`/`||` ternary pattern. Shuck preserves the authored C115 behavior here even though the current oracle does not report it in the corpus."

@@ -150,6 +150,12 @@ declare_rules! {
     ),
     ("C077", Category::Correctness, Severity::Warning, SubshellInArithmetic),
     (
+        "C079",
+        Category::Correctness,
+        Severity::Warning,
+        ShortCircuitFallthrough
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -202,6 +208,12 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         MapfileProcessSubstitution
+    ),
+    (
+        "C115",
+        Category::Correctness,
+        Severity::Warning,
+        DefaultElseInShortCircuit
     ),
     (
         "C116",
@@ -387,6 +399,8 @@ declare_rules! {
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
     ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
+    ("S020", Category::Style, Severity::Warning, SingleIterationLoop),
+    ("S032", Category::Style, Severity::Warning, ConditionalAssignmentShortcut),
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
@@ -510,6 +524,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-295" => Some(Rule::UncheckedDirectoryChangeInFunction),
         "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
         "SH-308" => Some(Rule::VariableAsCommandName),
+        "SH-257" => Some(Rule::DefaultElseInShortCircuit),
         "SH-311" => Some(Rule::ArrayToStringConversion),
         "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-337" => Some(Rule::BrokenAssocKey),
@@ -527,6 +542,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-245" => Some(Rule::DeprecatedTempfileCommand),
         "SH-247" => Some(Rule::EgrepDeprecated),
         "SH-071" => Some(Rule::GrepOutputInTest),
+        "SH-076" => Some(Rule::SingleIterationLoop),
+        "SH-128" => Some(Rule::ConditionalAssignmentShortcut),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
@@ -534,6 +551,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-047" => Some(Rule::SshLocalExpansion),
         "SH-151" => Some(Rule::EvalOnArray),
         "SH-045" => Some(Rule::ChainedTestBranches),
+        "SH-201" => Some(Rule::ShortCircuitFallthrough),
         "SH-046" => Some(Rule::LineOrientedInput),
         "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
@@ -704,6 +722,16 @@ mod tests {
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
         assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
         assert_eq!(code_to_rule("SH-057"), Some(Rule::LsGrepPipeline));
+        assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));
+        assert_eq!(code_to_rule("SH-076"), Some(Rule::SingleIterationLoop));
+        assert_eq!(
+            code_to_rule("S032"),
+            Some(Rule::ConditionalAssignmentShortcut)
+        );
+        assert_eq!(
+            code_to_rule("SH-128"),
+            Some(Rule::ConditionalAssignmentShortcut)
+        );
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));
@@ -772,6 +800,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-044"), Some(Rule::RmGlobOnVariablePath));
         assert_eq!(code_to_rule("SH-047"), Some(Rule::SshLocalExpansion));
         assert_eq!(code_to_rule("SH-045"), Some(Rule::ChainedTestBranches));
+        assert_eq!(code_to_rule("SH-201"), Some(Rule::ShortCircuitFallthrough));
         assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("C113"), Some(Rule::FindOutputLoop));
@@ -941,6 +970,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
+        assert_eq!(
+            code_to_rule("SH-257"),
+            Some(Rule::DefaultElseInShortCircuit)
+        );
         assert_eq!(code_to_rule("C133"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("SH-311"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));

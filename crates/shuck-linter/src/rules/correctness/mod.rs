@@ -23,6 +23,7 @@ pub mod constant_case_subject;
 pub mod constant_comparison_test;
 pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
+pub mod default_else_in_short_circuit;
 pub mod double_paren_grouping;
 pub mod dynamic_source_path;
 pub mod else_if;
@@ -68,6 +69,7 @@ pub mod quoted_bash_regex;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
+pub mod short_circuit_fallthrough;
 pub mod single_quoted_literal;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
@@ -157,6 +159,7 @@ mod tests {
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
+    #[test_case(Rule::ShortCircuitFallthrough, Path::new("C079.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
@@ -166,6 +169,7 @@ mod tests {
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
     #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
+    #[test_case(Rule::DefaultElseInShortCircuit, Path::new("C115.sh"))]
     #[test_case(Rule::AssignmentToNumericVariable, Path::new("C116.sh"))]
     #[test_case(Rule::PlusPrefixInAssignment, Path::new("C117.sh"))]
     #[test_case(Rule::FunctionReferencesUnsetParam, Path::new("C123.sh"))]

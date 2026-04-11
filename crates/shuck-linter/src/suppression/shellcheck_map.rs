@@ -203,11 +203,18 @@ impl Default for ShellCheckCodeMap {
             (2016, Rule::SingleQuotedLiteral),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
+            (2296, Rule::ShortCircuitFallthrough),
             (1019, Rule::EmptyTest),
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),
             (2035, Rule::LeadingGlobArgument),
             (2143, Rule::GrepOutputInTest),
+            // The pinned ShellCheck oracle reports single-item `for ... in ...` loops as SC2043.
+            // Keep SC2165 as a suppression alias for the authored S020 metadata.
+            (2043, Rule::SingleIterationLoop),
+            // The pinned ShellCheck oracle reports conditional-assignment shortcuts as SC2209.
+            // Keep SC2114 as a suppression alias for the authored S032 metadata.
+            (2209, Rule::ConditionalAssignmentShortcut),
             // ShellCheck 0.11.0 reports `find` output-in-loop warnings as SC2044.
             // Keep SC2348 as a suppression alias for historical compatibility.
             (2044, Rule::FindOutputLoop),
@@ -216,6 +223,7 @@ impl Default for ShellCheckCodeMap {
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
+            (2352, Rule::DefaultElseInShortCircuit),
             // The pinned ShellCheck oracle reports `+=` assignment portability findings as SC3024.
             // Keep SC3055/SC3071 as suppression aliases for compatibility with older rule metadata.
             (3024, Rule::PlusEqualsAppend),
@@ -487,10 +495,13 @@ impl Default for ShellCheckCodeMap {
                     (2016, Rule::SingleQuotedLiteral),
                     (2013, Rule::LineOrientedInput),
                     (2015, Rule::ChainedTestBranches),
+                    (2296, Rule::ShortCircuitFallthrough),
                     (1019, Rule::EmptyTest),
                     (2024, Rule::SudoRedirectionOrder),
                     (2034, Rule::UnusedAssignment),
                     (2035, Rule::LeadingGlobArgument),
+                    (2043, Rule::SingleIterationLoop),
+                    (2209, Rule::ConditionalAssignmentShortcut),
                     (2044, Rule::FindOutputLoop),
                     (2348, Rule::FindOutputLoop),
                     (2380, Rule::MisspelledOptionName),
@@ -498,6 +509,7 @@ impl Default for ShellCheckCodeMap {
                     (2046, Rule::UnquotedCommandSubstitution),
                     (2059, Rule::PrintfFormatVariable),
                     (2029, Rule::SshLocalExpansion),
+                    (2352, Rule::DefaultElseInShortCircuit),
                     (3043, Rule::LocalVariableInSh),
                     (3001, Rule::ProcessSubstitution),
                     (3003, Rule::AnsiCQuoting),
@@ -641,6 +653,13 @@ impl Default for ShellCheckCodeMap {
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
+                // The pinned ShellCheck oracle still reports ordinary `A && B || C`
+                // fallthrough chains as SC2015. Keep that older code as a
+                // compatibility alias so targeted large-corpus validation can
+                // compare C079 against the actual oracle output.
+                (2015, Rule::ShortCircuitFallthrough),
+                (2114, Rule::ConditionalAssignmentShortcut),
+                (2165, Rule::SingleIterationLoop),
                 (2322, Rule::SuWithoutFlag),
                 (2340, Rule::DeprecatedTempfileCommand),
                 (2342, Rule::EgrepDeprecated),
@@ -875,10 +894,20 @@ mod tests {
         assert_eq!(map.resolve("SC2016"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(map.resolve("SC2013"), Some(Rule::LineOrientedInput));
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
+        assert_eq!(
+            map.resolve_all("SC2015"),
+            vec![Rule::ChainedTestBranches, Rule::ShortCircuitFallthrough]
+        );
+        assert_eq!(map.resolve("SC2296"), Some(Rule::ShortCircuitFallthrough));
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC1045"), Some(Rule::AmpersandSemicolon));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
+        assert_eq!(map.resolve("SC2043"), Some(Rule::SingleIterationLoop));
+        assert_eq!(
+            map.resolve("SC2209"),
+            Some(Rule::ConditionalAssignmentShortcut)
+        );
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
         assert_eq!(map.resolve("SC2348"), Some(Rule::FindOutputLoop));
         assert_eq!(map.resolve("SC2380"), Some(Rule::MisspelledOptionName));
@@ -888,6 +917,12 @@ mod tests {
             Some(Rule::UnquotedCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
+        assert_eq!(
+            map.resolve("SC2114"),
+            Some(Rule::ConditionalAssignmentShortcut)
+        );
+        assert_eq!(map.resolve("SC2165"), Some(Rule::SingleIterationLoop));
+        assert_eq!(map.resolve("SC2352"), Some(Rule::DefaultElseInShortCircuit));
         assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
@@ -1206,11 +1241,14 @@ mod tests {
             (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
+            (2015, Rule::ShortCircuitFallthrough),
+            (2296, Rule::ShortCircuitFallthrough),
             (2016, Rule::SingleQuotedLiteral),
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),
             (2035, Rule::LeadingGlobArgument),
             (2038, Rule::FindOutputToXargs),
+            (2043, Rule::SingleIterationLoop),
             (2044, Rule::FindOutputLoop),
             (2348, Rule::FindOutputLoop),
             (2380, Rule::MisspelledOptionName),
@@ -1218,6 +1256,8 @@ mod tests {
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
+            (2209, Rule::ConditionalAssignmentShortcut),
+            (2352, Rule::DefaultElseInShortCircuit),
             (2064, Rule::TrapStringExpansion),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
@@ -1225,7 +1265,9 @@ mod tests {
             (2089, Rule::AppendWithEscapedQuotes),
             (2086, Rule::UnquotedExpansion),
             (2146, Rule::FindOrWithoutGrouping),
+            (2114, Rule::ConditionalAssignmentShortcut),
             (2121, Rule::SetFlagsWithoutDashes),
+            (2165, Rule::SingleIterationLoop),
             (2399, Rule::BrokenAssocKey),
             (2054, Rule::CommaArrayElements),
             (2336, Rule::AppendToArrayAsString),
