@@ -225,7 +225,7 @@ Filter command facts and word facts for unquoted glob characters.
 - [x] **M** C081 (SC2301) `glob-in-string-comparison` — variable in string comparison treated as glob
 - [x] **M** C083 (SC2304) `glob-in-find-substitution` — glob in find command substitution
 - [x] **M** C084 (SC2305) `unquoted-grep-regex` — grep regex may be glob-expanded
-- [ ] **M** C114 (SC2349) `glob-with-expansion-in-loop` — glob+variable in for loop
+- [x] **M** C114 (SC2349) `glob-with-expansion-in-loop` — glob+variable in for loop
 - [ ] **M** S055 (SC2326) `glob-assigned-to-variable` — glob pattern assigned without quoting
 
 ### Quoting and Expansion

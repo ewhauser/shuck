@@ -215,6 +215,12 @@ declare_rules! {
         MapfileProcessSubstitution
     ),
     (
+        "C114",
+        Category::Correctness,
+        Severity::Warning,
+        GlobWithExpansionInLoop
+    ),
+    (
         "C115",
         Category::Correctness,
         Severity::Warning,
@@ -636,6 +642,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-241" => Some(Rule::AppendToArrayAsString),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
+        "SH-254" => Some(Rule::GlobWithExpansionInLoop),
         "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
@@ -963,6 +970,8 @@ mod tests {
             code_to_rule("SH-244"),
             Some(Rule::MapfileProcessSubstitution)
         );
+        assert_eq!(code_to_rule("C114"), Some(Rule::GlobWithExpansionInLoop));
+        assert_eq!(code_to_rule("SH-254"), Some(Rule::GlobWithExpansionInLoop));
         assert_eq!(code_to_rule("SH-253"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));

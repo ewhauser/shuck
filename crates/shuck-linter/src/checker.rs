@@ -476,6 +476,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedGrepRegex) {
             rules::correctness::unquoted_grep_regex::unquoted_grep_regex(self);
         }
+        if self.is_rule_enabled(Rule::GlobWithExpansionInLoop) {
+            rules::correctness::glob_with_expansion_in_loop::glob_with_expansion_in_loop(self);
+        }
         if self.is_rule_enabled(Rule::ZshFlagExpansion) {
             rules::portability::zsh_flag_expansion::zsh_flag_expansion(self);
         }

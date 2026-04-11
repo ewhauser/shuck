@@ -38,6 +38,7 @@ pub mod function_references_unset_param;
 pub mod glob_in_find_substitution;
 pub mod glob_in_grep_pattern;
 pub mod glob_in_string_comparison;
+pub mod glob_with_expansion_in_loop;
 pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
@@ -170,6 +171,7 @@ mod tests {
     #[test_case(Rule::GlobInStringComparison, Path::new("C081.sh"))]
     #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
     #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
+    #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]

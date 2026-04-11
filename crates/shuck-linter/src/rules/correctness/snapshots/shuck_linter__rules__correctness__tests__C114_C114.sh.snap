@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C114 quote expansion prefixes when combining them with loop globs
+ --> <source>:2:10
+  |
+2 | for i in $CWD/file.*pattern*; do :; done
+  |
+
+C114 quote expansion prefixes when combining them with loop globs
+ --> <source>:3:10
+  |
+3 | for i in ${CWD}/file.*pattern*; do :; done
+  |
+
+C114 quote expansion prefixes when combining them with loop globs
+ --> <source>:4:10
+  |
+4 | for i in $(pwd)/file.*pattern*; do :; done
+  |
