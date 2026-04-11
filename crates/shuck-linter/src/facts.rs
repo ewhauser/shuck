@@ -7110,6 +7110,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text.starts_with("--regexp=") {
             explicit_pattern_source = true;
+            pattern_words.push(*word);
             index += 1;
             continue;
         }
@@ -7842,10 +7843,12 @@ fn find_pending_argument(token: &str) -> Option<FindPendingArgument> {
         | "-group" | "-ilname" | "-iname" | "-inum" | "-ipath" | "-iregex" | "-links"
         | "-lname" | "-maxdepth" | "-mindepth" | "-mmin" | "-mtime" | "-name" | "-newer"
         | "-path" | "-perm" | "-regex" | "-samefile" | "-size" | "-type" | "-uid" | "-used"
-        | "-user" | "-xtype" | "-files0-from" => Some(FindPendingArgument::Words {
-            remaining: 1,
-            pattern_operand: is_find_pattern_predicate_token(token),
-        }),
+        | "-user" | "-wholename" | "-iwholename" | "-xtype" | "-files0-from" => {
+            Some(FindPendingArgument::Words {
+                remaining: 1,
+                pattern_operand: is_find_pattern_predicate_token(token),
+            })
+        }
         token if token.starts_with("-newer") && token.len() > "-newer".len() => {
             Some(FindPendingArgument::Words {
                 remaining: 1,
@@ -7859,7 +7862,16 @@ fn find_pending_argument(token: &str) -> Option<FindPendingArgument> {
 fn is_find_pattern_predicate_token(token: &str) -> bool {
     matches!(
         token,
-        "-name" | "-iname" | "-path" | "-ipath" | "-regex" | "-iregex" | "-lname" | "-ilname"
+        "-name"
+            | "-iname"
+            | "-path"
+            | "-ipath"
+            | "-regex"
+            | "-iregex"
+            | "-lname"
+            | "-ilname"
+            | "-wholename"
+            | "-iwholename"
     )
 }
 
@@ -8937,7 +8949,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -9044,7 +9056,7 @@ complex[$((i+=1))]+=x
             .collect::<Vec<_>>();
         assert_eq!(
             find_glob_pattern_operand_spans,
-            vec!["*.cfg", "\"$prefix\"*.jar"]
+            vec!["*.cfg", "\"$prefix\"*.jar", "*/tmp/*"]
         );
 
         let find_execdir = facts
@@ -9281,6 +9293,7 @@ grep -eitem* data.txt
 grep -oe item* data.txt
 grep --regexp='a[b]c' data.txt
 grep --regexp item? data.txt
+grep --regexp=foo* data.txt
 grep -eo item* data.txt
 grep -F -- item* data.txt
 grep -f patterns.txt item* data.txt
@@ -9319,8 +9332,9 @@ grep --color foo* data.txt
                 (vec!["item*"], false),
                 (vec!["-eitem*"], false),
                 (vec!["item*"], false),
-                (Vec::new(), false),
+                (vec!["--regexp='a[b]c'"], false),
                 (vec!["item?"], false),
+                (vec!["--regexp=foo*"], false),
                 (vec!["-eo"], false),
                 (vec!["item*"], true),
                 (Vec::new(), false),

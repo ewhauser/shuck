@@ -877,6 +877,7 @@ fn literal_contains_brace_expansion(text: &str) -> bool {
 
         let mut depth = 1usize;
         let mut saw_comma = false;
+        let mut saw_range = false;
         let mut cursor = index + 1;
         while cursor < bytes.len() {
             if bytes[cursor] == b'\\' {
@@ -889,13 +890,22 @@ fn literal_contains_brace_expansion(text: &str) -> bool {
                 b'}' => {
                     depth = depth.saturating_sub(1);
                     if depth == 0 {
-                        if saw_comma {
+                        if saw_comma || saw_range {
                             return true;
                         }
                         break;
                     }
                 }
                 b',' if depth == 1 => saw_comma = true,
+                b'.' if depth == 1
+                    && cursor + 1 < bytes.len()
+                    && bytes[cursor + 1] == b'.'
+                    && !byte_is_backslash_escaped(bytes, cursor)
+                    && !byte_is_backslash_escaped(bytes, cursor + 1) =>
+                {
+                    saw_range = true;
+                    cursor += 1;
+                }
                 _ => {}
             }
             cursor += 1;
@@ -1504,7 +1514,7 @@ mod tests {
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
-        word_unquoted_glob_pattern_spans,
+        word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
     };
 
     #[test]
@@ -1739,6 +1749,20 @@ mod tests {
             word_unquoted_glob_pattern_spans(&command.args[2], source).is_empty(),
             "parameter longest-prefix operator tails should not be reported as pathname globs"
         );
+    }
+
+    #[test]
+    fn word_has_unquoted_brace_expansion_detects_sequence_forms() {
+        let source = "echo {foo,bar} {1..3} ${dir}/{a..c}*.txt\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(word_has_unquoted_brace_expansion(&command.args[0], source));
+        assert!(word_has_unquoted_brace_expansion(&command.args[1], source));
+        assert!(word_has_unquoted_brace_expansion(&command.args[2], source));
     }
 
     #[test]

@@ -76,6 +76,7 @@ for i in \"$CWD\"/file.*pattern*; do :; done
 for i in file.*pattern*; do :; done
 for i in \"$CWD\"/*.txt; do :; done
 for i in $CWD/file.txt; do :; done
+for i in $DIR/{1..3}*.txt; do :; done
 for i in $DIR/setjmp-aarch64/{setjmp.S,private-*.h}; do :; done
 ";
         let diagnostics = test_snippet(

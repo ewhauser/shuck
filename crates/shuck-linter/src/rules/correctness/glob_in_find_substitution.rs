@@ -36,6 +36,7 @@ mod tests {
 #!/bin/bash
 find ./ -name *.jar
 find ./ -name \"$prefix\"*.jar
+find ./ -wholename */tmp/*
 for f in $(find ./ -name *.cfg); do :; done
 printf '%s\\n' \"$(find . -path */tmp/*)\"
 ";
@@ -49,7 +50,7 @@ printf '%s\\n' \"$(find . -path */tmp/*)\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["*.jar", "\"$prefix\"*.jar", "*.cfg", "*/tmp/*"]
+            vec!["*.jar", "\"$prefix\"*.jar", "*/tmp/*", "*.cfg", "*/tmp/*"]
         );
     }
 
@@ -60,6 +61,7 @@ printf '%s\\n' \"$(find . -path */tmp/*)\"
 find ./ -name '*.jar'
 find ./ -name \\*.tmp
 find ./ -path \\*/tmp/\\*
+find ./ -wholename \\*/tmp/\\*
 find ./ -type f*
 command find ./ -name *.jar
 find ./ -name \"$pattern\"

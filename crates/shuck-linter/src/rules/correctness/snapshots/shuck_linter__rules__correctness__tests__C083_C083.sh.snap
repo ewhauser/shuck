@@ -14,13 +14,19 @@ C083 quote glob patterns passed to `find` so the shell does not expand them earl
   |
 
 C083 quote glob patterns passed to `find` so the shell does not expand them early
- --> <source>:4:26
+ --> <source>:4:20
   |
-4 | for f in $(find ./ -name *.cfg); do :; done
+4 | find ./ -wholename */tmp/*
   |
 
 C083 quote glob patterns passed to `find` so the shell does not expand them early
- --> <source>:5:31
+ --> <source>:5:26
   |
-5 | printf '%s\n' "$(find . -path */tmp/*)"
+5 | for f in $(find ./ -name *.cfg); do :; done
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:6:31
+  |
+6 | printf '%s\n' "$(find . -path */tmp/*)"
   |

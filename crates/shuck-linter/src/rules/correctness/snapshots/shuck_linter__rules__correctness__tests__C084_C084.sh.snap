@@ -38,37 +38,43 @@ C084 quote grep regex patterns so the shell does not expand them first
   |
 
 C084 quote grep regex patterns so the shell does not expand them first
- --> <source>:8:24
+ --> <source>:8:6
   |
-8 | grep --exclude '*.txt' foo*bar out.txt
-  |
-
-C084 quote grep regex patterns so the shell does not expand them first
- --> <source>:9:20
-  |
-9 | grep --label stdin item? out.txt
+8 | grep --regexp=foo*bar out.txt
   |
 
 C084 quote grep regex patterns so the shell does not expand them first
-  --> <source>:10:12
+ --> <source>:9:24
+  |
+9 | grep --exclude '*.txt' foo*bar out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:10:20
    |
-10 | grep -F -- item,[0-4] out.txt
+10 | grep --label stdin item? out.txt
    |
 
 C084 quote grep regex patterns so the shell does not expand them first
-  --> <source>:11:9
+  --> <source>:11:12
    |
-11 | grep -F foo*bar out.txt
-   |
-
-C084 quote grep regex patterns so the shell does not expand them first
-  --> <source>:12:6
-   |
-12 | grep [0-9a-f]{40} out.txt
+11 | grep -F -- item,[0-4] out.txt
    |
 
 C084 quote grep regex patterns so the shell does not expand them first
-  --> <source>:13:25
+  --> <source>:12:9
    |
-13 | checksum="$(grep -Ehrow [0-9a-f]{40} ${template}|sort|uniq|tr '\n' ' ')"
+12 | grep -F foo*bar out.txt
+   |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:13:6
+   |
+13 | grep [0-9a-f]{40} out.txt
+   |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:14:25
+   |
+14 | checksum="$(grep -Ehrow [0-9a-f]{40} ${template}|sort|uniq|tr '\n' ' ')"
    |
