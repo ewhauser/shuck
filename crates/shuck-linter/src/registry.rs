@@ -451,6 +451,7 @@ declare_rules! {
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
+    ("S052", Category::Style, Severity::Warning, UnquotedVariableInTest),
     ("S054", Category::Style, Severity::Warning, SuWithoutFlag),
     (
         "S055",
@@ -560,6 +561,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
         "SH-208" => Some(Rule::UnquotedTrClass),
+        "SH-212" => Some(Rule::UnquotedVariableInTest),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
         "SH-173" => Some(Rule::BackslashBeforeCommand),
@@ -850,7 +852,9 @@ mod tests {
         assert_eq!(code_to_rule("SH-203"), Some(Rule::UnquotedTrRange));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
+        assert_eq!(code_to_rule("S052"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(code_to_rule("SH-208"), Some(Rule::UnquotedTrClass));
+        assert_eq!(code_to_rule("SH-212"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(
             code_to_rule("S039"),

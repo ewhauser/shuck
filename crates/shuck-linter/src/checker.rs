@@ -788,6 +788,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::GlobInStringComparison) {
             rules::correctness::glob_in_string_comparison::glob_in_string_comparison(self);
         }
+        if self.is_rule_enabled(Rule::UnquotedVariableInTest) {
+            rules::style::unquoted_variable_in_test::unquoted_variable_in_test(self);
+        }
         if self.is_rule_enabled(Rule::TestEqualityOperator) {
             rules::portability::conditional_portability::test_equality_operator(self);
         }

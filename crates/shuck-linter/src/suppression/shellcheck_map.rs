@@ -167,6 +167,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
+            // ShellCheck 0.11.0 reports unquoted `-n` test operands as SC2070.
+            // Keep SC2307 as a suppression alias for the authored S052 rule code.
+            (2070, Rule::UnquotedVariableInTest),
             (2021, Rule::UnquotedTrRange),
             (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
@@ -520,10 +523,11 @@ impl Default for ShellCheckCodeMap {
                     (2199, Rule::ArraySliceInComparison),
                     (2124, Rule::QuotedArraySlice),
                     (2128, Rule::QuotedBashSource),
-                    (2294, Rule::LsInSubstitution),
-                    (2291, Rule::UnquotedVariableInSed),
-                    (2060, Rule::UnquotedTrClass),
-                    (2021, Rule::UnquotedTrRange),
+                (2294, Rule::LsInSubstitution),
+                (2291, Rule::UnquotedVariableInSed),
+                (2060, Rule::UnquotedTrClass),
+                (2070, Rule::UnquotedVariableInTest),
+                (2021, Rule::UnquotedTrRange),
                     (2186, Rule::DeprecatedTempfileCommand),
                     (2258, Rule::BareRead),
                     (3024, Rule::PlusEqualsAppend),
@@ -724,6 +728,7 @@ impl Default for ShellCheckCodeMap {
                 (2330, Rule::FunctionInAlias),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
+                (2307, Rule::UnquotedVariableInTest),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -849,9 +854,11 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2142"), Some(Rule::FunctionInAlias));
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
+        assert_eq!(map.resolve("SC2307"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
+        assert_eq!(map.resolve("SC2070"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(map.resolve("SC2206"), Some(Rule::UnquotedArraySplit));
         assert_eq!(map.resolve("SC2207"), Some(Rule::CommandOutputArraySplit));
@@ -896,11 +903,19 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2330"), vec![Rule::FunctionInAlias]);
         assert_eq!(map.resolve_all("SC2303"), vec![Rule::UnquotedTrClass]);
+        assert_eq!(
+            map.resolve_all("SC2307"),
+            vec![Rule::UnquotedVariableInTest]
+        );
         assert_eq!(map.resolve_all("SC2298"), vec![Rule::UnquotedTrRange]);
         assert_eq!(map.resolve_all("SC2021"), vec![Rule::UnquotedTrRange]);
         assert_eq!(
             map.resolve_all("SC2060"),
             vec![Rule::UnquotedTrClass, Rule::UnquotedTrRange]
+        );
+        assert_eq!(
+            map.resolve_all("SC2070"),
+            vec![Rule::UnquotedVariableInTest]
         );
         assert_eq!(map.resolve_all("SC2066"), vec![Rule::QuotedDollarStarLoop]);
         assert_eq!(map.resolve_all("SC2206"), vec![Rule::UnquotedArraySplit]);
@@ -1394,8 +1409,10 @@ mod tests {
             (2142, Rule::FunctionInAlias),
             (2021, Rule::UnquotedTrRange),
             (2060, Rule::UnquotedTrClass),
+            (2070, Rule::UnquotedVariableInTest),
             (2060, Rule::UnquotedTrRange),
             (2303, Rule::UnquotedTrClass),
+            (2307, Rule::UnquotedVariableInTest),
             (2184, Rule::UnsetAssociativeArrayElement),
             (2178, Rule::ArrayToStringConversion),
             (2322, Rule::SuWithoutFlag),
@@ -1721,7 +1738,9 @@ mod tests {
         assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
         assert!(comparison.contains(&(2258, Rule::BareRead)));
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
+        assert!(comparison.contains(&(2070, Rule::UnquotedVariableInTest)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
+        assert!(!comparison.contains(&(2307, Rule::UnquotedVariableInTest)));
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
