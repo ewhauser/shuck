@@ -1181,8 +1181,8 @@ pub(super) fn build_list_facts<'a>(
             let segments =
                 build_list_segment_facts(command, commands, command_ids_by_span, source)?;
             let mixed_short_circuit_span = mixed_short_circuit_operator_span(&operators);
-            let mixed_short_circuit_kind =
-                mixed_short_circuit_span.map(|_| classify_mixed_short_circuit_kind(&segments));
+            let mixed_short_circuit_kind = mixed_short_circuit_span
+                .map(|_| classify_mixed_short_circuit_kind(&segments, &operators));
 
             Some(ListFact {
                 key: fact.key(),
@@ -1342,25 +1342,36 @@ fn declaration_assignment_info<'a>(
         })
 }
 
-fn classify_mixed_short_circuit_kind(segments: &[ListSegmentFact]) -> MixedShortCircuitKind {
+fn classify_mixed_short_circuit_kind(
+    segments: &[ListSegmentFact],
+    operators: &[ListOperatorFact],
+) -> MixedShortCircuitKind {
     if segments
         .iter()
         .all(|segment| segment.kind() == ListSegmentKind::Condition)
     {
         MixedShortCircuitKind::TestChain
-    } else if matches_assignment_ternary(segments) {
+    } else if matches_assignment_ternary(segments, operators) {
         MixedShortCircuitKind::AssignmentTernary
     } else {
         MixedShortCircuitKind::Fallthrough
     }
 }
 
-fn matches_assignment_ternary(segments: &[ListSegmentFact]) -> bool {
+fn matches_assignment_ternary(
+    segments: &[ListSegmentFact],
+    operators: &[ListOperatorFact],
+) -> bool {
     let [condition, then_branch, else_branch] = segments else {
+        return false;
+    };
+    let [first_operator, second_operator] = operators else {
         return false;
     };
 
     condition.kind() == ListSegmentKind::Condition
+        && first_operator.op() == BinaryOp::And
+        && second_operator.op() == BinaryOp::Or
         && then_branch.kind() == ListSegmentKind::AssignmentOnly
         && else_branch.kind() == ListSegmentKind::AssignmentOnly
         && then_branch.assignment_target().is_some()

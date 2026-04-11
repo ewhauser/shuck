@@ -9872,7 +9872,7 @@ true && false || printf '%s\\n' fallback
                     .collect::<Vec<_>>(),
                 vec![
                     crate::facts::ListSegmentKind::Condition,
-                    crate::facts::ListSegmentKind::Other,
+                    crate::facts::ListSegmentKind::Condition,
                     crate::facts::ListSegmentKind::Other,
                 ]
             );
@@ -9885,11 +9885,12 @@ true && false || printf '%s\\n' fallback
 #!/bin/sh
 [ \"$x\" = foo ] && [ \"$x\" = bar ] || [ \"$x\" = baz ]
 [ -n \"$x\" ] && out=foo || out=bar
+[ -n \"$x\" ] || out=foo && out=bar
 [ \"$dir\" = vendor ] && mv go-* \"$dir\" || mv pkg-* \"$dir\"
 ";
 
         with_facts(source, None, |_, facts| {
-            assert_eq!(facts.lists().len(), 3);
+            assert_eq!(facts.lists().len(), 4);
             assert_eq!(
                 facts
                     .lists()
@@ -9899,6 +9900,7 @@ true && false || printf '%s\\n' fallback
                 vec![
                     Some(crate::facts::MixedShortCircuitKind::TestChain),
                     Some(crate::facts::MixedShortCircuitKind::AssignmentTernary),
+                    Some(crate::facts::MixedShortCircuitKind::Fallthrough),
                     Some(crate::facts::MixedShortCircuitKind::Fallthrough),
                 ]
             );

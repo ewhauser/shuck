@@ -36,6 +36,7 @@ mod tests {
     fn anchors_on_the_fallback_operator_and_skips_other_chain_kinds() {
         let source = "\
 [ -n \"$str\" ] && out=foo || out=bar
+[ -n \"$str\" ] || out=foo && out=bar
 [ \"$x\" = foo ] && [ \"$x\" = bar ] || [ \"$x\" = baz ]
 cmd && first || second
 ";
