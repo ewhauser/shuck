@@ -5,6 +5,7 @@ pub mod array_slice_in_comparison;
 pub mod array_to_string_conversion;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
+pub mod backtick_in_command_position;
 pub mod at_sign_in_string_compare;
 pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
@@ -32,6 +33,7 @@ pub mod else_if;
 pub mod else_without_then;
 pub mod empty_function_body;
 pub mod empty_test;
+pub mod escaped_negation_in_test;
 pub mod export_with_positional_params;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
@@ -41,10 +43,13 @@ pub mod function_references_unset_param;
 pub mod glob_in_find_substitution;
 pub mod glob_in_grep_pattern;
 pub mod glob_in_string_comparison;
+pub mod glob_in_test_comparison;
 pub mod glob_with_expansion_in_loop;
+pub mod greater_than_in_test;
 pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
+pub mod if_dollar_command;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
 pub mod invalid_exit_status;
@@ -62,6 +67,7 @@ pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
 pub mod misspelled_option_name;
+pub mod mixed_and_or_in_condition;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
 pub mod non_shell_syntax_in_script;
@@ -75,6 +81,7 @@ pub mod positional_ten_braces;
 pub mod quoted_array_slice;
 pub mod quoted_bash_regex;
 pub mod quoted_bash_source;
+pub mod quoted_command_in_test;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
@@ -82,12 +89,14 @@ pub mod short_circuit_fallthrough;
 pub mod single_quoted_literal;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
+pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
 pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
 pub mod syntax;
 pub mod template_brace_in_command;
+pub mod tilde_in_string_comparison;
 pub mod trap_string_expansion;
 pub mod truthy_literal_test;
 pub mod unchecked_directory_change;
@@ -175,8 +184,17 @@ mod tests {
     #[test_case(Rule::ShortCircuitFallthrough, Path::new("C079.sh"))]
     #[test_case(Rule::GlobInGrepPattern, Path::new("C080.sh"))]
     #[test_case(Rule::GlobInStringComparison, Path::new("C081.sh"))]
+    #[test_case(Rule::EscapedNegationInTest, Path::new("C082.sh"))]
     #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
     #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
+    #[test_case(Rule::GreaterThanInTest, Path::new("C086.sh"))]
+    #[test_case(Rule::StringComparisonForVersion, Path::new("C087.sh"))]
+    #[test_case(Rule::MixedAndOrInCondition, Path::new("C088.sh"))]
+    #[test_case(Rule::QuotedCommandInTest, Path::new("C089.sh"))]
+    #[test_case(Rule::GlobInTestComparison, Path::new("C090.sh"))]
+    #[test_case(Rule::TildeInStringComparison, Path::new("C091.sh"))]
+    #[test_case(Rule::IfDollarCommand, Path::new("C092.sh"))]
+    #[test_case(Rule::BacktickInCommandPosition, Path::new("C093.sh"))]
     #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::UnquotedPipeInEcho, Path::new("C096.sh"))]

@@ -396,6 +396,7 @@ impl Default for ShellCheckCodeMap {
             (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
             (2297, Rule::DollarInArithmeticContext),
+            (2302, Rule::EscapedNegationInTest),
             (2333, Rule::NonShellSyntaxInScript),
             // ShellCheck 0.11.0 reports `export "$@"`-style findings as SC2163.
             // Keep SC2334 as a suppression alias for the authored C105 rule code.

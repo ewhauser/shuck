@@ -161,6 +161,12 @@ declare_rules! {
         ShortCircuitFallthrough
     ),
     (
+        "C082",
+        Category::Correctness,
+        Severity::Warning,
+        EscapedNegationInTest
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -641,6 +647,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-182" => Some(Rule::ExtglobInCasePattern),
         "SH-261" => Some(Rule::ExtglobInSh),
         "SH-272" => Some(Rule::CaretNegationInBracket),
+        "SH-207" => Some(Rule::EscapedNegationInTest),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),

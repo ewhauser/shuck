@@ -197,7 +197,7 @@ Detect zsh-only syntax in scripts targeting other shells.
 Rules about `[`, `[[`, test operators, and conditional structure. Use
 `simple_test()` and `conditional()` facts.
 
-- [ ] **L** C082 (SC2302) `escaped-negation-in-test` — backslash-escaped `!` in test
+- [x] **L** C082 (SC2302) `escaped-negation-in-test` — backslash-escaped `!` in test
 - [ ] **M** C086 (SC2308) `greater-than-in-test` — `>` in `[ ]` creates file instead of comparing
 - [ ] **M** C087 (SC2309) `string-comparison-for-version` — `<` in `[[ ]]` compares lexicographically
 - [ ] **M** C088 (SC2310) `mixed-and-or-in-condition` — `&&`/`||` without grouping in `[[ ]]`

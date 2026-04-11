@@ -875,6 +875,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TruthyLiteralTest) {
             rules::correctness::truthy_literal_test::truthy_literal_test(self);
         }
+        if self.is_rule_enabled(Rule::EscapedNegationInTest) {
+            rules::correctness::escaped_negation_in_test::escaped_negation_in_test(self);
+        }
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
         }
