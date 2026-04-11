@@ -37,8 +37,11 @@ while $(false); do break; done
 until $(false); do break; done
 if ! $(false); then echo no; fi
 if foo && $(false); then :; fi
+if $(false); echo ok; then :; fi
 if $(false) | cat; then :; fi
 if cat | $(false); then :; fi
+if { $(false); }; then :; fi
+if ( $(false) ); then :; fi
 if time $(false); then :; fi
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::IfDollarCommand));
@@ -50,6 +53,9 @@ if time $(false); then :; fi
                 .collect::<Vec<_>>(),
             vec![
                 "$(python3 -c 'import sys' 2>/dev/null)",
+                "$(false)",
+                "$(false)",
+                "$(false)",
                 "$(false)",
                 "$(false)",
                 "$(false)",

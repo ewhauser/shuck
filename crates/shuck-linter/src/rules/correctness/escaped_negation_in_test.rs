@@ -1,6 +1,6 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, SimpleTestFact, SimpleTestShape, Violation};
+use crate::{Checker, Rule, SimpleTestFact, SimpleTestShape, Violation, static_word_text};
 
 pub struct EscapedNegationInTest;
 
@@ -29,14 +29,50 @@ pub fn escaped_negation_in_test(checker: &mut Checker) {
 }
 
 fn report_span(fact: &SimpleTestFact<'_>, source: &str) -> Option<Span> {
-    (!matches!(
-        fact.shape(),
-        SimpleTestShape::Empty | SimpleTestShape::Truthy
-    ))
-    .then(|| fact.operands().first().copied())
-    .flatten()
-    .filter(|word| word.span.slice(source) == "\\!")
-    .map(|word| word.span)
+    let leading = fact.operands().first().copied()?;
+    if leading.span.slice(source) != "\\!" {
+        return None;
+    }
+
+    escaped_negation_is_operator(fact, source).then_some(leading.span)
+}
+
+fn escaped_negation_is_operator(fact: &SimpleTestFact<'_>, source: &str) -> bool {
+    match fact.shape() {
+        SimpleTestShape::Unary => true,
+        SimpleTestShape::Binary => fact
+            .operands()
+            .get(1)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            .is_some_and(|operator| !is_simple_test_binary_operator(operator)),
+        SimpleTestShape::Other => fact
+            .operands()
+            .get(2)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            .is_some_and(is_simple_test_binary_operator),
+        SimpleTestShape::Empty | SimpleTestShape::Truthy => false,
+    }
+}
+
+fn is_simple_test_binary_operator(operator: &str) -> bool {
+    matches!(
+        operator,
+        "=" | "=="
+            | "!="
+            | "<"
+            | ">"
+            | "-eq"
+            | "-ne"
+            | "-lt"
+            | "-le"
+            | "-gt"
+            | "-ge"
+            | "-ef"
+            | "-nt"
+            | "-ot"
+    )
 }
 
 #[cfg(test)]
@@ -72,6 +108,8 @@ test \\! -n \"$value\"
 #!/bin/bash
 [ ! -f \"$file\" ]
 test !
+[ \\! = \"$value\" ]
+[ \\! -eq 1 ]
 [ \"$value\" = \\! ]
 [[ \\! -f \"$file\" ]]
 ";

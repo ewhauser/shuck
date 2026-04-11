@@ -4471,11 +4471,9 @@ fn collect_condition_command_substitution_from_body(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    let Some(last_stmt) = condition.last() else {
-        return;
-    };
-
-    collect_terminal_command_substitution_spans_in_stmt(last_stmt, source, spans);
+    for stmt in condition.iter() {
+        collect_terminal_command_substitution_spans_in_stmt(stmt, source, spans);
+    }
 }
 
 fn collect_terminal_command_substitution_spans_in_stmt(
@@ -4500,6 +4498,12 @@ fn collect_terminal_command_substitution_spans_in_command(
         Command::Binary(command) => {
             collect_terminal_command_substitution_spans_in_stmt(&command.left, source, spans);
             collect_terminal_command_substitution_spans_in_stmt(&command.right, source, spans);
+        }
+        Command::Compound(CompoundCommand::Subshell(body))
+        | Command::Compound(CompoundCommand::BraceGroup(body)) => {
+            for stmt in body.iter() {
+                collect_terminal_command_substitution_spans_in_stmt(stmt, source, spans);
+            }
         }
         Command::Compound(CompoundCommand::Time(command)) => {
             if let Some(inner) = &command.command {
