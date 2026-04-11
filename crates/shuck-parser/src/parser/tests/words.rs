@@ -3822,10 +3822,10 @@ fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offs
     let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
         panic!("expected zsh parameter syntax");
     };
-    let ZshExpansionTarget::Word(word) = &first.target else {
-        panic!("expected positional word target");
+    let ZshExpansionTarget::Reference(reference) = &first.target else {
+        panic!("expected positional reference target");
     };
-    assert_eq!(word.render(source), "1");
+    assert_eq!(reference.name.as_str(), "1");
     assert!(matches!(
         first.operation,
         Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t"
@@ -3835,10 +3835,10 @@ fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offs
     let ParameterExpansionSyntax::Zsh(zero) = &zero.syntax else {
         panic!("expected zsh parameter syntax");
     };
-    let ZshExpansionTarget::Word(word) = &zero.target else {
-        panic!("expected script-name word target");
+    let ZshExpansionTarget::Reference(reference) = &zero.target else {
+        panic!("expected script-name reference target");
     };
-    assert_eq!(word.render(source), "0");
+    assert_eq!(reference.name.as_str(), "0");
     assert!(matches!(
         zero.operation,
         Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":h"
@@ -4250,10 +4250,10 @@ fn test_zsh_nested_plain_access_targets_preserve_bourne_refs_without_modifier_re
     let ParameterExpansionSyntax::Zsh(inner) = &inner.syntax else {
         panic!("expected inner zsh syntax");
     };
-    let ZshExpansionTarget::Word(word) = &inner.target else {
-        panic!("expected positional word target");
+    let ZshExpansionTarget::Reference(reference) = &inner.target else {
+        panic!("expected positional reference target");
     };
-    assert_eq!(word.render(source), "1");
+    assert_eq!(reference.name.as_str(), "1");
     assert!(matches!(
         inner.operation,
         Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t"

@@ -3262,14 +3262,7 @@ impl<'a> Parser<'a> {
 
     fn maybe_parse_loose_var_ref_target(&self, text: &str) -> Option<VarRef> {
         let trimmed = text.trim();
-        let name = if let Some(open) = trimmed.find('[') {
-            trimmed.strip_suffix(']')?;
-            &trimmed[..open]
-        } else {
-            trimmed
-        };
-
-        Self::is_valid_identifier(name).then(|| self.parse_loose_var_ref(trimmed))
+        Self::looks_like_plain_parameter_access(trimmed).then(|| self.parse_loose_var_ref(trimmed))
     }
 
     fn is_plain_special_parameter_name(name: &str) -> bool {
