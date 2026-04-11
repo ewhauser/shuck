@@ -217,6 +217,7 @@ impl Default for ShellCheckCodeMap {
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
+            (2352, Rule::DefaultElseInShortCircuit),
             // The pinned ShellCheck oracle reports `+=` assignment portability findings as SC3024.
             // Keep SC3055/SC3071 as suppression aliases for compatibility with older rule metadata.
             (3024, Rule::PlusEqualsAppend),
@@ -500,6 +501,7 @@ impl Default for ShellCheckCodeMap {
                     (2046, Rule::UnquotedCommandSubstitution),
                     (2059, Rule::PrintfFormatVariable),
                     (2029, Rule::SshLocalExpansion),
+                    (2352, Rule::DefaultElseInShortCircuit),
                     (3043, Rule::LocalVariableInSh),
                     (3001, Rule::ProcessSubstitution),
                     (3003, Rule::AnsiCQuoting),
@@ -900,6 +902,7 @@ mod tests {
             Some(Rule::UnquotedCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
+        assert_eq!(map.resolve("SC2352"), Some(Rule::DefaultElseInShortCircuit));
         assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
@@ -1231,6 +1234,7 @@ mod tests {
             (2046, Rule::UnquotedCommandSubstitution),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
+            (2352, Rule::DefaultElseInShortCircuit),
             (2064, Rule::TrapStringExpansion),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),

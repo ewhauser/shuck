@@ -210,6 +210,12 @@ declare_rules! {
         MapfileProcessSubstitution
     ),
     (
+        "C115",
+        Category::Correctness,
+        Severity::Warning,
+        DefaultElseInShortCircuit
+    ),
+    (
         "C116",
         Category::Correctness,
         Severity::Warning,
@@ -516,6 +522,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-295" => Some(Rule::UncheckedDirectoryChangeInFunction),
         "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
         "SH-308" => Some(Rule::VariableAsCommandName),
+        "SH-257" => Some(Rule::DefaultElseInShortCircuit),
         "SH-311" => Some(Rule::ArrayToStringConversion),
         "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-337" => Some(Rule::BrokenAssocKey),
@@ -949,6 +956,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
+        assert_eq!(
+            code_to_rule("SH-257"),
+            Some(Rule::DefaultElseInShortCircuit)
+        );
         assert_eq!(code_to_rule("C133"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("SH-311"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));

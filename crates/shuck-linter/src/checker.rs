@@ -512,6 +512,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ShortCircuitFallthrough) {
             rules::correctness::short_circuit_fallthrough::short_circuit_fallthrough(self);
         }
+        if self.is_rule_enabled(Rule::DefaultElseInShortCircuit) {
+            rules::correctness::default_else_in_short_circuit::default_else_in_short_circuit(self);
+        }
         if self.is_rule_enabled(Rule::LineOrientedInput) {
             rules::correctness::line_oriented_input::line_oriented_input(self);
         }
