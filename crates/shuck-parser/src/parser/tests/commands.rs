@@ -3181,6 +3181,18 @@ repeat 2 echo global
 }
 
 #[test]
+fn test_parse_zsh_wrapped_unsetopt_short_repeat_demotes_repeat_to_simple_command() {
+    let source = "command unsetopt short_repeat\nrepeat 2 echo hi\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let command = expect_simple(&output.body[1]);
+    assert_eq!(command.name.render(source), "repeat");
+}
+
+#[test]
 fn test_parse_zsh_midfile_unsetopt_short_loops_rejects_foreach_loop() {
     Parser::with_dialect("foreach x (a b c) { echo $x; }\n", ShellDialect::Zsh)
         .parse()

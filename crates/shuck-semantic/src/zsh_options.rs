@@ -711,17 +711,24 @@ impl<'a> Analyzer<'a> {
     fn record_scope_entry(&mut self, scope: ScopeId, state: &ZshOptionState) {
         self.scope_entries
             .entry(scope)
+            .and_modify(|current| *current = current.merge(state))
             .or_insert_with(|| state.clone());
     }
 
     fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: &ZshOptionState) {
-        self.snapshots
-            .entry(scope)
-            .or_default()
-            .push(ZshOptionSnapshot {
-                offset,
-                state: state.clone(),
-            });
+        let snapshots = self.snapshots.entry(scope).or_default();
+        if let Some(existing) = snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.offset == offset)
+        {
+            existing.state = existing.state.merge(state);
+            return;
+        }
+
+        snapshots.push(ZshOptionSnapshot {
+            offset,
+            state: state.clone(),
+        });
     }
 }
 

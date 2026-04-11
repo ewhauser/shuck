@@ -4802,4 +4802,22 @@ fn() {
         assert_eq!(options.sh_word_split, OptionValue::Off);
         assert_eq!(options.glob, OptionValue::On);
     }
+
+    #[test]
+    fn zsh_option_analysis_merges_function_snapshots_from_multiple_call_contexts() {
+        let source = "\
+fn() {
+  print $name
+}
+fn
+setopt sh_word_split
+fn
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected merged function zsh options");
+
+        assert_eq!(options.sh_word_split, OptionValue::Unknown);
+    }
 }

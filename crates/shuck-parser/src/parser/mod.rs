@@ -944,14 +944,59 @@ fn normalize_prescan_command(words: &[String]) -> Option<(&str, usize)> {
             index += 1;
             continue;
         }
-        if word == "noglob" {
-            index += 1;
-            continue;
+        match word.as_str() {
+            "noglob" => {
+                index += 1;
+                continue;
+            }
+            "command" | "builtin" => {
+                index = skip_prescan_wrapper_options(words, index + 1);
+                continue;
+            }
+            "exec" => {
+                index = skip_prescan_exec_wrapper_options(words, index + 1);
+                continue;
+            }
+            _ => {}
         }
         return Some((word.as_str(), index + 1));
     }
 
     None
+}
+
+fn skip_prescan_wrapper_options(words: &[String], mut index: usize) -> usize {
+    while let Some(word) = words.get(index) {
+        if word == "--" {
+            index += 1;
+            break;
+        }
+        if word.starts_with('-') && word != "-" {
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    index
+}
+
+fn skip_prescan_exec_wrapper_options(words: &[String], mut index: usize) -> usize {
+    while let Some(word) = words.get(index) {
+        if word == "--" {
+            index += 1;
+            break;
+        }
+        if word == "-a" {
+            index = (index + 2).min(words.len());
+            continue;
+        }
+        if word.starts_with('-') && word != "-" {
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    index
 }
 
 fn is_prescan_assignment_word(word: &str) -> bool {
