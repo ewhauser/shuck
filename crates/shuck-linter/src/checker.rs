@@ -449,6 +449,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedArraySplit) {
             rules::style::unquoted_array_split::unquoted_array_split(self);
         }
+        if self.is_rule_enabled(Rule::CommandOutputArraySplit) {
+            rules::style::command_output_array_split::command_output_array_split(self);
+        }
         if self.is_rule_enabled(Rule::PositionalArgsInString) {
             rules::style::positional_args_in_string::positional_args_in_string(self);
         }
