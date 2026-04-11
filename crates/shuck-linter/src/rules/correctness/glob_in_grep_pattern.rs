@@ -113,6 +113,7 @@ grep start* out.txt
 grep \"start*\" out.txt
 grep 'foo*bar' out.txt
 grep foo*bar out.txt
+grep -efoo* out.txt
 grep --regexp start* out.txt
 grep \"foo*bar\" out.txt
 grep item\\* out.txt
@@ -130,6 +131,7 @@ grep -E \"foo*bar\" out.txt
                 "\"start*\"",
                 "'foo*bar'",
                 "foo*bar",
+                "-efoo*",
                 "start*",
                 "\"foo*bar\"",
                 "item\\*",
@@ -155,9 +157,10 @@ grep -F foo*bar out.txt
 grep -F \"foo*bar\" out.txt
 grep --fixed-strings foo*bar out.txt
 grep --fixed-strings \"foo*bar\" out.txt
+grep -eo foo* out.txt
 grep --regexp='start*' out.txt
 grep --regexp=start* out.txt
-grep -estart* out.txt
+grep -efoo out.txt
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GlobInGrepPattern));
 

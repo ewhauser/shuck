@@ -26,25 +26,31 @@ C080 use regex-style wildcards in grep patterns, not glob-style `*`
   |
 
 C080 use regex-style wildcards in grep patterns, not glob-style `*`
- --> <source>:6:15
+ --> <source>:6:6
   |
-6 | grep --regexp start* out.txt
+6 | grep -efoo* out.txt
   |
 
 C080 use regex-style wildcards in grep patterns, not glob-style `*`
- --> <source>:7:6
+ --> <source>:7:15
   |
-7 | grep "foo*bar" out.txt
+7 | grep --regexp start* out.txt
   |
 
 C080 use regex-style wildcards in grep patterns, not glob-style `*`
  --> <source>:8:6
   |
-8 | grep item\* out.txt
+8 | grep "foo*bar" out.txt
   |
 
 C080 use regex-style wildcards in grep patterns, not glob-style `*`
- --> <source>:9:9
+ --> <source>:9:6
   |
-9 | grep -E "foo*bar" out.txt
+9 | grep item\* out.txt
   |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:10:9
+   |
+10 | grep -E "foo*bar" out.txt
+   |

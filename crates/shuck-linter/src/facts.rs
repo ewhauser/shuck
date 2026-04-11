@@ -7164,12 +7164,10 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
             }
 
             if flag == 'e' {
-                if chars.peek().is_none() {
-                    explicit_pattern_source = true;
-                }
-                if chars.peek().is_none()
-                    && let Some(pattern_word) = args.get(index + 1)
-                {
+                explicit_pattern_source = true;
+                if chars.peek().is_some() {
+                    pattern_words.push(*word);
+                } else if let Some(pattern_word) = args.get(index + 1) {
                     pattern_words.push(*pattern_word);
                     consume_next_argument = true;
                 }
@@ -9238,6 +9236,8 @@ unset parts[\"$key\"] extra
 #!/bin/bash
 grep item,[0-4] data.txt
 grep -e item* data.txt
+grep -eitem* data.txt
+grep -oe item* data.txt
 grep --regexp='a[b]c' data.txt
 grep --regexp item? data.txt
 grep -eo item* data.txt
@@ -9273,15 +9273,41 @@ grep -E -F foo*bar data.txt
             vec![
                 (vec!["item,[0-4]"], false),
                 (vec!["item*"], false),
+                (vec!["-eitem*"], false),
+                (vec!["item*"], false),
                 (Vec::new(), false),
                 (vec!["item?"], false),
-                (vec!["item*"], false),
+                (vec!["-eo"], false),
                 (vec!["item*"], true),
                 (Vec::new(), false),
                 (vec!["foo*bar"], false),
                 (vec!["foo*bar"], true),
             ]
         );
+    }
+
+    #[test]
+    fn attached_short_e_patterns_do_not_accidentally_toggle_only_matching() {
+        let source = "\
+#!/bin/bash
+grep -oe item* data.txt
+grep -eo item* data.txt
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let grep_modes = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("grep"))
+            .filter_map(|fact| fact.options().grep())
+            .map(|grep| grep.uses_only_matching)
+            .collect::<Vec<_>>();
+
+        assert_eq!(grep_modes, vec![true, false]);
     }
 
     #[test]
