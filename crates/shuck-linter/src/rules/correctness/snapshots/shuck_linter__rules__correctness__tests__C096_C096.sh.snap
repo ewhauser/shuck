@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 191
+---
+C096 quote echo arguments that contain escaped pipes or braces
+ --> <source>:4:17
+  |
+4 | echo usage: cmd [start\|stop\|restart]
+  |
+
+C096 quote echo arguments that contain escaped pipes or braces
+ --> <source>:5:6
+  |
+5 | echo token\{on,off\}
+  |

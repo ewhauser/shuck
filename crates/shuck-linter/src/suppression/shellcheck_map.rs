@@ -137,6 +137,9 @@ impl Default for ShellCheckCodeMap {
             (2143, Rule::GrepOutputInTest),
             (2198, Rule::AtSignInStringCompare),
             (2199, Rule::ArraySliceInComparison),
+            // Modern ShellCheck reuses SC2320 for a different echo/printf `$?` warning.
+            // Keep the historical SC2320 comparison slot for C096 and review known corpus deltas.
+            (2320, Rule::UnquotedPipeInEcho),
             // ShellCheck 0.11.0 reports quoted array-to-scalar assignments as SC2124.
             // Keep SC2325 as a suppression alias for the authored C099 rule code.
             (2124, Rule::QuotedArraySlice),
@@ -580,6 +583,7 @@ impl Default for ShellCheckCodeMap {
                     (3053, Rule::IndirectExpansion),
                     (3078, Rule::ArrayKeysInSh),
                     (2219, Rule::AvoidLetBuiltin),
+                    (2320, Rule::UnquotedPipeInEcho),
                     (2321, Rule::ArrayIndexArithmetic),
                     (2323, Rule::ArithmeticScoreLine),
                     (3028, Rule::ArrayReference),
@@ -863,6 +867,7 @@ mod tests {
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2335"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(map.resolve("SC2307"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(map.resolve("SC2320"), Some(Rule::UnquotedPipeInEcho));
         assert_eq!(map.resolve("SC2223"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(map.resolve("SC2346"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
@@ -890,6 +895,7 @@ mod tests {
         assert_eq!(map.resolve_all("SC3061"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve_all("SC2258"), vec![Rule::BareRead]);
         assert_eq!(map.resolve_all("SC2291"), vec![Rule::UnquotedVariableInSed]);
+        assert_eq!(map.resolve_all("SC2320"), vec![Rule::UnquotedPipeInEcho]);
         assert_eq!(map.resolve_all("SC2322"), vec![Rule::SuWithoutFlag]);
         assert_eq!(map.resolve_all("SC2117"), vec![Rule::SuWithoutFlag]);
         assert_eq!(
@@ -1420,6 +1426,7 @@ mod tests {
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2143, Rule::GrepOutputInTest),
+            (2320, Rule::UnquotedPipeInEcho),
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
             (2186, Rule::DeprecatedTempfileCommand),
@@ -1575,6 +1582,7 @@ mod tests {
             (2354, Rule::PlusPrefixInAssignment),
             (2377, Rule::AppendWithEscapedQuotes),
             (2329, Rule::IfsSetToLiteralBackslashN),
+            (2320, Rule::UnquotedPipeInEcho),
             (2321, Rule::ArrayIndexArithmetic),
             (2323, Rule::ArithmeticScoreLine),
             (2321, Rule::FunctionKeywordInSh),
@@ -1763,6 +1771,7 @@ mod tests {
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
         assert!(comparison.contains(&(2335, Rule::UnquotedPathInMkdir)));
         assert!(comparison.contains(&(2070, Rule::UnquotedVariableInTest)));
+        assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
         assert!(comparison.contains(&(2223, Rule::DefaultValueInColonAssign)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2307, Rule::UnquotedVariableInTest)));
@@ -1822,6 +1831,7 @@ mod tests {
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
+        assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2120, Rule::FunctionCalledWithoutArgs)));
         assert!(comparison.contains(&(2364, Rule::FunctionReferencesUnsetParam)));

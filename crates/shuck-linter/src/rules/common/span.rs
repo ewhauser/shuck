@@ -211,6 +211,11 @@ pub fn word_has_unquoted_brace_expansion(word: &Word, source: &str) -> bool {
     parts_have_unquoted_brace_expansion(&word.parts, source, false)
 }
 
+pub fn word_unquoted_escaped_pipe_or_brace_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_unquoted_escaped_pipe_or_brace_spans(&word.parts, source, false, &mut spans);
+    spans
+}
 pub fn word_standalone_literal_backslash_span(word: &Word, source: &str) -> Option<Span> {
     let [part] = word.parts.as_slice() else {
         return None;
@@ -1984,6 +1989,66 @@ fn collect_quoted_star_splat_spans(parts: &[WordPartNode], quoted: bool, spans: 
     }
 }
 
+fn collect_unquoted_escaped_pipe_or_brace_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    quoted: bool,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unquoted_escaped_pipe_or_brace_spans(parts, source, true, spans);
+            }
+            WordPart::Literal(_) if !quoted => {
+                spans.extend(literal_escaped_pipe_or_brace_spans(part.span, source));
+            }
+            WordPart::Literal(_)
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
+fn literal_escaped_pipe_or_brace_spans(span: Span, source: &str) -> Vec<Span> {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    if bytes.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut spans = Vec::new();
+    for index in 0..(bytes.len() - 1) {
+        if bytes[index] != b'\\' || byte_is_backslash_escaped(bytes, index) {
+            continue;
+        }
+        if !matches!(bytes[index + 1], b'|' | b'{' | b'}') {
+            continue;
+        }
+
+        let start = span.start.advanced_by(&text[..index]);
+        let end = span.start.advanced_by(&text[..index + 2]);
+        spans.push(Span::from_positions(start, end));
+    }
+
+    spans
+}
+
 fn collect_unquoted_assign_default_spans(
     parts: &[WordPartNode],
     quoted: bool,
@@ -2083,7 +2148,8 @@ mod tests {
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-        word_unquoted_assign_default_spans, word_unquoted_star_splat_spans,
+        word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_unquoted_star_splat_spans,
     };
 
     #[test]
@@ -2639,6 +2705,27 @@ printf '%s\\n' ${x=} ${x:=a} ${x:-a} \"${x=}\" \"${x:=a}\" prefix${x=}suffix ${!
             spans,
             vec!["${x=}", "${x:=a}", "${x=}", "${!name:=fallback}"]
         );
+    }
+
+    #[test]
+    fn word_unquoted_escaped_pipe_or_brace_spans_track_only_unquoted_literal_sequences() {
+        let source = "\
+printf '%s\\n' mode\\|verbose token\\{a,b\\} token\\}end \"mode\\|verbose\" 'token\\{a,b\\}'
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| word_unquoted_escaped_pipe_or_brace_spans_in_source(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["\\|", "\\{", "\\}", "\\}"]);
     }
 
     #[test]

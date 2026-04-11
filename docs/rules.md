@@ -233,7 +233,7 @@ Filter command facts and word facts for unquoted glob characters.
 Rules about missing or incorrect quoting, word splitting, and expansion
 contexts. Use word facts and expansion word facts.
 
-- [ ] **M** C096 (SC2320) `unquoted-pipe-in-echo` — pipe/brace in echo may be interpreted
+- [x] **M** C096 (SC2320) `unquoted-pipe-in-echo` — pipe/brace in echo may be interpreted
 - [x] **M** C099 (SC2325) `quoted-array-slice` — quoted array slice prevents splitting
 - [x] **M** C100 (SC2327) `quoted-bash-source` — `$BASH_SOURCE` quoted without array syntax
 - [x] **M** C105 (SC2334) `export-with-positional-params` — export with `$@`
