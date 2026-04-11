@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+---
+S071 drop redundant quotes around expansion-only env-prefix assignments
+ --> <source>:2:9
+  |
+2 | CFLAGS="${SLKCFLAGS}" ./configure --target="$ARCH-slackware-linux"
+  |
+
+S071 drop redundant quotes around expansion-only env-prefix assignments
+ --> <source>:3:4
+  |
+3 | A="$a" B="${b:-fallback}" command run
+  |
+
+S071 drop redundant quotes around expansion-only env-prefix assignments
+ --> <source>:3:11
+  |
+3 | A="$a" B="${b:-fallback}" command run
+  |
+
+S071 drop redundant quotes around expansion-only env-prefix assignments
+ --> <source>:4:4
+  |
+4 | C="$left""$right" command run
+  |
+
+S071 drop redundant quotes around expansion-only env-prefix assignments
+ --> <source>:4:11
+  |
+4 | C="$left""$right" command run
+  |

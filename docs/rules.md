@@ -250,7 +250,7 @@ contexts. Use word facts and expansion word facts.
 - [x] **M** S062 (SC2346) `default-value-in-colon-assign` — unquoted default in colon-assign
 - [x] **M** S067 (SC2366) `backtick-output-to-command` — backtick output word-split as args
 - [x] **M** S070 (SC2376) `double-quote-nesting` — double-quoted var between unquoted text
-- [ ] **M** S071 (SC2379) `env-prefix-quoting` — unnecessary quoting on env prefix
+- [x] **M** S071 (SC2379) `env-prefix-quoting` — unnecessary quoting on env prefix
 - [ ] **M** S076 (SC2140) `mixed-quote-word` — alternating quoted/bare fragments in one arg
 
 ### Array Operations

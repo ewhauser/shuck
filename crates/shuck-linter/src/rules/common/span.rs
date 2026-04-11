@@ -170,6 +170,14 @@ pub fn double_quoted_scalar_affix_span(word: &Word) -> Option<Span> {
         .flatten()
 }
 
+pub fn word_double_quoted_scalar_only_expansion_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_double_quoted_scalar_only_expansion_spans(&word.parts, false, &mut spans)
+        .then_some(spans)
+        .filter(|spans| !spans.is_empty())
+        .unwrap_or_default()
+}
+
 pub fn word_literal_part_spans_excluding_parameter_operator_tails(
     word: &Word,
     source: &str,
@@ -1103,6 +1111,49 @@ fn collect_double_quoted_scalar_affix_state(
                 *saw_scalar_expansion = true;
             }
             WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::ArraySlice { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ZshQualifiedGlob(_) => {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn collect_double_quoted_scalar_only_expansion_spans(
+    parts: &[WordPartNode],
+    inside_double_quotes: bool,
+    spans: &mut Vec<Span>,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_double_quoted_scalar_only_expansion_spans(parts, true, spans) {
+                    return false;
+                }
+            }
+            WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::Substring { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::Transformation { .. } => {
+                if !inside_double_quotes {
+                    return false;
+                }
+                spans.push(part.span);
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::ArrayAccess(_)
             | WordPart::ArrayLength(_)
             | WordPart::ArrayIndices(_)
             | WordPart::ArraySlice { .. }
@@ -2276,20 +2327,20 @@ mod tests {
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
-        unquoted_command_substitution_part_spans_in_source,
-        unquoted_scalar_expansion_part_spans,
+        unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
+        word_double_quoted_scalar_only_expansion_spans,
         word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
         word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
-        word_nested_dynamic_double_quote_spans,
-        word_is_pure_positional_at_splat, word_positional_at_splat_span_in_source,
-        word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
+        word_is_pure_positional_at_splat, word_nested_dynamic_double_quote_spans,
+        word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
+        word_quoted_all_elements_array_slice_spans, word_quoted_star_splat_spans,
+        word_quoted_unindexed_bash_source_span_in_source, word_unquoted_assign_default_spans,
+        word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
+        word_unquoted_word_between_single_quoted_segments_spans,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
-        word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-        word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
-        word_unquoted_scalar_between_double_quoted_segments_spans,
-        word_unquoted_star_splat_spans, word_unquoted_word_between_single_quoted_segments_spans,
     };
 
     #[test]
@@ -2927,7 +2978,9 @@ printf '%s\\n' \"$a\"$b\"$c\" \"left \"$d\"\" \"\"$e\" right\" \"left \"$(printf
             .flat_map(|word| {
                 let unquoted_scalar_spans = unquoted_scalar_expansion_part_spans(word, source)
                     .into_iter()
-                    .chain(unquoted_command_substitution_part_spans_in_source(word, source))
+                    .chain(unquoted_command_substitution_part_spans_in_source(
+                        word, source,
+                    ))
                     .collect::<Vec<_>>();
                 word_unquoted_scalar_between_double_quoted_segments_spans(
                     word,
@@ -2938,6 +2991,27 @@ printf '%s\\n' \"$a\"$b\"$c\" \"left \"$d\"\" \"\"$e\" right\" \"left \"$(printf
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec!["$b", "$d", "$e", "$(printf '%s' ok)"]);
+    }
+
+    #[test]
+    fn word_double_quoted_scalar_only_expansion_spans_ignore_literal_affixes() {
+        let source = "\
+printf '%s\\n' \"$a\" \"$a\"\"$b\" \"prefix$a\" \"$a$(printf '%s' x)\" $a \"$a\"/\"$b\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(word_double_quoted_scalar_only_expansion_spans)
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$a", "$a", "$b"]);
     }
 
     #[test]

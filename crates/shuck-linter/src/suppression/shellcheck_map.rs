@@ -173,6 +173,8 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports split double-quoted strings around variables as SC2027.
             // Keep SC2376 as a suppression alias for the authored S070 rule code.
             (2027, Rule::DoubleQuoteNesting),
+            // SC2379 remains the authored compatibility code for env-prefix quoting checks.
+            (2379, Rule::EnvPrefixQuoting),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
@@ -540,6 +542,7 @@ impl Default for ShellCheckCodeMap {
                 (2291, Rule::UnquotedVariableInSed),
                 (2026, Rule::UnquotedWordBetweenQuotes),
                 (2027, Rule::DoubleQuoteNesting),
+                (2379, Rule::EnvPrefixQuoting),
                 (2060, Rule::UnquotedTrClass),
                 (2335, Rule::UnquotedPathInMkdir),
                 (2070, Rule::UnquotedVariableInTest),
@@ -877,6 +880,7 @@ mod tests {
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2335"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(map.resolve("SC2307"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(map.resolve("SC2379"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(map.resolve("SC2320"), Some(Rule::UnquotedPipeInEcho));
         assert_eq!(map.resolve("SC2223"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(map.resolve("SC2346"), Some(Rule::DefaultValueInColonAssign));
@@ -934,6 +938,7 @@ mod tests {
             map.resolve_all("SC2307"),
             vec![Rule::UnquotedVariableInTest]
         );
+        assert_eq!(map.resolve_all("SC2379"), vec![Rule::EnvPrefixQuoting]);
         assert_eq!(
             map.resolve_all("SC2223"),
             vec![Rule::DefaultValueInColonAssign]
@@ -1454,6 +1459,7 @@ mod tests {
             (2303, Rule::UnquotedTrClass),
             (2335, Rule::UnquotedPathInMkdir),
             (2307, Rule::UnquotedVariableInTest),
+            (2379, Rule::EnvPrefixQuoting),
             (2300, Rule::UnquotedWordBetweenQuotes),
             (2346, Rule::DefaultValueInColonAssign),
             (2184, Rule::UnsetAssociativeArrayElement),
@@ -1778,6 +1784,7 @@ mod tests {
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
         assert!(comparison.contains(&(2027, Rule::DoubleQuoteNesting)));
+        assert!(comparison.contains(&(2379, Rule::EnvPrefixQuoting)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
         assert!(!comparison.contains(&(2340, Rule::DeprecatedTempfileCommand)));
         assert!(!comparison.contains(&(2342, Rule::EgrepDeprecated)));

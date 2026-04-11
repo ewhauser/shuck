@@ -469,6 +469,7 @@ declare_rules! {
     ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
+    ("S071", Category::Style, Severity::Warning, EnvPrefixQuoting),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
     ("S047", Category::Style, Severity::Warning, LsInSubstitution),
@@ -603,6 +604,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-245" => Some(Rule::DeprecatedTempfileCommand),
         "SH-247" => Some(Rule::EgrepDeprecated),
         "SH-306" => Some(Rule::DoubleQuoteNesting),
+        "SH-309" => Some(Rule::EnvPrefixQuoting),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-076" => Some(Rule::SingleIterationLoop),
         "SH-128" => Some(Rule::ConditionalAssignmentShortcut),
@@ -815,6 +817,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-068"), Some(Rule::CommandOutputArraySplit));
         assert_eq!(code_to_rule("S067"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(code_to_rule("SH-294"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixQuoting));
+        assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(code_to_rule("S021"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("SH-077"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));

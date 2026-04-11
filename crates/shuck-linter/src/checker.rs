@@ -464,6 +464,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DoubleQuoteNesting) {
             rules::style::double_quote_nesting::double_quote_nesting(self);
         }
+        if self.is_rule_enabled(Rule::EnvPrefixQuoting) {
+            rules::style::env_prefix_quoting::env_prefix_quoting(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedPipeInEcho) {
             rules::correctness::unquoted_pipe_in_echo::unquoted_pipe_in_echo(self);
         }
