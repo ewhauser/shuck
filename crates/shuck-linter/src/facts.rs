@@ -4519,7 +4519,7 @@ fn collect_terminal_command_substitution_spans_in_command(
 }
 
 fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool {
-    let analysis = analyze_word(word, source);
+    let analysis = analyze_word(word, source, None);
     analysis.substitution_shape == WordSubstitutionShape::Plain
         && analysis.quote == WordQuote::Unquoted
         && matches!(
