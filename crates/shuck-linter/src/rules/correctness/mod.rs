@@ -1,3 +1,4 @@
+pub mod append_to_array_as_string;
 pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
 pub mod array_to_string_conversion;
