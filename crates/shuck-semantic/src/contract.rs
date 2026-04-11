@@ -1,4 +1,5 @@
 use rustc_hash::FxHashMap;
+use shuck_parser::ShellProfile;
 use shuck_ast::Name;
 use std::path::{Path, PathBuf};
 
@@ -216,4 +217,5 @@ pub struct SemanticBuildOptions<'a> {
     pub source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     pub file_entry_contract: Option<FileContract>,
     pub analyzed_paths: Option<&'a rustc_hash::FxHashSet<PathBuf>>,
+    pub shell_profile: Option<ShellProfile>,
 }

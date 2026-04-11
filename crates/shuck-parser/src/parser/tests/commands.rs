@@ -3138,3 +3138,60 @@ fn test_brace_group_command_can_use_right_brace_as_literal_argument() {
     assert_eq!(command.args.len(), 1);
     assert_eq!(command.args[0].render(source), "}");
 }
+
+#[test]
+fn test_parse_zsh_midfile_unsetopt_short_repeat_demotes_repeat_to_simple_command() {
+    let source = "unsetopt short_repeat\nrepeat 2 echo hi\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[1]);
+
+    assert_eq!(command.name.render(source), "repeat");
+}
+
+#[test]
+fn test_parse_zsh_midfile_unsetopt_short_loops_rejects_foreach_loop() {
+    Parser::with_dialect("foreach x (a b c) { echo $x; }\n", ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let source = "unsetopt short_loops\nforeach x (a b c) { echo $x; }\n";
+    let error = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        Error::Parse { message, .. } if message.contains("foreach loops")
+    ));
+}
+
+#[test]
+fn test_parse_zsh_midfile_setopt_ignore_braces_treats_braces_as_words() {
+    let source = "setopt ignore_braces\n{ echo hi }\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[1]);
+    assert_eq!(command.name.render(source), "{");
+    assert_eq!(
+        command
+            .args
+            .iter()
+            .map(|word| word.render(source))
+            .collect::<Vec<_>>(),
+        vec!["echo", "hi", "}"]
+    );
+}
+
+#[test]
+fn test_parse_zsh_midfile_setopt_ignore_braces_disables_brace_syntax_collection() {
+    let source = "setopt ignore_braces\nprint {a,b}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[1]);
+    assert!(command.args[0].brace_syntax.is_empty());
+}

@@ -776,7 +776,7 @@ fn large_corpus_conforms_with_shellcheck() {
 }
 
 #[test]
-#[ignore = "requires the large corpus; run `make test-large-corpus`"]
+#[ignore = "requires the large corpus; run `make test-large-corpus-zsh`"]
 fn large_corpus_zsh_fixtures_parse() {
     let cfg = match resolve_large_corpus_config() {
         Some(cfg) => cfg,
@@ -1146,10 +1146,13 @@ fn evaluate_fixture_zsh_parse(
             }
         };
 
-    if let Err(err) = parse_result {
+        if let Err(err) = parse_result {
         evaluation.harness_failure = Some(FixtureFailure {
             kind: FixtureFailureKind::Other,
-            message: format_fixture_failure(&fixture.path, &[format!("shuck parse error: {err}")]),
+            message: format_fixture_failure(
+                &fixture.path,
+                &[format!("shuck zsh parse/option extraction error: {err}")],
+            ),
         });
     }
 
@@ -2069,6 +2072,10 @@ fn parser_dialect_for_large_corpus_shell(shell: &str) -> shuck_parser::ShellDial
     }
 }
 
+fn shell_profile_for_large_corpus_shell(shell: &str) -> shuck_parser::ShellProfile {
+    shuck_parser::ShellProfile::native(parser_dialect_for_large_corpus_shell(shell))
+}
+
 fn run_shuck_with_parse_dialect(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
@@ -2221,12 +2228,51 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
         let source =
             fs::read_to_string(&fixture.path).map_err(|err| format!("read error: {err}"))?;
         let shell = effective_large_corpus_shell(&fixture);
-        let parse_dialect = parser_dialect_for_large_corpus_shell(shell);
-        shuck_parser::parser::Parser::with_dialect(&source, parse_dialect)
+        let shell_profile = shell_profile_for_large_corpus_shell(shell);
+        let parsed = shuck_parser::parser::Parser::with_profile(&source, shell_profile.clone())
             .parse()
-            .map(|_| ())
-            .map_err(|err| err.to_string())
+            .map_err(|err| err.to_string())?;
+
+        if shell == "zsh" {
+            extract_large_corpus_zsh_option_state(&fixture.path, &source, &parsed, shell_profile)?;
+        }
+
+        Ok(())
     })
+}
+
+fn extract_large_corpus_zsh_option_state(
+    path: &Path,
+    source: &str,
+    output: &shuck_parser::parser::ParseOutput,
+    shell_profile: shuck_parser::ShellProfile,
+) -> Result<(), String> {
+    let indexer = shuck_indexer::Indexer::new(source, output);
+    let semantic = shuck_semantic::SemanticModel::build_with_options(
+        &output.file,
+        source,
+        &indexer,
+        shuck_semantic::SemanticBuildOptions {
+            source_path: Some(path),
+            shell_profile: Some(shell_profile),
+            ..shuck_semantic::SemanticBuildOptions::default()
+        },
+    );
+
+    if semantic.shell_profile().zsh_options().is_none() {
+        return Err("semantic model did not retain a zsh shell profile".to_owned());
+    }
+
+    for stmt in output.file.body.iter() {
+        if semantic.zsh_options_at(stmt.span.start.offset).is_none() {
+            return Err(format!(
+                "missing zsh option snapshot at {}:{}",
+                stmt.span.start.line, stmt.span.start.column
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn build_rule_to_shellcheck_index(

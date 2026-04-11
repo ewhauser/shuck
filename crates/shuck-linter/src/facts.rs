@@ -27,7 +27,7 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
-use shuck_semantic::{ScopeId, SemanticModel};
+use shuck_semantic::{ScopeId, SemanticModel, ZshOptionState};
 use std::borrow::Cow;
 
 use self::{
@@ -634,6 +634,7 @@ pub struct WordFact<'a> {
     nested_word_command: bool,
     context: WordFactContext,
     host_kind: WordFactHostKind,
+    zsh_options: Option<ZshOptionState>,
     analysis: ExpansionAnalysis,
     runtime_literal: RuntimeLiteralAnalysis,
     operand_class: Option<TestOperandClass>,
@@ -699,6 +700,10 @@ impl<'a> WordFact<'a> {
 
     pub fn runtime_literal(&self) -> RuntimeLiteralAnalysis {
         self.runtime_literal
+    }
+
+    pub fn zsh_options(&self) -> Option<&ZshOptionState> {
+        self.zsh_options.as_ref()
     }
 
     pub fn classification(&self) -> WordClassification {
@@ -1638,6 +1643,7 @@ pub struct CommandFact<'a> {
     visit: CommandVisit<'a>,
     nested_word_command: bool,
     normalized: NormalizedCommand<'a>,
+    zsh_options: Option<ZshOptionState>,
     redirect_facts: Box<[RedirectFact<'a>]>,
     substitution_facts: Box<[SubstitutionFact]>,
     options: CommandOptionFacts<'a>,
@@ -1676,6 +1682,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn redirects(&self) -> &'a [Redirect] {
         self.visit.redirects
+    }
+
+    pub fn zsh_options(&self) -> Option<&ZshOptionState> {
+        self.zsh_options.as_ref()
     }
 
     pub fn redirect_facts(&self) -> &[RedirectFact<'a>] {
@@ -2145,7 +2155,7 @@ impl<'a> LinterFacts<'a> {
 struct LinterFactsBuilder<'a> {
     file: &'a File,
     source: &'a str,
-    _semantic: &'a SemanticModel,
+    semantic: &'a SemanticModel,
     _indexer: &'a Indexer,
     _file_context: &'a FileContext,
 }
@@ -2181,7 +2191,7 @@ impl<'a> LinterFactsBuilder<'a> {
         Self {
             file,
             source,
-            _semantic: semantic,
+            semantic,
             _indexer: indexer,
             _file_context: file_context,
         }
@@ -2234,12 +2244,23 @@ impl<'a> LinterFactsBuilder<'a> {
                 &mut comma_array_assignment_spans,
             );
             let normalized = command::normalize_command(visit.command, self.source);
+            let command_zsh_options = effective_command_zsh_options(
+                self.semantic,
+                command_span(visit.command).start.offset,
+                &normalized,
+            );
             let nested_word_command = !structural_commands.contains(&key);
             if !nested_word_command {
                 structural_command_ids.push(id);
             }
-            let collected_words =
-                build_word_facts_for_command(visit, self.source, id, nested_word_command);
+            let collected_words = build_word_facts_for_command(
+                visit,
+                self.source,
+                self.semantic,
+                id,
+                nested_word_command,
+                &normalized,
+            );
             compound_assignment_value_word_spans
                 .extend(collected_words.compound_assignment_value_word_spans);
             words.extend(collected_words.facts);
@@ -2268,7 +2289,8 @@ impl<'a> LinterFactsBuilder<'a> {
                         .arithmetic
                         .arithmetic_command_substitution_spans,
                 );
-            let redirect_facts = build_redirect_facts(visit.redirects, self.source);
+            let redirect_facts =
+                build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
             let simple_test =
                 build_simple_test_fact(visit.command, self.source, self._file_context);
@@ -2279,6 +2301,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 visit,
                 nested_word_command,
                 normalized,
+                zsh_options: command_zsh_options,
                 redirect_facts,
                 substitution_facts: Vec::new().into_boxed_slice(),
                 options,
@@ -2298,7 +2321,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
         let function_headers = build_function_header_facts(&self.file.body);
         let function_positional_parameter_facts =
-            build_function_positional_parameter_facts(self._semantic, &commands);
+            build_function_positional_parameter_facts(self.semantic, &commands);
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
@@ -2348,7 +2371,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let base_prefix_arithmetic_spans =
             build_base_prefix_arithmetic_spans(&self.file.body, self.source);
         let subscript_index_reference_spans =
-            build_subscript_index_reference_spans(self._semantic, &subscript_spans);
+            build_subscript_index_reference_spans(self.semantic, &subscript_spans);
         pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let escape_scan_matches = build_escape_scan_matches(
@@ -4826,25 +4849,46 @@ fn collect_status_parameter_spans_in_source_text(
     collect_status_parameter_spans_in_word(&word, source, spans);
 }
 
-fn build_redirect_facts<'a>(redirects: &'a [Redirect], source: &str) -> Box<[RedirectFact<'a>]> {
+fn build_redirect_facts<'a>(
+    redirects: &'a [Redirect],
+    source: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> Box<[RedirectFact<'a>]> {
     redirects
         .iter()
         .map(|redirect| RedirectFact {
             redirect,
             target_span: redirect.word_target().map(|word| word.span),
-            analysis: analyze_redirect_target(redirect, source),
+            analysis: analyze_redirect_target(redirect, source, zsh_options),
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()
 }
 
+fn effective_command_zsh_options(
+    semantic: &SemanticModel,
+    offset: usize,
+    normalized: &NormalizedCommand<'_>,
+) -> Option<ZshOptionState> {
+    let mut options = semantic.zsh_options_at(offset).cloned();
+    if normalized.has_wrapper(WrapperKind::Noglob)
+        && let Some(options) = options.as_mut()
+    {
+        options.glob = shuck_semantic::OptionValue::Off;
+    }
+    options
+}
+
 fn build_word_facts_for_command<'a>(
     visit: CommandVisit<'a>,
     source: &'a str,
+    semantic: &'a SemanticModel,
     command_id: CommandId,
     nested_word_command: bool,
+    normalized: &NormalizedCommand<'a>,
 ) -> CollectedWordFacts<'a> {
-    let mut collector = WordFactCollector::new(source, command_id, nested_word_command);
+    let mut collector =
+        WordFactCollector::new(source, semantic, command_id, nested_word_command, normalized);
     collector.collect_command(visit.command, visit.redirects);
     collector.finish()
 }
@@ -4861,6 +4905,7 @@ struct WordFactCollector<'a> {
     source: &'a str,
     command_id: CommandId,
     nested_word_command: bool,
+    command_zsh_options: Option<ZshOptionState>,
     facts: Vec<WordFact<'a>>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
@@ -4870,11 +4915,22 @@ struct WordFactCollector<'a> {
 }
 
 impl<'a> WordFactCollector<'a> {
-    fn new(source: &'a str, command_id: CommandId, nested_word_command: bool) -> Self {
+    fn new(
+        source: &'a str,
+        semantic: &'a SemanticModel,
+        command_id: CommandId,
+        nested_word_command: bool,
+        normalized: &NormalizedCommand<'a>,
+    ) -> Self {
         Self {
             source,
             command_id,
             nested_word_command,
+            command_zsh_options: effective_command_zsh_options(
+                semantic,
+                normalized.body_span.start.offset,
+                normalized,
+            ),
             facts: Vec::new(),
             seen: FxHashSet::default(),
             compound_assignment_value_word_spans: FxHashSet::default(),
@@ -5410,10 +5466,11 @@ impl<'a> WordFactCollector<'a> {
         self.collect_word_parameter_patterns(&word_ref.parts, host_kind);
         self.collect_arithmetic_summary(word_ref, context, host_kind);
 
-        let analysis = analyze_word(word_ref, self.source);
+        let zsh_options = self.command_zsh_options.clone();
+        let analysis = analyze_word(word_ref, self.source, zsh_options.as_ref());
         let runtime_literal = match context {
             WordFactContext::Expansion(context) => {
-                analyze_literal_runtime(word_ref, self.source, context)
+                analyze_literal_runtime(word_ref, self.source, context, zsh_options.as_ref())
             }
             WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
                 RuntimeLiteralAnalysis::default()
@@ -5467,6 +5524,7 @@ impl<'a> WordFactCollector<'a> {
             nested_word_command: self.nested_word_command,
             context,
             host_kind,
+            zsh_options,
             analysis,
             runtime_literal,
             operand_class,

@@ -1,0 +1,73 @@
+name = "globbing, noglob, and per-expansion glob flags"
+source = '''
+pattern='*.txt'
+setopt glob_subst
+__shuck_probe_options glob_on globsubst glob
+__shuck_probe_fields globbed $pattern
+setopt no_glob
+__shuck_probe_options glob_off globsubst glob
+__shuck_probe_fields glob_disabled $pattern
+unsetopt no_glob
+noglob __shuck_probe_fields wrapped *.txt
+__shuck_probe_fields force_glob ${~pattern}
+__shuck_probe_fields force_glob_off ${~~pattern}
+'''
+
+[[files]]
+path = "alpha.txt"
+
+[[files]]
+path = "beta.txt"
+
+[option_probes.glob_on]
+globsubst = "on"
+glob = "on"
+
+[option_probes.glob_off]
+globsubst = "on"
+glob = "off"
+
+[field_probes.globbed]
+count = 2
+values = ["alpha.txt", "beta.txt"]
+
+[field_probes.globbed.shuck]
+multi = true
+field_splitting = false
+pathname_matching = true
+
+[field_probes.glob_disabled]
+count = 1
+values = ["*.txt"]
+
+[field_probes.glob_disabled.shuck]
+multi = false
+field_splitting = false
+pathname_matching = false
+
+[field_probes.wrapped]
+count = 1
+values = ["*.txt"]
+
+[field_probes.wrapped.shuck]
+multi = false
+field_splitting = false
+pathname_matching = false
+
+[field_probes.force_glob]
+count = 2
+values = ["alpha.txt", "beta.txt"]
+
+[field_probes.force_glob.shuck]
+multi = true
+field_splitting = false
+pathname_matching = true
+
+[field_probes.force_glob_off]
+count = 1
+values = ["*.txt"]
+
+[field_probes.force_glob_off.shuck]
+multi = false
+field_splitting = false
+pathname_matching = false

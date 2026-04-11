@@ -66,6 +66,7 @@ pub use violation::Violation;
 use rustc_hash::FxHashSet;
 use shuck_ast::{File, TextSize};
 use shuck_indexer::Indexer;
+use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
 use shuck_semantic::{
     SemanticBuildOptions, SemanticModel, SourcePathResolver, TraversalObserver,
     build_with_observer_with_options,
@@ -144,6 +145,7 @@ pub fn analyze_file_at_path_with_resolver(
         .or(analyzed_paths_fallback.as_ref());
 
     let mut observer = LintTraversalObserver::default();
+    let shell_profile = inferred_shell_profile(shell);
     let semantic = build_with_observer_with_options(
         file,
         source,
@@ -154,6 +156,7 @@ pub fn analyze_file_at_path_with_resolver(
             source_path_resolver,
             file_entry_contract,
             analyzed_paths,
+            shell_profile: Some(shell_profile),
         },
     );
     let checker = Checker::new(
@@ -183,6 +186,16 @@ pub fn analyze_file_at_path_with_resolver(
         semantic,
         diagnostics,
     }
+}
+
+fn inferred_shell_profile(shell: ShellDialect) -> ShellProfile {
+    let dialect = match shell {
+        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => ParseShellDialect::Posix,
+        ShellDialect::Mksh => ParseShellDialect::Mksh,
+        ShellDialect::Zsh => ParseShellDialect::Zsh,
+        ShellDialect::Unknown | ShellDialect::Bash => ParseShellDialect::Bash,
+    };
+    ShellProfile::native(dialect)
 }
 
 pub fn lint_file(

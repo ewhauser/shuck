@@ -10,6 +10,7 @@ mod runtime;
 mod scope;
 mod source_closure;
 mod source_ref;
+mod zsh_options;
 
 pub use binding::{Binding, BindingAttributes, BindingId, BindingKind};
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
@@ -25,6 +26,7 @@ pub use dataflow::{
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 pub use reference::{Reference, ReferenceId, ReferenceKind};
 pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
+pub use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
 pub use source_ref::{SourceRef, SourceRefKind, SourceRefResolution};
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -37,6 +39,7 @@ use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
 use crate::dataflow::{DataflowContext, DataflowResult};
 use crate::runtime::RuntimePrelude;
+use crate::zsh_options::ZshOptionAnalysis;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SpanKey {
@@ -199,6 +202,7 @@ fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> 
 
 #[derive(Debug)]
 pub struct SemanticModel {
+    shell_profile: ShellProfile,
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
@@ -222,6 +226,7 @@ pub struct SemanticModel {
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
     heuristic_unused_assignments: Vec<BindingId>,
+    zsh_option_analysis: Option<ZshOptionAnalysis>,
 }
 
 #[derive(Debug)]
@@ -259,7 +264,14 @@ impl SemanticModel {
             &built.indirect_expansion_refs,
             &indirect_targets_by_binding,
         );
+        let zsh_option_analysis = zsh_options::analyze(
+            &built.shell_profile,
+            &built.scopes,
+            &built.bindings,
+            &built.recorded_program,
+        );
         Self {
+            shell_profile: built.shell_profile,
             scopes: built.scopes,
             bindings: built.bindings,
             references: built.references,
@@ -283,11 +295,22 @@ impl SemanticModel {
             command_bindings: built.command_bindings,
             command_references: built.command_references,
             heuristic_unused_assignments: built.heuristic_unused_assignments,
+            zsh_option_analysis,
         }
     }
 
     pub fn analysis(&self) -> SemanticAnalysis<'_> {
         SemanticAnalysis::new(self)
+    }
+
+    pub fn shell_profile(&self) -> &ShellProfile {
+        &self.shell_profile
+    }
+
+    pub fn zsh_options_at(&self, offset: usize) -> Option<&ZshOptionState> {
+        self.zsh_option_analysis
+            .as_ref()
+            .and_then(|analysis| analysis.options_at(&self.scopes, offset))
     }
 
     pub fn scopes(&self) -> &[Scope] {
@@ -939,6 +962,7 @@ pub fn build_with_observer_at_path_with_resolver(
             source_path_resolver,
             file_entry_contract: None,
             analyzed_paths: None,
+            shell_profile: None,
         },
     )
 }
@@ -950,7 +974,14 @@ fn build_semantic_model(
     observer: &mut dyn TraversalObserver,
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
-    let mut model = build_semantic_model_base(file, source, indexer, observer, options.source_path);
+    let mut model = build_semantic_model_base(
+        file,
+        source,
+        indexer,
+        observer,
+        options.source_path,
+        options.shell_profile.clone(),
+    );
     if let Some(contract) = options.file_entry_contract {
         model.apply_file_entry_contract(contract, file);
     }
@@ -980,15 +1011,59 @@ pub(crate) fn build_semantic_model_base(
     indexer: &Indexer,
     observer: &mut dyn TraversalObserver,
     source_path: Option<&Path>,
+    shell_profile: Option<ShellProfile>,
 ) -> SemanticModel {
+    let shell_profile =
+        shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
     let built = SemanticModelBuilder::build(
         file,
         source,
         indexer,
         observer,
         bash_runtime_vars_enabled(source, source_path),
+        shell_profile,
     );
     SemanticModel::from_build_output(built)
+}
+
+fn infer_shell_profile(source: &str, path: Option<&Path>) -> ShellProfile {
+    let dialect = infer_parse_dialect_from_source(source, path);
+    ShellProfile::native(dialect)
+}
+
+fn infer_parse_dialect_from_source(source: &str, path: Option<&Path>) -> shuck_parser::ShellDialect {
+    if let Some(line) = source.lines().next().map(str::trim)
+        && let Some(line) = line.strip_prefix("#!").map(str::trim)
+    {
+        let mut parts = line.split_whitespace();
+        let first = parts.next();
+        let interpreter = first
+            .and_then(|first| {
+                if Path::new(first).file_name()?.to_str()? == "env" {
+                    parts.next()
+                } else {
+                    Path::new(first).file_name()?.to_str()
+                }
+            })
+            .unwrap_or_default();
+        return match interpreter.to_ascii_lowercase().as_str() {
+            "sh" | "dash" | "ksh" | "posix" => shuck_parser::ShellDialect::Posix,
+            "mksh" => shuck_parser::ShellDialect::Mksh,
+            "zsh" => shuck_parser::ShellDialect::Zsh,
+            _ => shuck_parser::ShellDialect::Bash,
+        };
+    }
+
+    match path
+        .and_then(|path| path.extension().and_then(|ext| ext.to_str()))
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("sh" | "dash" | "ksh") => shuck_parser::ShellDialect::Posix,
+        Some("mksh") => shuck_parser::ShellDialect::Mksh,
+        Some("zsh") => shuck_parser::ShellDialect::Zsh,
+        _ => shuck_parser::ShellDialect::Bash,
+    }
 }
 
 fn bash_runtime_vars_enabled(source: &str, path: Option<&Path>) -> bool {
@@ -1174,6 +1249,20 @@ mod tests {
         let output = Parser::with_dialect(source, dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         SemanticModel::build(&output.file, source, &indexer)
+    }
+
+    fn model_with_profile(source: &str, profile: ShellProfile) -> SemanticModel {
+        let output = Parser::with_profile(source, profile.clone()).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                shell_profile: Some(profile),
+                ..SemanticBuildOptions::default()
+            },
+        )
     }
 
     fn model_at_path_with_parse_dialect(path: &Path, dialect: ShellDialect) -> SemanticModel {
@@ -4604,5 +4693,93 @@ echo done
                 .flat_map(|block| block.commands.iter())
                 .any(|span| span.slice(source) == "printf inner")
         );
+    }
+
+    #[test]
+    fn zsh_option_analysis_exposes_native_defaults() {
+        let source = "print $name\n";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.sh_word_split, OptionValue::Off);
+        assert_eq!(options.glob, OptionValue::On);
+        assert_eq!(options.short_loops, OptionValue::On);
+    }
+
+    #[test]
+    fn zsh_option_analysis_tracks_setopt_updates_by_offset() {
+        let source = "setopt no_glob\nprint *\n";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.glob, OptionValue::Off);
+    }
+
+    #[test]
+    fn zsh_option_analysis_merges_conditionals_to_unknown_on_divergence() {
+        let source = "if test \"$x\" = y; then\n  setopt no_glob\nfi\nprint *\n";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.glob, OptionValue::Unknown);
+    }
+
+    #[test]
+    fn zsh_option_analysis_respects_local_options_in_functions() {
+        let source = "\
+fn() {
+  setopt local_options no_glob
+}
+fn
+print *
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.glob, OptionValue::On);
+    }
+
+    #[test]
+    fn zsh_option_analysis_leaks_function_option_updates_by_default() {
+        let source = "\
+fn() {
+  setopt sh_word_split
+}
+fn
+print $name
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        assert!(
+            model.scopes[0]
+                .bindings
+                .keys()
+                .any(|name| name.as_str() == "fn"),
+            "expected top-level function binding for `fn`"
+        );
+        assert!(
+            model.recorded_program.function_body_scopes.len() == 1,
+            "expected one recorded function body scope"
+        );
+        assert!(
+            model
+                .recorded_program
+                .command_infos
+                .values()
+                .any(|info| info.static_callee.as_deref() == Some("fn")),
+            "expected a static callee for the function call"
+        );
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.sh_word_split, OptionValue::On);
     }
 }

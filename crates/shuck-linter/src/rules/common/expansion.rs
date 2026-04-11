@@ -2,6 +2,7 @@ use shuck_ast::{
     BourneParameterExpansion, ParameterExpansion, ParameterExpansionSyntax, PrefixMatchKind,
     Redirect, RedirectKind, SubscriptSelector, Word, WordPart, WordPartNode, ZshExpansionOperation,
 };
+use shuck_semantic::{OptionValue, ZshOptionState};
 
 use super::word::static_word_text;
 
@@ -244,9 +245,13 @@ struct AnalysisSummary {
     has_process_substitution: bool,
 }
 
-pub(crate) fn analyze_word(word: &Word, _source: &str) -> ExpansionAnalysis {
+pub(crate) fn analyze_word(
+    word: &Word,
+    _source: &str,
+    options: Option<&ZshOptionState>,
+) -> ExpansionAnalysis {
     let mut summary = AnalysisSummary::default();
-    analyze_parts(&word.parts, false, &mut summary);
+    analyze_parts(&word.parts, false, options, &mut summary);
 
     ExpansionAnalysis {
         quote: if is_fully_quoted(word) {
@@ -289,6 +294,7 @@ pub(crate) fn analyze_literal_runtime(
     word: &Word,
     source: &str,
     context: ExpansionContext,
+    options: Option<&ZshOptionState>,
 ) -> RuntimeLiteralAnalysis {
     if static_word_text(word, source).is_none() {
         return RuntimeLiteralAnalysis::default();
@@ -297,7 +303,14 @@ pub(crate) fn analyze_literal_runtime(
     let mut analysis = RuntimeLiteralAnalysis::default();
     let mut state = RuntimeLiteralState::default();
 
-    analyze_literal_runtime_parts(&word.parts, source, context, &mut state, &mut analysis);
+    analyze_literal_runtime_parts(
+        &word.parts,
+        source,
+        context,
+        options,
+        &mut state,
+        &mut analysis,
+    );
 
     analysis
 }
@@ -305,13 +318,15 @@ pub(crate) fn analyze_literal_runtime(
 pub(crate) fn analyze_redirect_target(
     redirect: &Redirect,
     source: &str,
+    options: Option<&ZshOptionState>,
 ) -> Option<RedirectTargetAnalysis> {
     let target = redirect.word_target()?;
-    let expansion = analyze_word(target, source);
+    let expansion = analyze_word(target, source, options);
     let runtime_literal = analyze_literal_runtime(
         target,
         source,
         ExpansionContext::RedirectTarget(redirect.kind),
+        options,
     );
 
     let (kind, dev_null_status, numeric_descriptor_target) = match redirect.kind {
@@ -361,13 +376,14 @@ fn analyze_literal_runtime_parts(
     parts: &[WordPartNode],
     source: &str,
     context: ExpansionContext,
+    options: Option<&ZshOptionState>,
     state: &mut RuntimeLiteralState,
     analysis: &mut RuntimeLiteralAnalysis,
 ) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) => {
-                scan_literal_runtime_text(part.span.slice(source), context, state, analysis);
+                scan_literal_runtime_text(part.span.slice(source), context, options, state, analysis);
             }
             WordPart::SingleQuoted { value, .. } => {
                 if !value.slice(source).is_empty() {
@@ -389,6 +405,7 @@ fn analyze_literal_runtime_parts(
 fn scan_literal_runtime_text(
     text: &str,
     context: ExpansionContext,
+    options: Option<&ZshOptionState>,
     state: &mut RuntimeLiteralState,
     analysis: &mut RuntimeLiteralAnalysis,
 ) {
@@ -414,7 +431,10 @@ fn scan_literal_runtime_text(
             analysis.hazards.tilde_expansion = true;
         }
 
-        if context_allows_pathname_matching(context) && matches!(ch, '*' | '?' | '[') {
+        if context_allows_pathname_matching(context)
+            && glob_is_effectively_enabled(options)
+            && matches!(ch, '*' | '?' | '[')
+        {
             analysis.runtime_sensitive = true;
             analysis.hazards.pathname_matching = true;
         }
@@ -484,15 +504,20 @@ fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
     )
 }
 
-fn analyze_parts(parts: &[WordPartNode], in_double_quotes: bool, summary: &mut AnalysisSummary) {
+fn analyze_parts(
+    parts: &[WordPartNode],
+    in_double_quotes: bool,
+    options: Option<&ZshOptionState>,
+    summary: &mut AnalysisSummary,
+) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                analyze_parts(parts, true, summary);
+                analyze_parts(parts, true, options, summary);
             }
             kind => {
-                let analysis = analyze_part(kind, in_double_quotes);
+                let analysis = analyze_part(kind, in_double_quotes, options);
                 summary.has_non_literal = true;
                 summary.has_scalar_value |= analysis.value_shape == PartValueShape::Scalar;
                 summary.has_array_value |= analysis.array_valued;
@@ -513,25 +538,29 @@ fn analyze_parts(parts: &[WordPartNode], in_double_quotes: bool, summary: &mut A
     }
 }
 
-fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
+fn analyze_part(
+    part: &WordPart,
+    in_double_quotes: bool,
+    options: Option<&ZshOptionState>,
+) -> PartAnalysis {
     match part {
         WordPart::ZshQualifiedGlob(_) => PartAnalysis {
             value_shape: PartValueShape::Unknown,
             array_valued: false,
-            can_expand_to_multiple_fields: !in_double_quotes,
+            can_expand_to_multiple_fields: !in_double_quotes && glob_is_effectively_enabled(options),
             hazards: ExpansionHazards {
-                pathname_matching: !in_double_quotes,
+                pathname_matching: !in_double_quotes && glob_is_effectively_enabled(options),
                 ..ExpansionHazards::default()
             },
             command_substitution: false,
             process_substitution: false,
         },
-        WordPart::Parameter(parameter) => analyze_parameter_part(parameter, in_double_quotes),
+        WordPart::Parameter(parameter) => analyze_parameter_part(parameter, in_double_quotes, options),
         WordPart::CommandSubstitution { .. } => scalar_part(
-            !in_double_quotes,
+            substitution_can_expand_to_multiple_fields(in_double_quotes, options),
             ExpansionHazards {
-                field_splitting: !in_double_quotes,
-                pathname_matching: !in_double_quotes,
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                 command_or_process_substitution: true,
                 ..ExpansionHazards::default()
             },
@@ -558,10 +587,10 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
         | WordPart::Length(_)
         | WordPart::ArrayLength(_)
         | WordPart::Substring { .. } => scalar_part(
-            !in_double_quotes,
+            substitution_can_expand_to_multiple_fields(in_double_quotes, options),
             ExpansionHazards {
-                field_splitting: !in_double_quotes,
-                pathname_matching: !in_double_quotes,
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                 arithmetic_expansion: matches!(part, WordPart::ArithmeticExpansion { .. }),
                 ..ExpansionHazards::default()
             },
@@ -572,10 +601,10 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
             scalar_part(false, ExpansionHazards::default(), false, false)
         }
         WordPart::ParameterExpansion { operator, .. } => scalar_part(
-            !in_double_quotes,
+            substitution_can_expand_to_multiple_fields(in_double_quotes, options),
             ExpansionHazards {
-                field_splitting: !in_double_quotes,
-                pathname_matching: !in_double_quotes,
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                 runtime_pattern: parameter_operator_uses_pattern(operator),
                 ..ExpansionHazards::default()
             },
@@ -592,10 +621,10 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
                 array_part(!in_double_quotes, !in_double_quotes, false, false)
             }
             None => scalar_part(
-                !in_double_quotes,
+                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                 ExpansionHazards {
-                    field_splitting: !in_double_quotes,
-                    pathname_matching: !in_double_quotes,
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                     ..ExpansionHazards::default()
                 },
                 false,
@@ -616,8 +645,8 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
                 array_valued: false,
                 can_expand_to_multiple_fields: multi_field,
                 hazards: ExpansionHazards {
-                    field_splitting: !in_double_quotes,
-                    pathname_matching: !in_double_quotes,
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                     ..ExpansionHazards::default()
                 },
                 command_substitution: false,
@@ -627,10 +656,13 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
         WordPart::IndirectExpansion { operator, .. } => PartAnalysis {
             value_shape: PartValueShape::Unknown,
             array_valued: false,
-            can_expand_to_multiple_fields: !in_double_quotes,
+            can_expand_to_multiple_fields: substitution_can_expand_to_multiple_fields(
+                in_double_quotes,
+                options,
+            ),
             hazards: ExpansionHazards {
-                field_splitting: !in_double_quotes,
-                pathname_matching: !in_double_quotes,
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                 runtime_pattern: operator
                     .as_ref()
                     .is_some_and(parameter_operator_uses_pattern),
@@ -645,7 +677,11 @@ fn analyze_part(part: &WordPart, in_double_quotes: bool) -> PartAnalysis {
     }
 }
 
-fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool) -> PartAnalysis {
+fn analyze_parameter_part(
+    parameter: &ParameterExpansion,
+    in_double_quotes: bool,
+    options: Option<&ZshOptionState>,
+) -> PartAnalysis {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
             BourneParameterExpansion::Access { reference } => match reference
@@ -658,10 +694,10 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
                     array_part(!in_double_quotes, !in_double_quotes, false, false)
                 }
                 None => scalar_part(
-                    !in_double_quotes,
+                    substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                     ExpansionHazards {
-                        field_splitting: !in_double_quotes,
-                        pathname_matching: !in_double_quotes,
+                        field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                        pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                         ..ExpansionHazards::default()
                     },
                     false,
@@ -669,10 +705,10 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
                 ),
             },
             BourneParameterExpansion::Length { .. } => scalar_part(
-                !in_double_quotes,
+                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                 ExpansionHazards {
-                    field_splitting: !in_double_quotes,
-                    pathname_matching: !in_double_quotes,
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                     ..ExpansionHazards::default()
                 },
                 false,
@@ -682,10 +718,13 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
             BourneParameterExpansion::Indirect { operator, .. } => PartAnalysis {
                 value_shape: PartValueShape::Unknown,
                 array_valued: false,
-                can_expand_to_multiple_fields: !in_double_quotes,
+                can_expand_to_multiple_fields: substitution_can_expand_to_multiple_fields(
+                    in_double_quotes,
+                    options,
+                ),
                 hazards: ExpansionHazards {
-                    field_splitting: !in_double_quotes,
-                    pathname_matching: !in_double_quotes,
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                     runtime_pattern: operator
                         .as_ref()
                         .is_some_and(parameter_operator_uses_pattern),
@@ -706,8 +745,8 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
                     array_valued: false,
                     can_expand_to_multiple_fields: multi_field,
                     hazards: ExpansionHazards {
-                        field_splitting: !in_double_quotes,
-                        pathname_matching: !in_double_quotes,
+                        field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                        pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                         ..ExpansionHazards::default()
                     },
                     command_substitution: false,
@@ -719,10 +758,10 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
                     array_part(true, false, false, false)
                 } else {
                     scalar_part(
-                        !in_double_quotes,
+                        substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                         ExpansionHazards {
-                            field_splitting: !in_double_quotes,
-                            pathname_matching: !in_double_quotes,
+                            field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                            pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                             ..ExpansionHazards::default()
                         },
                         false,
@@ -731,10 +770,10 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
                 }
             }
             BourneParameterExpansion::Operation { operator, .. } => scalar_part(
-                !in_double_quotes,
+                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                 ExpansionHazards {
-                    field_splitting: !in_double_quotes,
-                    pathname_matching: !in_double_quotes,
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                     runtime_pattern: parameter_operator_uses_pattern(operator),
                     ..ExpansionHazards::default()
                 },
@@ -745,23 +784,109 @@ fn analyze_parameter_part(parameter: &ParameterExpansion, in_double_quotes: bool
                 scalar_part(false, ExpansionHazards::default(), false, false)
             }
         },
-        ParameterExpansionSyntax::Zsh(syntax) => PartAnalysis {
-            value_shape: PartValueShape::Unknown,
-            array_valued: false,
-            can_expand_to_multiple_fields: !in_double_quotes,
-            hazards: ExpansionHazards {
-                field_splitting: !in_double_quotes,
-                pathname_matching: !in_double_quotes,
-                runtime_pattern: syntax
-                    .operation
-                    .as_ref()
-                    .is_some_and(zsh_operation_uses_pattern),
-                ..ExpansionHazards::default()
-            },
-            command_substitution: false,
-            process_substitution: false,
-        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            let effective_options = overlay_zsh_modifier_overrides(options, syntax);
+            PartAnalysis {
+                value_shape: PartValueShape::Unknown,
+                array_valued: false,
+                can_expand_to_multiple_fields: substitution_can_expand_to_multiple_fields(
+                    in_double_quotes,
+                    effective_options.as_ref(),
+                ),
+                hazards: ExpansionHazards {
+                    field_splitting: substitution_field_splitting_hazard(
+                        in_double_quotes,
+                        effective_options.as_ref(),
+                    ),
+                    pathname_matching: substitution_pathname_matching_hazard(
+                        in_double_quotes,
+                        effective_options.as_ref(),
+                    ),
+                    runtime_pattern: syntax
+                        .operation
+                        .as_ref()
+                        .is_some_and(zsh_operation_uses_pattern),
+                    ..ExpansionHazards::default()
+                },
+                command_substitution: false,
+                process_substitution: false,
+            }
+        }
     }
+}
+
+fn substitution_can_expand_to_multiple_fields(
+    in_double_quotes: bool,
+    options: Option<&ZshOptionState>,
+) -> bool {
+    !in_double_quotes
+        && (substitution_field_splitting_hazard(false, options)
+            || substitution_pathname_matching_hazard(false, options)
+            || options.is_none())
+}
+
+fn substitution_field_splitting_hazard(
+    in_double_quotes: bool,
+    options: Option<&ZshOptionState>,
+) -> bool {
+    if in_double_quotes {
+        return false;
+    }
+
+    match options {
+        Some(options) => !matches!(options.sh_word_split, OptionValue::Off),
+        None => true,
+    }
+}
+
+fn substitution_pathname_matching_hazard(
+    in_double_quotes: bool,
+    options: Option<&ZshOptionState>,
+) -> bool {
+    if in_double_quotes || !glob_is_effectively_enabled(options) {
+        return false;
+    }
+
+    match options {
+        Some(options) => !matches!(options.glob_subst, OptionValue::Off),
+        None => true,
+    }
+}
+
+fn glob_is_effectively_enabled(options: Option<&ZshOptionState>) -> bool {
+    !matches!(options.map(|options| options.glob), Some(OptionValue::Off))
+}
+
+fn overlay_zsh_modifier_overrides(
+    options: Option<&ZshOptionState>,
+    syntax: &shuck_ast::ZshParameterExpansion,
+) -> Option<ZshOptionState> {
+    let mut effective = options.cloned()?;
+    apply_toggle_override(
+        &mut effective.sh_word_split,
+        syntax.modifiers.iter().filter(|modifier| modifier.name == '=').count(),
+    );
+    apply_toggle_override(
+        &mut effective.glob_subst,
+        syntax.modifiers.iter().filter(|modifier| modifier.name == '~').count(),
+    );
+    apply_toggle_override(
+        &mut effective.rc_expand_param,
+        syntax.modifiers.iter().filter(|modifier| modifier.name == '^').count(),
+    );
+    Some(effective)
+}
+
+fn apply_toggle_override(value: &mut OptionValue, count: usize) {
+    if count == 0 {
+        return;
+    }
+
+    *value = if count % 2 == 1 {
+        OptionValue::On
+    } else {
+        OptionValue::Off
+    };
 }
 
 fn scalar_part(
@@ -872,7 +997,7 @@ mod tests {
     fn analyze_argument_words(source: &str) -> Vec<ExpansionAnalysis> {
         parse_argument_words(source)
             .iter()
-            .map(|word| analyze_word(word, source))
+            .map(|word| analyze_word(word, source, None))
             .collect()
     }
 
@@ -887,7 +1012,7 @@ mod tests {
         command
             .args
             .iter()
-            .map(|word| analyze_word(word, source))
+            .map(|word| analyze_word(word, source, None))
             .collect()
     }
 
@@ -973,6 +1098,26 @@ mod tests {
     }
 
     #[test]
+    fn analyze_word_suppresses_zsh_glob_fanout_when_glob_is_disabled() {
+        let source = "print *.jpg\n";
+        let file = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected simple command");
+        };
+        let options = shuck_semantic::ZshOptionState {
+            glob: shuck_semantic::OptionValue::Off,
+            ..shuck_semantic::ZshOptionState::zsh_default()
+        };
+        let analysis = analyze_word(&command.args[0], source, Some(&options));
+
+        assert!(!analysis.hazards.pathname_matching);
+        assert!(!analysis.can_expand_to_multiple_fields);
+    }
+
+    #[test]
     fn analyze_redirect_target_distinguishes_descriptor_dups_and_dev_null() {
         let static_dup_source = "echo hi 2>&3\n";
         let static_dup_file = Parser::new(static_dup_source).parse().unwrap().file;
@@ -980,7 +1125,7 @@ mod tests {
             panic!("expected simple command");
         };
         let static_dup =
-            analyze_redirect_target(&static_dup_file.body[0].redirects[0], static_dup_source)
+            analyze_redirect_target(&static_dup_file.body[0].redirects[0], static_dup_source, None)
                 .expect("expected redirect analysis");
         assert!(static_dup.is_descriptor_dup());
         assert_eq!(static_dup.numeric_descriptor_target, Some(3));
@@ -991,7 +1136,7 @@ mod tests {
         let Command::Simple(_) = &file_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let file = analyze_redirect_target(&file_commands.body[0].redirects[0], file_source)
+        let file = analyze_redirect_target(&file_commands.body[0].redirects[0], file_source, None)
             .expect("expected redirect analysis");
         assert!(file.is_file_target());
         assert!(file.is_definitely_dev_null());
@@ -1002,7 +1147,7 @@ mod tests {
         let Command::Simple(_) = &maybe_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let maybe = analyze_redirect_target(&maybe_commands.body[0].redirects[0], maybe_source)
+        let maybe = analyze_redirect_target(&maybe_commands.body[0].redirects[0], maybe_source, None)
             .expect("expected redirect analysis");
         assert!(maybe.is_file_target());
         assert_eq!(
@@ -1016,7 +1161,7 @@ mod tests {
         let Command::Simple(_) = &fanout_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let fanout = analyze_redirect_target(&fanout_commands.body[0].redirects[0], fanout_source)
+        let fanout = analyze_redirect_target(&fanout_commands.body[0].redirects[0], fanout_source, None)
             .expect("expected redirect analysis");
         assert!(fanout.can_expand_to_multiple_fields());
         assert!(fanout.is_runtime_sensitive());
@@ -1026,7 +1171,7 @@ mod tests {
         let Command::Simple(_) = &tilde_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let tilde = analyze_redirect_target(&tilde_commands.body[0].redirects[0], tilde_source)
+        let tilde = analyze_redirect_target(&tilde_commands.body[0].redirects[0], tilde_source, None)
             .expect("expected redirect analysis");
         assert!(tilde.is_file_target());
         assert_eq!(
@@ -1043,60 +1188,60 @@ mod tests {
         let words = parse_argument_words(source);
 
         assert!(
-            analyze_literal_runtime(&words[0], source, ExpansionContext::CommandArgument)
+            analyze_literal_runtime(&words[0], source, ExpansionContext::CommandArgument, None)
                 .hazards
                 .tilde_expansion
         );
         assert!(
-            analyze_literal_runtime(&words[1], source, ExpansionContext::CommandArgument)
+            analyze_literal_runtime(&words[1], source, ExpansionContext::CommandArgument, None)
                 .hazards
                 .tilde_expansion
         );
         assert!(
-            analyze_literal_runtime(&words[2], source, ExpansionContext::CommandArgument)
+            analyze_literal_runtime(&words[2], source, ExpansionContext::CommandArgument, None)
                 .hazards
                 .tilde_expansion
         );
         assert!(
-            analyze_literal_runtime(&words[3], source, ExpansionContext::CommandArgument)
+            analyze_literal_runtime(&words[3], source, ExpansionContext::CommandArgument, None)
                 .hazards
                 .pathname_matching
         );
         assert!(
-            analyze_literal_runtime(&words[4], source, ExpansionContext::CommandArgument)
+            analyze_literal_runtime(&words[4], source, ExpansionContext::CommandArgument, None)
                 .hazards
                 .brace_fanout
         );
 
         assert!(
-            !analyze_literal_runtime(&words[5], source, ExpansionContext::CommandArgument)
+            !analyze_literal_runtime(&words[5], source, ExpansionContext::CommandArgument, None)
                 .is_runtime_sensitive()
         );
         assert!(
-            !analyze_literal_runtime(&words[6], source, ExpansionContext::CommandArgument)
+            !analyze_literal_runtime(&words[6], source, ExpansionContext::CommandArgument, None)
                 .is_runtime_sensitive()
         );
         assert!(
-            !analyze_literal_runtime(&words[7], source, ExpansionContext::CommandArgument)
+            !analyze_literal_runtime(&words[7], source, ExpansionContext::CommandArgument, None)
                 .is_runtime_sensitive()
         );
 
         assert!(
-            analyze_literal_runtime(&words[0], source, ExpansionContext::StringTestOperand)
+            analyze_literal_runtime(&words[0], source, ExpansionContext::StringTestOperand, None)
                 .hazards
                 .tilde_expansion
         );
         assert!(
-            analyze_literal_runtime(&words[0], source, ExpansionContext::RegexOperand)
+            analyze_literal_runtime(&words[0], source, ExpansionContext::RegexOperand, None)
                 .hazards
                 .tilde_expansion
         );
         assert!(
-            !analyze_literal_runtime(&words[3], source, ExpansionContext::StringTestOperand)
+            !analyze_literal_runtime(&words[3], source, ExpansionContext::StringTestOperand, None)
                 .is_runtime_sensitive()
         );
         assert!(
-            !analyze_literal_runtime(&words[4], source, ExpansionContext::CasePattern)
+            !analyze_literal_runtime(&words[4], source, ExpansionContext::CasePattern, None)
                 .is_runtime_sensitive()
         );
     }

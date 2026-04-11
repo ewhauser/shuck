@@ -7,6 +7,8 @@ use std::{collections::VecDeque, ops::Range, sync::Arc};
 use memchr::{memchr, memchr_iter, memrchr};
 use shuck_ast::{Position, Span, TokenKind};
 
+use super::{ShellProfile, ZshOptionState, ZshOptionTimeline};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct TokenFlags(u8);
 
@@ -680,6 +682,9 @@ pub struct Lexer<'a> {
     reinject_resume_offset: Option<usize>,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
+    initial_zsh_options: Option<ZshOptionState>,
+    zsh_timeline: Option<Arc<ZshOptionTimeline>>,
+    zsh_timeline_index: usize,
     #[cfg(feature = "benchmarking")]
     benchmark_counters: Option<LexerBenchmarkCounters>,
 }
@@ -687,12 +692,44 @@ pub struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     /// Create a new lexer for the given input.
     pub fn new(input: &'a str) -> Self {
-        Self::with_max_subst_depth(input, DEFAULT_MAX_SUBST_DEPTH)
+        Self::with_max_subst_depth_and_profile(
+            input,
+            DEFAULT_MAX_SUBST_DEPTH,
+            &ShellProfile::native(super::ShellDialect::Bash),
+            None,
+        )
     }
 
     /// Create a new lexer with a custom max substitution nesting depth.
     /// Limits recursion in read_command_subst_into().
     pub fn with_max_subst_depth(input: &'a str, max_depth: usize) -> Self {
+        Self::with_max_subst_depth_and_profile(
+            input,
+            max_depth,
+            &ShellProfile::native(super::ShellDialect::Bash),
+            None,
+        )
+    }
+
+    pub fn with_profile(input: &'a str, shell_profile: &ShellProfile) -> Self {
+        let zsh_timeline = (shell_profile.dialect == super::ShellDialect::Zsh)
+            .then(|| ZshOptionTimeline::build(input, shell_profile))
+            .flatten()
+            .map(Arc::new);
+        Self::with_max_subst_depth_and_profile(
+            input,
+            DEFAULT_MAX_SUBST_DEPTH,
+            shell_profile,
+            zsh_timeline,
+        )
+    }
+
+    pub(crate) fn with_max_subst_depth_and_profile(
+        input: &'a str,
+        max_depth: usize,
+        shell_profile: &ShellProfile,
+        zsh_timeline: Option<Arc<ZshOptionTimeline>>,
+    ) -> Self {
         Self {
             input,
             offset: 0,
@@ -701,6 +738,9 @@ impl<'a> Lexer<'a> {
             reinject_buf: VecDeque::new(),
             reinject_resume_offset: None,
             max_subst_depth: max_depth,
+            initial_zsh_options: shell_profile.zsh_options().cloned(),
+            zsh_timeline,
+            zsh_timeline_index: 0,
             #[cfg(feature = "benchmarking")]
             benchmark_counters: None,
         }
@@ -875,7 +915,51 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn should_treat_hash_as_word_char(&self) -> bool {
+    fn current_zsh_options(&mut self) -> Option<&ZshOptionState> {
+        if let Some(timeline) = self.zsh_timeline.as_ref() {
+            while self.zsh_timeline_index < timeline.entries.len()
+                && timeline.entries[self.zsh_timeline_index].offset <= self.offset
+            {
+                self.zsh_timeline_index += 1;
+            }
+            return if self.zsh_timeline_index == 0 {
+                self.initial_zsh_options.as_ref()
+            } else {
+                Some(&timeline.entries[self.zsh_timeline_index - 1].state)
+            };
+        }
+
+        self.initial_zsh_options.as_ref()
+    }
+
+    fn comments_enabled(&mut self) -> bool {
+        !self
+            .current_zsh_options()
+            .is_some_and(|options| options.interactive_comments.is_definitely_off())
+    }
+
+    fn rc_quotes_enabled(&mut self) -> bool {
+        self.current_zsh_options()
+            .is_some_and(|options| options.rc_quotes.is_definitely_on())
+    }
+
+    fn ignore_braces_enabled(&mut self) -> bool {
+        self.current_zsh_options()
+            .is_some_and(|options| options.ignore_braces.is_definitely_on())
+    }
+
+    fn ignore_close_braces_enabled(&mut self) -> bool {
+        self.current_zsh_options()
+            .is_some_and(|options| {
+                options.ignore_braces.is_definitely_on()
+                    || options.ignore_close_braces.is_definitely_on()
+            })
+    }
+
+    fn should_treat_hash_as_word_char(&mut self) -> bool {
+        if !self.comments_enabled() {
+            return true;
+        }
         self.reinject_buf.is_empty()
             && (self
                 .input
@@ -1042,10 +1126,19 @@ impl<'a> Lexer<'a> {
                 }
             }
             '{' => {
-                // Look ahead to see if this is a brace expansion like {a,b,c} or {1..5}
-                // vs a brace group like { cmd; }
-                // Note: { must be followed by space/newline to be a brace group
-                if self.looks_like_brace_expansion() {
+                if self.ignore_braces_enabled() {
+                    let start = self.current_position();
+                    self.consume_ascii_chars(1);
+                    match self.peek_char() {
+                        Some(' ') | Some('\t') | Some('\n') | None => {
+                            Some(LexedToken::borrowed_word(TokenKind::Word, "{", None))
+                        }
+                        _ => self.read_word_starting_with("{", start),
+                    }
+                } else if self.looks_like_brace_expansion() {
+                    // Look ahead to see if this is a brace expansion like {a,b,c} or {1..5}
+                    // vs a brace group like { cmd; }
+                    // Note: { must be followed by space/newline to be a brace group
                     self.read_brace_expansion_word()
                 } else if self.is_brace_group_start() {
                     self.advance();
@@ -1056,8 +1149,12 @@ impl<'a> Lexer<'a> {
                 }
             }
             '}' => {
-                self.advance();
-                Some(LexedToken::punctuation(TokenKind::RightBrace))
+                self.consume_ascii_chars(1);
+                if self.ignore_close_braces_enabled() {
+                    Some(LexedToken::borrowed_word(TokenKind::Word, "}", None))
+                } else {
+                    Some(LexedToken::punctuation(TokenKind::RightBrace))
+                }
             }
             '[' => {
                 let start = self.current_position();
@@ -1692,7 +1789,7 @@ impl<'a> Lexer<'a> {
         let wrapper_start = self.current_position();
         self.consume_ascii_chars(1); // consume opening '
         let content_start = self.current_position();
-        let can_borrow = self.reinject_buf.is_empty();
+        let can_borrow = self.reinject_buf.is_empty() && !self.rc_quotes_enabled();
         let mut content_end = content_start;
         let mut content = String::with_capacity(16);
         let mut closed = false;
@@ -1714,6 +1811,14 @@ impl<'a> Lexer<'a> {
                 break;
             }
             if ch == '\'' {
+                if self.rc_quotes_enabled() && self.second_char() == Some('\'') {
+                    if !can_borrow {
+                        content.push('\'');
+                    }
+                    self.advance();
+                    self.advance();
+                    continue;
+                }
                 content_end = self.current_position();
                 self.consume_ascii_chars(1); // consume closing '
                 closed = true;
@@ -4067,5 +4172,44 @@ EOF
         );
 
         assert_non_newline_tokens_stay_on_one_line(input);
+    }
+
+    #[test]
+    fn test_zsh_midfile_unsetopt_interactive_comments_keeps_hash_as_word() {
+        let source = "unsetopt interactive_comments\n#literal\n";
+        let profile = ShellProfile::native(crate::parser::ShellDialect::Zsh);
+        let mut lexer = Lexer::with_profile(source, &profile);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("unsetopt"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("interactive_comments"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("#literal"));
+    }
+
+    #[test]
+    fn test_zsh_midfile_setopt_rc_quotes_merges_adjacent_single_quotes() {
+        let source = "setopt rc_quotes\nprint 'a''b'\n";
+        let profile = ShellProfile::native(crate::parser::ShellDialect::Zsh);
+        let mut lexer = Lexer::with_profile(source, &profile);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("setopt"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("rc_quotes"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("print"));
+        assert_next_token(&mut lexer, TokenKind::LiteralWord, Some("a'b"));
+    }
+
+    #[test]
+    fn test_zsh_midfile_setopt_ignore_braces_lexes_braces_as_words() {
+        let source = "setopt ignore_braces\n{ echo }\n";
+        let profile = ShellProfile::native(crate::parser::ShellDialect::Zsh);
+        let mut lexer = Lexer::with_profile(source, &profile);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("setopt"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("ignore_braces"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("{"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("}"));
     }
 }

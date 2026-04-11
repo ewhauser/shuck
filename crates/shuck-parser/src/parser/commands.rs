@@ -444,8 +444,8 @@ impl<'a> Parser<'a> {
             | Some(Keyword::Time)
             | Some(Keyword::Coproc) => true,
             Some(Keyword::For) => self.dialect == ShellDialect::Zsh,
-            Some(Keyword::Repeat) => self.dialect.features().zsh_repeat_loop,
-            Some(Keyword::Foreach) => self.dialect.features().zsh_foreach_loop,
+            Some(Keyword::Repeat) => self.zsh_short_repeat_enabled(),
+            Some(Keyword::Foreach) => self.zsh_short_loops_enabled(),
             Some(Keyword::Function) => false,
             None => matches!(
                 self.current_token_kind,
@@ -722,10 +722,10 @@ impl<'a> Parser<'a> {
         self.maybe_expand_current_alias_chain();
         self.check_error_token()?;
 
-        if !self.dialect.features().zsh_repeat_loop && self.looks_like_disabled_repeat_loop()? {
+        if !self.zsh_short_repeat_enabled() && self.looks_like_disabled_repeat_loop()? {
             self.ensure_repeat_loop()?;
         }
-        if !self.dialect.features().zsh_foreach_loop && self.looks_like_disabled_foreach_loop()? {
+        if !self.zsh_short_loops_enabled() && self.looks_like_disabled_foreach_loop()? {
             self.ensure_foreach_loop()?;
         }
 
@@ -741,10 +741,10 @@ impl<'a> Parser<'a> {
         match self.current_keyword() {
             Some(Keyword::If) => return self.parse_compound_with_redirects(|s| s.parse_if()),
             Some(Keyword::For) => return self.parse_compound_with_redirects(|s| s.parse_for()),
-            Some(Keyword::Repeat) if self.dialect.features().zsh_repeat_loop => {
+            Some(Keyword::Repeat) if self.zsh_short_repeat_enabled() => {
                 return self.parse_compound_with_redirects(|s| s.parse_repeat());
             }
-            Some(Keyword::Foreach) if self.dialect.features().zsh_foreach_loop => {
+            Some(Keyword::Foreach) if self.zsh_short_loops_enabled() => {
                 return self.parse_compound_with_redirects(|s| s.parse_foreach());
             }
             Some(Keyword::While) => {
@@ -846,7 +846,7 @@ impl<'a> Parser<'a> {
 
         // Parse condition
         let condition_start = self.current_span.start;
-        let allow_brace_syntax = self.dialect.features().zsh_brace_if;
+        let allow_brace_syntax = self.zsh_brace_if_enabled();
         let condition = self.parse_if_condition_until_body_start(allow_brace_syntax)?;
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
@@ -2671,7 +2671,10 @@ impl<'a> Parser<'a> {
     }
 
     fn try_parse_compact_function_brace_body(&mut self) -> Result<Option<CompoundCommand>> {
-        if self.dialect != ShellDialect::Zsh || !self.at_word_like() {
+        if self.dialect != ShellDialect::Zsh
+            || !self.zsh_short_loops_enabled()
+            || !self.at_word_like()
+        {
             return Ok(None);
         }
 
@@ -2697,8 +2700,13 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
+        let nested_profile = self
+            .current_zsh_options()
+            .cloned()
+            .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
+            .unwrap_or_else(|| self.shell_profile.clone());
         let mut nested =
-            Parser::with_limits_and_dialect(inner, self.max_depth, self.max_fuel, self.dialect);
+            Parser::with_limits_and_profile(inner, self.max_depth, self.max_fuel, nested_profile);
         nested.aliases = self.aliases.clone();
         nested.expand_aliases = self.expand_aliases;
         nested.expand_next_word = self.expand_next_word;
@@ -3549,14 +3557,10 @@ impl<'a> Parser<'a> {
         let compound = match self.current_keyword() {
             Some(Keyword::If) if allow_bare_compound => self.parse_if()?,
             Some(Keyword::For) if allow_bare_compound => self.parse_for()?,
-            Some(Keyword::Repeat)
-                if allow_bare_compound && self.dialect.features().zsh_repeat_loop =>
-            {
+            Some(Keyword::Repeat) if allow_bare_compound && self.zsh_short_repeat_enabled() => {
                 self.parse_repeat()?
             }
-            Some(Keyword::Foreach)
-                if allow_bare_compound && self.dialect.features().zsh_foreach_loop =>
-            {
+            Some(Keyword::Foreach) if allow_bare_compound && self.zsh_short_loops_enabled() => {
                 self.parse_foreach()?
             }
             Some(Keyword::While) if allow_bare_compound => self.parse_while()?,

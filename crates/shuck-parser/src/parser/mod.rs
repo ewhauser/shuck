@@ -165,6 +165,758 @@ pub enum ShellDialect {
     Zsh,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum OptionValue {
+    On,
+    Off,
+    #[default]
+    Unknown,
+}
+
+impl OptionValue {
+    pub const fn is_definitely_on(self) -> bool {
+        matches!(self, Self::On)
+    }
+
+    pub const fn is_definitely_off(self) -> bool {
+        matches!(self, Self::Off)
+    }
+
+    pub const fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::On, Self::On) => Self::On,
+            (Self::Off, Self::Off) => Self::Off,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ZshEmulationMode {
+    Zsh,
+    Sh,
+    Ksh,
+    Csh,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ZshOptionState {
+    pub sh_word_split: OptionValue,
+    pub glob_subst: OptionValue,
+    pub rc_expand_param: OptionValue,
+    pub glob: OptionValue,
+    pub nomatch: OptionValue,
+    pub null_glob: OptionValue,
+    pub csh_null_glob: OptionValue,
+    pub extended_glob: OptionValue,
+    pub ksh_glob: OptionValue,
+    pub sh_glob: OptionValue,
+    pub bare_glob_qual: OptionValue,
+    pub glob_dots: OptionValue,
+    pub equals: OptionValue,
+    pub magic_equal_subst: OptionValue,
+    pub sh_file_expansion: OptionValue,
+    pub glob_assign: OptionValue,
+    pub ignore_braces: OptionValue,
+    pub ignore_close_braces: OptionValue,
+    pub brace_ccl: OptionValue,
+    pub ksh_arrays: OptionValue,
+    pub ksh_zero_subscript: OptionValue,
+    pub short_loops: OptionValue,
+    pub short_repeat: OptionValue,
+    pub rc_quotes: OptionValue,
+    pub interactive_comments: OptionValue,
+    pub c_bases: OptionValue,
+    pub octal_zeroes: OptionValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ZshOptionField {
+    ShWordSplit,
+    GlobSubst,
+    RcExpandParam,
+    Glob,
+    Nomatch,
+    NullGlob,
+    CshNullGlob,
+    ExtendedGlob,
+    KshGlob,
+    ShGlob,
+    BareGlobQual,
+    GlobDots,
+    Equals,
+    MagicEqualSubst,
+    ShFileExpansion,
+    GlobAssign,
+    IgnoreBraces,
+    IgnoreCloseBraces,
+    BraceCcl,
+    KshArrays,
+    KshZeroSubscript,
+    ShortLoops,
+    ShortRepeat,
+    RcQuotes,
+    InteractiveComments,
+    CBases,
+    OctalZeroes,
+}
+
+impl ZshOptionState {
+    pub const fn zsh_default() -> Self {
+        Self {
+            sh_word_split: OptionValue::Off,
+            glob_subst: OptionValue::Off,
+            rc_expand_param: OptionValue::Off,
+            glob: OptionValue::On,
+            nomatch: OptionValue::On,
+            null_glob: OptionValue::Off,
+            csh_null_glob: OptionValue::Off,
+            extended_glob: OptionValue::Off,
+            ksh_glob: OptionValue::Off,
+            sh_glob: OptionValue::Off,
+            bare_glob_qual: OptionValue::On,
+            glob_dots: OptionValue::Off,
+            equals: OptionValue::On,
+            magic_equal_subst: OptionValue::Off,
+            sh_file_expansion: OptionValue::Off,
+            glob_assign: OptionValue::Off,
+            ignore_braces: OptionValue::Off,
+            ignore_close_braces: OptionValue::Off,
+            brace_ccl: OptionValue::Off,
+            ksh_arrays: OptionValue::Off,
+            ksh_zero_subscript: OptionValue::Off,
+            short_loops: OptionValue::On,
+            short_repeat: OptionValue::On,
+            rc_quotes: OptionValue::Off,
+            interactive_comments: OptionValue::On,
+            c_bases: OptionValue::Off,
+            octal_zeroes: OptionValue::Off,
+        }
+    }
+
+    pub fn for_emulate(mode: ZshEmulationMode) -> Self {
+        let mut state = Self::zsh_default();
+        match mode {
+            ZshEmulationMode::Zsh => {}
+            ZshEmulationMode::Sh => {
+                state.sh_word_split = OptionValue::On;
+                state.glob_subst = OptionValue::On;
+                state.sh_glob = OptionValue::On;
+                state.sh_file_expansion = OptionValue::On;
+                state.bare_glob_qual = OptionValue::Off;
+                state.ksh_arrays = OptionValue::Off;
+            }
+            ZshEmulationMode::Ksh => {
+                state.sh_word_split = OptionValue::On;
+                state.glob_subst = OptionValue::On;
+                state.ksh_glob = OptionValue::On;
+                state.ksh_arrays = OptionValue::On;
+                state.sh_glob = OptionValue::On;
+                state.bare_glob_qual = OptionValue::Off;
+            }
+            ZshEmulationMode::Csh => {
+                state.csh_null_glob = OptionValue::On;
+                state.sh_word_split = OptionValue::Off;
+                state.glob_subst = OptionValue::Off;
+            }
+        }
+        state
+    }
+
+    pub fn apply_setopt(&mut self, name: &str) -> bool {
+        self.apply_named_option(name, true)
+    }
+
+    pub fn apply_unsetopt(&mut self, name: &str) -> bool {
+        self.apply_named_option(name, false)
+    }
+
+    fn set_field(&mut self, field: ZshOptionField, value: OptionValue) {
+        match field {
+            ZshOptionField::ShWordSplit => self.sh_word_split = value,
+            ZshOptionField::GlobSubst => self.glob_subst = value,
+            ZshOptionField::RcExpandParam => self.rc_expand_param = value,
+            ZshOptionField::Glob => self.glob = value,
+            ZshOptionField::Nomatch => self.nomatch = value,
+            ZshOptionField::NullGlob => self.null_glob = value,
+            ZshOptionField::CshNullGlob => self.csh_null_glob = value,
+            ZshOptionField::ExtendedGlob => self.extended_glob = value,
+            ZshOptionField::KshGlob => self.ksh_glob = value,
+            ZshOptionField::ShGlob => self.sh_glob = value,
+            ZshOptionField::BareGlobQual => self.bare_glob_qual = value,
+            ZshOptionField::GlobDots => self.glob_dots = value,
+            ZshOptionField::Equals => self.equals = value,
+            ZshOptionField::MagicEqualSubst => self.magic_equal_subst = value,
+            ZshOptionField::ShFileExpansion => self.sh_file_expansion = value,
+            ZshOptionField::GlobAssign => self.glob_assign = value,
+            ZshOptionField::IgnoreBraces => self.ignore_braces = value,
+            ZshOptionField::IgnoreCloseBraces => self.ignore_close_braces = value,
+            ZshOptionField::BraceCcl => self.brace_ccl = value,
+            ZshOptionField::KshArrays => self.ksh_arrays = value,
+            ZshOptionField::KshZeroSubscript => self.ksh_zero_subscript = value,
+            ZshOptionField::ShortLoops => self.short_loops = value,
+            ZshOptionField::ShortRepeat => self.short_repeat = value,
+            ZshOptionField::RcQuotes => self.rc_quotes = value,
+            ZshOptionField::InteractiveComments => self.interactive_comments = value,
+            ZshOptionField::CBases => self.c_bases = value,
+            ZshOptionField::OctalZeroes => self.octal_zeroes = value,
+        }
+    }
+
+    fn field(&self, field: ZshOptionField) -> OptionValue {
+        match field {
+            ZshOptionField::ShWordSplit => self.sh_word_split,
+            ZshOptionField::GlobSubst => self.glob_subst,
+            ZshOptionField::RcExpandParam => self.rc_expand_param,
+            ZshOptionField::Glob => self.glob,
+            ZshOptionField::Nomatch => self.nomatch,
+            ZshOptionField::NullGlob => self.null_glob,
+            ZshOptionField::CshNullGlob => self.csh_null_glob,
+            ZshOptionField::ExtendedGlob => self.extended_glob,
+            ZshOptionField::KshGlob => self.ksh_glob,
+            ZshOptionField::ShGlob => self.sh_glob,
+            ZshOptionField::BareGlobQual => self.bare_glob_qual,
+            ZshOptionField::GlobDots => self.glob_dots,
+            ZshOptionField::Equals => self.equals,
+            ZshOptionField::MagicEqualSubst => self.magic_equal_subst,
+            ZshOptionField::ShFileExpansion => self.sh_file_expansion,
+            ZshOptionField::GlobAssign => self.glob_assign,
+            ZshOptionField::IgnoreBraces => self.ignore_braces,
+            ZshOptionField::IgnoreCloseBraces => self.ignore_close_braces,
+            ZshOptionField::BraceCcl => self.brace_ccl,
+            ZshOptionField::KshArrays => self.ksh_arrays,
+            ZshOptionField::KshZeroSubscript => self.ksh_zero_subscript,
+            ZshOptionField::ShortLoops => self.short_loops,
+            ZshOptionField::ShortRepeat => self.short_repeat,
+            ZshOptionField::RcQuotes => self.rc_quotes,
+            ZshOptionField::InteractiveComments => self.interactive_comments,
+            ZshOptionField::CBases => self.c_bases,
+            ZshOptionField::OctalZeroes => self.octal_zeroes,
+        }
+    }
+
+    pub fn merge(&self, other: &Self) -> Self {
+        let mut merged = Self::zsh_default();
+        for field in ZshOptionField::ALL {
+            merged.set_field(field, self.field(field).merge(other.field(field)));
+        }
+        merged
+    }
+
+    fn apply_named_option(&mut self, name: &str, enable: bool) -> bool {
+        let Some((field, value)) = parse_zsh_option_assignment(name, enable) else {
+            return false;
+        };
+        self.set_field(field, if value { OptionValue::On } else { OptionValue::Off });
+        true
+    }
+}
+
+impl ZshOptionField {
+    const ALL: [Self; 27] = [
+        Self::ShWordSplit,
+        Self::GlobSubst,
+        Self::RcExpandParam,
+        Self::Glob,
+        Self::Nomatch,
+        Self::NullGlob,
+        Self::CshNullGlob,
+        Self::ExtendedGlob,
+        Self::KshGlob,
+        Self::ShGlob,
+        Self::BareGlobQual,
+        Self::GlobDots,
+        Self::Equals,
+        Self::MagicEqualSubst,
+        Self::ShFileExpansion,
+        Self::GlobAssign,
+        Self::IgnoreBraces,
+        Self::IgnoreCloseBraces,
+        Self::BraceCcl,
+        Self::KshArrays,
+        Self::KshZeroSubscript,
+        Self::ShortLoops,
+        Self::ShortRepeat,
+        Self::RcQuotes,
+        Self::InteractiveComments,
+        Self::CBases,
+        Self::OctalZeroes,
+    ];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ShellProfile {
+    pub dialect: ShellDialect,
+    pub options: Option<ZshOptionState>,
+}
+
+impl ShellProfile {
+    pub fn native(dialect: ShellDialect) -> Self {
+        Self {
+            dialect,
+            options: (dialect == ShellDialect::Zsh).then(ZshOptionState::zsh_default),
+        }
+    }
+
+    pub fn with_zsh_options(dialect: ShellDialect, options: ZshOptionState) -> Self {
+        Self {
+            dialect,
+            options: (dialect == ShellDialect::Zsh).then_some(options),
+        }
+    }
+
+    pub fn zsh_options(&self) -> Option<&ZshOptionState> {
+        self.options.as_ref()
+    }
+}
+
+fn parse_zsh_option_assignment(name: &str, enable: bool) -> Option<(ZshOptionField, bool)> {
+    let mut normalized = String::with_capacity(name.len());
+    for ch in name.chars() {
+        if matches!(ch, '_' | '-') {
+            continue;
+        }
+        normalized.push(ch.to_ascii_lowercase());
+    }
+
+    let (normalized, invert) = if let Some(rest) = normalized.strip_prefix("no") {
+        (rest, true)
+    } else {
+        (normalized.as_str(), false)
+    };
+
+    let field = match normalized {
+        "shwordsplit" => ZshOptionField::ShWordSplit,
+        "globsubst" => ZshOptionField::GlobSubst,
+        "rcexpandparam" => ZshOptionField::RcExpandParam,
+        "glob" | "noglob" => ZshOptionField::Glob,
+        "nomatch" => ZshOptionField::Nomatch,
+        "nullglob" => ZshOptionField::NullGlob,
+        "cshnullglob" => ZshOptionField::CshNullGlob,
+        "extendedglob" => ZshOptionField::ExtendedGlob,
+        "kshglob" => ZshOptionField::KshGlob,
+        "shglob" => ZshOptionField::ShGlob,
+        "bareglobqual" => ZshOptionField::BareGlobQual,
+        "globdots" => ZshOptionField::GlobDots,
+        "equals" => ZshOptionField::Equals,
+        "magicequalsubst" => ZshOptionField::MagicEqualSubst,
+        "shfileexpansion" => ZshOptionField::ShFileExpansion,
+        "globassign" => ZshOptionField::GlobAssign,
+        "ignorebraces" => ZshOptionField::IgnoreBraces,
+        "ignoreclosebraces" => ZshOptionField::IgnoreCloseBraces,
+        "braceccl" => ZshOptionField::BraceCcl,
+        "ksharrays" => ZshOptionField::KshArrays,
+        "kshzerosubscript" => ZshOptionField::KshZeroSubscript,
+        "shortloops" => ZshOptionField::ShortLoops,
+        "shortrepeat" => ZshOptionField::ShortRepeat,
+        "rcquotes" => ZshOptionField::RcQuotes,
+        "interactivecomments" => ZshOptionField::InteractiveComments,
+        "cbases" => ZshOptionField::CBases,
+        "octalzeroes" => ZshOptionField::OctalZeroes,
+        _ => return None,
+    };
+
+    Some((field, if invert { !enable } else { enable }))
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ZshOptionTimeline {
+    initial: ZshOptionState,
+    entries: Arc<[ZshOptionTimelineEntry]>,
+}
+
+#[derive(Debug, Clone)]
+struct ZshOptionTimelineEntry {
+    offset: usize,
+    state: ZshOptionState,
+}
+
+impl ZshOptionTimeline {
+    fn build(input: &str, shell_profile: &ShellProfile) -> Option<Self> {
+        let initial = shell_profile.zsh_options()?.clone();
+        if !might_mutate_zsh_parser_options(input) {
+            return Some(Self {
+                initial,
+                entries: Arc::from([]),
+            });
+        }
+
+        let entries = ZshOptionPrescanner::new(input, initial.clone()).scan();
+        Some(Self {
+            initial,
+            entries: entries.into(),
+        })
+    }
+
+    fn options_at(&self, offset: usize) -> &ZshOptionState {
+        let next_index = self.entries.partition_point(|entry| entry.offset <= offset);
+        if next_index == 0 {
+            &self.initial
+        } else {
+            &self.entries[next_index - 1].state
+        }
+    }
+}
+
+fn might_mutate_zsh_parser_options(input: &str) -> bool {
+    input.contains("setopt")
+        || input.contains("unsetopt")
+        || input.contains("emulate")
+        || input.contains("set -o")
+        || input.contains("set +o")
+}
+
+#[derive(Debug, Clone)]
+struct ZshOptionPrescanner<'a> {
+    input: &'a str,
+    offset: usize,
+    state: ZshOptionState,
+    entries: Vec<ZshOptionTimelineEntry>,
+}
+
+#[derive(Debug, Clone)]
+enum PrescanToken {
+    Word { text: String, end: usize },
+    Separator { start: usize },
+}
+
+impl<'a> ZshOptionPrescanner<'a> {
+    fn new(input: &'a str, state: ZshOptionState) -> Self {
+        Self {
+            input,
+            offset: 0,
+            state,
+            entries: Vec::new(),
+        }
+    }
+
+    fn scan(mut self) -> Vec<ZshOptionTimelineEntry> {
+        let mut words = Vec::new();
+        let mut command_end = 0usize;
+
+        while let Some(token) = self.next_token() {
+            match token {
+                PrescanToken::Word { text, end } => {
+                    command_end = end;
+                    words.push(text);
+                }
+                PrescanToken::Separator { start } => {
+                    self.finish_command(&words, command_end.max(start));
+                    words.clear();
+                    command_end = start;
+                }
+            }
+        }
+
+        self.finish_command(&words, command_end.max(self.input.len()));
+        self.entries
+    }
+
+    fn finish_command(&mut self, words: &[String], end_offset: usize) {
+        let mut next = self.state.clone();
+        if !apply_prescan_command_effects(words, &mut next) || next == self.state {
+            return;
+        }
+
+        self.state = next.clone();
+        self.entries.push(ZshOptionTimelineEntry {
+            offset: end_offset,
+            state: next,
+        });
+    }
+
+    fn next_token(&mut self) -> Option<PrescanToken> {
+        loop {
+            self.skip_horizontal_whitespace();
+            let ch = self.peek_char()?;
+
+            if ch == '#'
+                && self
+                    .state
+                    .interactive_comments
+                    .is_definitely_on()
+            {
+                self.skip_comment();
+                continue;
+            }
+
+            return match ch {
+                '\n' => {
+                    let start = self.offset;
+                    self.advance_char();
+                    Some(PrescanToken::Separator { start })
+                }
+                ';' | '|' | '&' | '(' | ')' | '{' | '}' => {
+                    let start = self.offset;
+                    self.advance_char();
+                    if matches!(ch, '|' | '&' | ';')
+                        && self.peek_char() == Some(ch)
+                    {
+                        self.advance_char();
+                    }
+                    Some(PrescanToken::Separator { start })
+                }
+                _ => self.read_word().map(|(text, end)| PrescanToken::Word { text, end }),
+            };
+        }
+    }
+
+    fn skip_horizontal_whitespace(&mut self) {
+        while let Some(ch) = self.peek_char() {
+            match ch {
+                ' ' | '\t' => {
+                    self.advance_char();
+                }
+                '\\' if self.second_char() == Some('\n') => {
+                    self.advance_char();
+                    self.advance_char();
+                }
+                _ => break,
+            }
+        }
+    }
+
+    fn skip_comment(&mut self) {
+        while let Some(ch) = self.peek_char() {
+            if ch == '\n' {
+                break;
+            }
+            self.advance_char();
+        }
+    }
+
+    fn read_word(&mut self) -> Option<(String, usize)> {
+        let mut text = String::new();
+
+        while let Some(ch) = self.peek_char() {
+            if is_prescan_separator(ch) {
+                break;
+            }
+
+            match ch {
+                ' ' | '\t' => break,
+                '\\' => {
+                    self.advance_char();
+                    match self.peek_char() {
+                        Some('\n') => {
+                            self.advance_char();
+                        }
+                        Some(next) => {
+                            text.push(next);
+                            self.advance_char();
+                        }
+                        None => text.push('\\'),
+                    }
+                }
+                '\'' => {
+                    self.advance_char();
+                    while let Some(next) = self.peek_char() {
+                        if next == '\'' {
+                            if self.state.rc_quotes.is_definitely_on()
+                                && self.second_char() == Some('\'')
+                            {
+                                text.push('\'');
+                                self.advance_char();
+                                self.advance_char();
+                                continue;
+                            }
+                            self.advance_char();
+                            break;
+                        }
+                        text.push(next);
+                        self.advance_char();
+                    }
+                }
+                '"' => {
+                    self.advance_char();
+                    while let Some(next) = self.peek_char() {
+                        if next == '"' {
+                            self.advance_char();
+                            break;
+                        }
+                        if next == '\\' {
+                            self.advance_char();
+                            if let Some(escaped) = self.peek_char() {
+                                text.push(escaped);
+                                self.advance_char();
+                            }
+                            continue;
+                        }
+                        text.push(next);
+                        self.advance_char();
+                    }
+                }
+                _ => {
+                    text.push(ch);
+                    self.advance_char();
+                }
+            }
+        }
+
+        (!text.is_empty()).then_some((text, self.offset))
+    }
+
+    fn peek_char(&self) -> Option<char> {
+        self.input[self.offset..].chars().next()
+    }
+
+    fn second_char(&self) -> Option<char> {
+        let mut chars = self.input[self.offset..].chars();
+        chars.next()?;
+        chars.next()
+    }
+
+    fn advance_char(&mut self) -> Option<char> {
+        let ch = self.peek_char()?;
+        self.offset += ch.len_utf8();
+        Some(ch)
+    }
+}
+
+fn is_prescan_separator(ch: char) -> bool {
+    matches!(ch, '\n' | ';' | '|' | '&' | '(' | ')' | '{' | '}')
+}
+
+fn apply_prescan_command_effects(words: &[String], state: &mut ZshOptionState) -> bool {
+    let Some((command, args_index)) = normalize_prescan_command(words) else {
+        return false;
+    };
+
+    match command {
+        "setopt" => words[args_index..]
+            .iter()
+            .fold(false, |changed, arg| state.apply_setopt(arg) || changed),
+        "unsetopt" => words[args_index..]
+            .iter()
+            .fold(false, |changed, arg| state.apply_unsetopt(arg) || changed),
+        "set" => apply_prescan_set_builtin(&words[args_index..], state),
+        "emulate" => apply_prescan_emulate(&words[args_index..], state),
+        _ => false,
+    }
+}
+
+fn normalize_prescan_command(words: &[String]) -> Option<(&str, usize)> {
+    let mut index = 0usize;
+
+    while let Some(word) = words.get(index) {
+        if is_prescan_assignment_word(word) {
+            index += 1;
+            continue;
+        }
+        if word == "noglob" {
+            index += 1;
+            continue;
+        }
+        return Some((word.as_str(), index + 1));
+    }
+
+    None
+}
+
+fn is_prescan_assignment_word(word: &str) -> bool {
+    let Some((name, _value)) = word.split_once('=') else {
+        return false;
+    };
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn apply_prescan_set_builtin(words: &[String], state: &mut ZshOptionState) -> bool {
+    let mut changed = false;
+    let mut index = 0usize;
+
+    while let Some(word) = words.get(index) {
+        match word.as_str() {
+            "-o" | "+o" => {
+                let enable = word.starts_with('-');
+                if let Some(name) = words.get(index + 1) {
+                    changed = if enable {
+                        state.apply_setopt(name)
+                    } else {
+                        state.apply_unsetopt(name)
+                    } || changed;
+                }
+                index += 2;
+            }
+            _ => {
+                if let Some(name) = word.strip_prefix("-o") {
+                    changed = state.apply_setopt(name) || changed;
+                } else if let Some(name) = word.strip_prefix("+o") {
+                    changed = state.apply_unsetopt(name) || changed;
+                }
+                index += 1;
+            }
+        }
+    }
+
+    changed
+}
+
+fn apply_prescan_emulate(words: &[String], state: &mut ZshOptionState) -> bool {
+    let mut changed = false;
+    let mut mode = None;
+    let mut pending_option: Option<bool> = None;
+    let mut explicit_updates = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = words.get(index) {
+        if let Some(enable) = pending_option.take() {
+            explicit_updates.push((word.clone(), enable));
+            index += 1;
+            continue;
+        }
+
+        match word.as_str() {
+            "-o" | "+o" => {
+                pending_option = Some(word.starts_with('-'));
+                index += 1;
+                continue;
+            }
+            "zsh" | "sh" | "ksh" | "csh" if mode.is_none() => {
+                mode = Some(match word.as_str() {
+                    "zsh" => ZshEmulationMode::Zsh,
+                    "sh" => ZshEmulationMode::Sh,
+                    "ksh" => ZshEmulationMode::Ksh,
+                    "csh" => ZshEmulationMode::Csh,
+                    _ => unreachable!(),
+                });
+                index += 1;
+                continue;
+            }
+            _ if mode.is_none() && word.starts_with('-') => {
+                for flag in word[1..].chars() {
+                    if flag == 'o' {
+                        pending_option = Some(true);
+                    }
+                }
+                index += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        index += 1;
+    }
+
+    if let Some(mode) = mode {
+        *state = ZshOptionState::for_emulate(mode);
+        changed = true;
+    }
+
+    for (name, enable) in explicit_updates {
+        changed = if enable {
+            state.apply_setopt(&name)
+        } else {
+            state.apply_unsetopt(&name)
+        } || changed;
+    }
+
+    changed
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DialectFeatures {
     double_bracket: bool,
@@ -295,6 +1047,8 @@ pub struct Parser<'a> {
     /// Active brace-body parsing contexts, used to distinguish compact zsh
     /// closers from literal `}` arguments.
     brace_body_stack: Vec<BraceBodyContext>,
+    shell_profile: ShellProfile,
+    zsh_timeline: Option<Arc<ZshOptionTimeline>>,
     dialect: ShellDialect,
     #[cfg(feature = "benchmarking")]
     benchmark_counters: Option<ParserBenchmarkCounters>,
@@ -516,37 +1270,47 @@ const IF_BODY_TERMINATORS: KeywordSet = keyword_set![Elif, Else, Fi];
 impl<'a> Parser<'a> {
     /// Create a new parser for the given input.
     pub fn new(input: &'a str) -> Self {
-        Self::with_limits_and_dialect(
+        Self::with_limits_and_profile(
             input,
             DEFAULT_MAX_AST_DEPTH,
             DEFAULT_MAX_PARSER_OPERATIONS,
-            ShellDialect::Bash,
+            ShellProfile::native(ShellDialect::Bash),
         )
     }
 
     /// Create a new parser for the given input and shell dialect.
     pub fn with_dialect(input: &'a str, dialect: ShellDialect) -> Self {
-        Self::with_limits_and_dialect(
+        Self::with_profile(input, ShellProfile::native(dialect))
+    }
+
+    /// Create a new parser for the given input and full shell profile.
+    pub fn with_profile(input: &'a str, shell_profile: ShellProfile) -> Self {
+        Self::with_limits_and_profile(
             input,
             DEFAULT_MAX_AST_DEPTH,
             DEFAULT_MAX_PARSER_OPERATIONS,
-            dialect,
+            shell_profile,
         )
     }
 
     /// Create a new parser with a custom maximum AST depth.
     pub fn with_max_depth(input: &'a str, max_depth: usize) -> Self {
-        Self::with_limits_and_dialect(
+        Self::with_limits_and_profile(
             input,
             max_depth,
             DEFAULT_MAX_PARSER_OPERATIONS,
-            ShellDialect::Bash,
+            ShellProfile::native(ShellDialect::Bash),
         )
     }
 
     /// Create a new parser with a custom fuel limit.
     pub fn with_fuel(input: &'a str, max_fuel: usize) -> Self {
-        Self::with_limits_and_dialect(input, DEFAULT_MAX_AST_DEPTH, max_fuel, ShellDialect::Bash)
+        Self::with_limits_and_profile(
+            input,
+            DEFAULT_MAX_AST_DEPTH,
+            max_fuel,
+            ShellProfile::native(ShellDialect::Bash),
+        )
     }
 
     /// Create a new parser with custom depth and fuel limits.
@@ -555,7 +1319,12 @@ impl<'a> Parser<'a> {
     /// to prevent stack overflow from misconfiguration. Even if the caller passes
     /// `max_depth = 1_000_000`, the parser will cap it at 500.
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
-        Self::with_limits_and_dialect(input, max_depth, max_fuel, ShellDialect::Bash)
+        Self::with_limits_and_profile(
+            input,
+            max_depth,
+            max_fuel,
+            ShellProfile::native(ShellDialect::Bash),
+        )
     }
 
     /// Create a new parser with custom depth, fuel, and dialect settings.
@@ -565,20 +1334,49 @@ impl<'a> Parser<'a> {
         max_fuel: usize,
         dialect: ShellDialect,
     ) -> Self {
-        Self::with_limits_and_dialect_and_benchmarking(input, max_depth, max_fuel, dialect, false)
+        Self::with_limits_and_profile(
+            input,
+            max_depth,
+            max_fuel,
+            ShellProfile::native(dialect),
+        )
     }
 
-    fn with_limits_and_dialect_and_benchmarking(
+    pub fn with_limits_and_profile(
         input: &'a str,
         max_depth: usize,
         max_fuel: usize,
-        dialect: ShellDialect,
+        shell_profile: ShellProfile,
+    ) -> Self {
+        Self::with_limits_and_profile_and_benchmarking(
+            input,
+            max_depth,
+            max_fuel,
+            shell_profile,
+            false,
+        )
+    }
+
+    fn with_limits_and_profile_and_benchmarking(
+        input: &'a str,
+        max_depth: usize,
+        max_fuel: usize,
+        shell_profile: ShellProfile,
         benchmark_counters_enabled: bool,
     ) -> Self {
         #[cfg(not(feature = "benchmarking"))]
         let _ = benchmark_counters_enabled;
 
-        let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
+        let zsh_timeline = (shell_profile.dialect == ShellDialect::Zsh)
+            .then(|| ZshOptionTimeline::build(input, &shell_profile))
+            .flatten()
+            .map(Arc::new);
+        let mut lexer = Lexer::with_max_subst_depth_and_profile(
+            input,
+            max_depth.min(HARD_MAX_AST_DEPTH),
+            &shell_profile,
+            zsh_timeline.clone(),
+        );
         #[cfg(feature = "benchmarking")]
         if benchmark_counters_enabled {
             lexer.enable_benchmark_counters();
@@ -623,7 +1421,9 @@ impl<'a> Parser<'a> {
             expand_next_word: false,
             brace_group_depth: 0,
             brace_body_stack: Vec::new(),
-            dialect,
+            dialect: shell_profile.dialect,
+            shell_profile,
+            zsh_timeline,
             #[cfg(feature = "benchmarking")]
             benchmark_counters: benchmark_counters_enabled.then(ParserBenchmarkCounters::default),
         }
@@ -631,17 +1431,73 @@ impl<'a> Parser<'a> {
 
     #[cfg(feature = "benchmarking")]
     fn rebuild_with_benchmark_counters(&self) -> Self {
-        Self::with_limits_and_dialect_and_benchmarking(
+        Self::with_limits_and_profile_and_benchmarking(
             self.input,
             self.max_depth,
             self.max_fuel,
-            self.dialect,
+            self.shell_profile.clone(),
             true,
         )
     }
 
     pub fn dialect(&self) -> ShellDialect {
         self.dialect
+    }
+
+    pub fn shell_profile(&self) -> &ShellProfile {
+        &self.shell_profile
+    }
+
+    fn zsh_options_at_offset(&self, offset: usize) -> Option<&ZshOptionState> {
+        self.zsh_timeline
+            .as_ref()
+            .map(|timeline| timeline.options_at(offset))
+            .or_else(|| self.shell_profile.zsh_options())
+    }
+
+    fn current_zsh_options(&self) -> Option<&ZshOptionState> {
+        self.zsh_options_at_offset(self.current_span.start.offset)
+    }
+
+    fn zsh_short_loops_enabled(&self) -> bool {
+        self.dialect.features().zsh_foreach_loop
+            && !self
+                .current_zsh_options()
+                .is_some_and(|options| options.short_loops.is_definitely_off())
+    }
+
+    fn zsh_short_repeat_enabled(&self) -> bool {
+        self.dialect.features().zsh_repeat_loop
+            && !self
+                .current_zsh_options()
+                .is_some_and(|options| options.short_repeat.is_definitely_off())
+    }
+
+    fn zsh_brace_if_enabled(&self) -> bool {
+        self.dialect.features().zsh_brace_if
+            && self.zsh_short_loops_enabled()
+            && !self
+                .current_zsh_options()
+                .is_some_and(|options| options.ignore_braces.is_definitely_on())
+    }
+
+    fn zsh_glob_qualifiers_enabled_at(&self, offset: usize) -> bool {
+        self.dialect.features().zsh_glob_qualifiers
+            && !self
+                .zsh_options_at_offset(offset)
+                .is_some_and(|options| {
+                    options.ignore_braces.is_definitely_on()
+                        || options.bare_glob_qual.is_definitely_off()
+                })
+    }
+
+    fn brace_syntax_enabled_at(&self, offset: usize) -> bool {
+        !self
+            .zsh_options_at_offset(offset)
+            .is_some_and(|options| {
+                options.ignore_braces.is_definitely_on()
+                    || options.ignore_close_braces.is_definitely_on()
+            })
     }
 
     /// Get the current token's span.
@@ -680,8 +1536,8 @@ impl<'a> Parser<'a> {
         max_fuel: usize,
         dialect: ShellDialect,
     ) -> Word {
-        let mut parser = Parser::with_limits(input, max_depth, max_fuel);
-        parser.dialect = dialect;
+        let mut parser =
+            Parser::with_limits_and_profile(input, max_depth, max_fuel, ShellProfile::native(dialect));
         let start = Position::new();
         parser.parse_word_with_context(
             input,
@@ -712,7 +1568,7 @@ impl<'a> Parser<'a> {
     }
 
     fn word_with_parts(&self, parts: Vec<WordPartNode>, span: Span) -> Word {
-        let brace_syntax = self.brace_syntax_from_parts(&parts);
+        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset);
         Word {
             parts,
             span,
@@ -720,7 +1576,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn brace_syntax_from_parts(&self, parts: &[WordPartNode]) -> Vec<BraceSyntax> {
+    fn brace_syntax_from_parts(&self, parts: &[WordPartNode], offset: usize) -> Vec<BraceSyntax> {
+        if !self.brace_syntax_enabled_at(offset) {
+            return Vec::new();
+        }
         let mut brace_syntax = Vec::new();
         self.collect_brace_syntax_from_parts(parts, BraceQuoteContext::Unquoted, &mut brace_syntax);
         brace_syntax
@@ -982,7 +1841,7 @@ impl<'a> Parser<'a> {
         span: Span,
         source_backed: bool,
     ) -> Option<Word> {
-        if !self.dialect.features().zsh_glob_qualifiers
+        if !self.zsh_glob_qualifiers_enabled_at(span.start.offset)
             || text.is_empty()
             || text.contains('=')
             || text.contains(['\x00', '\\', '\'', '"', '$', '`'])
@@ -1368,7 +2227,7 @@ impl<'a> Parser<'a> {
         let word = token.word()?;
         let source_backed = !token.flags.is_synthetic();
 
-        if self.dialect.features().zsh_glob_qualifiers
+        if self.zsh_glob_qualifiers_enabled_at(span.start.offset)
             && let Some(segment) = word.single_segment()
             && segment.kind() == LexedWordSegmentKind::Plain
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(
@@ -1728,7 +2587,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         let span = Span::from_positions(start, end);
-        if self.dialect.features().zsh_glob_qualifiers
+        if self.zsh_glob_qualifiers_enabled_at(span.start.offset)
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(&text, span, true)
         {
             return Some(word);
@@ -1916,8 +2775,13 @@ impl<'a> Parser<'a> {
 
     fn nested_stmt_seq_from_source(&mut self, source: &str, base: Position) -> StmtSeq {
         let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
+        let nested_profile = self
+            .current_zsh_options()
+            .cloned()
+            .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
+            .unwrap_or_else(|| self.shell_profile.clone());
         let inner_parser =
-            Parser::with_limits_and_dialect(source, remaining_depth, self.fuel, self.dialect);
+            Parser::with_limits_and_profile(source, remaining_depth, self.fuel, nested_profile);
         match inner_parser.parse() {
             Ok(mut output) => {
                 Self::rebase_file(&mut output.file, base);
@@ -3176,11 +4040,30 @@ impl<'a> Parser<'a> {
             index = next_index;
         }
 
-        if text[index..].starts_with('#') {
-            let prefix_start = base.advanced_by(&text[..index]);
-            let prefix_end = prefix_start.advanced_by("#");
-            length_prefix = Some(Span::from_positions(prefix_start, prefix_end));
-            index += '#'.len_utf8();
+        while index < text.len() {
+            let Some(flag) = text[index..].chars().next() else {
+                break;
+            };
+            match flag {
+                '=' | '~' | '^' => {
+                    let modifier_start = base.advanced_by(&text[..index]);
+                    let modifier_end = modifier_start.advanced_by(&text[index..index + flag.len_utf8()]);
+                    modifiers.push(ZshModifier {
+                        name: flag,
+                        argument: None,
+                        argument_delimiter: None,
+                        span: Span::from_positions(modifier_start, modifier_end),
+                    });
+                    index += flag.len_utf8();
+                }
+                '#' if length_prefix.is_none() => {
+                    let prefix_start = base.advanced_by(&text[..index]);
+                    let prefix_end = prefix_start.advanced_by("#");
+                    length_prefix = Some(Span::from_positions(prefix_start, prefix_end));
+                    index += '#'.len_utf8();
+                }
+                _ => break,
+            }
         }
 
         let (target, operation_index) = if text[index..].starts_with("${") {
@@ -3205,7 +4088,7 @@ impl<'a> Parser<'a> {
                 let leading = raw_target
                     .len()
                     .saturating_sub(raw_target.trim_start().len());
-                let target_base = base.advanced_by(&raw_target[..leading]);
+                let target_base = base.advanced_by(&text[..index + leading]);
                 self.parse_zsh_target_from_text(
                     trimmed,
                     target_base,
@@ -3303,6 +4186,7 @@ impl<'a> Parser<'a> {
             })
         } else if raw_body_text.starts_with('(')
             || raw_body_text.starts_with(':')
+            || raw_body_text.starts_with('=')
             || raw_body_text.starts_with('^')
             || raw_body_text.starts_with('~')
             || raw_body_text.starts_with('.')
@@ -3987,7 +4871,7 @@ impl<'a> Parser<'a> {
 
     fn ensure_repeat_loop(&self) -> Result<()> {
         self.ensure_feature(
-            self.dialect.features().zsh_repeat_loop,
+            self.zsh_short_repeat_enabled(),
             "repeat loops",
             "are not available in this shell mode",
         )
@@ -3995,7 +4879,7 @@ impl<'a> Parser<'a> {
 
     fn ensure_foreach_loop(&self) -> Result<()> {
         self.ensure_feature(
-            self.dialect.features().zsh_foreach_loop,
+            self.zsh_short_loops_enabled(),
             "foreach loops",
             "are not available in this shell mode",
         )

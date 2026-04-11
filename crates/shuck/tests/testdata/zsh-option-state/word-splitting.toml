@@ -1,0 +1,45 @@
+name = "word splitting and force-split modifier"
+source = '''
+value="alpha beta"
+__shuck_probe_options native shwordsplit globsubst
+__shuck_probe_fields plain $value
+setopt sh_word_split
+__shuck_probe_options split_on shwordsplit
+__shuck_probe_fields split_on $value
+unsetopt sh_word_split
+__shuck_probe_fields force_split ${=value}
+'''
+
+[option_probes.native]
+shwordsplit = "off"
+globsubst = "off"
+
+[option_probes.split_on]
+shwordsplit = "on"
+
+[field_probes.plain]
+count = 1
+values = ["alpha beta"]
+
+[field_probes.plain.shuck]
+multi = false
+field_splitting = false
+pathname_matching = false
+
+[field_probes.split_on]
+count = 2
+values = ["alpha", "beta"]
+
+[field_probes.split_on.shuck]
+multi = true
+field_splitting = true
+pathname_matching = false
+
+[field_probes.force_split]
+count = 2
+values = ["alpha", "beta"]
+
+[field_probes.force_split.shuck]
+multi = true
+field_splitting = true
+pathname_matching = false

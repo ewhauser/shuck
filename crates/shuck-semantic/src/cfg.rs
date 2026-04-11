@@ -1,5 +1,6 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{CaseTerminator, Span};
+use shuck_parser::ZshEmulationMode;
 
 use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
 
@@ -104,6 +105,8 @@ impl ControlFlowGraph {
 pub(crate) struct RecordedProgram {
     pub(crate) file_commands: Vec<RecordedCommand>,
     pub(crate) function_bodies: FxHashMap<ScopeId, Vec<RecordedCommand>>,
+    pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
+    pub(crate) function_body_scopes: FxHashMap<BindingId, ScopeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +185,34 @@ pub(crate) struct RecordedCaseArm {
 pub(crate) struct RecordedPipelineSegment {
     pub(crate) scope: ScopeId,
     pub(crate) command: RecordedCommand,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RecordedCommandInfo {
+    pub(crate) static_callee: Option<String>,
+    pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum RecordedZshCommandEffect {
+    Emulate {
+        mode: ZshEmulationMode,
+        local: bool,
+    },
+    SetOptions {
+        updates: Vec<RecordedZshOptionUpdate>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RecordedZshOptionUpdate {
+    Named {
+        name: Box<str>,
+        enable: bool,
+    },
+    LocalOptions {
+        enable: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
