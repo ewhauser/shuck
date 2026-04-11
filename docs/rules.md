@@ -246,7 +246,7 @@ contexts. Use word facts and expansion word facts.
 - [x] **M** S021 (SC2145) `positional-args-in-string` — positional params folded into string
 - [ ] **L** S050 (SC2300) `unquoted-word-between-quotes` — unquoted word between single-quoted segments
 - [x] **M** S052 (SC2307) `unquoted-variable-in-test` — unquoted variable in `[ -n ]`
-- [ ] **M** S058 (SC2335) `unquoted-path-in-mkdir` — unquoted variable in mkdir
+- [x] **M** S058 (SC2335) `unquoted-path-in-mkdir` — unquoted variable in mkdir
 - [ ] **M** S062 (SC2346) `default-value-in-colon-assign` — unquoted default in colon-assign
 - [x] **M** S067 (SC2366) `backtick-output-to-command` — backtick output word-split as args
 - [ ] **M** S070 (SC2376) `double-quote-nesting` — double-quoted var between unquoted text

@@ -461,6 +461,7 @@ declare_rules! {
     ),
     ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
     ("S057", Category::Style, Severity::Warning, FunctionInAlias),
+    ("S058", Category::Style, Severity::Warning, UnquotedPathInMkdir),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
@@ -687,6 +688,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-239" => Some(Rule::ExportWithPositionalParams),
+        "SH-240" => Some(Rule::UnquotedPathInMkdir),
         "SH-249" => Some(Rule::AtSignInStringCompare),
         "SH-250" => Some(Rule::ArraySliceInComparison),
         "SH-241" => Some(Rule::AppendToArrayAsString),
@@ -855,6 +857,7 @@ mod tests {
         assert_eq!(code_to_rule("S052"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(code_to_rule("SH-208"), Some(Rule::UnquotedTrClass));
         assert_eq!(code_to_rule("SH-212"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(code_to_rule("S058"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(
             code_to_rule("S039"),
@@ -998,6 +1001,7 @@ mod tests {
             Some(Rule::AssignmentLooksLikeComparison)
         );
         assert_eq!(code_to_rule("SH-227"), Some(Rule::SuWithoutFlag));
+        assert_eq!(code_to_rule("SH-240"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
         assert_eq!(code_to_rule("C078"), Some(Rule::UnquotedGlobsInFind));
         assert_eq!(code_to_rule("SH-200"), Some(Rule::UnquotedGlobsInFind));

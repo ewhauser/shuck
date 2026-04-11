@@ -265,6 +265,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedVariableInSed) {
             rules::style::unquoted_variable_in_sed::unquoted_variable_in_sed(self);
         }
+        if self.is_rule_enabled(Rule::UnquotedPathInMkdir) {
+            rules::style::unquoted_path_in_mkdir::unquoted_path_in_mkdir(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedTrClass) {
             rules::style::unquoted_tr_class::unquoted_tr_class(self);
         }

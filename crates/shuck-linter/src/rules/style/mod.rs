@@ -52,6 +52,7 @@ pub mod unquoted_array_split;
 pub mod unquoted_command_substitution;
 pub mod unquoted_dollar_star;
 pub mod unquoted_expansion;
+pub mod unquoted_path_in_mkdir;
 pub mod unquoted_tr_class;
 pub mod unquoted_tr_range;
 pub mod unquoted_variable_in_sed;
@@ -97,6 +98,7 @@ mod tests {
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]
     #[test_case(Rule::UnquotedVariableInTest, Path::new("S052.sh"))]
+    #[test_case(Rule::UnquotedPathInMkdir, Path::new("S058.sh"))]
     #[test_case(Rule::SuWithoutFlag, Path::new("S054.sh"))]
     #[test_case(Rule::GlobAssignedToVariable, Path::new("S055.sh"))]
     #[test_case(Rule::UnquotedTrRange, Path::new("S049.sh"))]
