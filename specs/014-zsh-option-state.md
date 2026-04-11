@@ -95,7 +95,7 @@ The following zsh options are analysis-relevant. They are grouped by which syste
 | `SHORT_LOOPS` | on | Allows `for name in words; command` without `do`/`done`. **Grammar-affecting.** |
 | `SHORT_REPEAT` | on | Allows `repeat count; command` without `do`/`done`. **Grammar-affecting.** |
 | `RC_QUOTES` | off | `''` inside single quotes is an escaped quote. **Grammar-affecting.** |
-| `INTERACTIVE_COMMENTS` | off (non-interactive) | `#` starts a comment. Usually on in scripts, off in interactive shells. |
+| `INTERACTIVE_COMMENTS` | on (in scripts) | `#` starts a comment. On by default in scripts and non-interactive shells; off by default in interactive shells without `-k`. Since shuck only analyzes script files, the default is on. |
 | `C_BASES` | off | Arithmetic output uses `0x`/`0` prefixes. |
 | `OCTAL_ZEROES` | off | Leading `0` in arithmetic is octal. |
 
@@ -238,25 +238,29 @@ Option state is tracked per scope, building on the existing `ScopeKind` infrastr
 
 ```
 File scope (ZshOptionState::zsh_default())
-├── Function A scope (emulate -L sh → sh-compat preset)
-│   ├── setopt NULL_GLOB → updates A's local state
+├── Function A scope (emulate -L sh → sh-compat preset, LOCAL_OPTIONS implied)
+│   ├── setopt NULL_GLOB → updates A's local state (does not leak to caller)
 │   └── subshell → inherits A's state at point of fork
-├── Function B scope (no emulate → inherits file-scope state)
-│   └── setopt KSH_ARRAYS → updates B's local state
-└── top-level code (file-scope state, mutated by any global setopt/emulate)
+├── Function B scope (no emulate, no LOCAL_OPTIONS → inherits file-scope state)
+│   └── setopt KSH_ARRAYS → updates B's state AND propagates to caller on return
+└── top-level code (file-scope state, mutated by any global setopt/emulate/leaked function writes)
 ```
 
 The scoping rules are:
 
 1. **File scope** starts at `ZshOptionState::zsh_default()` (or `for_emulate(mode)` if the shebang or config specifies an emulation mode).
 
-2. **`emulate -L`** creates a new option scope tied to the enclosing function's `ScopeKind::Function`. When the function exits, the options revert. If `emulate -L` appears at file scope (outside any function), it behaves like `emulate` without `-L`.
+2. **`emulate -L`** creates a new option scope tied to the enclosing function's `ScopeKind::Function`. It implies `LOCAL_OPTIONS`, so all subsequent option changes within that function are local — they revert when the function returns. If `emulate -L` appears at file scope (outside any function), it behaves like `emulate` without `-L`.
 
-3. **`LOCAL_OPTIONS`** (`setopt LOCAL_OPTIONS` or `emulate -L` implies it): marks the current function's option state as local. Subsequent `setopt`/`unsetopt` within that function do not propagate to the caller.
+3. **`LOCAL_OPTIONS`** (`setopt LOCAL_OPTIONS`): marks the current function's option state as local. Subsequent `setopt`/`unsetopt` within that function do not propagate to the caller. `emulate -L` implies this.
 
-4. **`setopt`/`unsetopt` without `LOCAL_OPTIONS`**: updates the current scope's state and, if at file scope, affects all subsequent code.
+4. **`setopt`/`unsetopt` inside a function without `LOCAL_OPTIONS`**: updates the current scope's state **and propagates to the caller's scope when the function returns**. In zsh, option writes leak out of functions by default — only `LOCAL_OPTIONS` (or `emulate -L`) prevents this. The builder models this by applying the function's final option state to the call site's scope after the function call.
 
-5. **Subshells** (`( ... )`, command substitutions `$(...)`, pipeline segments): inherit the option state at the point of creation. Changes inside the subshell do not propagate back.
+5. **`setopt`/`unsetopt` at file scope**: updates the file-scope state and affects all subsequent code.
+
+6. **Subshells** (`( ... )`, command substitutions `$(...)`, pipeline segments): inherit the option state at the point of creation. Changes inside the subshell do not propagate back.
+
+7. **Function calls without `LOCAL_OPTIONS`**: at each call site, the builder must account for the callee's option side effects. When the callee's final option state is statically known (no conditional branches, single `setopt` sequence), those changes are applied to the caller's state after the call. When the callee's side effects are ambiguous (conditional option changes, dynamic dispatch), the affected options become `Unknown` in the caller after the call.
 
 6. **Conditional branches**: when `setopt`/`unsetopt` appears inside only one branch of an `if`/`case`, the state after the conditional is `Unknown` for affected options. This is the conservative merge — the analysis does not try to prove which branch was taken.
 
@@ -284,11 +288,22 @@ fi
 echo $foo
 ```
 
-The builder merges option states at the join point. For each option, the merge rule is:
+The builder merges option states at the join point. For each option, the merge compares the **post-branch values** (not just whether a write occurred):
 
-- If both branches agree: use that value.
-- If the branches disagree: `Unknown`.
-- If only one branch modifies the option: `Unknown` (the other branch retains the prior state, which may differ).
+- If both branches produce the same value for an option: use that value. This includes the case where only one branch writes an option but the write is idempotent with the incoming state (e.g., `unsetopt SH_WORD_SPLIT` when it was already off — both branches end with `Off`, so the merged result is `Off`).
+- If the two branches produce different values: `Unknown`.
+- If either branch's value is already `Unknown`: `Unknown`.
+
+This avoids unnecessary precision loss from idempotent writes. For example:
+
+```zsh
+# SH_WORD_SPLIT is Off here (zsh default)
+if [[ -n $COMPAT ]]; then
+    unsetopt SH_WORD_SPLIT   # still Off
+fi
+# Merged: Off (both branches agree), not Unknown
+echo $foo
+```
 
 `Unknown` is always conservative: rules that depend on an option being definitively on or off treat `Unknown` as "might be either" and apply the more cautious analysis. For field-splitting rules, `Unknown` for `SH_WORD_SPLIT` means "assume splitting might happen" — which is the safe default for flagging potential hazards.
 
