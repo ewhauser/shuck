@@ -35,6 +35,7 @@ pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod function_called_without_args;
 pub mod function_references_unset_param;
+pub mod glob_in_grep_pattern;
 pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
@@ -162,6 +163,7 @@ mod tests {
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::UnquotedGlobsInFind, Path::new("C078.sh"))]
     #[test_case(Rule::ShortCircuitFallthrough, Path::new("C079.sh"))]
+    #[test_case(Rule::GlobInGrepPattern, Path::new("C080.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]

@@ -221,7 +221,7 @@ Rules about glob expansion in command arguments, find, grep, and comparisons.
 Filter command facts and word facts for unquoted glob characters.
 
 - [x] **M** C078 (SC2295) `unquoted-globs-in-find` — unquoted variable+glob in find -exec
-- [ ] **M** C080 (SC2299) `glob-in-grep-pattern` — glob character in grep pattern
+- [x] **M** C080 (SC2299) `glob-in-grep-pattern` — glob character in grep pattern
 - [ ] **M** C081 (SC2301) `glob-in-string-comparison` — variable in string comparison treated as glob
 - [ ] **M** C083 (SC2304) `glob-in-find-substitution` — glob in find command substitution
 - [ ] **M** C084 (SC2305) `unquoted-grep-regex` — grep regex may be glob-expanded

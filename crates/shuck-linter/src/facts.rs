@@ -1321,9 +1321,16 @@ impl WaitCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct GrepCommandFacts {
+#[derive(Debug, Clone)]
+pub struct GrepCommandFacts<'a> {
     pub uses_only_matching: bool,
+    pattern_words: Box<[&'a Word]>,
+}
+
+impl<'a> GrepCommandFacts<'a> {
+    pub fn pattern_words(&self) -> &[&'a Word] {
+        &self.pattern_words
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1431,7 +1438,7 @@ pub struct CommandOptionFacts<'a> {
     mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
-    grep: Option<GrepCommandFacts>,
+    grep: Option<GrepCommandFacts<'a>>,
     ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
     configure: Option<ConfigureCommandFacts>,
@@ -1481,7 +1488,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.wait.as_ref()
     }
 
-    pub fn grep(&self) -> Option<&GrepCommandFacts> {
+    pub fn grep(&self) -> Option<&GrepCommandFacts<'a>> {
         self.grep.as_ref()
     }
 
@@ -6989,9 +6996,12 @@ fn split_brace_alternatives(text: &str) -> Vec<&str> {
     alternatives
 }
 
-fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> {
+fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommandFacts<'a>> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
+    let mut uses_only_matching = false;
+    let mut explicit_pattern_source = false;
+    let mut pattern_words = Vec::new();
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -7011,6 +7021,7 @@ fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> 
         };
 
         if text == "--" {
+            index += 1;
             break;
         }
 
@@ -7025,33 +7036,108 @@ fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> 
         }
 
         pending_dynamic_option_arg = false;
+
         if text == "--only-matching" {
-            return Some(GrepCommandFacts {
-                uses_only_matching: true,
-            });
+            uses_only_matching = true;
+            index += 1;
+            continue;
+        }
+
+        if text == "--regexp" {
+            explicit_pattern_source = true;
+            if let Some(pattern_word) = args.get(index + 1) {
+                pattern_words.push(*pattern_word);
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if text.starts_with("--regexp=") {
+            explicit_pattern_source = true;
+            index += 1;
+            continue;
+        }
+
+        if text == "--file" {
+            explicit_pattern_source = true;
+            index += if args.get(index + 1).is_some() { 2 } else { 1 };
+            continue;
+        }
+
+        if text.starts_with("--file=") {
+            explicit_pattern_source = true;
+            index += 1;
+            continue;
+        }
+
+        if text.starts_with("--") {
+            index += 1;
+            continue;
+        }
+
+        if text == "-e" {
+            explicit_pattern_source = true;
+            if let Some(pattern_word) = args.get(index + 1) {
+                pattern_words.push(*pattern_word);
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if text == "-f" {
+            explicit_pattern_source = true;
+            index += if args.get(index + 1).is_some() { 2 } else { 1 };
+            continue;
         }
 
         let mut chars = text[1..].chars().peekable();
+        let mut consume_next_argument = false;
         while let Some(flag) = chars.next() {
             if flag == 'o' {
-                return Some(GrepCommandFacts {
-                    uses_only_matching: true,
-                });
+                uses_only_matching = true;
+            }
+
+            if flag == 'e' {
+                if chars.peek().is_none() {
+                    explicit_pattern_source = true;
+                }
+                if chars.peek().is_none()
+                    && let Some(pattern_word) = args.get(index + 1)
+                {
+                    pattern_words.push(*pattern_word);
+                    consume_next_argument = true;
+                }
+                break;
             }
 
             if grep_option_takes_argument(flag) {
+                if flag == 'f' {
+                    explicit_pattern_source = true;
+                }
                 if chars.peek().is_none() {
-                    index += 1;
+                    consume_next_argument = true;
                 }
                 break;
             }
         }
 
         index += 1;
+        if consume_next_argument {
+            index += 1;
+        }
+    }
+
+    if !explicit_pattern_source && let Some(pattern_word) = args.get(index) {
+        pattern_words.push(*pattern_word);
     }
 
     Some(GrepCommandFacts {
-        uses_only_matching: false,
+        uses_only_matching,
+        pattern_words: pattern_words.into_boxed_slice(),
     })
 }
 
@@ -8911,6 +8997,13 @@ complex[$((i+=1))]+=x
             .and_then(|fact| fact.options().grep())
             .expect("expected grep facts");
         assert!(grep.uses_only_matching);
+        assert_eq!(
+            grep.pattern_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["content"]
+        );
 
         let exit = facts
             .commands()
@@ -9013,6 +9106,51 @@ unset parts[\"$key\"] extra
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+    }
+
+    #[test]
+    fn parses_grep_pattern_words_from_flags_and_operands() {
+        let source = "\
+#!/bin/bash
+grep item,[0-4] data.txt
+grep -e item* data.txt
+grep --regexp='a[b]c' data.txt
+grep --regexp item? data.txt
+grep -eo item* data.txt
+grep -F -- item* data.txt
+grep -f patterns.txt item* data.txt
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let grep_patterns = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("grep"))
+            .filter_map(|fact| fact.options().grep())
+            .map(|grep| {
+                grep.pattern_words()
+                    .iter()
+                    .map(|word| word.span.slice(source))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            grep_patterns,
+            vec![
+                vec!["item,[0-4]"],
+                vec!["item*"],
+                Vec::new(),
+                vec!["item?"],
+                vec!["item*"],
+                vec!["item*"],
+                Vec::new(),
+            ]
+        );
     }
 
     #[test]
