@@ -33,7 +33,7 @@ pub fn unset_associative_array_element(checker: &mut Checker) {
             let Some((name, key_text)) = parse_array_operand(operand.span.slice(source)) else {
                 continue;
             };
-            if !key_has_unescaped_quote(key_text) {
+            if !key_contains_quote(key_text) {
                 continue;
             }
 
@@ -65,23 +65,8 @@ fn is_shell_name(text: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn key_has_unescaped_quote(text: &str) -> bool {
-    let mut backslashes = 0usize;
-    for ch in text.chars() {
-        if ch == '\\' {
-            backslashes += 1;
-            continue;
-        }
-
-        let escaped = backslashes % 2 == 1;
-        backslashes = 0;
-
-        if !escaped && (ch == '\'' || ch == '"') {
-            return true;
-        }
-    }
-
-    false
+fn key_contains_quote(text: &str) -> bool {
+    text.chars().any(|ch| ch == '\'' || ch == '"')
 }
 
 #[cfg(test)]
@@ -99,6 +84,7 @@ unset parts[\"one\"]
 unset parts['two']
 key=three
 unset parts[\"$key\"]
+unset parts[\\\"four\\\"]
 ";
         let diagnostics = test_snippet(
             source,
@@ -110,7 +96,12 @@ unset parts[\"$key\"]
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["parts[\"one\"]", "parts['two']", "parts[\"$key\"]"]
+            vec![
+                "parts[\"one\"]",
+                "parts['two']",
+                "parts[\"$key\"]",
+                "parts[\\\"four\\\"]"
+            ]
         );
     }
 

@@ -8041,16 +8041,21 @@ fn collect_broken_assoc_key_spans_in_assignment(
         let ArrayElem::Sequential(word) = element else {
             continue;
         };
-        if has_unclosed_assoc_key_prefix(word.span.slice(source)) {
+        if has_unclosed_assoc_key_prefix(word, source) {
             spans.push(word.span);
         }
     }
 }
 
-fn has_unclosed_assoc_key_prefix(text: &str) -> bool {
+fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
+    let text = word.span.slice(source);
     if !text.starts_with('[') {
         return false;
     }
+
+    let mut excluded = expansion_part_spans(word);
+    excluded.sort_by_key(|span| span.start.offset);
+    let mut excluded = excluded.into_iter().peekable();
 
     let mut bracket_depth = 0_i32;
     let mut in_single = false;
@@ -8058,7 +8063,21 @@ fn has_unclosed_assoc_key_prefix(text: &str) -> bool {
     let mut escaped = false;
     let mut saw_equals = false;
 
-    for ch in text.chars() {
+    for (offset, ch) in text.char_indices() {
+        let absolute_offset = word.span.start.offset + offset;
+        while matches!(
+            excluded.peek(),
+            Some(span) if absolute_offset >= span.end.offset
+        ) {
+            excluded.next();
+        }
+        if matches!(
+            excluded.peek(),
+            Some(span) if absolute_offset >= span.start.offset && absolute_offset < span.end.offset
+        ) {
+            continue;
+        }
+
         if escaped {
             escaped = false;
             continue;
@@ -8570,7 +8589,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn collects_broken_assoc_key_spans_from_compound_array_assignments() {
-        let source = "#!/bin/bash\ndeclare -A table=([left]=1 [right=2)\nother=([ok]=1 [broken=2)\ndeclare -a nums=([0]=1 [1=2)\n";
+        let source = "#!/bin/bash\ndeclare -A table=([left]=1 [right=2)\nother=([ok]=1 [broken=2)\ndeclare -A third=([$(echo ])=3)\ndeclare -A valid=([$(printf key)]=4)\ndeclare -a nums=([0]=1 [1=2)\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -8583,7 +8602,7 @@ complex[$((i+=1))]+=x
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["[right=2", "[broken=2"]
+            vec!["[right=2", "[broken=2", "[$(echo ])=3"]
         );
     }
 

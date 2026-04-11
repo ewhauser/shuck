@@ -29,6 +29,7 @@ mod tests {
 #!/bin/bash
 declare -A table=([left]=1 [right=2)
 other=([ok]=1 [broken=2)
+declare -A third=([$(echo ])=3)
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BrokenAssocKey));
 
@@ -37,7 +38,7 @@ other=([ok]=1 [broken=2)
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["[right=2", "[broken=2"]
+            vec!["[right=2", "[broken=2", "[$(echo ])=3"]
         );
     }
 
@@ -46,6 +47,7 @@ other=([ok]=1 [broken=2)
         let source = "\
 #!/bin/bash
 declare -A table=([left]=1 [right]=2)
+declare -A dynamic=([$(printf key)]=1)
 declare -a nums=([0]=1 [1=2)
 declare -A pairs=(left one right two)
 ";
