@@ -229,6 +229,7 @@ fn if_bracket_glued_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) ->
 
 fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Span> {
     let line = line_text_at(source, line_number)?;
+    let line_offset = line_start_offset(source, line_number)?;
     let bytes = line.as_bytes();
     if bytes.len() < 3 {
         return None;
@@ -237,6 +238,7 @@ fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Spa
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut double_quote_escape = false;
+    let mut parameter_expansion_depth = 0usize;
     let mut index = 0usize;
 
     while index + 2 < bytes.len() {
@@ -262,42 +264,82 @@ fn if_bracket_glued_span_on_line(source: &str, line_number: usize) -> Option<Spa
             continue;
         }
 
-        if byte == b'#' {
-            break;
-        }
-        if byte == b'\\' {
-            index = (index + 2).min(bytes.len());
-            continue;
-        }
-        if byte == b'\'' {
-            in_single_quotes = true;
-            index += 1;
-            continue;
-        }
-        if byte == b'"' {
-            in_double_quotes = true;
-            index += 1;
-            continue;
-        }
-
-        if bytes[index] != b'i' || bytes[index + 1] != b'f' || bytes[index + 2] != b'[' {
-            index += 1;
-            continue;
-        }
-        if index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_') {
-            index += 1;
+        if parameter_expansion_depth > 0 {
+            match byte {
+                b'\\' => {
+                    index += 2.min(bytes.len().saturating_sub(index));
+                }
+                b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                    parameter_expansion_depth += 1;
+                    index += 2;
+                }
+                b'}' => {
+                    parameter_expansion_depth -= 1;
+                    index += 1;
+                }
+                _ => {
+                    index += 1;
+                }
+            }
             continue;
         }
 
-        let line_offset = line_start_offset(source, line_number)?;
-        let start_offset = line_offset + index;
-        let end_offset = start_offset + 3;
-        let start = position_at_offset(source, start_offset)?;
-        let end = position_at_offset(source, end_offset)?;
-        return Some(Span::from_positions(start, end));
+        match byte {
+            b'\'' => {
+                in_single_quotes = true;
+                index += 1;
+                continue;
+            }
+            b'"' => {
+                in_double_quotes = true;
+                index += 1;
+                continue;
+            }
+            b'\\' => {
+                index += 2.min(bytes.len().saturating_sub(index));
+                continue;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                parameter_expansion_depth = 1;
+                index += 2;
+                continue;
+            }
+            b'#' if shell_comment_starts_at(bytes, index) => break,
+            b'i' if bytes[index + 1] == b'f' && bytes[index + 2] == b'[' => {
+                if !shell_command_boundary_before(bytes, index) {
+                    index += 1;
+                    continue;
+                }
+
+                let start_offset = line_offset + index;
+                let end_offset = start_offset + 3;
+                let start = position_at_offset(source, start_offset)?;
+                let end = position_at_offset(source, end_offset)?;
+                return Some(Span::from_positions(start, end));
+            }
+            _ => {
+                index += 1;
+            }
+        }
     }
 
     None
+}
+
+fn shell_command_boundary_before(bytes: &[u8], index: usize) -> bool {
+    index == 0
+        || matches!(
+            bytes[index - 1],
+            b' ' | b'\t' | b'\r' | b';' | b'|' | b'&' | b'(' | b')'
+        )
+}
+
+fn shell_comment_starts_at(bytes: &[u8], index: usize) -> bool {
+    index == 0
+        || matches!(
+            bytes[index - 1],
+            b' ' | b'\t' | b'\r' | b';' | b'|' | b'&' | b'(' | b')' | b'<' | b'>'
+        )
 }
 
 fn is_done_line(source: &str, line_number: usize) -> bool {
@@ -1081,6 +1123,32 @@ mod tests {
     }
 
     #[test]
+    fn maps_if_bracket_glued_after_case_arm_terminator_to_c157() {
+        let source = "\
+#!/bin/sh
+case \"$1\" in
+ok)if[ \"$2\" = yes ]; then
+  :
+fi
+;;
+esac
+";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::IfBracketGlued);
+        assert_eq!(diagnostics[0].span.slice(source), "if[");
+    }
+
+    #[test]
     fn ignores_valid_if_bracket_spacing_variants_on_line() {
         for line in [
             "if [ \"$x\" = ok ]; then",
@@ -1105,6 +1173,95 @@ mod tests {
     #[test]
     fn ignores_non_if_bracket_expected_command_parse_errors_for_c157() {
         let source = "#!/bin/sh\nuntil :\ndone\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_valid_if_bracket_spacing_variants_for_c157() {
+        let source = "\
+#!/bin/sh
+if [ \"$1\" = ok ]; then
+  :
+fi
+
+if  [ \"$1\" = ok ]; then
+  :
+fi
+";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_quoted_if_bracket_text_on_expected_command_lines_for_c157() {
+        let source = "#!/bin/sh\ntrue\n&& printf '%s\\n' \"if[\"\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_parameter_expansion_text_containing_if_bracket_on_expected_command_lines_for_c157() {
+        let source = "#!/bin/sh\ntrue\n&& echo ${x#if[}\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_spaced_parameter_expansion_patterns_containing_if_bracket_for_c157() {
+        let source = "#!/bin/sh\ntrue\n&& echo ${x# if[}\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_if_bracket_text_inside_comments_after_redirection_operators_for_c157() {
+        let source = "#!/bin/sh\ntrue\n&& ># if[\n";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
