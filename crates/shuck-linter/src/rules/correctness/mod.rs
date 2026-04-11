@@ -4,6 +4,7 @@ pub mod arithmetic_redirection_target;
 pub mod array_to_string_conversion;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
+pub mod at_sign_in_string_compare;
 pub mod backslash_before_closing_backtick;
 pub mod bad_redirection_fd_order;
 pub mod bad_var_name;
@@ -180,6 +181,7 @@ mod tests {
     #[test_case(Rule::FindOrWithoutGrouping, Path::new("C103.sh"))]
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::ExportWithPositionalParams, Path::new("C105.sh"))]
+    #[test_case(Rule::AtSignInStringCompare, Path::new("C111.sh"))]
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
     #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]

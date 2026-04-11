@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C111 positional-parameter at-splats fold arguments in string comparisons
+ --> <source>:5:8
+  |
+5 | if [ "_$@" = "_--version" ]; then :; fi
+  |
+
+C111 positional-parameter at-splats fold arguments in string comparisons
+ --> <source>:6:7
+  |
+6 | if [ "$@" = "--version" ]; then :; fi
+  |
+
+C111 positional-parameter at-splats fold arguments in string comparisons
+ --> <source>:7:7
+  |
+7 | if [ "${@:-fallback}" = "--version" ]; then :; fi
+  |
+
+C111 positional-parameter at-splats fold arguments in string comparisons
+ --> <source>:8:9
+  |
+8 | if [[ "_$@" == "_--version" ]]; then :; fi
+  |

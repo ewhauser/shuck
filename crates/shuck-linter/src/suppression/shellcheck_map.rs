@@ -135,6 +135,8 @@ impl Default for ShellCheckCodeMap {
             (2005, Rule::EchoedCommandSubstitution),
             (2116, Rule::EchoInsideCommandSubstitution),
             (2143, Rule::GrepOutputInTest),
+            (2198, Rule::AtSignInStringCompare),
+            (2199, Rule::AtSignInStringCompare),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
@@ -243,6 +245,8 @@ impl Default for ShellCheckCodeMap {
             (2045, Rule::LoopFromCommandOutput),
             (2046, Rule::UnquotedCommandSubstitution),
             (2048, Rule::UnquotedDollarStar),
+            (2198, Rule::AtSignInStringCompare),
+            (2199, Rule::AtSignInStringCompare),
             (2059, Rule::PrintfFormatVariable),
             (2029, Rule::SshLocalExpansion),
             (2352, Rule::DefaultElseInShortCircuit),
@@ -503,6 +507,8 @@ impl Default for ShellCheckCodeMap {
                     (2164, Rule::UncheckedDirectoryChange),
                     (2263, Rule::RedundantSpacesInEcho),
                     (2143, Rule::GrepOutputInTest),
+                    (2198, Rule::AtSignInStringCompare),
+                    (2199, Rule::AtSignInStringCompare),
                     (2294, Rule::LsInSubstitution),
                     (2291, Rule::UnquotedVariableInSed),
                     (2060, Rule::UnquotedTrClass),
@@ -715,6 +721,7 @@ impl Default for ShellCheckCodeMap {
                 (2384, Rule::LocalCrossReference),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
+                (2344, Rule::AtSignInStringCompare),
                 (2398, Rule::KeywordFunctionName),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
@@ -762,6 +769,9 @@ mod tests {
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(map.resolve("2048"), Some(Rule::UnquotedDollarStar));
+        assert_eq!(map.resolve("SC2198"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(map.resolve("SC2199"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(map.resolve("SC2344"), Some(Rule::AtSignInStringCompare));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -822,6 +832,9 @@ mod tests {
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
+        assert_eq!(map.resolve_all("SC2198"), vec![Rule::AtSignInStringCompare]);
+        assert_eq!(map.resolve_all("SC2199"), vec![Rule::AtSignInStringCompare]);
+        assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
@@ -1347,6 +1360,7 @@ mod tests {
             (2322, Rule::SuWithoutFlag),
             (2340, Rule::DeprecatedTempfileCommand),
             (2342, Rule::EgrepDeprecated),
+            (2344, Rule::AtSignInStringCompare),
             (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
             (2298, Rule::UnquotedTrRange),
@@ -1664,6 +1678,8 @@ mod tests {
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
+        assert!(comparison.contains(&(2198, Rule::AtSignInStringCompare)));
+        assert!(comparison.contains(&(2199, Rule::AtSignInStringCompare)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2066, Rule::QuotedDollarStarLoop)));

@@ -49,9 +49,9 @@ pub use rules::common::span::{
     word_has_unquoted_brace_expansion, word_is_pure_positional_at_splat,
     word_literal_part_spans_excluding_parameter_operator_tails,
     word_literal_scan_segments_excluding_expansions, word_nested_zsh_substitution_spans,
-    word_positional_at_splat_spans, word_quoted_star_splat_spans,
-    word_standalone_literal_backslash_span, word_unquoted_glob_pattern_spans,
-    word_unquoted_star_parameter_spans,
+    word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
+    word_quoted_star_splat_spans, word_standalone_literal_backslash_span,
+    word_unquoted_glob_pattern_spans, word_unquoted_star_parameter_spans,
     word_unquoted_star_splat_spans, word_zsh_flag_modifier_spans,
     word_zsh_nested_expansion_spans,
 };

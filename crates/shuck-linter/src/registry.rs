@@ -221,6 +221,12 @@ declare_rules! {
         MapfileProcessSubstitution
     ),
     (
+        "C111",
+        Category::Correctness,
+        Severity::Warning,
+        AtSignInStringCompare
+    ),
+    (
         "C114",
         Category::Correctness,
         Severity::Warning,
@@ -656,6 +662,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
         "SH-238" => Some(Rule::NonShellSyntaxInScript),
         "SH-239" => Some(Rule::ExportWithPositionalParams),
+        "SH-249" => Some(Rule::AtSignInStringCompare),
         "SH-241" => Some(Rule::AppendToArrayAsString),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
@@ -988,6 +995,8 @@ mod tests {
             code_to_rule("SH-239"),
             Some(Rule::ExportWithPositionalParams)
         );
+        assert_eq!(code_to_rule("C111"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(code_to_rule("SH-249"), Some(Rule::AtSignInStringCompare));
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
         assert_eq!(

@@ -222,6 +222,12 @@ pub fn word_has_folded_positional_at_splat(word: &Word) -> bool {
     word_folded_positional_at_splat_span(word).is_some()
 }
 
+pub fn word_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
+    word_positional_at_splat_spans(word)
+        .into_iter()
+        .find(|span| !span_is_escaped(*span, source))
+}
+
 pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
     let spans = word_positional_at_splat_spans(word)
         .into_iter()
@@ -1612,7 +1618,8 @@ fn parameter_uses_positional_at_splat(parameter: &ParameterExpansion) -> bool {
 
     match syntax {
         BourneParameterExpansion::Access { reference }
-        | BourneParameterExpansion::Slice { reference, .. } => {
+        | BourneParameterExpansion::Slice { reference, .. }
+        | BourneParameterExpansion::Operation { reference, .. } => {
             var_ref_uses_positional_at_splat(reference)
         }
         _ => false,
@@ -1718,9 +1725,9 @@ mod tests {
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
         word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
         word_has_folded_positional_at_splat, word_is_pure_positional_at_splat,
-        word_positional_at_splat_spans, word_has_unquoted_brace_expansion,
-        word_unquoted_glob_pattern_spans, word_quoted_star_splat_spans,
-        word_unquoted_star_splat_spans,
+        word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
+        word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
+        word_quoted_star_splat_spans, word_unquoted_star_splat_spans,
     };
 
     #[test]
@@ -2250,5 +2257,29 @@ exec \"${@:${args_offset}}\"\nset -- \"${@:${args_offset}}\"\n";
 
         assert!(word_folded_positional_at_splat_span_in_source(&command.args[0], source).is_none());
         assert!(word_folded_positional_at_splat_span_in_source(&command.args[1], source).is_none());
+    }
+
+    #[test]
+    fn word_positional_at_splat_span_in_source_tracks_operation_forms() {
+        let source = "printf '%s\\n' \"${@:-fallback}\" \"$@\" \"\\$@\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            word_positional_at_splat_span_in_source(&command.args[1], source)
+                .expect("expected positional span")
+                .slice(source),
+            "${@:-fallback}"
+        );
+        assert_eq!(
+            word_positional_at_splat_span_in_source(&command.args[2], source)
+                .expect("expected positional span")
+                .slice(source),
+            "$@"
+        );
+        assert!(word_positional_at_splat_span_in_source(&command.args[3], source).is_none());
     }
 }
