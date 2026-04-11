@@ -4398,7 +4398,7 @@ fn build_condition_command_substitution_spans(commands: &StmtSeq, source: &str) 
     for visit in query::iter_commands(
         commands,
         CommandWalkOptions {
-            descend_nested_word_commands: false,
+            descend_nested_word_commands: true,
         },
     ) {
         match visit.command {

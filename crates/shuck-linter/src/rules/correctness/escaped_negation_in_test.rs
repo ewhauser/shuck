@@ -61,6 +61,8 @@ fn is_simple_test_binary_operator(operator: &str) -> bool {
         operator,
         "=" | "=="
             | "!="
+            | "-a"
+            | "-o"
             | "<"
             | ">"
             | "-eq"
@@ -109,6 +111,8 @@ test \\! -n \"$value\"
 [ ! -f \"$file\" ]
 test !
 [ \\! = \"$value\" ]
+[ \\! -a foo ]
+[ \\! -o foo ]
 [ \\! -eq 1 ]
 [ \"$value\" = \\! ]
 [[ \\! -f \"$file\" ]]
