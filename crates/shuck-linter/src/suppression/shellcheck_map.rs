@@ -1298,6 +1298,7 @@ mod tests {
         assert_eq!(map.resolve("SC2156"), Some(Rule::FindExecDirWithShell));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
+        assert_eq!(map.resolve("SC2057"), Some(Rule::EscapedNegationInTest));
         assert_eq!(map.resolve("SC2078"), Some(Rule::TruthyLiteralTest));
         assert_eq!(map.resolve("SC2162"), Some(Rule::ReadWithoutRaw));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
@@ -1519,6 +1520,7 @@ mod tests {
             (2330, Rule::FunctionInAlias),
             (2376, Rule::DoubleQuoteNesting),
             (2298, Rule::UnquotedTrRange),
+            (2057, Rule::EscapedNegationInTest),
             (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),

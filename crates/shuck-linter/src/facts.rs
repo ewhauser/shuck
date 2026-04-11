@@ -4497,7 +4497,7 @@ fn collect_terminal_command_substitution_spans_in_command(
                 spans.push(command.name.span);
             }
         }
-        Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
+        Command::Binary(command) => {
             collect_terminal_command_substitution_spans_in_stmt(&command.left, source, spans);
             collect_terminal_command_substitution_spans_in_stmt(&command.right, source, spans);
         }
@@ -4508,7 +4508,6 @@ fn collect_terminal_command_substitution_spans_in_command(
         }
         Command::Builtin(_)
         | Command::Decl(_)
-        | Command::Binary(_)
         | Command::Compound(_)
         | Command::Function(_)
         | Command::AnonymousFunction(_) => {}
