@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:2:18
+  |
+2 | if [[ $mirror == $pkgs ]]; then echo same; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:3:14
+  |
+3 | if [[ "$a" = $1 ]]; then :; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:4:15
+  |
+4 | if [[ "$a" != ${b%%x} ]]; then :; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:5:15
+  |
+5 | if [[ "$a" == ${arr[0]} ]]; then :; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:6:33
+  |
+6 | printf '%s\n' "$( [[ $mirror == $pkgs ]] && echo same )"
+  |

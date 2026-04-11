@@ -35,6 +35,10 @@ pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod function_called_without_args;
 pub mod function_references_unset_param;
+pub mod glob_in_find_substitution;
+pub mod glob_in_grep_pattern;
+pub mod glob_in_string_comparison;
+pub mod glob_with_expansion_in_loop;
 pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
@@ -86,6 +90,8 @@ pub mod unchecked_directory_change_in_function;
 pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
+pub mod unquoted_globs_in_find;
+pub mod unquoted_grep_regex;
 pub mod unreachable_after_exit;
 pub mod unset_associative_array_element;
 pub mod until_missing_do;
@@ -159,7 +165,13 @@ mod tests {
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
+    #[test_case(Rule::UnquotedGlobsInFind, Path::new("C078.sh"))]
     #[test_case(Rule::ShortCircuitFallthrough, Path::new("C079.sh"))]
+    #[test_case(Rule::GlobInGrepPattern, Path::new("C080.sh"))]
+    #[test_case(Rule::GlobInStringComparison, Path::new("C081.sh"))]
+    #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
+    #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
+    #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]

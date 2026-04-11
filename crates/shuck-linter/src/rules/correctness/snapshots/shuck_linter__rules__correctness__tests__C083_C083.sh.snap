@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:2:15
+  |
+2 | find ./ -name *.jar
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:3:15
+  |
+3 | find ./ -name "$prefix"*.jar
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:4:20
+  |
+4 | find ./ -wholename */tmp/*
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:5:26
+  |
+5 | for f in $(find ./ -name *.cfg); do :; done
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:6:31
+  |
+6 | printf '%s\n' "$(find . -path */tmp/*)"
+  |

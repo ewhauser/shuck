@@ -1,0 +1,80 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:2:6
+  |
+2 | grep start* out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:3:9
+  |
+3 | grep -e item? out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:4:6
+  |
+4 | grep -eitem* out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:5:10
+  |
+5 | grep -oe item* out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:6:15
+  |
+6 | grep --regexp item,[0-4] out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:7:10
+  |
+7 | grep -Eq item,[0-4] out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:8:6
+  |
+8 | grep --regexp=foo*bar out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+ --> <source>:9:24
+  |
+9 | grep --exclude '*.txt' foo*bar out.txt
+  |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:10:20
+   |
+10 | grep --label stdin item? out.txt
+   |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:11:12
+   |
+11 | grep -F -- item,[0-4] out.txt
+   |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:12:9
+   |
+12 | grep -F foo*bar out.txt
+   |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:13:6
+   |
+13 | grep [0-9a-f]{40} out.txt
+   |
+
+C084 quote grep regex patterns so the shell does not expand them first
+  --> <source>:14:25
+   |
+14 | checksum="$(grep -Ehrow [0-9a-f]{40} ${template}|sort|uniq|tr '\n' ' ')"
+   |

@@ -1,0 +1,38 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:2:19
+  |
+2 | find . -exec echo *.txt {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:3:22
+  |
+3 | find . -exec echo foo[ab]bar {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:4:19
+  |
+4 | find . -exec echo $(basename "$dir") {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:5:19
+  |
+5 | find . -exec echo $(basename "$dir")* {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:5:37
+  |
+5 | find . -exec echo $(basename "$dir")* {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:6:31
+  |
+6 | find . -execdir echo "$prefix"*.tmp {} \;
+  |

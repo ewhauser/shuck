@@ -1275,11 +1275,16 @@ impl SshCommandFacts {
 pub struct FindCommandFacts {
     pub has_print0: bool,
     or_without_grouping_spans: Box<[Span]>,
+    glob_pattern_operand_spans: Box<[Span]>,
 }
 
 impl FindCommandFacts {
     pub fn or_without_grouping_spans(&self) -> &[Span] {
         &self.or_without_grouping_spans
+    }
+
+    pub fn glob_pattern_operand_spans(&self) -> &[Span] {
+        &self.glob_pattern_operand_spans
     }
 }
 
@@ -1321,9 +1326,37 @@ impl WaitCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct GrepCommandFacts {
+#[derive(Debug, Clone)]
+pub struct GrepCommandFacts<'a> {
     pub uses_only_matching: bool,
+    pub uses_fixed_strings: bool,
+    patterns: Box<[GrepPatternFact<'a>]>,
+}
+
+impl<'a> GrepCommandFacts<'a> {
+    pub fn patterns(&self) -> &[GrepPatternFact<'a>] {
+        &self.patterns
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GrepPatternFact<'a> {
+    word: &'a Word,
+    static_text: Option<Box<str>>,
+}
+
+impl<'a> GrepPatternFact<'a> {
+    pub fn word(&self) -> &'a Word {
+        self.word
+    }
+
+    pub fn span(&self) -> Span {
+        self.word.span
+    }
+
+    pub fn static_text(&self) -> Option<&str> {
+        self.static_text.as_deref()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1431,7 +1464,7 @@ pub struct CommandOptionFacts<'a> {
     mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
-    grep: Option<GrepCommandFacts>,
+    grep: Option<GrepCommandFacts<'a>>,
     ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
     configure: Option<ConfigureCommandFacts>,
@@ -1481,7 +1514,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.wait.as_ref()
     }
 
-    pub fn grep(&self) -> Option<&GrepCommandFacts> {
+    pub fn grep(&self) -> Option<&GrepCommandFacts<'a>> {
         self.grep.as_ref()
     }
 
@@ -1734,6 +1767,7 @@ pub struct LinterFacts<'a> {
     comma_array_assignment_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
+    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
     word_index: FxHashMap<FactSpan, Vec<usize>>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
@@ -1867,6 +1901,11 @@ impl<'a> LinterFacts<'a> {
 
     pub fn word_facts(&self) -> &[WordFact<'a>] {
         &self.words
+    }
+
+    pub fn is_compound_assignment_value_word(&self, fact: &WordFact<'_>) -> bool {
+        self.compound_assignment_value_word_spans
+            .contains(&fact.key())
     }
 
     pub fn expansion_word_facts(
@@ -2164,6 +2203,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut words = Vec::new();
+        let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
@@ -2200,6 +2240,8 @@ impl<'a> LinterFactsBuilder<'a> {
             }
             let collected_words =
                 build_word_facts_for_command(visit, self.source, id, nested_word_command);
+            compound_assignment_value_word_spans
+                .extend(collected_words.compound_assignment_value_word_spans);
             words.extend(collected_words.facts);
             pattern_literal_spans.extend(collected_words.pattern_literal_spans);
             pattern_charclass_spans.extend(collected_words.pattern_charclass_spans);
@@ -2349,6 +2391,7 @@ impl<'a> LinterFactsBuilder<'a> {
             comma_array_assignment_spans,
             presence_tested_names,
             subscript_index_reference_spans,
+            compound_assignment_value_word_spans,
             words,
             word_index,
             function_headers,
@@ -4808,6 +4851,7 @@ fn build_word_facts_for_command<'a>(
 
 struct CollectedWordFacts<'a> {
     facts: Vec<WordFact<'a>>,
+    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -4819,6 +4863,7 @@ struct WordFactCollector<'a> {
     nested_word_command: bool,
     facts: Vec<WordFact<'a>>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
+    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -4832,6 +4877,7 @@ impl<'a> WordFactCollector<'a> {
             nested_word_command,
             facts: Vec::new(),
             seen: FxHashSet::default(),
+            compound_assignment_value_word_spans: FxHashSet::default(),
             pattern_literal_spans: Vec::new(),
             pattern_charclass_spans: Vec::new(),
             arithmetic: ArithmeticFactSummary::default(),
@@ -4841,6 +4887,7 @@ impl<'a> WordFactCollector<'a> {
     fn finish(self) -> CollectedWordFacts<'a> {
         CollectedWordFacts {
             facts: self.facts,
+            compound_assignment_value_word_spans: self.compound_assignment_value_word_spans,
             pattern_literal_spans: self.pattern_literal_spans,
             pattern_charclass_spans: self.pattern_charclass_spans,
             arithmetic: self.arithmetic,
@@ -5150,6 +5197,8 @@ impl<'a> WordFactCollector<'a> {
                 for element in &array.elements {
                     match element {
                         ArrayElem::Sequential(word) => {
+                            self.compound_assignment_value_word_spans
+                                .insert(FactSpan::new(word.span));
                             self.push_word(word, context, WordFactHostKind::Direct);
                         }
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
@@ -5160,6 +5209,8 @@ impl<'a> WordFactCollector<'a> {
                                     WordFactHostKind::ArrayKeySubscript,
                                 );
                             });
+                            self.compound_assignment_value_word_spans
+                                .insert(FactSpan::new(value.span));
                             self.push_word(value, context, WordFactHostKind::Direct);
                         }
                     }
@@ -6449,10 +6500,10 @@ fn build_conditional_operand_fact<'a>(
     let expression = strip_parenthesized_conditionals(expression);
     let word = match expression {
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => Some(word),
+        ConditionalExpr::Pattern(pattern) => conditional_pattern_single_word(pattern),
         ConditionalExpr::Binary(_)
         | ConditionalExpr::Unary(_)
         | ConditionalExpr::Parenthesized(_)
-        | ConditionalExpr::Pattern(_)
         | ConditionalExpr::VarRef(_) => None,
     };
 
@@ -6461,6 +6512,20 @@ fn build_conditional_operand_fact<'a>(
         class: classify_conditional_operand(expression, source),
         word,
         word_classification: word.map(|word| classify_word(word, source)),
+    }
+}
+
+fn conditional_pattern_single_word(pattern: &Pattern) -> Option<&Word> {
+    match pattern.parts.as_slice() {
+        [part] => match &part.kind {
+            PatternPart::Word(word) => Some(word),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_)
+            | PatternPart::Group { .. } => None,
+        },
+        _ => None,
     }
 }
 
@@ -6989,9 +7054,13 @@ fn split_brace_alternatives(text: &str) -> Vec<&str> {
     alternatives
 }
 
-fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> {
+fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommandFacts<'a>> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
+    let mut uses_only_matching = false;
+    let mut uses_fixed_strings = false;
+    let mut explicit_pattern_source = false;
+    let mut patterns = Vec::new();
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -7011,6 +7080,7 @@ fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> 
         };
 
         if text == "--" {
+            index += 1;
             break;
         }
 
@@ -7025,38 +7095,186 @@ fn parse_grep_command(args: &[&Word], source: &str) -> Option<GrepCommandFacts> 
         }
 
         pending_dynamic_option_arg = false;
+
         if text == "--only-matching" {
-            return Some(GrepCommandFacts {
-                uses_only_matching: true,
-            });
+            uses_only_matching = true;
+            index += 1;
+            continue;
+        }
+
+        if text == "--fixed-strings" {
+            uses_fixed_strings = true;
+            index += 1;
+            continue;
+        }
+
+        if matches!(
+            text.as_str(),
+            "--basic-regexp" | "--extended-regexp" | "--perl-regexp"
+        ) {
+            uses_fixed_strings = false;
+            index += 1;
+            continue;
+        }
+
+        if text == "--regexp" {
+            explicit_pattern_source = true;
+            if let Some(pattern_word) = args.get(index + 1) {
+                patterns.push(grep_pattern_fact(pattern_word, source));
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if text.starts_with("--regexp=") {
+            explicit_pattern_source = true;
+            patterns.push(grep_prefixed_pattern_fact(word, source, "--regexp=".len()));
+            index += 1;
+            continue;
+        }
+
+        if text == "--file" {
+            explicit_pattern_source = true;
+            index += if args.get(index + 1).is_some() { 2 } else { 1 };
+            continue;
+        }
+
+        if text.starts_with("--file=") {
+            explicit_pattern_source = true;
+            index += 1;
+            continue;
+        }
+
+        if text.starts_with("--") {
+            index += if grep_long_option_takes_argument(text.as_str())
+                && args.get(index + 1).is_some()
+            {
+                2
+            } else {
+                1
+            };
+            continue;
+        }
+
+        if text == "-e" {
+            explicit_pattern_source = true;
+            if let Some(pattern_word) = args.get(index + 1) {
+                patterns.push(grep_pattern_fact(pattern_word, source));
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if text == "-f" {
+            explicit_pattern_source = true;
+            index += if args.get(index + 1).is_some() { 2 } else { 1 };
+            continue;
         }
 
         let mut chars = text[1..].chars().peekable();
+        let mut consume_next_argument = false;
         while let Some(flag) = chars.next() {
             if flag == 'o' {
-                return Some(GrepCommandFacts {
-                    uses_only_matching: true,
-                });
+                uses_only_matching = true;
+            }
+
+            if flag == 'F' {
+                uses_fixed_strings = true;
+            }
+
+            if matches!(flag, 'E' | 'G' | 'P') {
+                uses_fixed_strings = false;
+            }
+
+            if flag == 'e' {
+                explicit_pattern_source = true;
+                if chars.peek().is_some() {
+                    patterns.push(grep_prefixed_pattern_fact(word, source, 2));
+                } else if let Some(pattern_word) = args.get(index + 1) {
+                    patterns.push(grep_pattern_fact(pattern_word, source));
+                    consume_next_argument = true;
+                }
+                break;
             }
 
             if grep_option_takes_argument(flag) {
+                if flag == 'f' {
+                    explicit_pattern_source = true;
+                }
                 if chars.peek().is_none() {
-                    index += 1;
+                    consume_next_argument = true;
                 }
                 break;
             }
         }
 
         index += 1;
+        if consume_next_argument {
+            index += 1;
+        }
+    }
+
+    if !explicit_pattern_source && let Some(pattern_word) = args.get(index) {
+        patterns.push(grep_pattern_fact(pattern_word, source));
     }
 
     Some(GrepCommandFacts {
-        uses_only_matching: false,
+        uses_only_matching,
+        uses_fixed_strings,
+        patterns: patterns.into_boxed_slice(),
     })
+}
+
+fn grep_pattern_fact<'a>(word: &'a Word, source: &str) -> GrepPatternFact<'a> {
+    grep_prefixed_pattern_fact(word, source, 0)
+}
+
+fn grep_prefixed_pattern_fact<'a>(
+    word: &'a Word,
+    source: &str,
+    prefix_len: usize,
+) -> GrepPatternFact<'a> {
+    let static_text = static_word_text(word, source)
+        .and_then(|text| text.get(prefix_len..).map(str::to_owned))
+        .map(String::into_boxed_str);
+
+    GrepPatternFact { word, static_text }
 }
 
 fn grep_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
+}
+
+fn grep_long_option_takes_argument(option: &str) -> bool {
+    let Some(name) = option.strip_prefix("--") else {
+        return false;
+    };
+    if name.contains('=') {
+        return false;
+    }
+
+    matches!(
+        name,
+        "after-context"
+            | "before-context"
+            | "binary-files"
+            | "context"
+            | "devices"
+            | "directories"
+            | "exclude"
+            | "exclude-dir"
+            | "exclude-from"
+            | "file"
+            | "group-separator"
+            | "include"
+            | "label"
+            | "max-count"
+            | "regexp"
+    )
 }
 
 fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
@@ -7400,18 +7618,29 @@ fn parse_find_execdir_shell_command(
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut or_without_grouping_spans = Vec::new();
+    let mut glob_pattern_operand_spans = Vec::new();
     let mut group_stack = vec![FindGroupState::default()];
     let mut pending_argument: Option<FindPendingArgument> = None;
 
     for word in args {
         let Some(text) = static_word_text(word, source) else {
             if let Some(state) = pending_argument {
+                if state.expects_pattern_operand()
+                    && !span::word_unquoted_glob_pattern_spans(word, source).is_empty()
+                {
+                    glob_pattern_operand_spans.push(word.span);
+                }
                 pending_argument = state.after_consuming_dynamic();
             }
             continue;
         };
 
         if let Some(state) = pending_argument {
+            if state.expects_pattern_operand()
+                && !span::word_unquoted_glob_pattern_spans(word, source).is_empty()
+            {
+                glob_pattern_operand_spans.push(word.span);
+            }
             pending_argument = state.after_consuming(text.as_str());
             continue;
         }
@@ -7468,21 +7697,31 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     FindCommandFacts {
         has_print0,
         or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
+        glob_pattern_operand_spans: glob_pattern_operand_spans.into_boxed_slice(),
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 enum FindPendingArgument {
-    Words(usize),
+    Words {
+        remaining: usize,
+        pattern_operand: bool,
+    },
     UntilExecTerminator,
 }
 
 impl FindPendingArgument {
     fn after_consuming(self, token: &str) -> Option<Self> {
         match self {
-            Self::Words(remaining) => remaining
-                .checked_sub(1)
-                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::Words {
+                remaining,
+                pattern_operand: _,
+            } => remaining.checked_sub(1).and_then(|next| {
+                (next > 0).then_some(Self::Words {
+                    remaining: next,
+                    pattern_operand: false,
+                })
+            }),
             Self::UntilExecTerminator => {
                 (!matches!(token, ";" | "\\;" | "+")).then_some(Self::UntilExecTerminator)
             }
@@ -7491,11 +7730,27 @@ impl FindPendingArgument {
 
     fn after_consuming_dynamic(self) -> Option<Self> {
         match self {
-            Self::Words(remaining) => remaining
-                .checked_sub(1)
-                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::Words {
+                remaining,
+                pattern_operand: _,
+            } => remaining.checked_sub(1).and_then(|next| {
+                (next > 0).then_some(Self::Words {
+                    remaining: next,
+                    pattern_operand: false,
+                })
+            }),
             Self::UntilExecTerminator => Some(Self::UntilExecTerminator),
         }
+    }
+
+    fn expects_pattern_operand(self) -> bool {
+        matches!(
+            self,
+            Self::Words {
+                pattern_operand: true,
+                ..
+            }
+        )
     }
 }
 
@@ -7612,19 +7867,49 @@ fn is_find_reportable_action_token(token: &str) -> bool {
 
 fn find_pending_argument(token: &str) -> Option<FindPendingArgument> {
     match token {
-        "-fls" | "-fprint" | "-fprint0" | "-printf" => Some(FindPendingArgument::Words(1)),
-        "-fprintf" => Some(FindPendingArgument::Words(2)),
+        "-fls" | "-fprint" | "-fprint0" | "-printf" => Some(FindPendingArgument::Words {
+            remaining: 1,
+            pattern_operand: false,
+        }),
+        "-fprintf" => Some(FindPendingArgument::Words {
+            remaining: 2,
+            pattern_operand: false,
+        }),
         "-exec" | "-execdir" | "-ok" | "-okdir" => Some(FindPendingArgument::UntilExecTerminator),
         "-amin" | "-anewer" | "-atime" | "-cmin" | "-cnewer" | "-context" | "-fstype" | "-gid"
         | "-group" | "-ilname" | "-iname" | "-inum" | "-ipath" | "-iregex" | "-links"
         | "-lname" | "-maxdepth" | "-mindepth" | "-mmin" | "-mtime" | "-name" | "-newer"
         | "-path" | "-perm" | "-regex" | "-samefile" | "-size" | "-type" | "-uid" | "-used"
-        | "-user" | "-xtype" | "-files0-from" => Some(FindPendingArgument::Words(1)),
+        | "-user" | "-wholename" | "-iwholename" | "-xtype" | "-files0-from" => {
+            Some(FindPendingArgument::Words {
+                remaining: 1,
+                pattern_operand: is_find_pattern_predicate_token(token),
+            })
+        }
         token if token.starts_with("-newer") && token.len() > "-newer".len() => {
-            Some(FindPendingArgument::Words(1))
+            Some(FindPendingArgument::Words {
+                remaining: 1,
+                pattern_operand: false,
+            })
         }
         _ => None,
     }
+}
+
+fn is_find_pattern_predicate_token(token: &str) -> bool {
+    matches!(
+        token,
+        "-name"
+            | "-iname"
+            | "-path"
+            | "-ipath"
+            | "-regex"
+            | "-iregex"
+            | "-lname"
+            | "-ilname"
+            | "-wholename"
+            | "-iwholename"
+    )
 }
 
 fn is_find_predicate_token(token: &str) -> bool {
@@ -8456,7 +8741,7 @@ fn compound_span(command: &CompoundCommand) -> Span {
 mod tests {
     use std::path::Path;
 
-    use shuck_ast::BinaryOp;
+    use shuck_ast::{BinaryOp, ConditionalBinaryOp};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
     use shuck_semantic::SemanticModel;
@@ -8701,7 +8986,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -8798,6 +9083,18 @@ complex[$((i+=1))]+=x
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+        let find_glob_pattern_operand_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.glob_pattern_operand_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            find_glob_pattern_operand_spans,
+            vec!["*.cfg", "\"$prefix\"*.jar", "*/tmp/*"]
+        );
 
         let find_execdir = facts
             .commands()
@@ -8911,6 +9208,14 @@ complex[$((i+=1))]+=x
             .and_then(|fact| fact.options().grep())
             .expect("expected grep facts");
         assert!(grep.uses_only_matching);
+        assert!(!grep.uses_fixed_strings);
+        assert_eq!(
+            grep.patterns()
+                .iter()
+                .map(|pattern| pattern.span().slice(source))
+                .collect::<Vec<_>>(),
+            vec!["content"]
+        );
 
         let exit = facts
             .commands()
@@ -9013,6 +9318,100 @@ unset parts[\"$key\"] extra
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+    }
+
+    #[test]
+    fn parses_grep_pattern_words_from_flags_and_operands() {
+        let source = "\
+#!/bin/bash
+grep item,[0-4] data.txt
+grep -e item* data.txt
+grep -eitem* data.txt
+grep -oe item* data.txt
+grep --regexp='a[b]c' data.txt
+grep --regexp item? data.txt
+grep --regexp=foo* data.txt
+grep -eo item* data.txt
+grep -F -- item* data.txt
+grep -f patterns.txt item* data.txt
+grep -F -E foo*bar data.txt
+grep -E -F foo*bar data.txt
+grep --exclude '*.txt' foo* data.txt
+grep --label stdin foo* data.txt
+grep --color foo* data.txt
+grep --context 3 foo* data.txt
+grep --regexp='*start' data.txt
+grep -e'*start' data.txt
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let grep_patterns = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("grep"))
+            .filter_map(|fact| fact.options().grep())
+            .map(|grep| {
+                (
+                    grep.patterns()
+                        .iter()
+                        .map(|pattern| (pattern.span().slice(source), pattern.static_text()))
+                        .collect::<Vec<_>>(),
+                    grep.uses_fixed_strings,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            grep_patterns,
+            vec![
+                (vec![("item,[0-4]", Some("item,[0-4]"))], false),
+                (vec![("item*", Some("item*"))], false),
+                (vec![("-eitem*", Some("item*"))], false),
+                (vec![("item*", Some("item*"))], false),
+                (vec![("--regexp='a[b]c'", Some("a[b]c"))], false),
+                (vec![("item?", Some("item?"))], false),
+                (vec![("--regexp=foo*", Some("foo*"))], false),
+                (vec![("-eo", Some("o"))], false),
+                (vec![("item*", Some("item*"))], true),
+                (Vec::new(), false),
+                (vec![("foo*bar", Some("foo*bar"))], false),
+                (vec![("foo*bar", Some("foo*bar"))], true),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("--regexp='*start'", Some("*start"))], false),
+                (vec![("-e'*start'", Some("*start"))], false),
+            ]
+        );
+    }
+
+    #[test]
+    fn attached_short_e_patterns_do_not_accidentally_toggle_only_matching() {
+        let source = "\
+#!/bin/bash
+grep -oe item* data.txt
+grep -eo item* data.txt
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let grep_modes = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("grep"))
+            .filter_map(|fact| fact.options().grep())
+            .map(|grep| grep.uses_only_matching)
+            .collect::<Vec<_>>();
+
+        assert_eq!(grep_modes, vec![true, false]);
     }
 
     #[test]
@@ -10012,7 +10411,7 @@ for version ($versions); do :; done
         let source = "\
 #!/bin/bash
 [[ ( ( -z foo ) ) ]]
-[[ foo && -n \"$bar\" && left == right && $value =~ ^\"foo\"bar$ && left == *.sh ]]
+[[ foo && -n \"$bar\" && left == right && $value =~ ^\"foo\"bar$ && left == *.sh && left == $rhs ]]
 ";
 
         with_facts(source, None, |_, facts| {
@@ -10045,6 +10444,15 @@ for version ($versions); do :; done
             assert!(logical.nodes().iter().any(|node| matches!(node, ConditionalNodeFact::Unary(unary) if unary.operator_family() == ConditionalOperatorFamily::StringUnary)));
             assert!(logical.nodes().iter().any(|node| matches!(node, ConditionalNodeFact::Binary(binary) if binary.operator_family() == ConditionalOperatorFamily::StringBinary && binary.right().class().is_fixed_literal())));
             assert!(logical.nodes().iter().any(|node| matches!(node, ConditionalNodeFact::Binary(binary) if binary.operator_family() == ConditionalOperatorFamily::StringBinary && !binary.right().class().is_fixed_literal())));
+            assert!(logical.nodes().iter().any(|node| matches!(
+                node,
+                ConditionalNodeFact::Binary(binary)
+                    if matches!(binary.op(), ConditionalBinaryOp::PatternEq)
+                        && binary
+                            .right()
+                            .word()
+                            .is_some_and(|word| word.span.slice(source) == "$rhs")
+            )));
 
             let regex = logical.regex_nodes().next().expect("expected regex node");
             assert_eq!(regex.operator_family(), ConditionalOperatorFamily::Regex);

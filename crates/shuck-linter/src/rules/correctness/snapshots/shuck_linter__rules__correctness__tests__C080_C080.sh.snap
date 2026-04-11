@@ -1,0 +1,80 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:2:6
+  |
+2 | grep start* out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:3:6
+  |
+3 | grep "start*" out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:4:6
+  |
+4 | grep 'foo*bar' out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:5:6
+  |
+5 | grep foo*bar out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:6:6
+  |
+6 | grep -efoo* out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:7:15
+  |
+7 | grep --regexp start* out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:8:6
+  |
+8 | grep --regexp='start*' out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:9:6
+  |
+9 | grep --regexp=foo*bar out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:10:24
+   |
+10 | grep --exclude '*.txt' foo*bar out.txt
+   |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:11:20
+   |
+11 | grep --label stdin foo*bar out.txt
+   |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:12:6
+   |
+12 | grep "foo*bar" out.txt
+   |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:13:6
+   |
+13 | grep item\* out.txt
+   |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+  --> <source>:14:9
+   |
+14 | grep -E "foo*bar" out.txt
+   |

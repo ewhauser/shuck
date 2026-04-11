@@ -149,6 +149,11 @@ declare_rules! {
         CommentedContinuationLine
     ),
     ("C077", Category::Correctness, Severity::Warning, SubshellInArithmetic),
+    ("C078", Category::Correctness, Severity::Warning, UnquotedGlobsInFind),
+    ("C080", Category::Correctness, Severity::Warning, GlobInGrepPattern),
+    ("C081", Category::Correctness, Severity::Warning, GlobInStringComparison),
+    ("C083", Category::Correctness, Severity::Warning, GlobInFindSubstitution),
+    ("C084", Category::Correctness, Severity::Warning, UnquotedGrepRegex),
     (
         "C079",
         Category::Correctness,
@@ -208,6 +213,12 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         MapfileProcessSubstitution
+    ),
+    (
+        "C114",
+        Category::Correctness,
+        Severity::Warning,
+        GlobWithExpansionInLoop
     ),
     (
         "C115",
@@ -406,6 +417,12 @@ declare_rules! {
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
     ("S054", Category::Style, Severity::Warning, SuWithoutFlag),
+    (
+        "S055",
+        Category::Style,
+        Severity::Warning,
+        GlobAssignedToVariable
+    ),
     ("S056", Category::Style, Severity::Warning, CommandSubstitutionInAlias),
     ("S057", Category::Style, Severity::Warning, FunctionInAlias),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
@@ -616,8 +633,14 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-227" => Some(Rule::SuWithoutFlag),
+        "SH-231" => Some(Rule::GlobAssignedToVariable),
         "SH-194" => Some(Rule::CommentedContinuationLine),
         "SH-195" => Some(Rule::SubshellInArithmetic),
+        "SH-200" => Some(Rule::UnquotedGlobsInFind),
+        "SH-204" => Some(Rule::GlobInGrepPattern),
+        "SH-206" => Some(Rule::GlobInStringComparison),
+        "SH-209" => Some(Rule::GlobInFindSubstitution),
+        "SH-210" => Some(Rule::UnquotedGrepRegex),
         "SH-229" => Some(Rule::SetFlagsWithoutDashes),
         "SH-233" => Some(Rule::CommandSubstitutionInAlias),
         "SH-235" => Some(Rule::FunctionInAlias),
@@ -626,6 +649,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-241" => Some(Rule::AppendToArrayAsString),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
+        "SH-254" => Some(Rule::GlobWithExpansionInLoop),
         "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
@@ -762,6 +786,8 @@ mod tests {
             code_to_rule("SH-202"),
             Some(Rule::DollarInArithmeticContext)
         );
+        assert_eq!(code_to_rule("S055"), Some(Rule::GlobAssignedToVariable));
+        assert_eq!(code_to_rule("SH-231"), Some(Rule::GlobAssignedToVariable));
         assert_eq!(code_to_rule("SH-203"), Some(Rule::UnquotedTrRange));
         assert_eq!(code_to_rule("S024"), Some(Rule::SingleQuoteBackslash));
         assert_eq!(code_to_rule("SH-087"), Some(Rule::SingleQuoteBackslash));
@@ -910,6 +936,16 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-227"), Some(Rule::SuWithoutFlag));
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));
+        assert_eq!(code_to_rule("C078"), Some(Rule::UnquotedGlobsInFind));
+        assert_eq!(code_to_rule("SH-200"), Some(Rule::UnquotedGlobsInFind));
+        assert_eq!(code_to_rule("C080"), Some(Rule::GlobInGrepPattern));
+        assert_eq!(code_to_rule("SH-204"), Some(Rule::GlobInGrepPattern));
+        assert_eq!(code_to_rule("C081"), Some(Rule::GlobInStringComparison));
+        assert_eq!(code_to_rule("SH-206"), Some(Rule::GlobInStringComparison));
+        assert_eq!(code_to_rule("C083"), Some(Rule::GlobInFindSubstitution));
+        assert_eq!(code_to_rule("SH-209"), Some(Rule::GlobInFindSubstitution));
+        assert_eq!(code_to_rule("C084"), Some(Rule::UnquotedGrepRegex));
+        assert_eq!(code_to_rule("SH-210"), Some(Rule::UnquotedGrepRegex));
         assert_eq!(code_to_rule("C006"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("SH-039"), Some(Rule::UndefinedVariable));
         assert_eq!(code_to_rule("C076"), Some(Rule::CommentedContinuationLine));
@@ -943,6 +979,8 @@ mod tests {
             code_to_rule("SH-244"),
             Some(Rule::MapfileProcessSubstitution)
         );
+        assert_eq!(code_to_rule("C114"), Some(Rule::GlobWithExpansionInLoop));
+        assert_eq!(code_to_rule("SH-254"), Some(Rule::GlobWithExpansionInLoop));
         assert_eq!(code_to_rule("SH-253"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));

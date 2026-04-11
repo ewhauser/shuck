@@ -464,6 +464,24 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PatternWithVariable) {
             rules::correctness::pattern_with_variable::pattern_with_variable(self);
         }
+        if self.is_rule_enabled(Rule::UnquotedGlobsInFind) {
+            rules::correctness::unquoted_globs_in_find::unquoted_globs_in_find(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInFindSubstitution) {
+            rules::correctness::glob_in_find_substitution::glob_in_find_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInGrepPattern) {
+            rules::correctness::glob_in_grep_pattern::glob_in_grep_pattern(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedGrepRegex) {
+            rules::correctness::unquoted_grep_regex::unquoted_grep_regex(self);
+        }
+        if self.is_rule_enabled(Rule::GlobWithExpansionInLoop) {
+            rules::correctness::glob_with_expansion_in_loop::glob_with_expansion_in_loop(self);
+        }
+        if self.is_rule_enabled(Rule::GlobAssignedToVariable) {
+            rules::style::glob_assigned_to_variable::glob_assigned_to_variable(self);
+        }
         if self.is_rule_enabled(Rule::ZshFlagExpansion) {
             rules::portability::zsh_flag_expansion::zsh_flag_expansion(self);
         }
@@ -739,6 +757,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::GrepOutputInTest) {
             rules::style::grep_output_in_test::grep_output_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInStringComparison) {
+            rules::correctness::glob_in_string_comparison::glob_in_string_comparison(self);
         }
         if self.is_rule_enabled(Rule::TestEqualityOperator) {
             rules::portability::conditional_portability::test_equality_operator(self);
