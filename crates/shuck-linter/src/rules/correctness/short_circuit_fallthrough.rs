@@ -1,5 +1,6 @@
 use crate::facts::{ListFact, ListSegmentKind, MixedShortCircuitKind};
 use crate::{Checker, Rule, Violation};
+use shuck_ast::BinaryOp;
 
 pub struct ShortCircuitFallthrough;
 
@@ -28,7 +29,7 @@ pub fn short_circuit_fallthrough(checker: &mut Checker) {
 
 fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
     let segments = list.segments();
-    if matches_status_propagation_assignment(segments) {
+    if matches_status_propagation_assignment(list) {
         return true;
     }
 
@@ -57,12 +58,20 @@ fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
     )
 }
 
-fn matches_status_propagation_assignment(segments: &[crate::facts::ListSegmentFact]) -> bool {
+fn matches_status_propagation_assignment(list: &ListFact<'_>) -> bool {
+    let segments = list.segments();
     let [first, _, last] = segments else {
         return false;
     };
 
-    first.kind() == ListSegmentKind::AssignmentOnly
+    matches!(
+        list.operators()
+            .iter()
+            .map(|operator| operator.op())
+            .collect::<Vec<_>>()
+            .as_slice(),
+        [BinaryOp::And, BinaryOp::Or]
+    ) && first.kind() == ListSegmentKind::AssignmentOnly
         && last.kind() == ListSegmentKind::AssignmentOnly
         && first.assignment_target().is_some()
         && first.assignment_target() == last.assignment_target()
@@ -109,6 +118,26 @@ flag && echo enabled || echo disabled
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn only_ignores_three_segment_status_propagation_shapes() {
+        let source = "\
+rc=0 || run && rc=$?
+rc=0 && run || fallback && rc=$?
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ShortCircuitFallthrough),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["||", "&&"]
+        );
     }
 
     #[test]
