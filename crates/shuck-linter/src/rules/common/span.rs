@@ -387,7 +387,7 @@ pub fn word_folded_positional_at_splat_span(word: &Word) -> Option<Span> {
     if spans.is_empty() {
         return None;
     }
-    if word_is_pure_positional_at_splat(word) && spans.len() == 1 {
+    if spans.len() == 1 && word_has_single_positional_at_splat_part(word) {
         return None;
     }
 
@@ -409,11 +409,12 @@ pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str)
         .into_iter()
         .filter(|span| !span_is_escaped(*span, source))
         .collect::<Vec<_>>();
-    let Some(first) = spans.first().copied() else {
-        return None;
-    };
+    let first = spans.first().copied()?;
 
-    if spans.len() == 1 && positional_at_splat_is_standalone(word, first, source) {
+    if spans.len() == 1
+        && (word_has_single_positional_at_splat_part(word)
+            || positional_at_splat_is_standalone_expansion(word, source))
+    {
         return None;
     }
 
@@ -2024,6 +2025,15 @@ fn part_uses_positional_at_splat(part: &WordPart) -> bool {
     }
 }
 
+fn part_is_pure_positional_at_splat(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "@",
+        WordPart::ArrayAccess(reference) => var_ref_uses_positional_at_splat(reference),
+        WordPart::Parameter(parameter) => parameter_is_pure_positional_at_splat(parameter),
+        _ => false,
+    }
+}
+
 fn part_uses_assign_default_operator(part: &WordPart) -> bool {
     match part {
         WordPart::Parameter(parameter) => parameter_uses_assign_default_operator(parameter),
@@ -2107,6 +2117,20 @@ fn parameter_uses_positional_at_splat(parameter: &ParameterExpansion) -> bool {
         BourneParameterExpansion::Access { reference }
         | BourneParameterExpansion::Slice { reference, .. }
         | BourneParameterExpansion::Operation { reference, .. } => {
+            var_ref_uses_positional_at_splat(reference)
+        }
+        _ => false,
+    }
+}
+
+fn parameter_is_pure_positional_at_splat(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Slice { reference, .. } => {
             var_ref_uses_positional_at_splat(reference)
         }
         _ => false,
@@ -2352,7 +2376,7 @@ fn parts_are_pure_positional_at_splat(parts: &[WordPartNode]) -> bool {
                 }
                 saw_splat = true;
             }
-            _ if part_uses_positional_at_splat(&part.kind) => saw_splat = true,
+            _ if part_is_pure_positional_at_splat(&part.kind) => saw_splat = true,
             _ => return false,
         }
     }
@@ -2360,7 +2384,23 @@ fn parts_are_pure_positional_at_splat(parts: &[WordPartNode]) -> bool {
     saw_splat
 }
 
-fn positional_at_splat_is_standalone(word: &Word, _splat: Span, source: &str) -> bool {
+fn word_has_single_positional_at_splat_part(word: &Word) -> bool {
+    parts_have_single_positional_at_splat(&word.parts)
+}
+
+fn parts_have_single_positional_at_splat(parts: &[WordPartNode]) -> bool {
+    let [part] = parts else {
+        return false;
+    };
+
+    match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => parts_have_single_positional_at_splat(parts),
+        WordPart::SingleQuoted { .. } => false,
+        _ => part_uses_positional_at_splat(&part.kind),
+    }
+}
+
+fn positional_at_splat_is_standalone_expansion(word: &Word, source: &str) -> bool {
     let text = word.span.slice(source);
     let body = if word.is_fully_double_quoted() {
         let Some(unquoted) = text
@@ -2374,14 +2414,14 @@ fn positional_at_splat_is_standalone(word: &Word, _splat: Span, source: &str) ->
         text
     };
 
-    if body == "$@" {
+    if body == "$@" || body == "${@}" {
         return true;
     }
+
     if !body.starts_with("${@") || !body.ends_with('}') {
         return false;
     }
-
-    matches!(body.as_bytes().get(3), Some(b'}' | b':'))
+    true
 }
 
 fn span_is_backslash_escaped(span: Span, source: &str) -> bool {
@@ -2405,15 +2445,14 @@ mod tests {
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
-        word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
-        word_double_quoted_scalar_only_expansion_spans,
-        word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
-        word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
-        word_is_pure_positional_at_splat, word_nested_dynamic_double_quote_spans,
-        word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
-        word_quoted_all_elements_array_slice_spans, word_quoted_star_splat_spans,
-        word_quoted_unindexed_bash_source_span_in_source, word_unquoted_assign_default_spans,
-        word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_caret_negated_bracket_spans, word_double_quoted_scalar_only_expansion_spans,
+        word_exactly_one_extglob_span, word_folded_positional_at_splat_span,
+        word_folded_positional_at_splat_span_in_source, word_has_folded_positional_at_splat,
+        word_has_quoted_all_elements_array_slice, word_is_pure_positional_at_splat,
+        word_nested_dynamic_double_quote_spans, word_positional_at_splat_span_in_source,
+        word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
+        word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
+        word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
         word_unquoted_literal_between_double_quoted_segments_spans,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
         word_unquoted_word_between_single_quoted_segments_spans,
@@ -3168,7 +3207,7 @@ printf '%s\\n' \"$@\" ${@} \"${@:1}\" \"$@$@\" \"prefix$@suffix\" ${array[@]} \"
         let pure = command
             .args
             .iter()
-            .map(|word| word_is_pure_positional_at_splat(word))
+            .map(word_is_pure_positional_at_splat)
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -3203,21 +3242,18 @@ printf '%s\\n' \"$@\" \"${@}\" \"${@:1}\" \"$@$@\" \"$@\"\"$@\" \"x$@y\" x$@y ${
     }
 
     #[test]
-    fn word_folded_positional_at_splat_span_in_source_ignores_standalone_slice_forwarding() {
+    fn word_folded_positional_at_splat_span_in_source_ignores_standalone_expansions() {
         let source = "\
-exec \"${@:${args_offset}}\"\nset -- \"${@:${args_offset}}\"\n";
+exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@//-I\\/usr\\/include/-I${XBPS_CROSS_BASE}\\/usr\\/include}\"\n";
         let output = Parser::new(source).parse().unwrap();
-        let first = &output.file.body[0].command;
-        let second = &output.file.body[1].command;
-        let shuck_ast::Command::Simple(first) = first else {
-            panic!("expected simple command");
-        };
-        let shuck_ast::Command::Simple(second) = second else {
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };
 
-        assert!(word_folded_positional_at_splat_span_in_source(&first.args[0], source).is_none());
-        assert!(word_folded_positional_at_splat_span_in_source(&second.args[0], source).is_none());
+        assert!(command.args.iter().all(|word| {
+            word_folded_positional_at_splat_span_in_source(word, source).is_none()
+        }));
     }
 
     #[test]

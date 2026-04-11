@@ -11,3 +11,17 @@ reviewed_divergences:
       - helper-library
       - project-closure
     reason: "This helper fixture hits a ShellCheck parse abort before full analysis, so SC2128 is not emitted while shuck still reports the quoted BASH_SOURCE scalar expansion."
+  - side: shuck-only
+    path_suffix: "sstephenson__bats__libexec__bats-exec-test"
+    line: 216
+    labels:
+      - helper-library
+      - project-closure
+      - test-harness
+    reason: "This Bats helper still uses a quoted scalar BASH_SOURCE check inside its trap setup, and shuck intentionally keeps the explicit-index warning even though the current oracle does not surface the comparable diagnostic here."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__bin__add-to-path.sh"
+    line: 7
+    labels:
+      - shell-collapse
+    reason: "This Termux bootstrap script derives its bin directory from a quoted scalar BASH_SOURCE expansion, and shuck intentionally keeps the explicit-index warning even when the current oracle does not report the same scalar-access form in this collapsed-shell fixture."

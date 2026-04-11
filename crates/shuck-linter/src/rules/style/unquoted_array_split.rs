@@ -1,4 +1,4 @@
-use shuck_ast::{Span, WordPart};
+use shuck_ast::Span;
 
 use crate::{Checker, Rule, Violation};
 
@@ -15,6 +15,7 @@ impl Violation for UnquotedArraySplit {
 }
 
 pub fn unquoted_array_split(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
         .array_assignment_split_word_facts()
@@ -33,11 +34,11 @@ pub fn unquoted_array_split(checker: &mut Checker) {
                         .contains(&part_span)
                         .then_some((part, part_span))
                 })
-                .filter(|(part, part_span)| {
+                .filter(|(_part, part_span)| {
                     !command_substitution_spans
                         .iter()
                         .any(|outer| span_contains(*outer, *part_span))
-                        && !is_excluded_special_parameter(part)
+                        && !is_excluded_special_parameter_span(*part_span, source)
                 })
                 .map(|(_, part_span)| part_span)
                 .collect::<Vec<_>>()
@@ -51,11 +52,8 @@ fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
-fn is_excluded_special_parameter(part: &WordPart) -> bool {
-    matches!(
-        part,
-        WordPart::Variable(name) if matches!(name.as_str(), "!" | "?" | "$" | "#" | "-")
-    )
+fn is_excluded_special_parameter_span(span: Span, source: &str) -> bool {
+    matches!(span.slice(source), "$!" | "$?" | "$$" | "$#" | "$-")
 }
 
 #[cfg(test)]

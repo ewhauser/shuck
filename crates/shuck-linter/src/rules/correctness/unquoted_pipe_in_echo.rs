@@ -1,8 +1,7 @@
 use rustc_hash::FxHashSet;
 
 use crate::{
-    Checker, ExpansionContext, Rule, Violation,
-    word_unquoted_escaped_pipe_or_brace_spans_in_source,
+    Checker, ExpansionContext, Rule, Violation, word_unquoted_escaped_pipe_or_brace_spans_in_source,
 };
 
 pub struct UnquotedPipeInEcho;

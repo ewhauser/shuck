@@ -40,11 +40,7 @@ pub fn unquoted_variable_in_test(checker: &mut Checker) {
                 return Vec::new();
             };
 
-            word_fact
-                .unquoted_scalar_expansion_spans()
-                .iter()
-                .copied()
-                .collect::<Vec<_>>()
+            word_fact.unquoted_scalar_expansion_spans().to_vec()
         })
         .collect::<Vec<_>>();
 

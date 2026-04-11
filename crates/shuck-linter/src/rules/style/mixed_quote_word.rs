@@ -30,7 +30,9 @@ pub fn mixed_quote_word(checker: &mut Checker) {
     .flat_map(|context| facts.expansion_word_facts(context))
     .chain(facts.case_subject_facts())
     .filter(|fact| !fact.is_nested_word_command())
-    .flat_map(|fact| word_unquoted_literal_between_double_quoted_segments_spans(fact.word(), source))
+    .flat_map(|fact| {
+        word_unquoted_literal_between_double_quoted_segments_spans(fact.word(), source)
+    })
     .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || MixedQuoteWord);
@@ -52,8 +54,7 @@ if [ \"foo\"bar\"baz\" = x ]; then :; fi
 case \"foo\"bar\"baz\" in x) : ;; esac
 case x in \"foo\"bar\"baz\") : ;; esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
         assert_eq!(
             diagnostics
@@ -74,8 +75,7 @@ printf '%s\\n' \"$left\"-\"$right\" \"$left\".\"$right\" \"$left\"@\"$right\"
 printf '%s\\n' \"foo\"/\"bar\" \"foo\"=\"bar\" \"foo\":\"bar\" \"foo\"?\"bar\"
 if [[ x =~ \"foo\"bar\"baz\" ]]; then :; fi
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
         assert!(diagnostics.is_empty());
     }

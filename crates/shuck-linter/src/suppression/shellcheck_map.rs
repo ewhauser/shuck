@@ -34,11 +34,11 @@ impl ShellCheckCodeMap {
 
     /// Look up all shellcheck mappings for a code like `SC2086`.
     pub fn resolve_all(&self, sc_code: &str) -> Vec<Rule> {
-        let Some(number) = sc_code
+        let code = sc_code
             .strip_prefix("SC")
             .or_else(|| sc_code.strip_prefix("sc"))
-            .and_then(|code| code.parse().ok())
-        else {
+            .unwrap_or(sc_code);
+        let Some(number) = code.parse().ok() else {
             return Vec::new();
         };
         if number == 2262 {
@@ -135,6 +135,7 @@ impl Default for ShellCheckCodeMap {
             (2005, Rule::EchoedCommandSubstitution),
             (2116, Rule::EchoInsideCommandSubstitution),
             (2143, Rule::GrepOutputInTest),
+            (2145, Rule::PositionalArgsInString),
             (2198, Rule::AtSignInStringCompare),
             (2199, Rule::ArraySliceInComparison),
             // Modern ShellCheck reuses SC2320 for a different echo/printf `$?` warning.
@@ -535,21 +536,22 @@ impl Default for ShellCheckCodeMap {
                     (2164, Rule::UncheckedDirectoryChange),
                     (2263, Rule::RedundantSpacesInEcho),
                     (2143, Rule::GrepOutputInTest),
+                    (2145, Rule::PositionalArgsInString),
                     (2198, Rule::AtSignInStringCompare),
                     (2199, Rule::ArraySliceInComparison),
                     (2124, Rule::QuotedArraySlice),
                     (2128, Rule::QuotedBashSource),
-                (2294, Rule::LsInSubstitution),
-                (2291, Rule::UnquotedVariableInSed),
-                (2026, Rule::UnquotedWordBetweenQuotes),
-                (2027, Rule::DoubleQuoteNesting),
-                (2379, Rule::EnvPrefixQuoting),
-                (2140, Rule::MixedQuoteWord),
-                (2060, Rule::UnquotedTrClass),
-                (2335, Rule::UnquotedPathInMkdir),
-                (2070, Rule::UnquotedVariableInTest),
-                (2223, Rule::DefaultValueInColonAssign),
-                (2021, Rule::UnquotedTrRange),
+                    (2294, Rule::LsInSubstitution),
+                    (2291, Rule::UnquotedVariableInSed),
+                    (2026, Rule::UnquotedWordBetweenQuotes),
+                    (2027, Rule::DoubleQuoteNesting),
+                    (2379, Rule::EnvPrefixQuoting),
+                    (2140, Rule::MixedQuoteWord),
+                    (2060, Rule::UnquotedTrClass),
+                    (2335, Rule::UnquotedPathInMkdir),
+                    (2070, Rule::UnquotedVariableInTest),
+                    (2223, Rule::DefaultValueInColonAssign),
+                    (2021, Rule::UnquotedTrRange),
                     (2186, Rule::DeprecatedTempfileCommand),
                     (2258, Rule::BareRead),
                     (3024, Rule::PlusEqualsAppend),
@@ -669,12 +671,12 @@ impl Default for ShellCheckCodeMap {
                     (2289, Rule::CommentedContinuationLine),
                     (1133, Rule::LinebreakBeforeAnd),
                     (2290, Rule::SubshellInArithmetic),
-                (2292, Rule::DollarInArithmetic),
-                (2294, Rule::EvalOnArray),
-                (2333, Rule::NonShellSyntaxInScript),
-                (2163, Rule::ExportWithPositionalParams),
-                (2334, Rule::ExportWithPositionalParams),
-                (2389, Rule::LoopWithoutEnd),
+                    (2292, Rule::DollarInArithmetic),
+                    (2294, Rule::EvalOnArray),
+                    (2333, Rule::NonShellSyntaxInScript),
+                    (2163, Rule::ExportWithPositionalParams),
+                    (2334, Rule::ExportWithPositionalParams),
+                    (2389, Rule::LoopWithoutEnd),
                     (2390, Rule::MissingDoneInForLoop),
                     (2391, Rule::DanglingElse),
                     (2392, Rule::LinebreakBeforeAnd),
@@ -768,6 +770,7 @@ impl Default for ShellCheckCodeMap {
                 (2388, Rule::BadVarName),
                 (2344, Rule::AtSignInStringCompare),
                 (2345, Rule::ArraySliceInComparison),
+                (2325, Rule::QuotedArraySlice),
                 (2327, Rule::QuotedBashSource),
                 (2398, Rule::KeywordFunctionName),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
@@ -805,6 +808,7 @@ mod tests {
             Some(Rule::EchoInsideCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2143"), Some(Rule::GrepOutputInTest));
+        assert_eq!(map.resolve("SC2145"), Some(Rule::PositionalArgsInString));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
         assert_eq!(map.resolve("SC2003"), Some(Rule::ExprArithmetic));
@@ -896,9 +900,15 @@ mod tests {
         assert_eq!(map.resolve("SC2207"), Some(Rule::CommandOutputArraySplit));
         assert_eq!(map.resolve("SC2366"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(map.resolve_all("SC2198"), vec![Rule::AtSignInStringCompare]);
-        assert_eq!(map.resolve_all("SC2199"), vec![Rule::ArraySliceInComparison]);
+        assert_eq!(
+            map.resolve_all("SC2199"),
+            vec![Rule::ArraySliceInComparison]
+        );
         assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
-        assert_eq!(map.resolve_all("SC2345"), vec![Rule::ArraySliceInComparison]);
+        assert_eq!(
+            map.resolve_all("SC2345"),
+            vec![Rule::ArraySliceInComparison]
+        );
         assert_eq!(map.resolve_all("SC2124"), vec![Rule::QuotedArraySlice]);
         assert_eq!(map.resolve_all("SC2325"), vec![Rule::QuotedArraySlice]);
         assert_eq!(map.resolve_all("SC2128"), vec![Rule::QuotedBashSource]);
@@ -912,6 +922,10 @@ mod tests {
         assert_eq!(map.resolve_all("SC3061"), vec![Rule::ExtglobInSh]);
         assert_eq!(map.resolve_all("SC2258"), vec![Rule::BareRead]);
         assert_eq!(map.resolve_all("SC2291"), vec![Rule::UnquotedVariableInSed]);
+        assert_eq!(
+            map.resolve_all("SC2145"),
+            vec![Rule::PositionalArgsInString]
+        );
         assert_eq!(map.resolve_all("SC2320"), vec![Rule::UnquotedPipeInEcho]);
         assert_eq!(map.resolve_all("SC2322"), vec![Rule::SuWithoutFlag]);
         assert_eq!(map.resolve_all("SC2117"), vec![Rule::SuWithoutFlag]);
@@ -1447,7 +1461,12 @@ mod tests {
             (2026, Rule::UnquotedWordBetweenQuotes),
             (2027, Rule::DoubleQuoteNesting),
             (2143, Rule::GrepOutputInTest),
+            (2145, Rule::PositionalArgsInString),
+            (2198, Rule::AtSignInStringCompare),
+            (2199, Rule::ArraySliceInComparison),
             (2320, Rule::UnquotedPipeInEcho),
+            (2124, Rule::QuotedArraySlice),
+            (2128, Rule::QuotedBashSource),
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
             (2186, Rule::DeprecatedTempfileCommand),
@@ -1470,13 +1489,13 @@ mod tests {
             (2184, Rule::UnsetAssociativeArrayElement),
             (2178, Rule::ArrayToStringConversion),
             (2322, Rule::SuWithoutFlag),
-                (2340, Rule::DeprecatedTempfileCommand),
-                (2342, Rule::EgrepDeprecated),
-                (2344, Rule::AtSignInStringCompare),
-                (2345, Rule::ArraySliceInComparison),
-                (2325, Rule::QuotedArraySlice),
-                (2327, Rule::QuotedBashSource),
-                (2328, Rule::CommandSubstitutionInAlias),
+            (2340, Rule::DeprecatedTempfileCommand),
+            (2342, Rule::EgrepDeprecated),
+            (2344, Rule::AtSignInStringCompare),
+            (2345, Rule::ArraySliceInComparison),
+            (2325, Rule::QuotedArraySlice),
+            (2327, Rule::QuotedBashSource),
+            (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
             (2376, Rule::DoubleQuoteNesting),
             (2298, Rule::UnquotedTrRange),
@@ -1810,6 +1829,7 @@ mod tests {
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
+        assert!(comparison.contains(&(2145, Rule::PositionalArgsInString)));
         assert!(comparison.contains(&(2198, Rule::AtSignInStringCompare)));
         assert!(comparison.contains(&(2199, Rule::ArraySliceInComparison)));
         assert!(comparison.contains(&(2124, Rule::QuotedArraySlice)));

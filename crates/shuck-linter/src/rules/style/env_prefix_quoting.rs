@@ -22,11 +22,10 @@ pub fn env_prefix_quoting(checker: &mut Checker) {
         .expansion_word_facts(ExpansionContext::AssignmentValue)
         .filter(|fact| {
             let command = facts.command(fact.command_id());
-            matches!(command.command(), Command::Simple(_))
-                && {
-                    let body_span = command.body_span();
-                    body_span.start.offset < body_span.end.offset
-                }
+            matches!(command.command(), Command::Simple(_)) && {
+                let body_span = command.body_span();
+                body_span.start.offset < body_span.end.offset
+            }
         })
         .filter(|fact| !fact.analysis().has_array_expansion())
         .flat_map(|fact| word_double_quoted_scalar_only_expansion_spans(fact.word()))

@@ -45,12 +45,9 @@ pub fn double_quote_nesting(checker: &mut Checker) {
                 .collect::<Vec<_>>();
             candidate_spans.extend(fact.unquoted_command_substitution_spans().iter().copied());
 
-            word_unquoted_scalar_between_double_quoted_segments_spans(
-                fact.word(),
-                &candidate_spans,
-            )
-            .into_iter()
-            .chain(word_nested_dynamic_double_quote_spans(fact.word()))
+            word_unquoted_scalar_between_double_quoted_segments_spans(fact.word(), &candidate_spans)
+                .into_iter()
+                .chain(word_nested_dynamic_double_quote_spans(fact.word()))
         })
         .collect::<Vec<_>>();
 
