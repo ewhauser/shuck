@@ -1327,19 +1327,24 @@ fn declaration_assignment_info<'a>(
         return None;
     }
 
-    let mut assignment_operands = command.operands.iter().map(|operand| match operand {
-        DeclOperand::Assignment(assignment) => Some(assignment),
-        DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
-    });
-    let assignment = assignment_operands.next()??;
+    let mut assignment = None;
 
-    assignment_operands
-        .next()
-        .is_none()
-        .then_some(ListSegmentAssignmentInfo {
-            target: assignment.target.name.as_str(),
-            span: assignment.span,
-        })
+    for operand in &command.operands {
+        match operand {
+            DeclOperand::Flag(_) => {}
+            DeclOperand::Assignment(candidate) => {
+                if assignment.replace(candidate).is_some() {
+                    return None;
+                }
+            }
+            DeclOperand::Name(_) | DeclOperand::Dynamic(_) => return None,
+        }
+    }
+
+    assignment.map(|assignment| ListSegmentAssignmentInfo {
+        target: assignment.target.name.as_str(),
+        span: assignment.span,
+    })
 }
 
 fn classify_mixed_short_circuit_kind(

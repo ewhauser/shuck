@@ -9908,6 +9908,47 @@ true && false || printf '%s\\n' fallback
     }
 
     #[test]
+    fn flagged_declaration_assignments_still_classify_as_assignment_segments() {
+        let source = "\
+#!/bin/bash
+[ -n \"$x\" ] && declare -r out=foo || declare -r out=bar
+true && declare -x flag=1
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(facts.lists().len(), 2);
+
+            let ternary = &facts.lists()[0];
+            assert_eq!(
+                ternary.mixed_short_circuit_kind(),
+                Some(crate::facts::MixedShortCircuitKind::AssignmentTernary)
+            );
+            assert_eq!(
+                ternary
+                    .segments()
+                    .iter()
+                    .map(|segment| segment.assignment_target())
+                    .collect::<Vec<_>>(),
+                vec![None, Some("out"), Some("out")]
+            );
+
+            let shortcut = &facts.lists()[1];
+            assert_eq!(
+                shortcut
+                    .segments()
+                    .iter()
+                    .map(|segment| segment.kind())
+                    .collect::<Vec<_>>(),
+                vec![
+                    crate::facts::ListSegmentKind::Condition,
+                    crate::facts::ListSegmentKind::AssignmentOnly,
+                ]
+            );
+            assert_eq!(shortcut.segments()[1].assignment_target(), Some("flag"));
+        });
+    }
+
+    #[test]
     fn builds_loop_header_ls_substitution_detection() {
         let source = "\
 #!/bin/bash

@@ -28,13 +28,7 @@ pub fn short_circuit_fallthrough(checker: &mut Checker) {
 
 fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
     let segments = list.segments();
-    if segments
-        .first()
-        .is_some_and(|segment| segment.kind() == ListSegmentKind::AssignmentOnly)
-        || segments
-            .last()
-            .is_some_and(|segment| segment.kind() == ListSegmentKind::AssignmentOnly)
-    {
+    if matches_status_propagation_assignment(segments) {
         return true;
     }
 
@@ -61,6 +55,17 @@ fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
         branch_names.as_slice(),
         [Some("echo"), Some("echo")] | [Some("printf"), Some("printf")]
     )
+}
+
+fn matches_status_propagation_assignment(segments: &[crate::facts::ListSegmentFact]) -> bool {
+    let [first, _, last] = segments else {
+        return false;
+    };
+
+    first.kind() == ListSegmentKind::AssignmentOnly
+        && last.kind() == ListSegmentKind::AssignmentOnly
+        && first.assignment_target().is_some()
+        && first.assignment_target() == last.assignment_target()
 }
 
 #[cfg(test)]
@@ -104,6 +109,20 @@ flag && echo enabled || echo disabled
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn still_reports_when_only_the_fallback_is_an_assignment() {
+        let source = "\
+[ -n \"$x\" ] && run_task || fallback=1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ShortCircuitFallthrough),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "&&");
     }
 
     #[test]

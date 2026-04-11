@@ -91,6 +91,7 @@ mod tests {
 #!/bin/sh
 false || remove=set
 true && remove=set
+true && declare -x chosen=set
 remove=set || echo nope
 true && remove=set && echo later
 [ -n \"$x\" ] && domain=$domain || domain=$str
@@ -107,7 +108,13 @@ foo=bar && baz=qux
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["remove=set", "remove=set", "remove=set", "remove=set"]
+            vec![
+                "remove=set",
+                "remove=set",
+                "chosen=set",
+                "remove=set",
+                "remove=set",
+            ]
         );
     }
 }
