@@ -300,6 +300,35 @@ pub fn word_unquoted_word_between_single_quoted_segments_spans(
         .collect()
 }
 
+pub fn word_unquoted_scalar_between_double_quoted_segments_spans(
+    word: &Word,
+    candidate_spans: &[Span],
+) -> Vec<Span> {
+    if word.parts.len() < 3 {
+        return Vec::new();
+    }
+
+    word.parts
+        .windows(3)
+        .filter_map(|window| {
+            let [left, middle, right] = window else {
+                return None;
+            };
+
+            (matches!(left.kind, WordPart::DoubleQuoted { .. })
+                && candidate_spans.contains(&middle.span)
+                && matches!(right.kind, WordPart::DoubleQuoted { .. }))
+            .then_some(middle.span)
+        })
+        .collect()
+}
+
+pub fn word_nested_dynamic_double_quote_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_nested_dynamic_double_quote_spans(&word.parts, false, &mut spans);
+    spans
+}
+
 pub fn word_positional_at_splat_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_positional_at_splat_spans(&word.parts, &mut spans);
@@ -2124,6 +2153,55 @@ fn literal_contains_unquoted_word_chars(text: &str) -> bool {
         && text.as_bytes().iter().any(u8::is_ascii_alphanumeric)
 }
 
+fn collect_nested_dynamic_double_quote_spans(
+    parts: &[WordPartNode],
+    inside_double_quotes: bool,
+    spans: &mut Vec<Span>,
+) {
+    for (index, part) in parts.iter().enumerate() {
+        let WordPart::DoubleQuoted { parts: inner, .. } = &part.kind else {
+            continue;
+        };
+
+        if inside_double_quotes
+            && double_quoted_parts_contain_dynamic_content(inner)
+            && (neighbor_is_literal(parts.get(index.wrapping_sub(1)))
+                || neighbor_is_literal(parts.get(index + 1)))
+        {
+            spans.push(part.span);
+        }
+
+        collect_nested_dynamic_double_quote_spans(inner, true, spans);
+    }
+}
+
+fn double_quoted_parts_contain_dynamic_content(parts: &[WordPartNode]) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => false,
+        WordPart::DoubleQuoted { parts, .. } => double_quoted_parts_contain_dynamic_content(parts),
+        WordPart::Variable(_)
+        | WordPart::Parameter(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => true,
+    })
+}
+
+fn neighbor_is_literal(part: Option<&WordPartNode>) -> bool {
+    matches!(part.map(|part| &part.kind), Some(WordPart::Literal(_)))
+}
+
 fn collect_positional_at_splat_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
@@ -2198,15 +2276,19 @@ mod tests {
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
+        unquoted_command_substitution_part_spans_in_source,
+        unquoted_scalar_expansion_part_spans,
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
         word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
         word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
+        word_nested_dynamic_double_quote_spans,
         word_is_pure_positional_at_splat, word_positional_at_splat_span_in_source,
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
         word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_unquoted_scalar_between_double_quoted_segments_spans,
         word_unquoted_star_splat_spans, word_unquoted_word_between_single_quoted_segments_spans,
     };
 
@@ -2826,6 +2908,55 @@ printf '%s\\n' 's/foo/'\\''bar'\\''/g' 'foo'Default'baz'
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec!["Default"]);
+    }
+
+    #[test]
+    fn word_unquoted_scalar_between_double_quoted_segments_tracks_dynamic_middle_parts() {
+        let source = "\
+printf '%s\\n' \"$a\"$b\"$c\" \"left \"$d\"\" \"\"$e\" right\" \"left \"$(printf '%s' ok)\" right\" \"a\"b\"c\" prefix\"$f\"suffix \"$g\"$@\"$h\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| {
+                let unquoted_scalar_spans = unquoted_scalar_expansion_part_spans(word, source)
+                    .into_iter()
+                    .chain(unquoted_command_substitution_part_spans_in_source(word, source))
+                    .collect::<Vec<_>>();
+                word_unquoted_scalar_between_double_quoted_segments_spans(
+                    word,
+                    &unquoted_scalar_spans,
+                )
+            })
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$b", "$d", "$e", "$(printf '%s' ok)"]);
+    }
+
+    #[test]
+    fn word_nested_dynamic_double_quote_spans_track_reopened_quotes_inside_outer_quotes() {
+        let source = "\
+printf '%s\\n' \"\n-DLZ4_HOME=\"${TERMUX_PREFIX}\"\n-DPROTOBUF_HOME=\"$(printf '%s' proto)\"\n\"\n
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = word_nested_dynamic_double_quote_spans(&command.args[1])
+            .into_iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, Vec::<&str>::new());
     }
 
     #[test]

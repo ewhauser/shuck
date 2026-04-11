@@ -170,6 +170,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports alias function-definition issues as SC2142.
             // Keep SC2330 as a suppression alias for the authored S057 rule code.
             (2142, Rule::FunctionInAlias),
+            // ShellCheck 0.11.0 reports split double-quoted strings around variables as SC2027.
+            // Keep SC2376 as a suppression alias for the authored S070 rule code.
+            (2027, Rule::DoubleQuoteNesting),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
             (2060, Rule::UnquotedTrClass),
@@ -536,6 +539,7 @@ impl Default for ShellCheckCodeMap {
                 (2294, Rule::LsInSubstitution),
                 (2291, Rule::UnquotedVariableInSed),
                 (2026, Rule::UnquotedWordBetweenQuotes),
+                (2027, Rule::DoubleQuoteNesting),
                 (2060, Rule::UnquotedTrClass),
                 (2335, Rule::UnquotedPathInMkdir),
                 (2070, Rule::UnquotedVariableInTest),
@@ -740,6 +744,7 @@ impl Default for ShellCheckCodeMap {
                 (2342, Rule::EgrepDeprecated),
                 (2328, Rule::CommandSubstitutionInAlias),
                 (2330, Rule::FunctionInAlias),
+                (2376, Rule::DoubleQuoteNesting),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
                 (2307, Rule::UnquotedVariableInTest),
@@ -1431,6 +1436,7 @@ mod tests {
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2026, Rule::UnquotedWordBetweenQuotes),
+            (2027, Rule::DoubleQuoteNesting),
             (2143, Rule::GrepOutputInTest),
             (2320, Rule::UnquotedPipeInEcho),
             (2291, Rule::UnquotedVariableInSed),
@@ -1461,6 +1467,7 @@ mod tests {
                 (2327, Rule::QuotedBashSource),
                 (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
+            (2376, Rule::DoubleQuoteNesting),
             (2298, Rule::UnquotedTrRange),
             (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
@@ -1770,11 +1777,13 @@ mod tests {
         assert!(comparison.contains(&(2178, Rule::ArrayToStringConversion)));
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
+        assert!(comparison.contains(&(2027, Rule::DoubleQuoteNesting)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
         assert!(!comparison.contains(&(2340, Rule::DeprecatedTempfileCommand)));
         assert!(!comparison.contains(&(2342, Rule::EgrepDeprecated)));
         assert!(!comparison.contains(&(2328, Rule::CommandSubstitutionInAlias)));
         assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
+        assert!(!comparison.contains(&(2376, Rule::DoubleQuoteNesting)));
         assert!(comparison.contains(&(2258, Rule::BareRead)));
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
         assert!(comparison.contains(&(2335, Rule::UnquotedPathInMkdir)));

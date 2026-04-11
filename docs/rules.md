@@ -249,7 +249,7 @@ contexts. Use word facts and expansion word facts.
 - [x] **M** S058 (SC2335) `unquoted-path-in-mkdir` — unquoted variable in mkdir
 - [x] **M** S062 (SC2346) `default-value-in-colon-assign` — unquoted default in colon-assign
 - [x] **M** S067 (SC2366) `backtick-output-to-command` — backtick output word-split as args
-- [ ] **M** S070 (SC2376) `double-quote-nesting` — double-quoted var between unquoted text
+- [x] **M** S070 (SC2376) `double-quote-nesting` — double-quoted var between unquoted text
 - [ ] **M** S071 (SC2379) `env-prefix-quoting` — unnecessary quoting on env prefix
 - [ ] **M** S076 (SC2140) `mixed-quote-word` — alternating quoted/bare fragments in one arg
 

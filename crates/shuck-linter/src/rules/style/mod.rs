@@ -10,6 +10,7 @@ pub mod command_substitution_in_alias;
 pub mod conditional_assignment_shortcut;
 pub mod default_value_in_colon_assign;
 pub mod deprecated_tempfile_command;
+pub mod double_quote_nesting;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
 pub mod echo_here_doc;
@@ -85,6 +86,7 @@ mod tests {
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
+    #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]

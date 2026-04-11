@@ -461,6 +461,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedWordBetweenQuotes) {
             rules::style::unquoted_word_between_quotes::unquoted_word_between_quotes(self);
         }
+        if self.is_rule_enabled(Rule::DoubleQuoteNesting) {
+            rules::style::double_quote_nesting::double_quote_nesting(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedPipeInEcho) {
             rules::correctness::unquoted_pipe_in_echo::unquoted_pipe_in_echo(self);
         }
