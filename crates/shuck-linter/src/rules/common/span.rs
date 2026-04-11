@@ -2448,15 +2448,15 @@ mod tests {
         word_caret_negated_bracket_spans, word_double_quoted_scalar_only_expansion_spans,
         word_exactly_one_extglob_span, word_folded_positional_at_splat_span,
         word_folded_positional_at_splat_span_in_source, word_has_folded_positional_at_splat,
-        word_has_quoted_all_elements_array_slice, word_is_pure_positional_at_splat,
-        word_nested_dynamic_double_quote_spans, word_positional_at_splat_span_in_source,
-        word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
-        word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-        word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_has_quoted_all_elements_array_slice, word_has_unquoted_brace_expansion,
+        word_is_pure_positional_at_splat, word_nested_dynamic_double_quote_spans,
+        word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
+        word_quoted_all_elements_array_slice_spans, word_quoted_star_splat_spans,
+        word_quoted_unindexed_bash_source_span_in_source, word_unquoted_assign_default_spans,
+        word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
         word_unquoted_literal_between_double_quoted_segments_spans,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
         word_unquoted_word_between_single_quoted_segments_spans,
-        word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
     };
 
     #[test]
