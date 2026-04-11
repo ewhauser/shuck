@@ -142,6 +142,12 @@ pub fn word_literal_scan_segments_excluding_expansions(word: &Word, source: &str
     scan_span_excluding(word.span, &excluded, source)
 }
 
+pub fn word_unquoted_glob_pattern_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_unquoted_glob_pattern_spans(&word.parts, source, false, &mut spans);
+    spans
+}
+
 pub fn word_standalone_literal_backslash_span(word: &Word, source: &str) -> Option<Span> {
     let [part] = word.parts.as_slice() else {
         return None;
@@ -770,6 +776,83 @@ fn collect_literal_scan_exclusions(parts: &[WordPartNode], excluded: &mut Vec<Sp
     }
 }
 
+fn collect_unquoted_glob_pattern_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unquoted_glob_pattern_spans(parts, source, true, spans)
+            }
+            WordPart::Literal(_) if !in_double_quotes => {
+                spans.extend(literal_glob_pattern_spans(part.span, source));
+            }
+            WordPart::Literal(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
+fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'*' | b'?' => {
+                spans.push(span_within_literal(span, source, index, index + 1));
+                index += 1;
+            }
+            b'[' => {
+                let mut end = index + 1;
+                while end < bytes.len() && bytes[end] != b']' {
+                    end += 1;
+                }
+                if end < bytes.len() {
+                    spans.push(span_within_literal(span, source, index, end + 1));
+                    index = end + 1;
+                } else {
+                    index += 1;
+                }
+            }
+            _ => index += 1,
+        }
+    }
+
+    spans
+}
+
+fn span_within_literal(span: Span, source: &str, start: usize, end: usize) -> Span {
+    let start_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + start]);
+    let end_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + end]);
+    Span::from_positions(start_pos, end_pos)
+}
+
 fn scan_span_excluding(span: Span, excluded: &[Span], source: &str) -> Vec<Span> {
     if excluded.is_empty() {
         return vec![span];
@@ -1314,6 +1397,7 @@ mod tests {
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
+        word_unquoted_glob_pattern_spans,
     };
 
     #[test]
@@ -1477,6 +1561,42 @@ mod tests {
         };
 
         assert!(word_caret_negated_bracket_spans(&command.args[0], source).is_empty());
+    }
+
+    #[test]
+    fn word_unquoted_glob_pattern_spans_track_unquoted_segments_only() {
+        let source = "echo foo*.txt \"bar?\" [ab] \"${name}\"*.tmp\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            word_unquoted_glob_pattern_spans(&command.args[0], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+        assert!(
+            word_unquoted_glob_pattern_spans(&command.args[1], source).is_empty(),
+            "double-quoted wildcard should not be reported"
+        );
+        assert_eq!(
+            word_unquoted_glob_pattern_spans(&command.args[2], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["[ab]"]
+        );
+        assert_eq!(
+            word_unquoted_glob_pattern_spans(&command.args[3], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
     }
 
     #[test]

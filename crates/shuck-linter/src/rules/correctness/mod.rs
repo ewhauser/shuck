@@ -86,6 +86,7 @@ pub mod unchecked_directory_change_in_function;
 pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
+pub mod unquoted_globs_in_find;
 pub mod unreachable_after_exit;
 pub mod unset_associative_array_element;
 pub mod until_missing_do;
@@ -159,6 +160,7 @@ mod tests {
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
+    #[test_case(Rule::UnquotedGlobsInFind, Path::new("C078.sh"))]
     #[test_case(Rule::ShortCircuitFallthrough, Path::new("C079.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]

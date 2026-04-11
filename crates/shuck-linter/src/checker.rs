@@ -464,6 +464,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PatternWithVariable) {
             rules::correctness::pattern_with_variable::pattern_with_variable(self);
         }
+        if self.is_rule_enabled(Rule::UnquotedGlobsInFind) {
+            rules::correctness::unquoted_globs_in_find::unquoted_globs_in_find(self);
+        }
         if self.is_rule_enabled(Rule::ZshFlagExpansion) {
             rules::portability::zsh_flag_expansion::zsh_flag_expansion(self);
         }
