@@ -4174,6 +4174,67 @@ fn test_zsh_nested_parameter_modifier_records_nested_target_and_pattern_operatio
 }
 
 #[test]
+fn test_zsh_nested_positional_targets_preserve_bourne_refs_without_modifier_regression() {
+    let source = "print ${${10}} ${#${10}} ${${1:t}}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let nested = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(nested) = &nested.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &nested.target else {
+        panic!("expected nested target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "10"
+    ));
+
+    let length = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(length) = &length.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    assert_eq!(
+        length
+            .length_prefix
+            .expect("expected zsh length prefix")
+            .slice(source),
+        "#"
+    );
+    let ZshExpansionTarget::Nested(inner) = &length.target else {
+        panic!("expected nested length target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "10"
+    ));
+
+    let modifier = expect_parameter(&command.args[2]);
+    let ParameterExpansionSyntax::Zsh(modifier) = &modifier.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &modifier.target else {
+        panic!("expected nested modifier target");
+    };
+    let ParameterExpansionSyntax::Zsh(inner) = &inner.syntax else {
+        panic!("expected inner zsh syntax");
+    };
+    let ZshExpansionTarget::Word(word) = &inner.target else {
+        panic!("expected positional word target");
+    };
+    assert_eq!(word.render(source), "1");
+    assert!(matches!(
+        inner.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t"
+    ));
+}
+
+#[test]
 fn test_zsh_parameter_supported_operations_are_typed_and_preserve_source_spans() {
     let source = "print ${(m)foo#${needle}} ${(S)foo//\"pre\"$suffix/$replacement} ${(m)foo:$offset:${length}} ${(m)foo:^other}\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)

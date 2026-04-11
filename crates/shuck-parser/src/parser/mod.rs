@@ -3288,10 +3288,6 @@ impl<'a> Parser<'a> {
             || raw_body_text.starts_with('"')
             || raw_body_text.starts_with('\'')
             || raw_body_text.starts_with('$')
-            || raw_body_text
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_ascii_digit())
             || self.find_zsh_operation_start(raw_body_text).is_some()
         {
             ParameterExpansionSyntax::Zsh(
