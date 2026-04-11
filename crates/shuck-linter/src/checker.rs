@@ -458,6 +458,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PositionalArgsInString) {
             rules::style::positional_args_in_string::positional_args_in_string(self);
         }
+        if self.is_rule_enabled(Rule::DefaultValueInColonAssign) {
+            rules::style::default_value_in_colon_assign::default_value_in_colon_assign(self);
+        }
         if self.is_rule_enabled(Rule::EscapedUnderscore) {
             rules::style::escaped_underscore::escaped_underscore(self);
         }

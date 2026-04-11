@@ -171,6 +171,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports unquoted `-n` test operands as SC2070.
             // Keep SC2307 as a suppression alias for the authored S052 rule code.
             (2070, Rule::UnquotedVariableInTest),
+            // ShellCheck 0.11.0 reports unquoted default-assignment expansions as SC2223.
+            // Keep SC2346 as a suppression alias for the authored S062 rule code.
+            (2223, Rule::DefaultValueInColonAssign),
             (2021, Rule::UnquotedTrRange),
             (2283, Rule::DoubleParenGrouping),
             (1037, Rule::PositionalTenBraces),
@@ -529,6 +532,7 @@ impl Default for ShellCheckCodeMap {
                 (2060, Rule::UnquotedTrClass),
                 (2335, Rule::UnquotedPathInMkdir),
                 (2070, Rule::UnquotedVariableInTest),
+                (2223, Rule::DefaultValueInColonAssign),
                 (2021, Rule::UnquotedTrRange),
                     (2186, Rule::DeprecatedTempfileCommand),
                     (2258, Rule::BareRead),
@@ -731,6 +735,7 @@ impl Default for ShellCheckCodeMap {
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
                 (2307, Rule::UnquotedVariableInTest),
+                (2346, Rule::DefaultValueInColonAssign),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
@@ -858,6 +863,8 @@ mod tests {
         assert_eq!(map.resolve("SC2303"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2335"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(map.resolve("SC2307"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(map.resolve("SC2223"), Some(Rule::DefaultValueInColonAssign));
+        assert_eq!(map.resolve("SC2346"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
@@ -910,6 +917,14 @@ mod tests {
         assert_eq!(
             map.resolve_all("SC2307"),
             vec![Rule::UnquotedVariableInTest]
+        );
+        assert_eq!(
+            map.resolve_all("SC2223"),
+            vec![Rule::DefaultValueInColonAssign]
+        );
+        assert_eq!(
+            map.resolve_all("SC2346"),
+            vec![Rule::DefaultValueInColonAssign]
         );
         assert_eq!(map.resolve_all("SC2298"), vec![Rule::UnquotedTrRange]);
         assert_eq!(map.resolve_all("SC2021"), vec![Rule::UnquotedTrRange]);
@@ -1415,10 +1430,12 @@ mod tests {
             (2060, Rule::UnquotedTrClass),
             (2335, Rule::UnquotedPathInMkdir),
             (2070, Rule::UnquotedVariableInTest),
+            (2223, Rule::DefaultValueInColonAssign),
             (2060, Rule::UnquotedTrRange),
             (2303, Rule::UnquotedTrClass),
             (2335, Rule::UnquotedPathInMkdir),
             (2307, Rule::UnquotedVariableInTest),
+            (2346, Rule::DefaultValueInColonAssign),
             (2184, Rule::UnsetAssociativeArrayElement),
             (2178, Rule::ArrayToStringConversion),
             (2322, Rule::SuWithoutFlag),
@@ -1746,8 +1763,10 @@ mod tests {
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
         assert!(comparison.contains(&(2335, Rule::UnquotedPathInMkdir)));
         assert!(comparison.contains(&(2070, Rule::UnquotedVariableInTest)));
+        assert!(comparison.contains(&(2223, Rule::DefaultValueInColonAssign)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2307, Rule::UnquotedVariableInTest)));
+        assert!(!comparison.contains(&(2346, Rule::DefaultValueInColonAssign)));
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));

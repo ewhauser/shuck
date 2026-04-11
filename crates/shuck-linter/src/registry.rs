@@ -464,6 +464,7 @@ declare_rules! {
     ("S058", Category::Style, Severity::Warning, UnquotedPathInMkdir),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
+    ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
@@ -691,6 +692,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-240" => Some(Rule::UnquotedPathInMkdir),
         "SH-249" => Some(Rule::AtSignInStringCompare),
         "SH-250" => Some(Rule::ArraySliceInComparison),
+        "SH-251" => Some(Rule::DefaultValueInColonAssign),
         "SH-241" => Some(Rule::AppendToArrayAsString),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
@@ -858,6 +860,11 @@ mod tests {
         assert_eq!(code_to_rule("SH-208"), Some(Rule::UnquotedTrClass));
         assert_eq!(code_to_rule("SH-212"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(code_to_rule("S058"), Some(Rule::UnquotedPathInMkdir));
+        assert_eq!(code_to_rule("S062"), Some(Rule::DefaultValueInColonAssign));
+        assert_eq!(
+            code_to_rule("SH-251"),
+            Some(Rule::DefaultValueInColonAssign)
+        );
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
         assert_eq!(
             code_to_rule("S039"),

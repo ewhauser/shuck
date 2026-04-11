@@ -8,6 +8,7 @@ pub mod bare_read;
 pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
 pub mod conditional_assignment_shortcut;
+pub mod default_value_in_colon_assign;
 pub mod deprecated_tempfile_command;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
@@ -81,6 +82,7 @@ mod tests {
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
+    #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]

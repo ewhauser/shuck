@@ -1,7 +1,8 @@
 use shuck_ast::{
     ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr,
-    ParameterExpansion, ParameterExpansionSyntax, Pattern, PatternGroupKind, PatternPart, Position,
-    Redirect, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
+    PatternPart, Position, Redirect, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
+    ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -251,6 +252,12 @@ pub fn word_unquoted_star_splat_spans(word: &Word) -> Vec<Span> {
 pub fn word_quoted_star_splat_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_quoted_star_splat_spans(&word.parts, false, &mut spans);
+    spans
+}
+
+pub fn word_unquoted_assign_default_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_unquoted_assign_default_spans(&word.parts, false, &mut spans);
     spans
 }
 
@@ -1845,6 +1852,18 @@ fn part_uses_positional_at_splat(part: &WordPart) -> bool {
     }
 }
 
+fn part_uses_assign_default_operator(part: &WordPart) -> bool {
+    match part {
+        WordPart::Parameter(parameter) => parameter_uses_assign_default_operator(parameter),
+        WordPart::ParameterExpansion { operator, .. }
+        | WordPart::IndirectExpansion {
+            operator: Some(operator),
+            ..
+        } => matches!(operator, ParameterOp::AssignDefault),
+        _ => false,
+    }
+}
+
 fn var_ref_uses_star_splat(reference: &VarRef) -> bool {
     reference.name.as_str() == "*"
         || matches!(
@@ -1922,6 +1941,23 @@ fn parameter_uses_positional_at_splat(parameter: &ParameterExpansion) -> bool {
     }
 }
 
+fn parameter_uses_assign_default_operator(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Operation { operator, .. } => {
+            matches!(operator, ParameterOp::AssignDefault)
+        }
+        BourneParameterExpansion::Indirect {
+            operator: Some(operator),
+            ..
+        } => matches!(operator, ParameterOp::AssignDefault),
+        _ => false,
+    }
+}
+
 fn collect_unquoted_star_splat_spans(parts: &[WordPartNode], quoted: bool, spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
@@ -1943,6 +1979,23 @@ fn collect_quoted_star_splat_spans(parts: &[WordPartNode], quoted: bool, spans: 
                 collect_quoted_star_splat_spans(parts, true, spans);
             }
             _ if quoted && part_uses_star_splat(&part.kind) => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
+fn collect_unquoted_assign_default_spans(
+    parts: &[WordPartNode],
+    quoted: bool,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unquoted_assign_default_spans(parts, true, spans);
+            }
+            _ if !quoted && part_uses_assign_default_operator(&part.kind) => spans.push(part.span),
             _ => {}
         }
     }
@@ -2030,7 +2083,7 @@ mod tests {
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-        word_unquoted_star_splat_spans,
+        word_unquoted_assign_default_spans, word_unquoted_star_splat_spans,
     };
 
     #[test]
@@ -2561,6 +2614,30 @@ printf '%s\\n' \"$*\" \"${*}\" \"${*:1}\" \"${arr[*]}\" \"${arr[*]:1:2}\" \"${!a
         assert_eq!(
             spans,
             vec!["$*", "${*}", "${*:1}", "${arr[*]}", "${arr[*]:1:2}"]
+        );
+    }
+
+    #[test]
+    fn word_unquoted_assign_default_spans_track_only_unquoted_assignment_defaults() {
+        let source = "\
+printf '%s\\n' ${x=} ${x:=a} ${x:-a} \"${x=}\" \"${x:=a}\" prefix${x=}suffix ${!name:=fallback} ${name/pat/repl}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(word_unquoted_assign_default_spans)
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans,
+            vec!["${x=}", "${x:=a}", "${x=}", "${!name:=fallback}"]
         );
     }
 
