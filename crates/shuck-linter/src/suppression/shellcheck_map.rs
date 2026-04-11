@@ -212,6 +212,9 @@ impl Default for ShellCheckCodeMap {
             // The pinned ShellCheck oracle reports single-item `for ... in ...` loops as SC2043.
             // Keep SC2165 as a suppression alias for the authored S020 metadata.
             (2043, Rule::SingleIterationLoop),
+            // The pinned ShellCheck oracle reports conditional-assignment shortcuts as SC2209.
+            // Keep SC2114 as a suppression alias for the authored S032 metadata.
+            (2209, Rule::ConditionalAssignmentShortcut),
             // ShellCheck 0.11.0 reports `find` output-in-loop warnings as SC2044.
             // Keep SC2348 as a suppression alias for historical compatibility.
             (2044, Rule::FindOutputLoop),
@@ -498,6 +501,7 @@ impl Default for ShellCheckCodeMap {
                     (2034, Rule::UnusedAssignment),
                     (2035, Rule::LeadingGlobArgument),
                     (2043, Rule::SingleIterationLoop),
+                    (2209, Rule::ConditionalAssignmentShortcut),
                     (2044, Rule::FindOutputLoop),
                     (2348, Rule::FindOutputLoop),
                     (2380, Rule::MisspelledOptionName),
@@ -654,6 +658,7 @@ impl Default for ShellCheckCodeMap {
                 // compatibility alias so targeted large-corpus validation can
                 // compare C079 against the actual oracle output.
                 (2015, Rule::ShortCircuitFallthrough),
+                (2114, Rule::ConditionalAssignmentShortcut),
                 (2165, Rule::SingleIterationLoop),
                 (2322, Rule::SuWithoutFlag),
                 (2340, Rule::DeprecatedTempfileCommand),
@@ -899,6 +904,10 @@ mod tests {
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2043"), Some(Rule::SingleIterationLoop));
+        assert_eq!(
+            map.resolve("SC2209"),
+            Some(Rule::ConditionalAssignmentShortcut)
+        );
         assert_eq!(map.resolve("SC2044"), Some(Rule::FindOutputLoop));
         assert_eq!(map.resolve("SC2348"), Some(Rule::FindOutputLoop));
         assert_eq!(map.resolve("SC2380"), Some(Rule::MisspelledOptionName));
@@ -908,6 +917,10 @@ mod tests {
             Some(Rule::UnquotedCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2059"), Some(Rule::PrintfFormatVariable));
+        assert_eq!(
+            map.resolve("SC2114"),
+            Some(Rule::ConditionalAssignmentShortcut)
+        );
         assert_eq!(map.resolve("SC2165"), Some(Rule::SingleIterationLoop));
         assert_eq!(map.resolve("SC2352"), Some(Rule::DefaultElseInShortCircuit));
         assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));

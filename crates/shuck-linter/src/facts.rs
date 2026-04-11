@@ -1135,6 +1135,7 @@ pub struct ListSegmentFact {
     span: Span,
     kind: ListSegmentKind,
     assignment_target: Option<Box<str>>,
+    assignment_span: Option<Span>,
 }
 
 impl ListSegmentFact {
@@ -1152,6 +1153,10 @@ impl ListSegmentFact {
 
     pub fn assignment_target(&self) -> Option<&str> {
         self.assignment_target.as_deref()
+    }
+
+    pub fn assignment_span(&self) -> Option<Span> {
+        self.assignment_span
     }
 }
 

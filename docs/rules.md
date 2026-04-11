@@ -359,7 +359,7 @@ Rules about `&&`/`||` chain semantics and boolean shortcut patterns.
 - [x] **M** C079 (SC2296) `short-circuit-fallthrough` — `&&`/`||` chain may not branch as intended
 - [x] **M** C115 (SC2352) `default-else-in-short-circuit` — `||` catches all failures in ternary
 - [x] **M** S020 (SC2165) `single-iteration-loop` — loop that exits immediately
-- [ ] **M** S032 (SC2114) `conditional-assignment-shortcut` — boolean-style assignment shortcut
+- [x] **M** S032 (SC2114) `conditional-assignment-shortcut` — boolean-style assignment shortcut
 
 ### Function and Scope
 

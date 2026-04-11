@@ -1252,23 +1252,27 @@ fn collect_list_stmt_segment_facts<'a>(
 
     let id = command_id_for_command(&stmt.command, command_ids_by_span)?;
     let fact = command_fact(commands, id);
-    let assignment_target = list_segment_assignment_target(fact, source)
+    let assignment_info = list_segment_assignment_info(fact);
+    let assignment_target = assignment_info
+        .as_ref()
+        .map(|info| info.target)
         .map(str::to_owned)
         .map(String::into_boxed_str);
 
     segments.push(ListSegmentFact {
         command_id: id,
         span: fact.span_in_source(source),
-        kind: list_segment_kind(fact, source),
+        kind: list_segment_kind(fact),
         assignment_target,
+        assignment_span: assignment_info.map(|info| info.span),
     });
     Some(())
 }
 
-fn list_segment_kind(fact: &CommandFact<'_>, source: &str) -> ListSegmentKind {
+fn list_segment_kind(fact: &CommandFact<'_>) -> ListSegmentKind {
     if list_segment_is_condition(fact) {
         ListSegmentKind::Condition
-    } else if list_segment_assignment_target(fact, source).is_some() {
+    } else if list_segment_assignment_target(fact).is_some() {
         ListSegmentKind::AssignmentOnly
     } else {
         ListSegmentKind::Other
@@ -1281,39 +1285,61 @@ fn list_segment_is_condition(fact: &CommandFact<'_>) -> bool {
         || matches!(fact.effective_or_literal_name(), Some("true" | "false"))
 }
 
-fn list_segment_assignment_target<'a>(fact: &'a CommandFact<'a>, source: &str) -> Option<&'a str> {
+fn list_segment_assignment_target<'a>(fact: &'a CommandFact<'a>) -> Option<&'a str> {
+    list_segment_assignment_info(fact).map(|info| info.target)
+}
+
+#[derive(Clone, Copy)]
+struct ListSegmentAssignmentInfo<'a> {
+    target: &'a str,
+    span: Span,
+}
+
+fn list_segment_assignment_info<'a>(
+    fact: &'a CommandFact<'a>,
+) -> Option<ListSegmentAssignmentInfo<'a>> {
     match fact.command() {
         Command::Simple(command)
             if command.args.is_empty()
                 && !command.assignments.is_empty()
-                && static_word_text(&command.name, source).as_deref() == Some("") =>
+                && fact.literal_name() == Some("") =>
         {
-            single_assignment_target(&command.assignments)
+            single_assignment_info(&command.assignments)
         }
-        Command::Decl(command) => declaration_assignment_target(command),
+        Command::Decl(command) => declaration_assignment_info(command),
         _ => None,
     }
 }
 
-fn single_assignment_target<'a>(assignments: &'a [Assignment]) -> Option<&'a str> {
-    (assignments.len() == 1).then_some(assignments[0].target.name.as_str())
+fn single_assignment_info<'a>(
+    assignments: &'a [Assignment],
+) -> Option<ListSegmentAssignmentInfo<'a>> {
+    (assignments.len() == 1).then(|| ListSegmentAssignmentInfo {
+        target: assignments[0].target.name.as_str(),
+        span: assignments[0].span,
+    })
 }
 
-fn declaration_assignment_target<'a>(command: &'a DeclClause) -> Option<&'a str> {
+fn declaration_assignment_info<'a>(
+    command: &'a DeclClause,
+) -> Option<ListSegmentAssignmentInfo<'a>> {
     if !command.assignments.is_empty() {
         return None;
     }
 
-    let assignment_operands = command
-        .operands
-        .iter()
-        .map(|operand| match operand {
-            DeclOperand::Assignment(assignment) => Some(assignment),
-            DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
-        })
-        .collect::<Option<Vec<_>>>()?;
+    let mut assignment_operands = command.operands.iter().map(|operand| match operand {
+        DeclOperand::Assignment(assignment) => Some(assignment),
+        DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
+    });
+    let assignment = assignment_operands.next()??;
 
-    (assignment_operands.len() == 1).then_some(assignment_operands[0].target.name.as_str())
+    assignment_operands
+        .next()
+        .is_none()
+        .then_some(ListSegmentAssignmentInfo {
+            target: assignment.target.name.as_str(),
+            span: assignment.span,
+        })
 }
 
 fn classify_mixed_short_circuit_kind(segments: &[ListSegmentFact]) -> MixedShortCircuitKind {

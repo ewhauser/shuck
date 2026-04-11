@@ -5,6 +5,7 @@ pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod bare_read;
 pub mod command_substitution_in_alias;
+pub mod conditional_assignment_shortcut;
 pub mod deprecated_tempfile_command;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
@@ -76,6 +77,7 @@ mod tests {
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
     #[test_case(Rule::SingleIterationLoop, Path::new("S020.sh"))]
+    #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
