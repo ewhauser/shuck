@@ -330,7 +330,7 @@ fn shell_command_boundary_before(bytes: &[u8], index: usize) -> bool {
     index == 0
         || matches!(
             bytes[index - 1],
-            b' ' | b'\t' | b'\r' | b';' | b'|' | b'&' | b'('
+            b' ' | b'\t' | b'\r' | b';' | b'|' | b'&' | b'(' | b')'
         )
 }
 
@@ -1107,6 +1107,32 @@ mod tests {
     #[test]
     fn maps_if_bracket_glued_parse_error_to_c157() {
         let source = "#!/bin/sh\nif[ \"${1:-}\" = ok ]; then\n  :\nfi\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::IfBracketGlued);
+        assert_eq!(diagnostics[0].span.slice(source), "if[");
+    }
+
+    #[test]
+    fn maps_if_bracket_glued_after_case_arm_terminator_to_c157() {
+        let source = "\
+#!/bin/sh
+case \"$1\" in
+ok)if[ \"$2\" = yes ]; then
+  :
+fi
+;;
+esac
+";
         let recovered = Parser::new(source).parse_recovered();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
