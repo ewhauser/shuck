@@ -631,6 +631,18 @@
     "expectation": "parse_ok",
     "reason": "while loops with arithmetic conditionals and zsh contextual subscripts now parse in this fixture"
   },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_parameter_quoted_word_target_trim": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh quoted parameter word targets in trim operations"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_parameter_nested_length_target": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh nested length prefixes over replacement expressions"
+  },
+  "oils/zsh-large-corpus-regressions.test.sh::minimization__zsh_parameter_colon_modifier_targets": {
+    "expectation": "parse_ok",
+    "reason": "regression minimization for zsh colon modifier suffixes on identifier and positional targets"
+  },
   "oils/zsh-large-corpus-regressions.test.sh": {
     "expectation": "skip",
     "reason": "zsh-only regression snippets are covered by the zsh-mode parser corpus test"

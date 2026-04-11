@@ -720,7 +720,12 @@ impl<'a> ArithmeticParser<'a> {
     fn lex_shell_word(&mut self, start: usize) -> Result<Token> {
         let end = self.scan_shell_word_end(start)?;
         let raw = &self.input[start..end];
-        let mut word = Parser::parse_word_string_with_limits(raw, self.max_depth, self.max_fuel);
+        let mut word = Parser::parse_word_string_with_limits_and_dialect(
+            raw,
+            self.max_depth,
+            self.max_fuel,
+            self.dialect,
+        );
         Parser::rebase_word(&mut word, self.position_at(start));
         self.index = end;
         Ok(Token {

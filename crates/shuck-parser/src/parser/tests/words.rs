@@ -3732,6 +3732,192 @@ fn test_zsh_parameter_word_target_preserves_non_reference_target_text() {
 }
 
 #[test]
+fn test_zsh_parameter_word_target_accepts_quoted_command_substitution_text() {
+    let source = "print ${\"$(xcode-select -p)\"%%/Contents/Developer*}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    let parameter = expect_parameter(&command.args[0]);
+
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert!(parameter.length_prefix.is_none());
+    let ZshExpansionTarget::Word(word) = &parameter.target else {
+        panic!("expected quoted word target");
+    };
+    assert_eq!(word.span.slice(source), "\"$(xcode-select -p)\"");
+    assert!(matches!(
+        parameter.operation,
+        Some(ZshExpansionOperation::TrimOperation {
+            kind: ZshTrimOp::RemoveSuffixLong,
+            ref operand,
+        }) if operand.slice(source) == "/Contents/Developer*"
+    ));
+}
+
+#[test]
+fn test_zsh_parameter_length_prefix_preserves_nested_replacement_target() {
+    let source = "print ${#${cd//${~q}/}}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    let parameter = expect_parameter(&command.args[0]);
+
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        parameter
+            .length_prefix
+            .expect("expected zsh length prefix")
+            .slice(source),
+        "#"
+    );
+    let ZshExpansionTarget::Nested(inner) = &parameter.target else {
+        panic!("expected nested zsh target");
+    };
+    assert_eq!(inner.raw_body.slice(source), "cd//${~q}/");
+    let ParameterExpansionSyntax::Zsh(inner) = &inner.syntax else {
+        panic!("expected nested zsh syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &inner.target else {
+        panic!("expected nested replacement target reference");
+    };
+    assert_eq!(reference.name.as_str(), "cd");
+    assert!(matches!(
+        inner.operation,
+        Some(ZshExpansionOperation::ReplacementOperation {
+            kind: ZshReplacementOp::ReplaceAll,
+            ref pattern,
+            replacement: Some(ref replacement),
+        }) if pattern.slice(source) == "${~q}" && replacement.slice(source).is_empty()
+    ));
+}
+
+#[test]
+fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offsets() {
+    let source = "print ${REPLY:l} ${1:t} ${0:h}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let reply = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(reply) = &reply.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &reply.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "REPLY");
+    assert!(matches!(
+        reply.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":l"
+    ));
+
+    let first = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &first.target else {
+        panic!("expected positional reference target");
+    };
+    assert_eq!(reference.name.as_str(), "1");
+    assert!(matches!(
+        first.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t"
+    ));
+
+    let zero = expect_parameter(&command.args[2]);
+    let ParameterExpansionSyntax::Zsh(zero) = &zero.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &zero.target else {
+        panic!("expected script-name reference target");
+    };
+    assert_eq!(reference.name.as_str(), "0");
+    assert!(matches!(
+        zero.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":h"
+    ));
+}
+
+#[test]
+fn test_zsh_parameter_colon_modifiers_with_digits_preserve_targets() {
+    let source = "print ${path:A:h3} ${path:t2}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &first.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "path");
+    assert!(matches!(
+        first.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":A:h3"
+    ));
+
+    let second = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(second) = &second.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &second.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "path");
+    assert!(matches!(
+        second.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t2"
+    ));
+}
+
+#[test]
+fn test_zsh_plain_positional_parameters_preserve_bourne_references() {
+    let source = "print ${1} ${10} ${#1} ${#10}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    assert!(matches!(
+        &first.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "1"
+    ));
+
+    let second = expect_parameter(&command.args[1]);
+    assert!(matches!(
+        &second.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "10"
+    ));
+
+    let third = expect_parameter(&command.args[2]);
+    assert!(matches!(
+        &third.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "1"
+    ));
+
+    let fourth = expect_parameter(&command.args[3]);
+    assert!(matches!(
+        &fourth.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "10"
+    ));
+}
+
+#[test]
 fn test_parse_zsh_array_assignment_with_word_target_and_glob_qualifier() {
     let source = "dirs=( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -3816,6 +4002,130 @@ fn test_parse_zsh_arithmetic_shell_word_lookup_with_nested_modifier() {
 }
 
 #[test]
+fn test_parse_zsh_arithmetic_shell_word_preserves_nested_length_target() {
+    let source = "(( q_chars = ${#${cd//${~q}/}} ))\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, _) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::Arithmetic(command) = compound else {
+        panic!("expected arithmetic command");
+    };
+    let expr = command.expr_ast.as_ref().expect("expected arithmetic AST");
+    let ArithmeticExpr::Assignment { value, .. } = &expr.kind else {
+        panic!("expected arithmetic assignment");
+    };
+    let ArithmeticExpr::ShellWord(word) = &value.kind else {
+        panic!("expected arithmetic shell word");
+    };
+    let parameter = expect_parameter(word);
+
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        parameter
+            .length_prefix
+            .expect("expected zsh length prefix")
+            .slice(source),
+        "#"
+    );
+    let ZshExpansionTarget::Nested(inner) = &parameter.target else {
+        panic!("expected nested zsh target");
+    };
+    let ParameterExpansionSyntax::Zsh(inner) = &inner.syntax else {
+        panic!("expected nested zsh syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &inner.target else {
+        panic!("expected nested reference target");
+    };
+    assert_eq!(reference.name.as_str(), "cd");
+    assert!(matches!(
+        inner.operation,
+        Some(ZshExpansionOperation::ReplacementOperation {
+            kind: ZshReplacementOp::ReplaceAll,
+            ref pattern,
+            replacement: Some(ref replacement),
+        }) if pattern.slice(source) == "${~q}" && replacement.slice(source).is_empty()
+    ));
+}
+
+#[test]
+fn test_zsh_parameter_identifier_slices_preserve_legacy_slice_parts() {
+    let source = "print ${foo:i} ${foo:i:j}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let (first_reference, first_offset_ast, first_length_ast) =
+        expect_substring_part(&command.args[0].parts[0].kind);
+    assert_eq!(first_reference.name.as_str(), "foo");
+    assert_eq!(
+        first_offset_ast
+            .as_ref()
+            .expect("expected first offset AST")
+            .span
+            .slice(source),
+        "i"
+    );
+    assert!(first_length_ast.is_none());
+
+    let (second_reference, second_offset_ast, second_length_ast) =
+        expect_substring_part(&command.args[1].parts[0].kind);
+    assert_eq!(second_reference.name.as_str(), "foo");
+    assert_eq!(
+        second_offset_ast
+            .as_ref()
+            .expect("expected second offset AST")
+            .span
+            .slice(source),
+        "i"
+    );
+    assert_eq!(
+        second_length_ast
+            .as_ref()
+            .expect("expected second length AST")
+            .span
+            .slice(source),
+        "j"
+    );
+}
+
+#[test]
+fn test_zsh_parameter_identifier_slices_stay_typed_in_zsh_parameter_nodes() {
+    let source = "print ${(m)foo:i:j}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let parameter = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        parameter
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['m']
+    );
+    let ZshExpansionTarget::Reference(reference) = &parameter.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "foo");
+    assert!(matches!(
+        parameter.operation,
+        Some(ZshExpansionOperation::Slice {
+            ref offset,
+            length: Some(ref length),
+        }) if offset.slice(source) == "i" && length.slice(source) == "j"
+    ));
+}
+
+#[test]
 fn test_zsh_nested_parameter_modifier_records_nested_target_and_pattern_operation() {
     let source = "print ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -3860,6 +4170,93 @@ fn test_zsh_nested_parameter_modifier_records_nested_target_and_pattern_operatio
             kind: ZshPatternOp::Filter,
             ref operand,
         }) if operand.slice(source) == "__gitcomp_builtin_*"
+    ));
+}
+
+#[test]
+fn test_zsh_nested_plain_access_targets_preserve_bourne_refs_without_modifier_regression() {
+    let source = "print ${${10}} ${#${10}} ${${#}} ${${$}} ${${1:t}}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let nested = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(nested) = &nested.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &nested.target else {
+        panic!("expected nested target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "10"
+    ));
+
+    let length = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(length) = &length.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    assert_eq!(
+        length
+            .length_prefix
+            .expect("expected zsh length prefix")
+            .slice(source),
+        "#"
+    );
+    let ZshExpansionTarget::Nested(inner) = &length.target else {
+        panic!("expected nested length target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "10"
+    ));
+
+    let count = expect_parameter(&command.args[2]);
+    let ParameterExpansionSyntax::Zsh(count) = &count.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &count.target else {
+        panic!("expected nested count target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "#"
+    ));
+
+    let pid = expect_parameter(&command.args[3]);
+    let ParameterExpansionSyntax::Zsh(pid) = &pid.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &pid.target else {
+        panic!("expected nested pid target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "$"
+    ));
+
+    let modifier = expect_parameter(&command.args[4]);
+    let ParameterExpansionSyntax::Zsh(modifier) = &modifier.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &modifier.target else {
+        panic!("expected nested modifier target");
+    };
+    let ParameterExpansionSyntax::Zsh(inner) = &inner.syntax else {
+        panic!("expected inner zsh syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &inner.target else {
+        panic!("expected positional reference target");
+    };
+    assert_eq!(reference.name.as_str(), "1");
+    assert!(matches!(
+        inner.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t"
     ));
 }
 
