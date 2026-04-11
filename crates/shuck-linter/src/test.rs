@@ -3,12 +3,42 @@ use std::fs;
 use std::path::Path;
 
 use shuck_indexer::Indexer;
-use shuck_parser::parser::{ParseDiagnostic, ParseOutput, Parser};
+use shuck_parser::ShellProfile;
+use shuck_parser::parser::{
+    ParseDiagnostic, ParseOutput, Parser, ShellDialect as ParseShellDialect,
+};
 
 use crate::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_diagnostics};
 
-fn parse_for_lint(source: &str) -> (ParseOutput, Vec<ParseDiagnostic>) {
-    let recovered = Parser::new(source).parse_recovered();
+fn inferred_shell_profile(
+    source: &str,
+    settings: &LinterSettings,
+    path: Option<&Path>,
+) -> ShellProfile {
+    let shell = if settings.shell == crate::ShellDialect::Unknown {
+        crate::ShellDialect::infer(source, path)
+    } else {
+        settings.shell
+    };
+    let dialect = match shell {
+        crate::ShellDialect::Zsh => ParseShellDialect::Zsh,
+        crate::ShellDialect::Unknown
+        | crate::ShellDialect::Sh
+        | crate::ShellDialect::Dash
+        | crate::ShellDialect::Ksh
+        | crate::ShellDialect::Mksh
+        | crate::ShellDialect::Bash => ParseShellDialect::Bash,
+    };
+    ShellProfile::native(dialect)
+}
+
+fn parse_for_lint(
+    source: &str,
+    settings: &LinterSettings,
+    path: Option<&Path>,
+) -> (ParseOutput, Vec<ParseDiagnostic>) {
+    let recovered = Parser::with_profile(source, inferred_shell_profile(source, settings, path))
+        .parse_recovered();
     (
         ParseOutput {
             file: recovered.file,
@@ -19,7 +49,7 @@ fn parse_for_lint(source: &str) -> (ParseOutput, Vec<ParseDiagnostic>) {
 
 /// Lint a source string directly (no file needed).
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
-    let (output, parse_diagnostics) = parse_for_lint(source);
+    let (output, parse_diagnostics) = parse_for_lint(source, settings, None);
     let indexer = Indexer::new(source, &output);
     lint_file_at_path_with_parse_diagnostics(
         &output.file,
@@ -38,7 +68,7 @@ pub fn test_snippet_at_path(
     source: &str,
     settings: &LinterSettings,
 ) -> Vec<Diagnostic> {
-    let (output, parse_diagnostics) = parse_for_lint(source);
+    let (output, parse_diagnostics) = parse_for_lint(source, settings, Some(path));
     let indexer = Indexer::new(source, &output);
     lint_file_at_path_with_parse_diagnostics(
         &output.file,

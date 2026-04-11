@@ -171,7 +171,7 @@ impl<'a> SafeValueIndex<'a> {
             brace_syntax: Vec::new(),
         };
         if let Some(context) = query.operand_context()
-            && analyze_literal_runtime(&word, self.source, context).is_runtime_sensitive()
+            && analyze_literal_runtime(&word, self.source, context, None).is_runtime_sensitive()
         {
             return false;
         }

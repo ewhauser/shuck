@@ -5,6 +5,7 @@ use shuck_ast::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WrapperKind {
+    Noglob,
     Command,
     Builtin,
     Exec,
@@ -292,6 +293,10 @@ fn resolve_command_resolution(
     source: &str,
 ) -> Option<CommandResolution> {
     match current_name {
+        "noglob" => Some(CommandResolution::Wrapper {
+            kind: WrapperKind::Noglob,
+            target_index: words.get(current_index + 1).map(|_| current_index + 1),
+        }),
         "command" => Some(CommandResolution::Wrapper {
             kind: WrapperKind::Command,
             target_index: command_wrapper_target_index(words, current_index, source),
@@ -546,6 +551,13 @@ mod tests {
                 Some("printf"),
                 vec![WrapperKind::Command],
                 ("printf", Some("'%s\\n'")),
+            ),
+            (
+                "noglob rm *.txt\n",
+                Some("noglob"),
+                Some("rm"),
+                vec![WrapperKind::Noglob],
+                ("rm", Some("*.txt")),
             ),
             (
                 "builtin read line\n",

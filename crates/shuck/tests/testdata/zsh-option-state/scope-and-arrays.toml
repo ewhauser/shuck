@@ -1,0 +1,56 @@
+name = "function scoping and ksh array mode"
+source = '''
+values=(one two)
+__shuck_probe_options array_native ksharrays
+__shuck_probe_fields array_native $values
+setopt ksh_arrays
+__shuck_probe_options array_ksh ksharrays
+__shuck_probe_fields array_ksh $values
+unsetopt ksh_arrays
+
+__shuck_probe_options scope_before shwordsplit globsubst shglob
+scoped() {
+  emulate -L sh
+  __shuck_probe_options scope_local shwordsplit globsubst shglob
+}
+scoped
+__shuck_probe_options scope_after shwordsplit globsubst shglob
+
+leaky() {
+  setopt sh_word_split
+}
+leaky
+__shuck_probe_options leaked shwordsplit
+'''
+
+[option_probes.array_native]
+ksharrays = "off"
+
+[option_probes.array_ksh]
+ksharrays = "on"
+
+[option_probes.scope_before]
+shwordsplit = "off"
+globsubst = "off"
+shglob = "off"
+
+[option_probes.scope_local]
+shwordsplit = "on"
+globsubst = "on"
+shglob = "on"
+
+[option_probes.scope_after]
+shwordsplit = "off"
+globsubst = "off"
+shglob = "off"
+
+[option_probes.leaked]
+shwordsplit = "on"
+
+[field_probes.array_native]
+count = 2
+values = ["one", "two"]
+
+[field_probes.array_ksh]
+count = 1
+values = ["one"]

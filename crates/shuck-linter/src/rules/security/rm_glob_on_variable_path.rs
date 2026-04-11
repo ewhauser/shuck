@@ -17,6 +17,11 @@ pub fn rm_glob_on_variable_path(checker: &mut Checker) {
         .facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("rm"))
+        .filter(|fact| {
+            !fact
+                .zsh_options()
+                .is_some_and(|options| options.glob.is_definitely_off())
+        })
         .filter_map(|fact| fact.options().rm())
         .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
         .collect::<Vec<_>>();

@@ -269,7 +269,7 @@ fn classify_substitution_body<'a>(
         let state = if let Some(id) = command_id_for_command(visit.command, command_ids_by_span) {
             classify_redirect_facts(command_fact(commands, id).redirect_facts())
         } else {
-            let redirect_facts = build_redirect_facts(visit.redirects, source);
+            let redirect_facts = build_redirect_facts(visit.redirects, source, None);
             classify_redirect_facts(&redirect_facts)
         };
 

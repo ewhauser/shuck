@@ -2953,7 +2953,7 @@ impl<'a> Parser<'a> {
 
                 if matches!(
                     chars.peek(),
-                    Some(&'(') | Some(&':') | Some(&'^') | Some(&'~') | Some(&'.')
+                    Some(&'(') | Some(&':') | Some(&'=') | Some(&'^') | Some(&'~') | Some(&'.')
                 ) {
                     let raw_body = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                     let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);

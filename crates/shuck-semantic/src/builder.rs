@@ -9,13 +9,14 @@ use shuck_ast::{
     ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::parser::Parser;
+use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
 
 use crate::binding::{Binding, BindingAttributes, BindingKind};
 use crate::call_graph::{CallGraph, CallSite, OverwrittenFunction};
 use crate::cfg::{
-    FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandKind,
-    RecordedListOperator, RecordedPipelineSegment, RecordedProgram,
+    FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandInfo,
+    RecordedCommandKind, RecordedListOperator, RecordedPipelineSegment, RecordedProgram,
+    RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
@@ -27,6 +28,7 @@ use crate::{
 };
 
 pub(crate) struct BuildOutput {
+    pub(crate) shell_profile: ShellProfile,
     pub(crate) scopes: Vec<Scope>,
     pub(crate) bindings: Vec<Binding>,
     pub(crate) references: Vec<Reference>,
@@ -69,6 +71,8 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     indirect_expansion_refs: FxHashSet<ReferenceId>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_function_bodies: FxHashMap<ScopeId, Vec<RecordedCommand>>,
+    recorded_command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
+    function_body_scopes: FxHashMap<BindingId, ScopeId>,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
     source_directives: FxHashMap<usize, SourceDirectiveOverride>,
@@ -108,6 +112,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         indexer: &'a Indexer,
         observer: &'observer mut dyn TraversalObserver,
         bash_runtime_vars_enabled: bool,
+        shell_profile: ShellProfile,
     ) -> BuildOutput {
         let file_scope = Scope {
             id: ScopeId(0),
@@ -136,6 +141,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             indirect_expansion_refs: FxHashSet::default(),
             flow_contexts: Vec::new(),
             recorded_function_bodies: FxHashMap::default(),
+            recorded_command_infos: FxHashMap::default(),
+            function_body_scopes: FxHashMap::default(),
             command_bindings: FxHashMap::default(),
             command_references: FxHashMap::default(),
             source_directives: parse_source_directives(source, indexer),
@@ -153,6 +160,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let heuristic_unused_assignments = builder.compute_heuristic_unused_assignments();
 
         BuildOutput {
+            shell_profile,
             scopes: builder.scopes,
             bindings: builder.bindings,
             references: builder.references,
@@ -173,6 +181,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             recorded_program: RecordedProgram {
                 file_commands,
                 function_bodies: builder.recorded_function_bodies,
+                command_infos: builder.recorded_command_infos,
+                function_body_scopes: builder.function_body_scopes,
             },
             command_bindings: builder.command_bindings,
             command_references: builder.command_references,
@@ -222,6 +232,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             recorded.nested_regions.splice(0..0, redirects);
         }
         recorded.span = span;
+        self.recorded_command_infos.insert(
+            SpanKey::new(span),
+            recorded_command_info(&stmt.command, self.source),
+        );
 
         self.command_stack.pop();
         self.observer.exit_command(&stmt.command, scope);
@@ -858,21 +872,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             );
         }
 
+        let parent_scope = self.current_scope();
+        let scope = self.push_scope(
+            ScopeKind::Function(function_scope_kind(function)),
+            parent_scope,
+            body_span(&function.body),
+        );
         for (name, span) in function.static_name_entries() {
-            self.add_binding(
+            let binding_id = self.add_binding(
                 name,
                 BindingKind::FunctionDefinition,
-                self.current_scope(),
+                parent_scope,
                 span,
                 BindingAttributes::empty(),
             );
+            self.function_body_scopes.insert(binding_id, scope);
         }
-
-        let scope = self.push_scope(
-            ScopeKind::Function(function_scope_kind(function)),
-            self.current_scope(),
-            body_span(&function.body),
-        );
         self.deferred_functions.push(DeferredFunction {
             function: function as *const FunctionDef,
             scope,
@@ -2795,6 +2810,340 @@ fn line_bounds(source: &str, line_number: usize) -> Option<(usize, usize)> {
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+}
+
+fn recorded_command_info(command: &Command, source: &str) -> RecordedCommandInfo {
+    match command {
+        Command::Simple(command) => recorded_simple_command_info(command, source),
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => RecordedCommandInfo::default(),
+    }
+}
+
+fn recorded_simple_command_info(
+    command: &shuck_ast::SimpleCommand,
+    source: &str,
+) -> RecordedCommandInfo {
+    let words = std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .collect::<Vec<_>>();
+    let mut static_callee = static_word_text(&command.name, source);
+
+    if static_callee.as_deref() == Some("noglob") {
+        static_callee = words.get(1).and_then(|word| static_word_text(word, source));
+    }
+
+    let mut info = RecordedCommandInfo {
+        static_callee,
+        zsh_effects: Vec::new(),
+    };
+    let Some((effect_callee, effect_index)) = normalize_recorded_zsh_effect_command(&words, source)
+    else {
+        return info;
+    };
+    let args = words.get(effect_index + 1..).unwrap_or(&[]);
+
+    match effect_callee.as_str() {
+        "emulate" => info.zsh_effects = parse_emulate_effects(args, source),
+        "setopt" => {
+            info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                updates: parse_setopt_updates(args, source, true),
+            }];
+        }
+        "unsetopt" => {
+            info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                updates: parse_setopt_updates(args, source, false),
+            }];
+        }
+        "set" => {
+            let updates = parse_set_builtin_option_updates(args, source);
+            if !updates.is_empty() {
+                info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions { updates }];
+            }
+        }
+        _ => {}
+    }
+
+    info.zsh_effects.retain(|effect| match effect {
+        RecordedZshCommandEffect::Emulate { .. } => true,
+        RecordedZshCommandEffect::SetOptions { updates } => !updates.is_empty(),
+    });
+    info
+}
+
+fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Option<(String, usize)> {
+    let mut index = 0usize;
+
+    while let Some(word) = words.get(index) {
+        let text = static_word_text(word, source)?;
+        if is_recorded_assignment_word(&text) {
+            index += 1;
+            continue;
+        }
+
+        match text.as_str() {
+            "noglob" => {
+                index += 1;
+                continue;
+            }
+            "command" => {
+                index = skip_recorded_command_wrapper_options(words, source, index + 1)?;
+                continue;
+            }
+            "builtin" => {
+                index = skip_recorded_wrapper_options(words, source, index + 1);
+                continue;
+            }
+            "exec" => {
+                index = skip_recorded_exec_wrapper_options(words, source, index + 1);
+                continue;
+            }
+            _ => return Some((text, index)),
+        }
+    }
+
+    None
+}
+
+fn skip_recorded_command_wrapper_options(
+    words: &[&Word],
+    source: &str,
+    mut index: usize,
+) -> Option<usize> {
+    while let Some(word) = words.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if text.starts_with('-') && text != "-" {
+            if text
+                .strip_prefix('-')
+                .is_some_and(|flags| flags.chars().any(|flag| matches!(flag, 'v' | 'V')))
+            {
+                return None;
+            }
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    Some(index)
+}
+
+fn skip_recorded_wrapper_options(words: &[&Word], source: &str, mut index: usize) -> usize {
+    while let Some(word) = words.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if text.starts_with('-') && text != "-" {
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    index
+}
+
+fn skip_recorded_exec_wrapper_options(words: &[&Word], source: &str, mut index: usize) -> usize {
+    while let Some(word) = words.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if text == "-a" {
+            index = (index + 2).min(words.len());
+            continue;
+        }
+        if text.starts_with('-') && text != "-" {
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    index
+}
+
+fn is_recorded_assignment_word(word: &str) -> bool {
+    let Some((name, _value)) = word.split_once('=') else {
+        return false;
+    };
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommandEffect> {
+    let mut local = false;
+    let mut mode = None;
+    let mut updates = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            index += 1;
+            continue;
+        };
+
+        match text.as_str() {
+            "--" => {
+                break;
+            }
+            "-o" | "+o" => {
+                let enable = text.starts_with('-');
+                if let Some(option) = args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
+                    && let Some(update) = parse_recorded_zsh_option_update(&option, enable)
+                {
+                    updates.push(update);
+                }
+                index += 2;
+                continue;
+            }
+            _ => {}
+        }
+
+        if text.starts_with("-o") || text.starts_with("+o") {
+            let enable = text.starts_with('-');
+            if let Some(update) = parse_recorded_zsh_option_update(&text[2..], enable) {
+                updates.push(update);
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(flags) = text.strip_prefix('-') {
+            for flag in flags.chars() {
+                match flag {
+                    'L' => local = true,
+                    'R' => {}
+                    _ => {}
+                }
+            }
+            index += 1;
+            continue;
+        }
+
+        if mode.is_none() {
+            mode = match text.to_ascii_lowercase().as_str() {
+                "zsh" => Some(ZshEmulationMode::Zsh),
+                "sh" => Some(ZshEmulationMode::Sh),
+                "ksh" => Some(ZshEmulationMode::Ksh),
+                "csh" => Some(ZshEmulationMode::Csh),
+                _ => None,
+            };
+        }
+        index += 1;
+    }
+
+    let mut effects = Vec::new();
+    if let Some(mode) = mode {
+        effects.push(RecordedZshCommandEffect::Emulate { mode, local });
+    }
+    if !updates.is_empty() {
+        effects.push(RecordedZshCommandEffect::SetOptions { updates });
+    }
+    effects
+}
+
+fn parse_setopt_updates(
+    args: &[&Word],
+    source: &str,
+    enable: bool,
+) -> Vec<RecordedZshOptionUpdate> {
+    args.iter()
+        .filter_map(|word| static_word_text(word, source))
+        .filter(|text| text != "--")
+        .filter_map(|text| parse_recorded_zsh_option_update(&text, enable))
+        .collect()
+}
+
+fn parse_set_builtin_option_updates(args: &[&Word], source: &str) -> Vec<RecordedZshOptionUpdate> {
+    let mut updates = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            index += 1;
+            continue;
+        };
+
+        match text.as_str() {
+            "-o" | "+o" => {
+                let enable = text.starts_with('-');
+                if let Some(name) = args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
+                    && let Some(update) = parse_recorded_zsh_option_update(&name, enable)
+                {
+                    updates.push(update);
+                }
+                index += 2;
+            }
+            _ if text.starts_with("-o") || text.starts_with("+o") => {
+                let enable = text.starts_with('-');
+                if let Some(update) = parse_recorded_zsh_option_update(&text[2..], enable) {
+                    updates.push(update);
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    updates
+}
+
+fn parse_recorded_zsh_option_update(name: &str, enable: bool) -> Option<RecordedZshOptionUpdate> {
+    let (normalized, inverted) = normalize_recorded_zsh_option_name(name)?;
+    let enable = if inverted { !enable } else { enable };
+
+    if normalized == "localoptions" {
+        return Some(RecordedZshOptionUpdate::LocalOptions { enable });
+    }
+
+    Some(RecordedZshOptionUpdate::Named {
+        name: normalized.into_boxed_str(),
+        enable,
+    })
+}
+
+fn normalize_recorded_zsh_option_name(name: &str) -> Option<(String, bool)> {
+    let mut normalized = String::with_capacity(name.len());
+    for ch in name.chars() {
+        if matches!(ch, '_' | '-') {
+            continue;
+        }
+        normalized.push(ch.to_ascii_lowercase());
+    }
+
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if let Some(stripped) = normalized.strip_prefix("no")
+        && !stripped.is_empty()
+    {
+        return Some((stripped.to_string(), true));
+    }
+
+    Some((normalized, false))
 }
 
 fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {

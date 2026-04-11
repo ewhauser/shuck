@@ -94,7 +94,7 @@ pub fn word_is_standalone_variable_like(word: &Word) -> bool {
 }
 
 pub(crate) fn classify_word(word: &Word, source: &str) -> WordClassification {
-    let analysis = super::expansion::analyze_word(word, source);
+    let analysis = super::expansion::analyze_word(word, source, None);
 
     WordClassification {
         quote: analysis.quote,
@@ -109,12 +109,13 @@ pub(crate) fn classify_contextual_operand(
     source: &str,
     context: ExpansionContext,
 ) -> TestOperandClass {
-    let analysis = super::expansion::analyze_word(word, source);
+    let analysis = super::expansion::analyze_word(word, source, None);
     if analysis.literalness == WordLiteralness::Expanded {
         return TestOperandClass::RuntimeSensitive;
     }
 
-    if super::expansion::analyze_literal_runtime(word, source, context).is_runtime_sensitive() {
+    if super::expansion::analyze_literal_runtime(word, source, context, None).is_runtime_sensitive()
+    {
         TestOperandClass::RuntimeSensitive
     } else {
         TestOperandClass::FixedLiteral

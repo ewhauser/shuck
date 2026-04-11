@@ -82,6 +82,14 @@ test-large-corpus: ensure-cache
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored --nocapture
 
+test-large-corpus-zsh: ensure-cache
+	SHUCK_TEST_LARGE_CORPUS=1 \
+	SHUCK_LARGE_CORPUS_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_TIMEOUT_SECS) \
+	SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS) \
+	SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=$(SHUCK_LARGE_CORPUS_SAMPLE_PERCENT) \
+	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
+	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus large_corpus_zsh_fixtures_parse -- --ignored --exact --nocapture
+
 large-corpus-report-from-log:
 	test -f "$(LARGE_CORPUS_REPORT_LOG)"
 	$(UV_PYTHON) ./scripts/large_corpus_report.py --log "$(LARGE_CORPUS_REPORT_LOG)" --output "$(LARGE_CORPUS_REPORT_HTML)"

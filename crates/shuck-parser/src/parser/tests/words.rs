@@ -3718,10 +3718,18 @@ fn test_zsh_parameter_word_target_preserves_non_reference_target_text() {
     let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
         panic!("expected zsh parameter syntax");
     };
+    assert_eq!(
+        parameter
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['^']
+    );
     let ZshExpansionTarget::Word(word) = &parameter.target else {
         panic!("expected word target");
     };
-    assert_eq!(word.render(source), "^$(pidof zsh)");
+    assert_eq!(word.render(source), "$(pidof zsh)");
     assert!(matches!(
         parameter.operation,
         Some(ZshExpansionOperation::PatternOperation {
@@ -3729,6 +3737,82 @@ fn test_zsh_parameter_word_target_preserves_non_reference_target_text() {
             ref operand,
         }) if operand.slice(source) == "$$"
     ));
+}
+
+#[test]
+fn test_zsh_parameter_bare_prefix_flags_record_modifier_sequence() {
+    let source = "print ${=name} ${~foo} ${^^bar} ${~~baz}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let split = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(split) = &split.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        split
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['=']
+    );
+    let ZshExpansionTarget::Reference(reference) = &split.target else {
+        panic!("expected split target reference");
+    };
+    assert_eq!(reference.name.as_str(), "name");
+
+    let glob = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(glob) = &glob.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        glob.modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['~']
+    );
+    let ZshExpansionTarget::Reference(reference) = &glob.target else {
+        panic!("expected glob target reference");
+    };
+    assert_eq!(reference.name.as_str(), "foo");
+
+    let rc_expand = expect_parameter(&command.args[2]);
+    let ParameterExpansionSyntax::Zsh(rc_expand) = &rc_expand.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        rc_expand
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['^', '^']
+    );
+    let ZshExpansionTarget::Reference(reference) = &rc_expand.target else {
+        panic!("expected rc-expand target reference");
+    };
+    assert_eq!(reference.name.as_str(), "bar");
+
+    let glob_off = expect_parameter(&command.args[3]);
+    let ParameterExpansionSyntax::Zsh(glob_off) = &glob_off.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        glob_off
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['~', '~']
+    );
+    let ZshExpansionTarget::Reference(reference) = &glob_off.target else {
+        panic!("expected glob-off target reference");
+    };
+    assert_eq!(reference.name.as_str(), "baz");
 }
 
 #[test]

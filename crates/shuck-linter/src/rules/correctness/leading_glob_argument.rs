@@ -30,6 +30,12 @@ fn reportable_glob_span(checker: &Checker<'_>, fact: &crate::facts::WordFact<'_>
     if command_exempts_glob_warning(command.effective_name()) {
         return None;
     }
+    if fact
+        .zsh_options()
+        .is_some_and(|options| options.glob.is_definitely_off())
+    {
+        return None;
+    }
 
     let text = fact.span().slice(checker.source());
     let prefix = text.chars().next()?;
@@ -117,6 +123,30 @@ printf '%s\\n' *
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::LeadingGlobArgument));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_globs_when_noglob_is_active() {
+        let source = "setopt no_glob\nrm *\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_noglob_wrapped_commands_in_zsh() {
+        let source = "noglob rm *\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
