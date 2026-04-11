@@ -2890,7 +2890,11 @@ fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Optio
                 index += 1;
                 continue;
             }
-            "command" | "builtin" => {
+            "command" => {
+                index = skip_recorded_command_wrapper_options(words, source, index + 1)?;
+                continue;
+            }
+            "builtin" => {
                 index = skip_recorded_wrapper_options(words, source, index + 1);
                 continue;
             }
@@ -2903,6 +2907,34 @@ fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Optio
     }
 
     None
+}
+
+fn skip_recorded_command_wrapper_options(
+    words: &[&Word],
+    source: &str,
+    mut index: usize,
+) -> Option<usize> {
+    while let Some(word) = words.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if text.starts_with('-') && text != "-" {
+            if text
+                .strip_prefix('-')
+                .is_some_and(|flags| flags.chars().any(|flag| matches!(flag, 'v' | 'V')))
+            {
+                return None;
+            }
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    Some(index)
 }
 
 fn skip_recorded_wrapper_options(words: &[&Word], source: &str, mut index: usize) -> usize {

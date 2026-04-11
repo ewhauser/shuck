@@ -761,7 +761,7 @@ impl<'a> ZshOptionPrescanner<'a> {
                                 local_scopes.push(PrescanLocalScope::subshell(self.state.clone()));
                                 function_header = PrescanFunctionHeaderState::None;
                             } else {
-                                function_header = match function_header {
+                                let next_header = match function_header {
                                     PrescanFunctionHeaderState::AfterWord => {
                                         PrescanFunctionHeaderState::AfterWordOpenParen
                                     }
@@ -770,25 +770,36 @@ impl<'a> ZshOptionPrescanner<'a> {
                                     }
                                     _ => PrescanFunctionHeaderState::None,
                                 };
-                                if let Some(scope) = local_scopes.last_mut() {
-                                    scope.paren_depth += 1;
+                                if !matches!(
+                                    next_header,
+                                    PrescanFunctionHeaderState::AfterWordOpenParen
+                                        | PrescanFunctionHeaderState::AfterFunctionNameOpenParen
+                                ) {
+                                    local_scopes
+                                        .push(PrescanLocalScope::subshell(self.state.clone()));
                                 }
+                                function_header = next_header;
                             }
                         }
                         PrescanSeparator::CloseParen => {
-                            function_header = match function_header {
+                            let closes_function_header = matches!(
+                                function_header,
                                 PrescanFunctionHeaderState::AfterWordOpenParen
-                                | PrescanFunctionHeaderState::AfterFunctionNameOpenParen => {
-                                    PrescanFunctionHeaderState::ReadyForBrace
-                                }
-                                _ => PrescanFunctionHeaderState::None,
+                                    | PrescanFunctionHeaderState::AfterFunctionNameOpenParen
+                            );
+                            function_header = if closes_function_header {
+                                PrescanFunctionHeaderState::ReadyForBrace
+                            } else {
+                                PrescanFunctionHeaderState::None
                             };
-                            if let Some(scope) = local_scopes.last_mut()
-                                && scope.paren_depth > 0
-                            {
-                                scope.paren_depth -= 1;
+                            if !closes_function_header {
+                                if let Some(scope) = local_scopes.last_mut()
+                                    && scope.paren_depth > 0
+                                {
+                                    scope.paren_depth -= 1;
+                                }
+                                self.restore_completed_local_scopes(&mut local_scopes, end);
                             }
-                            self.restore_completed_local_scopes(&mut local_scopes, end);
                         }
                         PrescanSeparator::OpenBrace => {
                             if is_prescan_function_body_start(function_header) {
@@ -1059,7 +1070,11 @@ fn normalize_prescan_command(words: &[String]) -> Option<(&str, usize)> {
                 index += 1;
                 continue;
             }
-            "command" | "builtin" => {
+            "command" => {
+                index = skip_prescan_command_wrapper_options(words, index + 1)?;
+                continue;
+            }
+            "builtin" => {
                 index = skip_prescan_wrapper_options(words, index + 1);
                 continue;
             }
@@ -1073,6 +1088,27 @@ fn normalize_prescan_command(words: &[String]) -> Option<(&str, usize)> {
     }
 
     None
+}
+
+fn skip_prescan_command_wrapper_options(words: &[String], mut index: usize) -> Option<usize> {
+    while let Some(word) = words.get(index) {
+        if word == "--" {
+            index += 1;
+            break;
+        }
+        if word.starts_with('-') && word != "-" {
+            if word
+                .strip_prefix('-')
+                .is_some_and(|flags| flags.chars().any(|flag| matches!(flag, 'v' | 'V')))
+            {
+                return None;
+            }
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    Some(index)
 }
 
 fn skip_prescan_wrapper_options(words: &[String], mut index: usize) -> usize {

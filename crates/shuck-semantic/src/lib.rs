@@ -4854,4 +4854,18 @@ print *
         assert_eq!(options.glob, OptionValue::Off);
         assert_eq!(options.short_loops, OptionValue::Off);
     }
+
+    #[test]
+    fn zsh_option_analysis_ignores_command_lookup_modes() {
+        let source = "\
+command -v setopt no_glob
+print *
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh options");
+
+        assert_eq!(options.glob, OptionValue::On);
+    }
 }

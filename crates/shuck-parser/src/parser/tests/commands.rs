@@ -3193,6 +3193,42 @@ fn test_parse_zsh_wrapped_unsetopt_short_repeat_demotes_repeat_to_simple_command
 }
 
 #[test]
+fn test_parse_zsh_plain_subshell_does_not_leak_short_repeat_prescan() {
+    let source = "( unsetopt short_repeat )\nrepeat 2 echo global\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&output.body[0]);
+    assert!(matches!(compound, AstCompoundCommand::Subshell(_)));
+
+    let (compound, _) = expect_compound(&output.body[1]);
+    let AstCompoundCommand::Repeat(command) = compound else {
+        panic!("expected top-level repeat command");
+    };
+    assert_eq!(command.count.render(source), "2");
+}
+
+#[test]
+fn test_parse_zsh_command_v_does_not_fake_short_repeat_effects() {
+    let source = "command -v unsetopt short_repeat\nrepeat 2 echo global\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let command = expect_simple(&output.body[0]);
+    assert_eq!(command.name.render(source), "command");
+
+    let (compound, _) = expect_compound(&output.body[1]);
+    let AstCompoundCommand::Repeat(repeat) = compound else {
+        panic!("expected top-level repeat command");
+    };
+    assert_eq!(repeat.count.render(source), "2");
+}
+
+#[test]
 fn test_parse_zsh_function_subshell_body_does_not_leak_short_repeat_prescan() {
     let source = "f() ( unsetopt short_repeat )\nrepeat 2 echo global\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
