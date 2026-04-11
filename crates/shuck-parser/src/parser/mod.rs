@@ -3463,6 +3463,19 @@ impl<'a> Parser<'a> {
         None
     }
 
+    fn zsh_simple_modifier_suffix_segment(segment: &str) -> bool {
+        let mut chars = segment.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+
+        match first {
+            'a' | 'A' | 'c' | 'e' | 'l' | 'P' | 'q' | 'Q' | 'r' | 'u' => chars.next().is_none(),
+            'h' | 't' => chars.all(|ch| ch.is_ascii_digit()),
+            _ => false,
+        }
+    }
+
     fn zsh_modifier_suffix_candidate(rest: &str) -> bool {
         if rest.is_empty() {
             return false;
@@ -3478,11 +3491,8 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        rest.split(':').all(|segment| {
-            !segment.is_empty()
-                && segment.len() <= 2
-                && segment.chars().all(|ch| ch.is_ascii_alphabetic())
-        })
+        rest.split(':')
+            .all(Self::zsh_simple_modifier_suffix_segment)
     }
 
     fn zsh_slice_candidate(rest: &str) -> bool {

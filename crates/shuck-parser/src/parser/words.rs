@@ -2022,15 +2022,49 @@ impl<'a> Parser<'a> {
         &self,
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
     ) -> bool {
-        self.dialect.features().zsh_parameter_modifiers
-            && chars.peek().copied() == Some(':')
-            && Self::zsh_modifier_suffix_candidate(
-                chars
-                    .clone()
-                    .skip(1)
-                    .collect::<String>()
-                    .trim_end_matches('}'),
-            )
+        if !self.dialect.features().zsh_parameter_modifiers || chars.peek().copied() != Some(':') {
+            return false;
+        }
+
+        let mut lookahead = chars.clone();
+        lookahead.next();
+        Self::zsh_modifier_suffix_candidate_chars(&mut lookahead)
+    }
+
+    fn zsh_modifier_suffix_candidate_chars(
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    ) -> bool {
+        let mut saw_segment = false;
+
+        loop {
+            let Some(first) = chars.next() else {
+                return saw_segment;
+            };
+
+            if first == '}' {
+                return saw_segment;
+            }
+
+            match first {
+                'a' | 'A' | 'c' | 'e' | 'l' | 'P' | 'q' | 'Q' | 'r' | 'u' => {}
+                'h' | 't' => {
+                    while matches!(chars.peek(), Some(ch) if ch.is_ascii_digit()) {
+                        chars.next();
+                    }
+                }
+                _ => return false,
+            }
+
+            saw_segment = true;
+
+            match chars.peek().copied() {
+                Some(':') => {
+                    chars.next();
+                }
+                Some('}') | None => return true,
+                _ => return false,
+            }
+        }
     }
 
     fn prefixed_parameter_raw_body(

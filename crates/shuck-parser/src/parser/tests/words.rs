@@ -3846,6 +3846,41 @@ fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offs
 }
 
 #[test]
+fn test_zsh_parameter_colon_modifiers_with_digits_preserve_targets() {
+    let source = "print ${path:A:h3} ${path:t2}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(first) = &first.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &first.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "path");
+    assert!(matches!(
+        first.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":A:h3"
+    ));
+
+    let second = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(second) = &second.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &second.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "path");
+    assert!(matches!(
+        second.operation,
+        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t2"
+    ));
+}
+
+#[test]
 fn test_parse_zsh_array_assignment_with_word_target_and_glob_qualifier() {
     let source = "dirs=( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -3975,6 +4010,81 @@ fn test_parse_zsh_arithmetic_shell_word_preserves_nested_length_target() {
             ref pattern,
             replacement: Some(ref replacement),
         }) if pattern.slice(source) == "${~q}" && replacement.slice(source).is_empty()
+    ));
+}
+
+#[test]
+fn test_zsh_parameter_identifier_slices_preserve_legacy_slice_parts() {
+    let source = "print ${foo:i} ${foo:i:j}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let (first_reference, first_offset_ast, first_length_ast) =
+        expect_substring_part(&command.args[0].parts[0].kind);
+    assert_eq!(first_reference.name.as_str(), "foo");
+    assert_eq!(
+        first_offset_ast
+            .as_ref()
+            .expect("expected first offset AST")
+            .span
+            .slice(source),
+        "i"
+    );
+    assert!(first_length_ast.is_none());
+
+    let (second_reference, second_offset_ast, second_length_ast) =
+        expect_substring_part(&command.args[1].parts[0].kind);
+    assert_eq!(second_reference.name.as_str(), "foo");
+    assert_eq!(
+        second_offset_ast
+            .as_ref()
+            .expect("expected second offset AST")
+            .span
+            .slice(source),
+        "i"
+    );
+    assert_eq!(
+        second_length_ast
+            .as_ref()
+            .expect("expected second length AST")
+            .span
+            .slice(source),
+        "j"
+    );
+}
+
+#[test]
+fn test_zsh_parameter_identifier_slices_stay_typed_in_zsh_parameter_nodes() {
+    let source = "print ${(m)foo:i:j}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let parameter = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        parameter
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['m']
+    );
+    let ZshExpansionTarget::Reference(reference) = &parameter.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "foo");
+    assert!(matches!(
+        parameter.operation,
+        Some(ZshExpansionOperation::Slice {
+            ref offset,
+            length: Some(ref length),
+        }) if offset.slice(source) == "i" && length.slice(source) == "j"
     ));
 }
 
