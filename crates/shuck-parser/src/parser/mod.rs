@@ -3272,6 +3272,30 @@ impl<'a> Parser<'a> {
         Self::is_valid_identifier(name).then(|| self.parse_loose_var_ref(trimmed))
     }
 
+    fn is_plain_special_parameter_name(name: &str) -> bool {
+        matches!(name, "#" | "$" | "!" | "*" | "@" | "?" | "-") || name == "0"
+    }
+
+    fn looks_like_plain_parameter_access(text: &str) -> bool {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        let name = if let Some(open) = trimmed.find('[') {
+            if !trimmed.ends_with(']') {
+                return false;
+            }
+            &trimmed[..open]
+        } else {
+            trimmed
+        };
+
+        Self::is_valid_identifier(name)
+            || name.bytes().all(|byte| byte.is_ascii_digit())
+            || Self::is_plain_special_parameter_name(name)
+    }
+
     fn parse_nested_parameter_target(&mut self, text: &str) -> ZshExpansionTarget {
         if !(text.starts_with("${") && text.ends_with('}')) {
             return self.parse_zsh_target_from_text(text, Position::new(), false);
@@ -3279,7 +3303,12 @@ impl<'a> Parser<'a> {
 
         let raw_body = SourceText::from(text[2..text.len() - 1].to_string());
         let raw_body_text = raw_body.slice(self.input);
-        let syntax = if raw_body_text.starts_with('(')
+        let has_operation = self.find_zsh_operation_start(raw_body_text).is_some();
+        let syntax = if Self::looks_like_plain_parameter_access(raw_body_text) && !has_operation {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                reference: self.parse_loose_var_ref(raw_body_text),
+            })
+        } else if raw_body_text.starts_with('(')
             || raw_body_text.starts_with(':')
             || raw_body_text.starts_with('^')
             || raw_body_text.starts_with('~')
@@ -3288,7 +3317,7 @@ impl<'a> Parser<'a> {
             || raw_body_text.starts_with('"')
             || raw_body_text.starts_with('\'')
             || raw_body_text.starts_with('$')
-            || self.find_zsh_operation_start(raw_body_text).is_some()
+            || has_operation
         {
             ParameterExpansionSyntax::Zsh(
                 self.parse_zsh_parameter_syntax(&raw_body, Position::new()),

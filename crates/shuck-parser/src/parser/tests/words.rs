@@ -4174,8 +4174,8 @@ fn test_zsh_nested_parameter_modifier_records_nested_target_and_pattern_operatio
 }
 
 #[test]
-fn test_zsh_nested_positional_targets_preserve_bourne_refs_without_modifier_regression() {
-    let source = "print ${${10}} ${#${10}} ${${1:t}}\n";
+fn test_zsh_nested_plain_access_targets_preserve_bourne_refs_without_modifier_regression() {
+    let source = "print ${${10}} ${#${10}} ${${#}} ${${$}} ${${1:t}}\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
         .parse()
         .unwrap();
@@ -4214,7 +4214,33 @@ fn test_zsh_nested_positional_targets_preserve_bourne_refs_without_modifier_regr
             if reference.name.as_str() == "10"
     ));
 
-    let modifier = expect_parameter(&command.args[2]);
+    let count = expect_parameter(&command.args[2]);
+    let ParameterExpansionSyntax::Zsh(count) = &count.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &count.target else {
+        panic!("expected nested count target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "#"
+    ));
+
+    let pid = expect_parameter(&command.args[3]);
+    let ParameterExpansionSyntax::Zsh(pid) = &pid.syntax else {
+        panic!("expected outer zsh syntax");
+    };
+    let ZshExpansionTarget::Nested(inner) = &pid.target else {
+        panic!("expected nested pid target");
+    };
+    assert!(matches!(
+        &inner.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "$"
+    ));
+
+    let modifier = expect_parameter(&command.args[4]);
     let ParameterExpansionSyntax::Zsh(modifier) = &modifier.syntax else {
         panic!("expected outer zsh syntax");
     };
