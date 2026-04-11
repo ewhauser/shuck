@@ -765,6 +765,7 @@ pub enum SubstitutionHostKind {
 pub struct SubstitutionFact {
     span: Span,
     kind: CommandSubstitutionKind,
+    command_syntax: Option<CommandSubstitutionSyntax>,
     stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
     body_contains_ls: bool,
@@ -783,6 +784,14 @@ impl SubstitutionFact {
 
     pub fn kind(&self) -> CommandSubstitutionKind {
         self.kind
+    }
+
+    pub fn command_syntax(&self) -> Option<CommandSubstitutionSyntax> {
+        self.command_syntax
+    }
+
+    pub fn uses_backtick_syntax(&self) -> bool {
+        self.command_syntax == Some(CommandSubstitutionSyntax::Backtick)
     }
 
     pub fn stdout_intent(&self) -> SubstitutionOutputIntent {
@@ -8790,7 +8799,7 @@ fn compound_span(command: &CompoundCommand) -> Span {
 mod tests {
     use std::path::Path;
 
-    use shuck_ast::{BinaryOp, ConditionalBinaryOp};
+    use shuck_ast::{BinaryOp, CommandSubstitutionSyntax, ConditionalBinaryOp};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
     use shuck_semantic::SemanticModel;
@@ -9962,6 +9971,41 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
                 true,
                 false,
             )));
+        });
+    }
+
+    #[test]
+    fn tracks_backtick_syntax_in_substitution_facts() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' `date` $(uname) <(cat /etc/hosts)
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.command_syntax(),
+                        fact.uses_backtick_syntax(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert!(substitutions.contains(&(
+                "`date`".to_owned(),
+                Some(CommandSubstitutionSyntax::Backtick),
+                true,
+            )));
+            assert!(substitutions.contains(&(
+                "$(uname)".to_owned(),
+                Some(CommandSubstitutionSyntax::DollarParen),
+                false,
+            )));
+            assert!(substitutions.contains(&("<(cat /etc/hosts)".to_owned(), None, false,)));
         });
     }
 

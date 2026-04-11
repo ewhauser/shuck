@@ -462,6 +462,7 @@ declare_rules! {
     ("S057", Category::Style, Severity::Warning, FunctionInAlias),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
+    ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
     ("S047", Category::Style, Severity::Warning, LsInSubstitution),
@@ -702,6 +703,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-063" => Some(Rule::QuotedDollarStarLoop),
         "SH-067" => Some(Rule::UnquotedArraySplit),
         "SH-068" => Some(Rule::CommandOutputArraySplit),
+        "SH-294" => Some(Rule::BacktickOutputToCommand),
         "SH-077" => Some(Rule::PositionalArgsInString),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -799,6 +801,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-067"), Some(Rule::UnquotedArraySplit));
         assert_eq!(code_to_rule("S018"), Some(Rule::CommandOutputArraySplit));
         assert_eq!(code_to_rule("SH-068"), Some(Rule::CommandOutputArraySplit));
+        assert_eq!(code_to_rule("S067"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("SH-294"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(code_to_rule("S021"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("SH-077"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));

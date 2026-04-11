@@ -73,6 +73,16 @@ pub fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &
         .collect()
 }
 
+pub fn unescaped_backtick_command_substitution_span(span: Span, source: &str) -> Option<Span> {
+    let normalized = normalize_command_substitution_span(span, source);
+    let text = normalized.slice(source);
+    if !text.starts_with('`') || !text.ends_with('`') || span_is_escaped(normalized, source) {
+        return None;
+    }
+
+    Some(normalized)
+}
+
 pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_array_expansion_spans(&word.parts, false, false, &mut spans);
@@ -1993,12 +2003,16 @@ fn positional_at_splat_is_standalone(word: &Word, _splat: Span, source: &str) ->
     matches!(body.as_bytes().get(3), Some(b'}' | b':'))
 }
 
-fn span_is_escaped(span: Span, source: &str) -> bool {
+fn span_is_backslash_escaped(span: Span, source: &str) -> bool {
     if span.start.offset == 0 {
         return false;
     }
 
     source.as_bytes()[span.start.offset - 1] == b'\\'
+}
+
+fn span_is_escaped(span: Span, source: &str) -> bool {
+    span_is_backslash_escaped(span, source)
 }
 
 #[cfg(test)]

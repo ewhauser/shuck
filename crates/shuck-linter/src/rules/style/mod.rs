@@ -3,6 +3,7 @@ pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
+pub mod backtick_output_to_command;
 pub mod bare_read;
 pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
@@ -78,6 +79,7 @@ mod tests {
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
+    #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]

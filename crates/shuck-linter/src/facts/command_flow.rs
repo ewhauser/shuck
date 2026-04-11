@@ -98,6 +98,7 @@ fn collect_or_update_word_substitution_facts<'a>(
         substitutions.push(SubstitutionFact {
             span: occurrence.span,
             kind: occurrence.kind,
+            command_syntax: occurrence.command_syntax,
             stdout_intent: body_facts.stdout_intent,
             has_stdout_redirect: body_facts.has_stdout_redirect,
             body_contains_ls: body_facts.body_contains_ls,
@@ -116,6 +117,7 @@ struct SubstitutionOccurrence<'a> {
     body: &'a StmtSeq,
     span: Span,
     kind: CommandSubstitutionKind,
+    command_syntax: Option<CommandSubstitutionSyntax>,
     unquoted_in_host: bool,
 }
 
@@ -132,11 +134,12 @@ fn collect_word_substitution_occurrences<'a>(
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 visit_arithmetic_words_in_expression(expression_ast.as_ref(), quoted, occurrences);
             }
-            WordPart::CommandSubstitution { body, .. } => {
+            WordPart::CommandSubstitution { body, syntax } => {
                 occurrences.push(SubstitutionOccurrence {
                     body,
                     span: part.span,
                     kind: CommandSubstitutionKind::Command,
+                    command_syntax: Some(*syntax),
                     unquoted_in_host: !quoted,
                 });
             }
@@ -149,6 +152,7 @@ fn collect_word_substitution_occurrences<'a>(
                     } else {
                         CommandSubstitutionKind::ProcessOutput
                     },
+                    command_syntax: None,
                     unquoted_in_host: !quoted,
                 });
             }

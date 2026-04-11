@@ -292,6 +292,7 @@ impl Default for ShellCheckCodeMap {
             (2066, Rule::QuotedDollarStarLoop),
             (2206, Rule::UnquotedArraySplit),
             (2207, Rule::CommandOutputArraySplit),
+            (2366, Rule::BacktickOutputToCommand),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2086, Rule::UnquotedExpansion),
@@ -581,6 +582,7 @@ impl Default for ShellCheckCodeMap {
                     (2066, Rule::QuotedDollarStarLoop),
                     (2206, Rule::UnquotedArraySplit),
                     (2207, Rule::CommandOutputArraySplit),
+                    (2366, Rule::BacktickOutputToCommand),
                     (2068, Rule::UnquotedArrayExpansion),
                     (2076, Rule::QuotedBashRegex),
                     (2086, Rule::UnquotedExpansion),
@@ -853,6 +855,7 @@ mod tests {
         assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(map.resolve("SC2206"), Some(Rule::UnquotedArraySplit));
         assert_eq!(map.resolve("SC2207"), Some(Rule::CommandOutputArraySplit));
+        assert_eq!(map.resolve("SC2366"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(map.resolve_all("SC2198"), vec![Rule::AtSignInStringCompare]);
         assert_eq!(map.resolve_all("SC2199"), vec![Rule::ArraySliceInComparison]);
         assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
@@ -904,6 +907,10 @@ mod tests {
         assert_eq!(
             map.resolve_all("SC2207"),
             vec![Rule::CommandOutputArraySplit]
+        );
+        assert_eq!(
+            map.resolve_all("SC2366"),
+            vec![Rule::BacktickOutputToCommand]
         );
         assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
         assert_eq!(
@@ -1116,6 +1123,7 @@ mod tests {
         assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(map.resolve("SC2206"), Some(Rule::UnquotedArraySplit));
         assert_eq!(map.resolve("SC2207"), Some(Rule::CommandOutputArraySplit));
+        assert_eq!(map.resolve("SC2366"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(map.resolve("SC2068"), Some(Rule::UnquotedArrayExpansion));
         assert_eq!(map.resolve("SC2076"), Some(Rule::QuotedBashRegex));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
@@ -1431,6 +1439,7 @@ mod tests {
             (2066, Rule::QuotedDollarStarLoop),
             (2206, Rule::UnquotedArraySplit),
             (2207, Rule::CommandOutputArraySplit),
+            (2366, Rule::BacktickOutputToCommand),
             (2068, Rule::UnquotedArrayExpansion),
             (2076, Rule::QuotedBashRegex),
             (2078, Rule::TruthyLiteralTest),
@@ -1727,6 +1736,7 @@ mod tests {
         assert!(comparison.contains(&(2066, Rule::QuotedDollarStarLoop)));
         assert!(comparison.contains(&(2206, Rule::UnquotedArraySplit)));
         assert!(comparison.contains(&(2207, Rule::CommandOutputArraySplit)));
+        assert!(comparison.contains(&(2366, Rule::BacktickOutputToCommand)));
         assert!(comparison.contains(&(2048, Rule::UnquotedDollarStar)));
         assert!(comparison.contains(&(2127, Rule::BashCaseFallthrough)));
         assert!(comparison.contains(&(2146, Rule::FindOrWithoutGrouping)));
