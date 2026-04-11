@@ -90,6 +90,7 @@ pub mod undefined_variable;
 pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unquoted_globs_in_find;
+pub mod unquoted_grep_regex;
 pub mod unreachable_after_exit;
 pub mod unset_associative_array_element;
 pub mod until_missing_do;
@@ -168,6 +169,7 @@ mod tests {
     #[test_case(Rule::GlobInGrepPattern, Path::new("C080.sh"))]
     #[test_case(Rule::GlobInStringComparison, Path::new("C081.sh"))]
     #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
+    #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]

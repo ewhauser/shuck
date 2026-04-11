@@ -1,38 +1,50 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C080 quote grep patterns so the shell does not expand them first
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
  --> <source>:2:6
   |
 2 | grep start* out.txt
   |
 
-C080 quote grep patterns so the shell does not expand them first
- --> <source>:3:9
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:3:6
   |
-3 | grep -e item? out.txt
-  |
-
-C080 quote grep patterns so the shell does not expand them first
- --> <source>:4:15
-  |
-4 | grep --regexp item,[0-4] out.txt
+3 | grep "start*" out.txt
   |
 
-C080 quote grep patterns so the shell does not expand them first
- --> <source>:5:10
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:4:6
   |
-5 | grep -Eq item,[0-4] out.txt
-  |
-
-C080 quote grep patterns so the shell does not expand them first
- --> <source>:6:10
-  |
-6 | grep -eo item* out.txt
+4 | grep 'foo*bar' out.txt
   |
 
-C080 quote grep patterns so the shell does not expand them first
- --> <source>:7:12
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:5:6
   |
-7 | grep -F -- item,[0-4] out.txt
+5 | grep foo*bar out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:6:15
+  |
+6 | grep --regexp start* out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:7:6
+  |
+7 | grep "foo*bar" out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:8:6
+  |
+8 | grep item\* out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:9:9
+  |
+9 | grep -E "foo*bar" out.txt
   |

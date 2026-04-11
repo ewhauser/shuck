@@ -1329,6 +1329,7 @@ impl WaitCommandFacts {
 #[derive(Debug, Clone)]
 pub struct GrepCommandFacts<'a> {
     pub uses_only_matching: bool,
+    pub uses_fixed_strings: bool,
     pattern_words: Box<[&'a Word]>,
 }
 
@@ -7019,6 +7020,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
     let mut uses_only_matching = false;
+    let mut uses_fixed_strings = false;
     let mut explicit_pattern_source = false;
     let mut pattern_words = Vec::new();
 
@@ -7058,6 +7060,21 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text == "--only-matching" {
             uses_only_matching = true;
+            index += 1;
+            continue;
+        }
+
+        if text == "--fixed-strings" {
+            uses_fixed_strings = true;
+            index += 1;
+            continue;
+        }
+
+        if matches!(
+            text.as_str(),
+            "--basic-regexp" | "--extended-regexp" | "--perl-regexp"
+        ) {
+            uses_fixed_strings = false;
             index += 1;
             continue;
         }
@@ -7120,6 +7137,14 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                 uses_only_matching = true;
             }
 
+            if flag == 'F' {
+                uses_fixed_strings = true;
+            }
+
+            if matches!(flag, 'E' | 'G' | 'P') {
+                uses_fixed_strings = false;
+            }
+
             if flag == 'e' {
                 if chars.peek().is_none() {
                     explicit_pattern_source = true;
@@ -7156,6 +7181,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
     Some(GrepCommandFacts {
         uses_only_matching,
+        uses_fixed_strings,
         pattern_words: pattern_words.into_boxed_slice(),
     })
 }
@@ -9076,6 +9102,7 @@ complex[$((i+=1))]+=x
             .and_then(|fact| fact.options().grep())
             .expect("expected grep facts");
         assert!(grep.uses_only_matching);
+        assert!(!grep.uses_fixed_strings);
         assert_eq!(
             grep.pattern_words()
                 .iter()
@@ -9198,6 +9225,8 @@ grep --regexp item? data.txt
 grep -eo item* data.txt
 grep -F -- item* data.txt
 grep -f patterns.txt item* data.txt
+grep -F -E foo*bar data.txt
+grep -E -F foo*bar data.txt
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -9211,23 +9240,28 @@ grep -f patterns.txt item* data.txt
             .filter(|fact| fact.effective_name_is("grep"))
             .filter_map(|fact| fact.options().grep())
             .map(|grep| {
-                grep.pattern_words()
-                    .iter()
-                    .map(|word| word.span.slice(source))
-                    .collect::<Vec<_>>()
+                (
+                    grep.pattern_words()
+                        .iter()
+                        .map(|word| word.span.slice(source))
+                        .collect::<Vec<_>>(),
+                    grep.uses_fixed_strings,
+                )
             })
             .collect::<Vec<_>>();
 
         assert_eq!(
             grep_patterns,
             vec![
-                vec!["item,[0-4]"],
-                vec!["item*"],
-                Vec::new(),
-                vec!["item?"],
-                vec!["item*"],
-                vec!["item*"],
-                Vec::new(),
+                (vec!["item,[0-4]"], false),
+                (vec!["item*"], false),
+                (Vec::new(), false),
+                (vec!["item?"], false),
+                (vec!["item*"], false),
+                (vec!["item*"], true),
+                (Vec::new(), false),
+                (vec!["foo*bar"], false),
+                (vec!["foo*bar"], true),
             ]
         );
     }

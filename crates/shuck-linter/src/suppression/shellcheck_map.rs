@@ -207,9 +207,12 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2295 as a suppression alias for authored C078 metadata.
             (2014, Rule::UnquotedGlobsInFind),
             (2296, Rule::ShortCircuitFallthrough),
-            // ShellCheck 0.11.0 reports unquoted grep-pattern glob expansion as SC2062.
+            // ShellCheck 0.11.0 reports grep-pattern glob/regex confusion as SC2022.
             // Keep SC2299 as a suppression alias for authored C080 metadata.
-            (2062, Rule::GlobInGrepPattern),
+            (2022, Rule::GlobInGrepPattern),
+            // ShellCheck 0.11.0 reports unquoted grep regex shell expansion as SC2062.
+            // Keep SC2305 as a suppression alias for authored C084 metadata.
+            (2062, Rule::UnquotedGrepRegex),
             // ShellCheck 0.11.0 reports unquoted variable-backed `[[ ... == ... ]]` patterns as SC2053.
             // Keep SC2301 as a suppression alias for authored C081 metadata.
             (2053, Rule::GlobInStringComparison),
@@ -509,7 +512,8 @@ impl Default for ShellCheckCodeMap {
                     (2015, Rule::ChainedTestBranches),
                     (2014, Rule::UnquotedGlobsInFind),
                     (2296, Rule::ShortCircuitFallthrough),
-                    (2062, Rule::GlobInGrepPattern),
+                    (2022, Rule::GlobInGrepPattern),
+                    (2062, Rule::UnquotedGrepRegex),
                     (2053, Rule::GlobInStringComparison),
                     (2061, Rule::GlobInFindSubstitution),
                     (1019, Rule::EmptyTest),
@@ -702,6 +706,7 @@ impl Default for ShellCheckCodeMap {
                 (2299, Rule::GlobInGrepPattern),
                 (2301, Rule::GlobInStringComparison),
                 (2304, Rule::GlobInFindSubstitution),
+                (2305, Rule::UnquotedGrepRegex),
                 (2060, Rule::UnquotedTrRange),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
@@ -916,8 +921,10 @@ mod tests {
         assert_eq!(map.resolve("SC2015"), Some(Rule::ChainedTestBranches));
         assert_eq!(map.resolve("SC2014"), Some(Rule::UnquotedGlobsInFind));
         assert_eq!(map.resolve("SC2295"), Some(Rule::UnquotedGlobsInFind));
-        assert_eq!(map.resolve("SC2062"), Some(Rule::GlobInGrepPattern));
+        assert_eq!(map.resolve("SC2022"), Some(Rule::GlobInGrepPattern));
         assert_eq!(map.resolve("SC2299"), Some(Rule::GlobInGrepPattern));
+        assert_eq!(map.resolve("SC2062"), Some(Rule::UnquotedGrepRegex));
+        assert_eq!(map.resolve("SC2305"), Some(Rule::UnquotedGrepRegex));
         assert_eq!(map.resolve("SC2053"), Some(Rule::GlobInStringComparison));
         assert_eq!(map.resolve("SC2301"), Some(Rule::GlobInStringComparison));
         assert_eq!(map.resolve("SC2061"), Some(Rule::GlobInFindSubstitution));
@@ -929,8 +936,10 @@ mod tests {
             vec![Rule::ChainedTestBranches, Rule::ShortCircuitFallthrough]
         );
         assert_eq!(map.resolve("SC2296"), Some(Rule::ShortCircuitFallthrough));
-        assert_eq!(map.resolve_all("SC2062"), vec![Rule::GlobInGrepPattern]);
+        assert_eq!(map.resolve_all("SC2022"), vec![Rule::GlobInGrepPattern]);
         assert_eq!(map.resolve_all("SC2299"), vec![Rule::GlobInGrepPattern]);
+        assert_eq!(map.resolve_all("SC2062"), vec![Rule::UnquotedGrepRegex]);
+        assert_eq!(map.resolve_all("SC2305"), vec![Rule::UnquotedGrepRegex]);
         assert_eq!(
             map.resolve_all("SC2053"),
             vec![Rule::GlobInStringComparison]
@@ -1293,7 +1302,8 @@ mod tests {
             (2296, Rule::ShortCircuitFallthrough),
             (2016, Rule::SingleQuotedLiteral),
             (2014, Rule::UnquotedGlobsInFind),
-            (2062, Rule::GlobInGrepPattern),
+            (2022, Rule::GlobInGrepPattern),
+            (2062, Rule::UnquotedGrepRegex),
             (2053, Rule::GlobInStringComparison),
             (2061, Rule::GlobInFindSubstitution),
             (2024, Rule::SudoRedirectionOrder),
@@ -1365,6 +1375,7 @@ mod tests {
             (2299, Rule::GlobInGrepPattern),
             (2301, Rule::GlobInStringComparison),
             (2304, Rule::GlobInFindSubstitution),
+            (2305, Rule::UnquotedGrepRegex),
             (2292, Rule::DollarInArithmetic),
             (2297, Rule::DollarInArithmeticContext),
             (2259, Rule::SubshellTestGroup),
@@ -1556,7 +1567,8 @@ mod tests {
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
         assert!(comparison.contains(&(2014, Rule::UnquotedGlobsInFind)));
-        assert!(comparison.contains(&(2062, Rule::GlobInGrepPattern)));
+        assert!(comparison.contains(&(2022, Rule::GlobInGrepPattern)));
+        assert!(comparison.contains(&(2062, Rule::UnquotedGrepRegex)));
         assert!(comparison.contains(&(2053, Rule::GlobInStringComparison)));
         assert!(comparison.contains(&(2061, Rule::GlobInFindSubstitution)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
@@ -1566,6 +1578,7 @@ mod tests {
         assert!(!comparison.contains(&(2299, Rule::GlobInGrepPattern)));
         assert!(!comparison.contains(&(2301, Rule::GlobInStringComparison)));
         assert!(!comparison.contains(&(2304, Rule::GlobInFindSubstitution)));
+        assert!(!comparison.contains(&(2305, Rule::UnquotedGrepRegex)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
