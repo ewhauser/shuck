@@ -3881,6 +3881,43 @@ fn test_zsh_parameter_colon_modifiers_with_digits_preserve_targets() {
 }
 
 #[test]
+fn test_zsh_plain_positional_parameters_preserve_bourne_references() {
+    let source = "print ${1} ${10} ${#1} ${#10}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    assert!(matches!(
+        &first.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "1"
+    ));
+
+    let second = expect_parameter(&command.args[1]);
+    assert!(matches!(
+        &second.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.name.as_str() == "10"
+    ));
+
+    let third = expect_parameter(&command.args[2]);
+    assert!(matches!(
+        &third.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "1"
+    ));
+
+    let fourth = expect_parameter(&command.args[3]);
+    assert!(matches!(
+        &fourth.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "10"
+    ));
+}
+
+#[test]
 fn test_parse_zsh_array_assignment_with_word_target_and_glob_qualifier() {
     let source = "dirs=( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)

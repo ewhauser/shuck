@@ -2008,7 +2008,7 @@ impl<'a> Parser<'a> {
 
         match chars.peek().copied() {
             Some('"') | Some('\'') => true,
-            Some(ch) if ch.is_ascii_digit() => true,
+            Some(ch) if ch.is_ascii_digit() => self.zsh_numeric_parameter_requires_fallback(chars),
             Some('$') => {
                 let mut lookahead = chars.clone();
                 lookahead.next();
@@ -2016,6 +2016,23 @@ impl<'a> Parser<'a> {
             }
             _ => false,
         }
+    }
+
+    fn zsh_numeric_parameter_requires_fallback(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    ) -> bool {
+        let mut lookahead = chars.clone();
+        while matches!(lookahead.peek(), Some(ch) if ch.is_ascii_digit()) {
+            lookahead.next();
+        }
+
+        if lookahead.peek().copied() != Some(':') {
+            return false;
+        }
+
+        lookahead.next();
+        Self::zsh_modifier_suffix_candidate_chars(&mut lookahead)
     }
 
     fn zsh_parameter_suffix_looks_like_modifier(
