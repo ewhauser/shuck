@@ -45,3 +45,6 @@ website/app/lib/rules-data.generated.json
 .claude/settings.local.json
 .codex
 .cache
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/target/

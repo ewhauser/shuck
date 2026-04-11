@@ -1,9 +1,15 @@
-.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security release
+.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security release
 
 ARGS ?= --help
 BENCH_FILE ?=
 NIX_DEVELOP ?= nix --extra-experimental-features 'nix-command flakes' develop --command
 UV_PYTHON ?= uv run python
+FUZZ_SANITIZER_ARG ?= $(if $(filter Darwin,$(shell uname -s)),,-s none)
+FUZZ_SMOKE_ARGS ?= -runs=1
+FUZZ_TARGET ?= parser_fuzz
+FUZZ_ARGS ?= -max_total_time=60
+FUZZ_CLI_ARGS ?= --dialect sh --profile smoke --count 1 --seed 0
+FUZZ_CARGO_ENV ?= export PATH="$$HOME/.cargo/bin:$$PATH"; . "$$HOME/.cargo/env" >/dev/null 2>&1 || true;
 PROFILE_CASE ?= nvm
 PROFILE_FILE ?= crates/shuck-benchmark/resources/files/$(PROFILE_CASE).sh
 PROFILE_DIR ?= .cache/profiles
@@ -30,6 +36,29 @@ test:
 
 setup-large-corpus:
 	./scripts/corpus-download.sh
+
+fuzz-setup:
+	bash ./scripts/fuzz-init.sh
+
+fuzz-list:
+	bash ./scripts/fuzz-init.sh --ci
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo fuzz list'
+
+fuzz-smoke:
+	bash ./scripts/fuzz-init.sh --ci
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) parser_fuzz -- $(FUZZ_SMOKE_ARGS)'
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) recovered_parser_fuzz -- $(FUZZ_SMOKE_ARGS)'
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) formatter_consistency_fuzz -- $(FUZZ_SMOKE_ARGS)'
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) linter_no_panic_fuzz -- $(FUZZ_SMOKE_ARGS)'
+
+fuzz-run:
+	test -n "$(FUZZ_TARGET)"
+	bash ./scripts/fuzz-init.sh --ci
+	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) "$(FUZZ_TARGET)" -- $(FUZZ_ARGS)'
+
+fuzz-cli:
+	cargo build -p shuck
+	python3 ./scripts/fuzz_cli.py --shuck-bin ./target/debug/shuck $(FUZZ_CLI_ARGS)
 
 ensure-cache:
 	@if [ ! -e .cache ]; then \

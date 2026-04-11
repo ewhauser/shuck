@@ -591,14 +591,14 @@ Key test cases:
 
 ### Fuzz Testing
 
-Targets at `crates/shuck-parser/fuzz/fuzz_targets/`:
+Targets now live under the unified top-level fuzz package at `fuzz/fuzz_targets/`:
 - `parser_fuzz.rs` -- General robustness (never panics, handles all input)
 - `lexer_fuzz.rs` -- Lexer tokenization
 - `arithmetic_fuzz.rs` -- Arithmetic expression parsing
 - `glob_fuzz.rs` -- Glob pattern parsing
 
 ```bash
-cd crates/shuck-parser && cargo +nightly fuzz run parser_fuzz -- -max_total_time=300
+cd fuzz && cargo +nightly fuzz run parser_fuzz -- -max_total_time=300
 ```
 
 Verifies no panics on arbitrary input, no stack overflows (depth/fuel limits enforced), no infinite loops (timeouts catch hangs), and graceful error handling.

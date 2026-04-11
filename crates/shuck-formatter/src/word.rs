@@ -225,7 +225,13 @@ fn render_word_part(
             expression_ast,
             syntax,
         } => {
-            if let Some(expression_ast) = expression_ast {
+            if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
+                push_trimmed_arithmetic_expansion_source(
+                    rendered,
+                    expression.slice(source),
+                    *syntax,
+                );
+            } else if let Some(expression_ast) = expression_ast {
                 if !expression.is_source_backed() {
                     push_trimmed_arithmetic_expansion_source(
                         rendered,
