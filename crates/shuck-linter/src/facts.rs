@@ -1812,6 +1812,7 @@ pub struct LinterFacts<'a> {
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
+    condition_command_substitution_spans: Vec<Span>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2019,6 +2020,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn condition_status_capture_spans(&self) -> &[Span] {
         &self.condition_status_capture_spans
+    }
+
+    pub fn condition_command_substitution_spans(&self) -> &[Span] {
+        &self.condition_command_substitution_spans
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -2373,6 +2378,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_trailing_directive_comment_spans(self.source, self._indexer);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
+        let condition_command_substitution_spans =
+            build_condition_command_substitution_spans(&self.file.body, self.source);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
@@ -2464,6 +2471,7 @@ impl<'a> LinterFactsBuilder<'a> {
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
+            condition_command_substitution_spans,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -4375,6 +4383,106 @@ fn build_condition_status_capture_spans(commands: &StmtSeq, source: &str) -> Vec
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans
+}
+
+fn build_condition_command_substitution_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for visit in query::iter_commands(
+        commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    ) {
+        match visit.command {
+            Command::Compound(CompoundCommand::If(command)) => {
+                collect_condition_command_substitution_from_body(
+                    &command.condition,
+                    source,
+                    &mut spans,
+                );
+
+                for (condition, _) in &command.elif_branches {
+                    collect_condition_command_substitution_from_body(condition, source, &mut spans);
+                }
+            }
+            Command::Compound(CompoundCommand::While(command)) => {
+                collect_condition_command_substitution_from_body(
+                    &command.condition,
+                    source,
+                    &mut spans,
+                );
+            }
+            Command::Compound(CompoundCommand::Until(command)) => {
+                collect_condition_command_substitution_from_body(
+                    &command.condition,
+                    source,
+                    &mut spans,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn collect_condition_command_substitution_from_body(
+    condition: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(last_stmt) = condition.last() else {
+        return;
+    };
+
+    collect_terminal_command_substitution_spans_in_stmt(last_stmt, source, spans);
+}
+
+fn collect_terminal_command_substitution_spans_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_terminal_command_substitution_spans_in_command(&stmt.command, source, spans);
+}
+
+fn collect_terminal_command_substitution_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            if command_name_is_plain_command_substitution(&command.name, source) {
+                spans.push(command.name.span);
+            }
+        }
+        Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
+            collect_terminal_command_substitution_spans_in_stmt(&command.left, source, spans);
+            collect_terminal_command_substitution_spans_in_stmt(&command.right, source, spans);
+        }
+        Command::Compound(CompoundCommand::Time(command)) => {
+            if let Some(inner) = &command.command {
+                collect_terminal_command_substitution_spans_in_stmt(inner, source, spans);
+            }
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool {
+    let analysis = analyze_word(word, source);
+    analysis.substitution_shape == WordSubstitutionShape::Plain
+        && analysis.quote == WordQuote::Unquoted
 }
 
 fn collect_condition_status_capture_from_body(

@@ -1,0 +1,61 @@
+comparison_target_notes:
+  - current_shellcheck_code: "SC2315"
+    reason: "The pinned ShellCheck oracle surfaces this condition-command-substitution family under SC2091, so C092 compares against that active compatibility bucket."
+
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__common.sh"
+    line: 31
+    end_line: 31
+    column: 3
+    end_column: 18
+    reason: "This test helper executes `$()` in ordinary command position rather than inside an `if`, `while`, or `until` condition. The pinned oracle still buckets it under SC2091, but C092 intentionally stays limited to condition contexts."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__common.sh"
+    line: 38
+    end_line: 38
+    column: 5
+    end_column: 20
+    reason: "This negated helper call is still outside the condition forms C092 targets. The pinned oracle reports its broader SC2091 family here, while C092 remains condition-specific."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_supports_xz"
+    line: 23
+    end_line: 23
+    column: 1
+    end_column: 28
+    reason: "This test-harness assertion executes `$()` at top-level command position, not in an `if`, `while`, or `until` condition. C092 intentionally does not cover that broader SC2091 pattern."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_supports_xz"
+    line: 26
+    end_line: 26
+    column: 1
+    end_column: 29
+    reason: "This top-level short-circuit assertion uses `$()` as a command outside the condition constructs C092 targets. The pinned oracle's broader SC2091 family still reports it."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_supports_xz"
+    line: 40
+    end_line: 40
+    column: 1
+    end_column: 28
+    reason: "This shell test invokes `$()` directly in command position for harness control flow rather than in an `if`, `while`, or `until` condition. C092 deliberately leaves that broader misuse family out of scope."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__install_script__nvm_do_install"
+    line: 12
+    end_line: 12
+    column: 1
+    end_column: 57
+    reason: "This standalone harness probe runs `$()` in command position and then inspects `$?`; it is outside C092's condition-only scope even though the pinned oracle still reports its broader SC2091 warning here."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__setup-termux-glibc.sh"
+    line: 10
+    end_line: 10
+    column: 5
+    end_column: 44
+    reason: "This `if $(pacman-conf ...)` branch still treats command substitution output as the command name for the condition. Shuck keeps warning even though the pinned oracle stays silent on this project-closure fixture."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__chroot.sh"
+    line: 50
+    end_line: 50
+    column: 8
+    end_column: 68
+    reason: "This condition executes the stdout from `$(${XBPS_INSTALL_CMD} ...)` as a command, so the command-substitution misuse is still present. Shuck keeps the warning despite the pinned oracle's silence on this project-closure fixture."

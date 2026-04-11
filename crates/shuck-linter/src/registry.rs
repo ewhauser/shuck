@@ -202,6 +202,7 @@ declare_rules! {
         Severity::Warning,
         TildeInStringComparison
     ),
+    ("C092", Category::Correctness, Severity::Warning, IfDollarCommand),
     (
         "C095",
         Category::Correctness,
@@ -690,6 +691,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-216" => Some(Rule::QuotedCommandInTest),
         "SH-217" => Some(Rule::GlobInTestComparison),
         "SH-219" => Some(Rule::TildeInStringComparison),
+        "SH-220" => Some(Rule::IfDollarCommand),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),
