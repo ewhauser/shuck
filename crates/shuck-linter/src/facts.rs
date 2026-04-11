@@ -1330,12 +1330,32 @@ impl WaitCommandFacts {
 pub struct GrepCommandFacts<'a> {
     pub uses_only_matching: bool,
     pub uses_fixed_strings: bool,
-    pattern_words: Box<[&'a Word]>,
+    patterns: Box<[GrepPatternFact<'a>]>,
 }
 
 impl<'a> GrepCommandFacts<'a> {
-    pub fn pattern_words(&self) -> &[&'a Word] {
-        &self.pattern_words
+    pub fn patterns(&self) -> &[GrepPatternFact<'a>] {
+        &self.patterns
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GrepPatternFact<'a> {
+    word: &'a Word,
+    static_text: Option<Box<str>>,
+}
+
+impl<'a> GrepPatternFact<'a> {
+    pub fn word(&self) -> &'a Word {
+        self.word
+    }
+
+    pub fn span(&self) -> Span {
+        self.word.span
+    }
+
+    pub fn static_text(&self) -> Option<&str> {
+        self.static_text.as_deref()
     }
 }
 
@@ -7040,7 +7060,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
     let mut uses_only_matching = false;
     let mut uses_fixed_strings = false;
     let mut explicit_pattern_source = false;
-    let mut pattern_words = Vec::new();
+    let mut patterns = Vec::new();
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -7100,7 +7120,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         if text == "--regexp" {
             explicit_pattern_source = true;
             if let Some(pattern_word) = args.get(index + 1) {
-                pattern_words.push(*pattern_word);
+                patterns.push(grep_pattern_fact(pattern_word, source));
                 index += 2;
             } else {
                 index += 1;
@@ -7110,7 +7130,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text.starts_with("--regexp=") {
             explicit_pattern_source = true;
-            pattern_words.push(*word);
+            patterns.push(grep_prefixed_pattern_fact(word, source, "--regexp=".len()));
             index += 1;
             continue;
         }
@@ -7141,7 +7161,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         if text == "-e" {
             explicit_pattern_source = true;
             if let Some(pattern_word) = args.get(index + 1) {
-                pattern_words.push(*pattern_word);
+                patterns.push(grep_pattern_fact(pattern_word, source));
                 index += 2;
             } else {
                 index += 1;
@@ -7173,9 +7193,9 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
             if flag == 'e' {
                 explicit_pattern_source = true;
                 if chars.peek().is_some() {
-                    pattern_words.push(*word);
+                    patterns.push(grep_prefixed_pattern_fact(word, source, 2));
                 } else if let Some(pattern_word) = args.get(index + 1) {
-                    pattern_words.push(*pattern_word);
+                    patterns.push(grep_pattern_fact(pattern_word, source));
                     consume_next_argument = true;
                 }
                 break;
@@ -7199,14 +7219,30 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
     }
 
     if !explicit_pattern_source && let Some(pattern_word) = args.get(index) {
-        pattern_words.push(*pattern_word);
+        patterns.push(grep_pattern_fact(pattern_word, source));
     }
 
     Some(GrepCommandFacts {
         uses_only_matching,
         uses_fixed_strings,
-        pattern_words: pattern_words.into_boxed_slice(),
+        patterns: patterns.into_boxed_slice(),
     })
+}
+
+fn grep_pattern_fact<'a>(word: &'a Word, source: &str) -> GrepPatternFact<'a> {
+    grep_prefixed_pattern_fact(word, source, 0)
+}
+
+fn grep_prefixed_pattern_fact<'a>(
+    word: &'a Word,
+    source: &str,
+    prefix_len: usize,
+) -> GrepPatternFact<'a> {
+    let static_text = static_word_text(word, source)
+        .and_then(|text| text.get(prefix_len..).map(str::to_owned))
+        .map(String::into_boxed_str);
+
+    GrepPatternFact { word, static_text }
 }
 
 fn grep_option_takes_argument(flag: char) -> bool {
@@ -7226,6 +7262,7 @@ fn grep_long_option_takes_argument(option: &str) -> bool {
         "after-context"
             | "before-context"
             | "binary-files"
+            | "context"
             | "devices"
             | "directories"
             | "exclude"
@@ -9173,9 +9210,9 @@ complex[$((i+=1))]+=x
         assert!(grep.uses_only_matching);
         assert!(!grep.uses_fixed_strings);
         assert_eq!(
-            grep.pattern_words()
+            grep.patterns()
                 .iter()
-                .map(|word| word.span.slice(source))
+                .map(|pattern| pattern.span().slice(source))
                 .collect::<Vec<_>>(),
             vec!["content"]
         );
@@ -9302,6 +9339,9 @@ grep -E -F foo*bar data.txt
 grep --exclude '*.txt' foo* data.txt
 grep --label stdin foo* data.txt
 grep --color foo* data.txt
+grep --context 3 foo* data.txt
+grep --regexp='*start' data.txt
+grep -e'*start' data.txt
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -9316,9 +9356,9 @@ grep --color foo* data.txt
             .filter_map(|fact| fact.options().grep())
             .map(|grep| {
                 (
-                    grep.pattern_words()
+                    grep.patterns()
                         .iter()
-                        .map(|word| word.span.slice(source))
+                        .map(|pattern| (pattern.span().slice(source), pattern.static_text()))
                         .collect::<Vec<_>>(),
                     grep.uses_fixed_strings,
                 )
@@ -9328,21 +9368,24 @@ grep --color foo* data.txt
         assert_eq!(
             grep_patterns,
             vec![
-                (vec!["item,[0-4]"], false),
-                (vec!["item*"], false),
-                (vec!["-eitem*"], false),
-                (vec!["item*"], false),
-                (vec!["--regexp='a[b]c'"], false),
-                (vec!["item?"], false),
-                (vec!["--regexp=foo*"], false),
-                (vec!["-eo"], false),
-                (vec!["item*"], true),
+                (vec![("item,[0-4]", Some("item,[0-4]"))], false),
+                (vec![("item*", Some("item*"))], false),
+                (vec![("-eitem*", Some("item*"))], false),
+                (vec![("item*", Some("item*"))], false),
+                (vec![("--regexp='a[b]c'", Some("a[b]c"))], false),
+                (vec![("item?", Some("item?"))], false),
+                (vec![("--regexp=foo*", Some("foo*"))], false),
+                (vec![("-eo", Some("o"))], false),
+                (vec![("item*", Some("item*"))], true),
                 (Vec::new(), false),
-                (vec!["foo*bar"], false),
-                (vec!["foo*bar"], true),
-                (vec!["foo*"], false),
-                (vec!["foo*"], false),
-                (vec!["foo*"], false),
+                (vec![("foo*bar", Some("foo*bar"))], false),
+                (vec![("foo*bar", Some("foo*bar"))], true),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("foo*", Some("foo*"))], false),
+                (vec![("--regexp='*start'", Some("*start"))], false),
+                (vec![("-e'*start'", Some("*start"))], false),
             ]
         );
     }

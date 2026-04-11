@@ -19,9 +19,11 @@ pub fn unquoted_grep_regex(checker: &mut Checker) {
         .iter()
         .filter(|fact| fact.effective_name_is("grep"))
         .filter_map(|fact| fact.options().grep())
-        .flat_map(|grep| grep.pattern_words().iter().copied())
-        .filter(|word| !word_unquoted_glob_pattern_spans(word, checker.source()).is_empty())
-        .map(|word| word.span)
+        .flat_map(|grep| grep.patterns().iter())
+        .filter(|pattern| {
+            !word_unquoted_glob_pattern_spans(pattern.word(), checker.source()).is_empty()
+        })
+        .map(|pattern| pattern.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || UnquotedGrepRegex);
@@ -43,6 +45,7 @@ grep -oe item* out.txt
 grep --regexp item,[0-4] out.txt
 grep -Eq item,[0-4] out.txt
 grep --regexp=foo*bar out.txt
+grep --context 3 foo*bar out.txt
 grep --exclude '*.txt' foo*bar out.txt
 grep --label stdin item? out.txt
 grep -F -- item,[0-4] out.txt
@@ -65,6 +68,7 @@ checksum=\"$(grep -Ehrow [0-9a-f]{40} ${template}|sort|uniq|tr '\\n' ' ')\"
                 "item,[0-4]",
                 "item,[0-4]",
                 "--regexp=foo*bar",
+                "foo*bar",
                 "foo*bar",
                 "item?",
                 "item,[0-4]",

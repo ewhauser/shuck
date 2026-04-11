@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation, static_word_text};
+use crate::{Checker, Rule, Violation};
 
 pub struct GlobInGrepPattern;
 
@@ -20,12 +20,13 @@ pub fn glob_in_grep_pattern(checker: &mut Checker) {
         .filter(|fact| fact.effective_name_is("grep"))
         .filter_map(|fact| fact.options().grep())
         .filter(|grep| !grep.uses_fixed_strings)
-        .flat_map(|grep| grep.pattern_words().iter().copied())
-        .filter(|word| {
-            static_word_text(word, checker.source())
-                .is_some_and(|pattern| has_glob_style_star_confusion(&pattern))
+        .flat_map(|grep| grep.patterns().iter())
+        .filter(|pattern| {
+            pattern
+                .static_text()
+                .is_some_and(has_glob_style_star_confusion)
         })
-        .map(|word| word.span)
+        .map(|pattern| pattern.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || GlobInGrepPattern);
@@ -117,6 +118,7 @@ grep -efoo* out.txt
 grep --regexp start* out.txt
 grep --regexp='start*' out.txt
 grep --regexp=foo*bar out.txt
+grep --context 3 foo*bar out.txt
 grep --exclude '*.txt' foo*bar out.txt
 grep --label stdin foo*bar out.txt
 grep \"foo*bar\" out.txt
@@ -141,6 +143,7 @@ grep -E \"foo*bar\" out.txt
                 "--regexp=foo*bar",
                 "foo*bar",
                 "foo*bar",
+                "foo*bar",
                 "\"foo*bar\"",
                 "item\\*",
                 "\"foo*bar\"",
@@ -158,6 +161,8 @@ grep \"[ab]*\" out.txt
 grep [ab]* out.txt
 grep '*start' out.txt
 grep '*start*' out.txt
+grep -e'*start' out.txt
+grep --regexp='*start' out.txt
 grep item\\\\* out.txt
 grep '^ *#' out.txt
 grep '\"name\": *\"$x\"' out.txt
