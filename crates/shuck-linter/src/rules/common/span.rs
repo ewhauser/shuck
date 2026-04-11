@@ -266,6 +266,40 @@ pub fn word_unquoted_assign_default_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+pub fn word_unquoted_word_between_single_quoted_segments_spans(
+    word: &Word,
+    source: &str,
+) -> Vec<Span> {
+    if word.parts.len() < 3 {
+        return Vec::new();
+    }
+
+    word.parts
+        .windows(3)
+        .filter_map(|window| {
+            let [left, middle, right] = window else {
+                return None;
+            };
+            if !is_non_dollar_single_quoted(left) || !is_non_dollar_single_quoted(right) {
+                return None;
+            }
+            if single_quoted_fragment_inner_text(left, source)
+                .is_some_and(|text| text.ends_with('\\'))
+                || single_quoted_fragment_inner_text(right, source)
+                    .is_some_and(|text| text.starts_with('\\'))
+            {
+                return None;
+            }
+
+            let WordPart::Literal(text) = &middle.kind else {
+                return None;
+            };
+            literal_contains_unquoted_word_chars(text.as_str(source, middle.span))
+                .then_some(middle.span)
+        })
+        .collect()
+}
+
 pub fn word_positional_at_splat_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_positional_at_splat_spans(&word.parts, &mut spans);
@@ -2066,6 +2100,30 @@ fn collect_unquoted_assign_default_spans(
     }
 }
 
+fn is_non_dollar_single_quoted(part: &WordPartNode) -> bool {
+    matches!(part.kind, WordPart::SingleQuoted { dollar: false, .. })
+}
+
+fn single_quoted_fragment_inner_text<'a>(part: &WordPartNode, source: &'a str) -> Option<&'a str> {
+    let WordPart::SingleQuoted { dollar: false, .. } = part.kind else {
+        return None;
+    };
+
+    part.span
+        .slice(source)
+        .strip_prefix('\'')
+        .and_then(|text| text.strip_suffix('\''))
+}
+
+fn literal_contains_unquoted_word_chars(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        && text.as_bytes().iter().any(u8::is_ascii_alphanumeric)
+}
+
 fn collect_positional_at_splat_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
@@ -2149,7 +2207,7 @@ mod tests {
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
         word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
-        word_unquoted_star_splat_spans,
+        word_unquoted_star_splat_spans, word_unquoted_word_between_single_quoted_segments_spans,
     };
 
     #[test]
@@ -2726,6 +2784,48 @@ printf '%s\\n' mode\\|verbose token\\{a,b\\} token\\}end \"mode\\|verbose\" 'tok
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec!["\\|", "\\{", "\\}", "\\}"]);
+    }
+
+    #[test]
+    fn word_unquoted_word_between_single_quoted_segments_spans_track_literal_middle_words() {
+        let source = "\
+printf '%s\\n' 'foo'Default'baz' 'foo'123'baz' 'foo'-'baz' 'foo''baz' 'foo'$bar'baz' $'foo'Default'baz'
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| word_unquoted_word_between_single_quoted_segments_spans(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["Default", "123"]);
+    }
+
+    #[test]
+    fn word_unquoted_word_between_single_quoted_segments_ignores_escaped_quote_bridges() {
+        let source = "\
+printf '%s\\n' 's/foo/'\\''bar'\\''/g' 'foo'Default'baz'
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| word_unquoted_word_between_single_quoted_segments_spans(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["Default"]);
     }
 
     #[test]

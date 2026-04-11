@@ -153,6 +153,9 @@ impl Default for ShellCheckCodeMap {
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            // ShellCheck 0.11.0 reports single-quoted split-word cases as SC2026.
+            // Keep SC2300 as a suppression alias for the authored S050 rule code.
+            (2026, Rule::UnquotedWordBetweenQuotes),
             (2291, Rule::UnquotedVariableInSed),
             (2117, Rule::SuWithoutFlag),
             // ShellCheck 0.11.0 reports tempfile deprecation warnings as SC2186.
@@ -532,6 +535,7 @@ impl Default for ShellCheckCodeMap {
                     (2128, Rule::QuotedBashSource),
                 (2294, Rule::LsInSubstitution),
                 (2291, Rule::UnquotedVariableInSed),
+                (2026, Rule::UnquotedWordBetweenQuotes),
                 (2060, Rule::UnquotedTrClass),
                 (2335, Rule::UnquotedPathInMkdir),
                 (2070, Rule::UnquotedVariableInTest),
@@ -739,6 +743,7 @@ impl Default for ShellCheckCodeMap {
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
                 (2307, Rule::UnquotedVariableInTest),
+                (2300, Rule::UnquotedWordBetweenQuotes),
                 (2346, Rule::DefaultValueInColonAssign),
                 (2319, Rule::AssignmentLooksLikeComparison),
                 (2329, Rule::IfsSetToLiteralBackslashN),
@@ -1425,6 +1430,7 @@ mod tests {
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            (2026, Rule::UnquotedWordBetweenQuotes),
             (2143, Rule::GrepOutputInTest),
             (2320, Rule::UnquotedPipeInEcho),
             (2291, Rule::UnquotedVariableInSed),
@@ -1442,6 +1448,7 @@ mod tests {
             (2303, Rule::UnquotedTrClass),
             (2335, Rule::UnquotedPathInMkdir),
             (2307, Rule::UnquotedVariableInTest),
+            (2300, Rule::UnquotedWordBetweenQuotes),
             (2346, Rule::DefaultValueInColonAssign),
             (2184, Rule::UnsetAssociativeArrayElement),
             (2178, Rule::ArrayToStringConversion),
@@ -1755,6 +1762,7 @@ mod tests {
         assert!(!comparison.contains(&(2349, Rule::GlobWithExpansionInLoop)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
+        assert!(comparison.contains(&(2026, Rule::UnquotedWordBetweenQuotes)));
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
         assert!(comparison.contains(&(2186, Rule::DeprecatedTempfileCommand)));
         assert!(comparison.contains(&(2196, Rule::EgrepDeprecated)));
@@ -1774,6 +1782,7 @@ mod tests {
         assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
         assert!(comparison.contains(&(2223, Rule::DefaultValueInColonAssign)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
+        assert!(!comparison.contains(&(2300, Rule::UnquotedWordBetweenQuotes)));
         assert!(!comparison.contains(&(2307, Rule::UnquotedVariableInTest)));
         assert!(!comparison.contains(&(2346, Rule::DefaultValueInColonAssign)));
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));

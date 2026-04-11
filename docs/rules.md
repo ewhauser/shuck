@@ -244,7 +244,7 @@ contexts. Use word facts and expansion word facts.
 - [x] **M** S017 (SC2206) `unquoted-array-split` — unquoted value split into array
 - [x] **M** S018 (SC2207) `command-output-array-split` — raw command output into array
 - [x] **M** S021 (SC2145) `positional-args-in-string` — positional params folded into string
-- [ ] **L** S050 (SC2300) `unquoted-word-between-quotes` — unquoted word between single-quoted segments
+- [x] **L** S050 (SC2300) `unquoted-word-between-quotes` — unquoted word between single-quoted segments
 - [x] **M** S052 (SC2307) `unquoted-variable-in-test` — unquoted variable in `[ -n ]`
 - [x] **M** S058 (SC2335) `unquoted-path-in-mkdir` — unquoted variable in mkdir
 - [x] **M** S062 (SC2346) `default-value-in-colon-assign` — unquoted default in colon-assign

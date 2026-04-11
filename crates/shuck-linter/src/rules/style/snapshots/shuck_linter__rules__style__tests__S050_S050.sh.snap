@@ -1,0 +1,26 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+---
+S050 an unquoted word appears between single-quoted segments
+ --> <source>:2:20
+  |
+2 | printf '%s\n' 'foo'Default'baz'
+  |
+
+S050 an unquoted word appears between single-quoted segments
+ --> <source>:3:21
+  |
+3 | sed -i 's/${title}/'Default'/g' "$file"
+  |
+
+S050 an unquoted word appears between single-quoted segments
+ --> <source>:4:6
+  |
+4 | x='a'b'c'
+  |
+
+S050 an unquoted word appears between single-quoted segments
+ --> <source>:5:9
+  |
+5 | arr=('a'123'c')
+  |

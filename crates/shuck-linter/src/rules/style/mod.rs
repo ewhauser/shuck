@@ -58,6 +58,7 @@ pub mod unquoted_tr_class;
 pub mod unquoted_tr_range;
 pub mod unquoted_variable_in_sed;
 pub mod unquoted_variable_in_test;
+pub mod unquoted_word_between_quotes;
 
 #[cfg(test)]
 mod tests {
@@ -98,6 +99,7 @@ mod tests {
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
+    #[test_case(Rule::UnquotedWordBetweenQuotes, Path::new("S050.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]
     #[test_case(Rule::UnquotedVariableInTest, Path::new("S052.sh"))]
     #[test_case(Rule::UnquotedPathInMkdir, Path::new("S058.sh"))]

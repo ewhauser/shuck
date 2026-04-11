@@ -56,12 +56,13 @@ pub use rules::common::span::{
     word_quoted_unindexed_bash_source_span_in_source, word_standalone_literal_backslash_span,
     word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
     word_unquoted_glob_pattern_spans, word_unquoted_star_parameter_spans,
-    word_unquoted_star_splat_spans, word_zsh_flag_modifier_spans,
-    word_zsh_nested_expansion_spans,
+    word_unquoted_star_splat_spans, word_unquoted_word_between_single_quoted_segments_spans,
+    word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
 };
 pub use rules::common::word::{
     TestOperandClass, conditional_binary_op_is_string_match, static_word_text,
     word_is_standalone_variable_like,
+};
 };
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;
