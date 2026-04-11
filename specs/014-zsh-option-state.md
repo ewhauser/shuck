@@ -60,7 +60,7 @@ The following zsh options are analysis-relevant. They are grouped by which syste
 | `CSH_NULL_GLOB` | off | Like `NULL_GLOB` but only requires one glob in a set to match. |
 | `EXTENDED_GLOB` | off | Enables `#`, `~`, `^` as glob operators. Changes the pattern language. |
 | `KSH_GLOB` | off | Enables `@(...)`, `*(...)`, `+(...)`, `?(...)`, `!(...)` glob operators. |
-| `SH_GLOB` | off | Disables special treatment of `(`, `## `, and `~` in glob patterns (POSIX compat). |
+| `SH_GLOB` | off | Disables special glob meaning of `(`, `|`, `)`, and `<` so that ksh-style extended globbing and zsh grouping/alternation/numeric ranges are not recognized. POSIX compatibility option. |
 | `BARE_GLOB_QUAL` | on | Trailing `(...)` on a glob is a qualifier, not a group. |
 | `GLOB_DOTS` | off | Globs match files starting with `.`. |
 
@@ -92,8 +92,8 @@ The following zsh options are analysis-relevant. They are grouped by which syste
 
 | Option | Default (zsh native) | Effect on analysis |
 |--------|---------------------|-------------------|
-| `SHORT_LOOPS` | on | Allows `for name in words; command` without `do`/`done`. **Grammar-affecting.** |
-| `SHORT_REPEAT` | on | Allows `repeat count; command` without `do`/`done`. **Grammar-affecting.** |
+| `SHORT_LOOPS` | on | Enables short forms for `for`, `select`, `if`, and `function` — allows a single command body without `do`/`done` or `then`/`fi`. For example: `for name in words; command`, `if [[ test ]] command`, `function name command`. **Grammar-affecting.** |
+| `SHORT_REPEAT` | on | Enables short form for `repeat`: `repeat count; command` without `do`/`done`. **Grammar-affecting.** |
 | `RC_QUOTES` | off | `''` inside single quotes is an escaped quote. **Grammar-affecting.** |
 | `INTERACTIVE_COMMENTS` | on (in scripts) | `#` starts a comment. On by default in scripts and non-interactive shells; off by default in interactive shells without `-k`. Since shuck only analyzes script files, the default is on. |
 | `C_BASES` | off | Arithmetic output uses `0x`/`0` prefixes. |
@@ -258,11 +258,13 @@ The scoping rules are:
 
 5. **`setopt`/`unsetopt` at file scope**: updates the file-scope state and affects all subsequent code.
 
-6. **Subshells** (`( ... )`, command substitutions `$(...)`, pipeline segments): inherit the option state at the point of creation. Changes inside the subshell do not propagate back.
+6. **Subshells** (`( ... )`, command substitutions `$(...)`): inherit the option state at the point of creation. Changes inside the subshell do not propagate back.
 
-7. **Function calls without `LOCAL_OPTIONS`**: at each call site, the builder must account for the callee's option side effects. When the callee's final option state is statically known (no conditional branches, single `setopt` sequence), those changes are applied to the caller's state after the call. When the callee's side effects are ambiguous (conditional option changes, dynamic dispatch), the affected options become `Unknown` in the caller after the call.
+7. **Pipelines**: in zsh, the **last** segment of a pipeline runs in the current shell (unlike Bash, where all segments are subshells by default). This means option writes in the rightmost pipeline command propagate to the caller. For example, `printf x | setopt SH_WORD_SPLIT` sets `SH_WORD_SPLIT` in the calling scope. The builder models the last pipeline segment as running in the current scope and all preceding segments as subshells. When `emulate sh` is active (which implies `SH_FILE_EXPANSION` and POSIX-like behavior), all pipeline segments run in subshells — the builder checks the effective emulation mode to determine pipeline semantics.
 
-6. **Conditional branches**: when `setopt`/`unsetopt` appears inside only one branch of an `if`/`case`, the state after the conditional is `Unknown` for affected options. This is the conservative merge — the analysis does not try to prove which branch was taken.
+8. **Function calls without `LOCAL_OPTIONS`**: at each call site, the builder must account for the callee's option side effects. When the callee's final option state is statically known (no conditional branches, single `setopt` sequence), those changes are applied to the caller's state after the call. When the callee's side effects are ambiguous (conditional option changes, dynamic dispatch), the affected options become `Unknown` in the caller after the call.
+
+9. **Conditional branches**: when `setopt`/`unsetopt` appears inside only one branch of an `if`/`case`, the state after the conditional is `Unknown` for affected options. This is the conservative merge — the analysis does not try to prove which branch was taken.
 
 The builder records option state snapshots at each scope entry and at each option-modifying command. The semantic model exposes these as queryable per-span state:
 
