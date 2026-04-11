@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
-use shuck_parser::ShellProfile;
 use shuck_ast::Name;
+use shuck_parser::ShellProfile;
 use std::path::{Path, PathBuf};
 
 use crate::SourcePathResolver;

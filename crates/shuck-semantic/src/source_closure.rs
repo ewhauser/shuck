@@ -1670,15 +1670,14 @@ fn summarize_helper_uncached(
     };
     let indexer = Indexer::new(&source, &output);
     let mut observer = crate::NoopTraversalObserver;
-    let mut semantic =
-        build_semantic_model_base(
-            &output.file,
-            &source,
-            &indexer,
-            &mut observer,
-            Some(path),
-            None,
-        );
+    let mut semantic = build_semantic_model_base(
+        &output.file,
+        &source,
+        &indexer,
+        &mut observer,
+        Some(path),
+        None,
+    );
     let collected = collect_source_closure_contracts_with_cache(
         &semantic,
         &output.file,

@@ -9,7 +9,7 @@ use shuck_ast::{
     ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::{parser::Parser, ShellProfile, ZshEmulationMode};
+use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
 
 use crate::binding::{Binding, BindingAttributes, BindingKind};
 use crate::call_graph::{CallGraph, CallSite, OverwrittenFunction};
@@ -2836,7 +2836,9 @@ fn recorded_simple_command_info(
 
     if static_callee.as_deref() == Some("noglob") {
         name_index = 1;
-        static_callee = words.get(name_index).and_then(|word| static_word_text(word, source));
+        static_callee = words
+            .get(name_index)
+            .and_then(|word| static_word_text(word, source));
     }
 
     let mut info = RecordedCommandInfo {
@@ -2891,7 +2893,9 @@ fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommand
             }
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
-                if let Some(option) = args.get(index + 1).and_then(|word| static_word_text(word, source))
+                if let Some(option) = args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
                     && let Some(update) = parse_recorded_zsh_option_update(&option, enable)
                 {
                     updates.push(update);
@@ -2937,10 +2941,7 @@ fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommand
 
     let mut effects = Vec::new();
     if let Some(mode) = mode {
-        effects.push(RecordedZshCommandEffect::Emulate {
-            mode,
-            local,
-        });
+        effects.push(RecordedZshCommandEffect::Emulate { mode, local });
     }
     if !updates.is_empty() {
         effects.push(RecordedZshCommandEffect::SetOptions { updates });
@@ -2973,7 +2974,9 @@ fn parse_set_builtin_option_updates(args: &[&Word], source: &str) -> Vec<Recorde
         match text.as_str() {
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
-                if let Some(name) = args.get(index + 1).and_then(|word| static_word_text(word, source))
+                if let Some(name) = args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
                     && let Some(update) = parse_recorded_zsh_option_update(&name, enable)
                 {
                     updates.push(update);
@@ -2994,10 +2997,7 @@ fn parse_set_builtin_option_updates(args: &[&Word], source: &str) -> Vec<Recorde
     updates
 }
 
-fn parse_recorded_zsh_option_update(
-    name: &str,
-    enable: bool,
-) -> Option<RecordedZshOptionUpdate> {
+fn parse_recorded_zsh_option_update(name: &str, enable: bool) -> Option<RecordedZshOptionUpdate> {
     let (normalized, inverted) = normalize_recorded_zsh_option_name(name)?;
     let enable = if inverted { !enable } else { enable };
 

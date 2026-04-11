@@ -949,11 +949,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn ignore_close_braces_enabled(&mut self) -> bool {
-        self.current_zsh_options()
-            .is_some_and(|options| {
-                options.ignore_braces.is_definitely_on()
-                    || options.ignore_close_braces.is_definitely_on()
-            })
+        self.current_zsh_options().is_some_and(|options| {
+            options.ignore_braces.is_definitely_on()
+                || options.ignore_close_braces.is_definitely_on()
+        })
     }
 
     fn should_treat_hash_as_word_char(&mut self) -> bool {

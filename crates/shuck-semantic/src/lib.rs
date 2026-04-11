@@ -1013,8 +1013,7 @@ pub(crate) fn build_semantic_model_base(
     source_path: Option<&Path>,
     shell_profile: Option<ShellProfile>,
 ) -> SemanticModel {
-    let shell_profile =
-        shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
+    let shell_profile = shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
     let built = SemanticModelBuilder::build(
         file,
         source,
@@ -1031,7 +1030,10 @@ fn infer_shell_profile(source: &str, path: Option<&Path>) -> ShellProfile {
     ShellProfile::native(dialect)
 }
 
-fn infer_parse_dialect_from_source(source: &str, path: Option<&Path>) -> shuck_parser::ShellDialect {
+fn infer_parse_dialect_from_source(
+    source: &str,
+    path: Option<&Path>,
+) -> shuck_parser::ShellDialect {
     if let Some(line) = source.lines().next().map(str::trim)
         && let Some(line) = line.strip_prefix("#!").map(str::trim)
     {
@@ -1252,7 +1254,9 @@ mod tests {
     }
 
     fn model_with_profile(source: &str, profile: ShellProfile) -> SemanticModel {
-        let output = Parser::with_profile(source, profile.clone()).parse().unwrap();
+        let output = Parser::with_profile(source, profile.clone())
+            .parse()
+            .unwrap();
         let indexer = Indexer::new(source, &output);
         SemanticModel::build_with_options(
             &output.file,
@@ -4781,5 +4785,21 @@ print $name
             .expect("expected zsh options");
 
         assert_eq!(options.sh_word_split, OptionValue::On);
+    }
+
+    #[test]
+    fn zsh_option_analysis_falls_back_to_ancestor_state_in_uncalled_function_bodies() {
+        let source = "\
+fn() {
+  print $name
+}
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected inherited zsh options");
+
+        assert_eq!(options.sh_word_split, OptionValue::Off);
+        assert_eq!(options.glob, OptionValue::On);
     }
 }

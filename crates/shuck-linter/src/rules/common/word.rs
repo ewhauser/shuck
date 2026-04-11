@@ -114,8 +114,7 @@ pub(crate) fn classify_contextual_operand(
         return TestOperandClass::RuntimeSensitive;
     }
 
-    if super::expansion::analyze_literal_runtime(word, source, context, None)
-        .is_runtime_sensitive()
+    if super::expansion::analyze_literal_runtime(word, source, context, None).is_runtime_sensitive()
     {
         TestOperandClass::RuntimeSensitive
     } else {

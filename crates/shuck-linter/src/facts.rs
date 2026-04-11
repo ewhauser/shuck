@@ -4887,8 +4887,13 @@ fn build_word_facts_for_command<'a>(
     nested_word_command: bool,
     normalized: &NormalizedCommand<'a>,
 ) -> CollectedWordFacts<'a> {
-    let mut collector =
-        WordFactCollector::new(source, semantic, command_id, nested_word_command, normalized);
+    let mut collector = WordFactCollector::new(
+        source,
+        semantic,
+        command_id,
+        nested_word_command,
+        normalized,
+    );
     collector.collect_command(visit.command, visit.redirects);
     collector.finish()
 }

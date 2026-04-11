@@ -3,24 +3,31 @@ use std::fs;
 use std::path::Path;
 
 use shuck_indexer::Indexer;
-use shuck_parser::parser::{ParseDiagnostic, ParseOutput, Parser, ShellDialect as ParseShellDialect};
 use shuck_parser::ShellProfile;
+use shuck_parser::parser::{
+    ParseDiagnostic, ParseOutput, Parser, ShellDialect as ParseShellDialect,
+};
 
 use crate::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_diagnostics};
 
-fn inferred_shell_profile(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ShellProfile {
+fn inferred_shell_profile(
+    source: &str,
+    settings: &LinterSettings,
+    path: Option<&Path>,
+) -> ShellProfile {
     let shell = if settings.shell == crate::ShellDialect::Unknown {
         crate::ShellDialect::infer(source, path)
     } else {
         settings.shell
     };
     let dialect = match shell {
-        crate::ShellDialect::Sh | crate::ShellDialect::Dash | crate::ShellDialect::Ksh => {
-            ParseShellDialect::Posix
-        }
-        crate::ShellDialect::Mksh => ParseShellDialect::Mksh,
         crate::ShellDialect::Zsh => ParseShellDialect::Zsh,
-        crate::ShellDialect::Unknown | crate::ShellDialect::Bash => ParseShellDialect::Bash,
+        crate::ShellDialect::Unknown
+        | crate::ShellDialect::Sh
+        | crate::ShellDialect::Dash
+        | crate::ShellDialect::Ksh
+        | crate::ShellDialect::Mksh
+        | crate::ShellDialect::Bash => ParseShellDialect::Bash,
     };
     ShellProfile::native(dialect)
 }

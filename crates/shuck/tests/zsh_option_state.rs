@@ -171,7 +171,10 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
                 let options = fact
                     .zsh_options()
                     .with_context(|| format!("missing zsh option state for `{probe_id}`"))?;
-                Ok((name.clone(), option_value_string(lookup_option(options, name)?)))
+                Ok((
+                    name.clone(),
+                    option_value_string(lookup_option(options, name)?),
+                ))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
         assert_eq!(
@@ -297,7 +300,9 @@ __shuck_probe_fields() {{
         );
     }
 
-    parse_probe_output(&String::from_utf8(output.stdout).context("zsh fixture stdout was not utf-8")?)
+    parse_probe_output(
+        &String::from_utf8(output.stdout).context("zsh fixture stdout was not utf-8")?,
+    )
 }
 
 fn parse_probe_output(stdout: &str) -> Result<ProbeRun> {
@@ -324,9 +329,9 @@ fn parse_probe_output(stdout: &str) -> Result<ProbeRun> {
                 run.field_probes.insert(
                     (*probe_id).to_owned(),
                     FieldObservation {
-                        count: count
-                            .parse()
-                            .with_context(|| format!("invalid field count `{count}` in `{line}`"))?,
+                        count: count.parse().with_context(|| {
+                            format!("invalid field count `{count}` in `{line}`")
+                        })?,
                         values: values.iter().map(|value| (*value).to_owned()).collect(),
                     },
                 );

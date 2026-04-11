@@ -3151,6 +3151,36 @@ fn test_parse_zsh_midfile_unsetopt_short_repeat_demotes_repeat_to_simple_command
 }
 
 #[test]
+fn test_parse_zsh_function_local_unsetopt_short_repeat_does_not_leak_to_top_level() {
+    let source = "\
+fn() {
+  unsetopt short_repeat
+  repeat 2 echo local
+}
+repeat 2 echo global
+";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&output.body[0]);
+    let (compound, _) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    let local_repeat = expect_simple(&body[1]);
+    assert_eq!(local_repeat.name.render(source), "repeat");
+
+    let (compound, _) = expect_compound(&output.body[1]);
+    let AstCompoundCommand::Repeat(command) = compound else {
+        panic!("expected top-level repeat command");
+    };
+    assert_eq!(command.count.render(source), "2");
+    assert_eq!(command.body.len(), 1);
+}
+
+#[test]
 fn test_parse_zsh_midfile_unsetopt_short_loops_rejects_foreach_loop() {
     Parser::with_dialect("foreach x (a b c) { echo $x; }\n", ShellDialect::Zsh)
         .parse()

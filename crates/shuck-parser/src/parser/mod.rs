@@ -407,7 +407,14 @@ impl ZshOptionState {
         let Some((field, value)) = parse_zsh_option_assignment(name, enable) else {
             return false;
         };
-        self.set_field(field, if value { OptionValue::On } else { OptionValue::Off });
+        self.set_field(
+            field,
+            if value {
+                OptionValue::On
+            } else {
+                OptionValue::Off
+            },
+        );
         true
     }
 }
@@ -576,8 +583,44 @@ struct ZshOptionPrescanner<'a> {
 
 #[derive(Debug, Clone)]
 enum PrescanToken {
-    Word { text: String, end: usize },
-    Separator { start: usize },
+    Word {
+        text: String,
+        end: usize,
+    },
+    Separator {
+        kind: PrescanSeparator,
+        start: usize,
+        end: usize,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrescanSeparator {
+    Newline,
+    Semicolon,
+    Pipe,
+    Ampersand,
+    OpenParen,
+    CloseParen,
+    OpenBrace,
+    CloseBrace,
+}
+
+#[derive(Debug, Clone)]
+struct PrescanLocalScope {
+    saved_state: ZshOptionState,
+    brace_depth: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrescanFunctionHeaderState {
+    None,
+    AfterWord,
+    AfterFunctionKeyword,
+    AfterFunctionName,
+    AfterWordOpenParen,
+    AfterFunctionNameOpenParen,
+    ReadyForBrace,
 }
 
 impl<'a> ZshOptionPrescanner<'a> {
@@ -593,17 +636,102 @@ impl<'a> ZshOptionPrescanner<'a> {
     fn scan(mut self) -> Vec<ZshOptionTimelineEntry> {
         let mut words = Vec::new();
         let mut command_end = 0usize;
+        let mut local_scopes = Vec::new();
+        let mut function_header = PrescanFunctionHeaderState::None;
 
         while let Some(token) = self.next_token() {
             match token {
                 PrescanToken::Word { text, end } => {
                     command_end = end;
+                    function_header = match function_header {
+                        PrescanFunctionHeaderState::None => {
+                            if text == "function" {
+                                PrescanFunctionHeaderState::AfterFunctionKeyword
+                            } else {
+                                PrescanFunctionHeaderState::AfterWord
+                            }
+                        }
+                        PrescanFunctionHeaderState::AfterFunctionKeyword => {
+                            PrescanFunctionHeaderState::AfterFunctionName
+                        }
+                        _ => PrescanFunctionHeaderState::None,
+                    };
                     words.push(text);
                 }
-                PrescanToken::Separator { start } => {
+                PrescanToken::Separator { kind, start, end } => {
                     self.finish_command(&words, command_end.max(start));
                     words.clear();
-                    command_end = start;
+                    command_end = end;
+
+                    match kind {
+                        PrescanSeparator::Newline => {
+                            if !matches!(
+                                function_header,
+                                PrescanFunctionHeaderState::AfterFunctionName
+                                    | PrescanFunctionHeaderState::ReadyForBrace
+                            ) {
+                                function_header = PrescanFunctionHeaderState::None;
+                            }
+                        }
+                        PrescanSeparator::Semicolon
+                        | PrescanSeparator::Pipe
+                        | PrescanSeparator::Ampersand => {
+                            function_header = PrescanFunctionHeaderState::None;
+                        }
+                        PrescanSeparator::OpenParen => {
+                            function_header = match function_header {
+                                PrescanFunctionHeaderState::AfterWord => {
+                                    PrescanFunctionHeaderState::AfterWordOpenParen
+                                }
+                                PrescanFunctionHeaderState::AfterFunctionName => {
+                                    PrescanFunctionHeaderState::AfterFunctionNameOpenParen
+                                }
+                                _ => PrescanFunctionHeaderState::None,
+                            };
+                        }
+                        PrescanSeparator::CloseParen => {
+                            function_header = match function_header {
+                                PrescanFunctionHeaderState::AfterWordOpenParen
+                                | PrescanFunctionHeaderState::AfterFunctionNameOpenParen => {
+                                    PrescanFunctionHeaderState::ReadyForBrace
+                                }
+                                _ => PrescanFunctionHeaderState::None,
+                            };
+                        }
+                        PrescanSeparator::OpenBrace => {
+                            if matches!(
+                                function_header,
+                                PrescanFunctionHeaderState::AfterFunctionName
+                                    | PrescanFunctionHeaderState::ReadyForBrace
+                            ) {
+                                local_scopes.push(PrescanLocalScope {
+                                    saved_state: self.state.clone(),
+                                    brace_depth: 1,
+                                });
+                            } else if let Some(scope) = local_scopes.last_mut() {
+                                scope.brace_depth += 1;
+                            }
+                            function_header = PrescanFunctionHeaderState::None;
+                        }
+                        PrescanSeparator::CloseBrace => {
+                            if let Some(scope) = local_scopes.last_mut() {
+                                scope.brace_depth -= 1;
+                                if scope.brace_depth == 0 {
+                                    let scope = local_scopes.pop().expect("scope just matched");
+                                    if self.state != scope.saved_state {
+                                        self.state = scope.saved_state.clone();
+                                        self.entries.push(ZshOptionTimelineEntry {
+                                            offset: end,
+                                            state: scope.saved_state,
+                                        });
+                                    } else {
+                                        self.state = scope.saved_state;
+                                    }
+                                }
+                            }
+                            function_header = PrescanFunctionHeaderState::None;
+                        }
+                    }
                 }
             }
         }
@@ -630,12 +758,7 @@ impl<'a> ZshOptionPrescanner<'a> {
             self.skip_horizontal_whitespace();
             let ch = self.peek_char()?;
 
-            if ch == '#'
-                && self
-                    .state
-                    .interactive_comments
-                    .is_definitely_on()
-            {
+            if ch == '#' && self.state.interactive_comments.is_definitely_on() {
                 self.skip_comment();
                 continue;
             }
@@ -644,19 +767,37 @@ impl<'a> ZshOptionPrescanner<'a> {
                 '\n' => {
                     let start = self.offset;
                     self.advance_char();
-                    Some(PrescanToken::Separator { start })
+                    Some(PrescanToken::Separator {
+                        kind: PrescanSeparator::Newline,
+                        start,
+                        end: self.offset,
+                    })
                 }
                 ';' | '|' | '&' | '(' | ')' | '{' | '}' => {
                     let start = self.offset;
                     self.advance_char();
-                    if matches!(ch, '|' | '&' | ';')
-                        && self.peek_char() == Some(ch)
-                    {
+                    if matches!(ch, '|' | '&' | ';') && self.peek_char() == Some(ch) {
                         self.advance_char();
                     }
-                    Some(PrescanToken::Separator { start })
+                    let kind = match ch {
+                        ';' => PrescanSeparator::Semicolon,
+                        '|' => PrescanSeparator::Pipe,
+                        '&' => PrescanSeparator::Ampersand,
+                        '(' => PrescanSeparator::OpenParen,
+                        ')' => PrescanSeparator::CloseParen,
+                        '{' => PrescanSeparator::OpenBrace,
+                        '}' => PrescanSeparator::CloseBrace,
+                        _ => unreachable!(),
+                    };
+                    Some(PrescanToken::Separator {
+                        kind,
+                        start,
+                        end: self.offset,
+                    })
                 }
-                _ => self.read_word().map(|(text, end)| PrescanToken::Word { text, end }),
+                _ => self
+                    .read_word()
+                    .map(|(text, end)| PrescanToken::Word { text, end }),
             };
         }
     }
@@ -1334,12 +1475,7 @@ impl<'a> Parser<'a> {
         max_fuel: usize,
         dialect: ShellDialect,
     ) -> Self {
-        Self::with_limits_and_profile(
-            input,
-            max_depth,
-            max_fuel,
-            ShellProfile::native(dialect),
-        )
+        Self::with_limits_and_profile(input, max_depth, max_fuel, ShellProfile::native(dialect))
     }
 
     pub fn with_limits_and_profile(
@@ -1483,21 +1619,17 @@ impl<'a> Parser<'a> {
 
     fn zsh_glob_qualifiers_enabled_at(&self, offset: usize) -> bool {
         self.dialect.features().zsh_glob_qualifiers
-            && !self
-                .zsh_options_at_offset(offset)
-                .is_some_and(|options| {
-                    options.ignore_braces.is_definitely_on()
-                        || options.bare_glob_qual.is_definitely_off()
-                })
+            && !self.zsh_options_at_offset(offset).is_some_and(|options| {
+                options.ignore_braces.is_definitely_on()
+                    || options.bare_glob_qual.is_definitely_off()
+            })
     }
 
     fn brace_syntax_enabled_at(&self, offset: usize) -> bool {
-        !self
-            .zsh_options_at_offset(offset)
-            .is_some_and(|options| {
-                options.ignore_braces.is_definitely_on()
-                    || options.ignore_close_braces.is_definitely_on()
-            })
+        !self.zsh_options_at_offset(offset).is_some_and(|options| {
+            options.ignore_braces.is_definitely_on()
+                || options.ignore_close_braces.is_definitely_on()
+        })
     }
 
     /// Get the current token's span.
@@ -1536,8 +1668,12 @@ impl<'a> Parser<'a> {
         max_fuel: usize,
         dialect: ShellDialect,
     ) -> Word {
-        let mut parser =
-            Parser::with_limits_and_profile(input, max_depth, max_fuel, ShellProfile::native(dialect));
+        let mut parser = Parser::with_limits_and_profile(
+            input,
+            max_depth,
+            max_fuel,
+            ShellProfile::native(dialect),
+        );
         let start = Position::new();
         parser.parse_word_with_context(
             input,
@@ -4047,7 +4183,8 @@ impl<'a> Parser<'a> {
             match flag {
                 '=' | '~' | '^' => {
                     let modifier_start = base.advanced_by(&text[..index]);
-                    let modifier_end = modifier_start.advanced_by(&text[index..index + flag.len_utf8()]);
+                    let modifier_end =
+                        modifier_start.advanced_by(&text[index..index + flag.len_utf8()]);
                     modifiers.push(ZshModifier {
                         name: flag,
                         argument: None,

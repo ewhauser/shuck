@@ -383,7 +383,13 @@ fn analyze_literal_runtime_parts(
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) => {
-                scan_literal_runtime_text(part.span.slice(source), context, options, state, analysis);
+                scan_literal_runtime_text(
+                    part.span.slice(source),
+                    context,
+                    options,
+                    state,
+                    analysis,
+                );
             }
             WordPart::SingleQuoted { value, .. } => {
                 if !value.slice(source).is_empty() {
@@ -547,7 +553,8 @@ fn analyze_part(
         WordPart::ZshQualifiedGlob(_) => PartAnalysis {
             value_shape: PartValueShape::Unknown,
             array_valued: false,
-            can_expand_to_multiple_fields: !in_double_quotes && glob_is_effectively_enabled(options),
+            can_expand_to_multiple_fields: !in_double_quotes
+                && glob_is_effectively_enabled(options),
             hazards: ExpansionHazards {
                 pathname_matching: !in_double_quotes && glob_is_effectively_enabled(options),
                 ..ExpansionHazards::default()
@@ -555,7 +562,9 @@ fn analyze_part(
             command_substitution: false,
             process_substitution: false,
         },
-        WordPart::Parameter(parameter) => analyze_parameter_part(parameter, in_double_quotes, options),
+        WordPart::Parameter(parameter) => {
+            analyze_parameter_part(parameter, in_double_quotes, options)
+        }
         WordPart::CommandSubstitution { .. } => scalar_part(
             substitution_can_expand_to_multiple_fields(in_double_quotes, options),
             ExpansionHazards {
@@ -624,7 +633,10 @@ fn analyze_part(
                 substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                 ExpansionHazards {
                     field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(
+                        in_double_quotes,
+                        options,
+                    ),
                     ..ExpansionHazards::default()
                 },
                 false,
@@ -646,7 +658,10 @@ fn analyze_part(
                 can_expand_to_multiple_fields: multi_field,
                 hazards: ExpansionHazards {
                     field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(
+                        in_double_quotes,
+                        options,
+                    ),
                     ..ExpansionHazards::default()
                 },
                 command_substitution: false,
@@ -696,8 +711,14 @@ fn analyze_parameter_part(
                 None => scalar_part(
                     substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                     ExpansionHazards {
-                        field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                        pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                        field_splitting: substitution_field_splitting_hazard(
+                            in_double_quotes,
+                            options,
+                        ),
+                        pathname_matching: substitution_pathname_matching_hazard(
+                            in_double_quotes,
+                            options,
+                        ),
                         ..ExpansionHazards::default()
                     },
                     false,
@@ -708,7 +729,10 @@ fn analyze_parameter_part(
                 substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                 ExpansionHazards {
                     field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(
+                        in_double_quotes,
+                        options,
+                    ),
                     ..ExpansionHazards::default()
                 },
                 false,
@@ -724,7 +748,10 @@ fn analyze_parameter_part(
                 ),
                 hazards: ExpansionHazards {
                     field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(
+                        in_double_quotes,
+                        options,
+                    ),
                     runtime_pattern: operator
                         .as_ref()
                         .is_some_and(parameter_operator_uses_pattern),
@@ -745,8 +772,14 @@ fn analyze_parameter_part(
                     array_valued: false,
                     can_expand_to_multiple_fields: multi_field,
                     hazards: ExpansionHazards {
-                        field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                        pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                        field_splitting: substitution_field_splitting_hazard(
+                            in_double_quotes,
+                            options,
+                        ),
+                        pathname_matching: substitution_pathname_matching_hazard(
+                            in_double_quotes,
+                            options,
+                        ),
                         ..ExpansionHazards::default()
                     },
                     command_substitution: false,
@@ -760,8 +793,14 @@ fn analyze_parameter_part(
                     scalar_part(
                         substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                         ExpansionHazards {
-                            field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                            pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                            field_splitting: substitution_field_splitting_hazard(
+                                in_double_quotes,
+                                options,
+                            ),
+                            pathname_matching: substitution_pathname_matching_hazard(
+                                in_double_quotes,
+                                options,
+                            ),
                             ..ExpansionHazards::default()
                         },
                         false,
@@ -773,7 +812,10 @@ fn analyze_parameter_part(
                 substitution_can_expand_to_multiple_fields(in_double_quotes, options),
                 ExpansionHazards {
                     field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                    pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(
+                        in_double_quotes,
+                        options,
+                    ),
                     runtime_pattern: parameter_operator_uses_pattern(operator),
                     ..ExpansionHazards::default()
                 },
@@ -864,15 +906,27 @@ fn overlay_zsh_modifier_overrides(
     let mut effective = options.cloned()?;
     apply_toggle_override(
         &mut effective.sh_word_split,
-        syntax.modifiers.iter().filter(|modifier| modifier.name == '=').count(),
+        syntax
+            .modifiers
+            .iter()
+            .filter(|modifier| modifier.name == '=')
+            .count(),
     );
     apply_toggle_override(
         &mut effective.glob_subst,
-        syntax.modifiers.iter().filter(|modifier| modifier.name == '~').count(),
+        syntax
+            .modifiers
+            .iter()
+            .filter(|modifier| modifier.name == '~')
+            .count(),
     );
     apply_toggle_override(
         &mut effective.rc_expand_param,
-        syntax.modifiers.iter().filter(|modifier| modifier.name == '^').count(),
+        syntax
+            .modifiers
+            .iter()
+            .filter(|modifier| modifier.name == '^')
+            .count(),
     );
     Some(effective)
 }
@@ -1124,9 +1178,12 @@ mod tests {
         let Command::Simple(_) = &static_dup_file.body[0].command else {
             panic!("expected simple command");
         };
-        let static_dup =
-            analyze_redirect_target(&static_dup_file.body[0].redirects[0], static_dup_source, None)
-                .expect("expected redirect analysis");
+        let static_dup = analyze_redirect_target(
+            &static_dup_file.body[0].redirects[0],
+            static_dup_source,
+            None,
+        )
+        .expect("expected redirect analysis");
         assert!(static_dup.is_descriptor_dup());
         assert_eq!(static_dup.numeric_descriptor_target, Some(3));
         assert!(!static_dup.is_runtime_sensitive());
@@ -1147,8 +1204,9 @@ mod tests {
         let Command::Simple(_) = &maybe_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let maybe = analyze_redirect_target(&maybe_commands.body[0].redirects[0], maybe_source, None)
-            .expect("expected redirect analysis");
+        let maybe =
+            analyze_redirect_target(&maybe_commands.body[0].redirects[0], maybe_source, None)
+                .expect("expected redirect analysis");
         assert!(maybe.is_file_target());
         assert_eq!(
             maybe.dev_null_status,
@@ -1161,8 +1219,9 @@ mod tests {
         let Command::Simple(_) = &fanout_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let fanout = analyze_redirect_target(&fanout_commands.body[0].redirects[0], fanout_source, None)
-            .expect("expected redirect analysis");
+        let fanout =
+            analyze_redirect_target(&fanout_commands.body[0].redirects[0], fanout_source, None)
+                .expect("expected redirect analysis");
         assert!(fanout.can_expand_to_multiple_fields());
         assert!(fanout.is_runtime_sensitive());
 
@@ -1171,8 +1230,9 @@ mod tests {
         let Command::Simple(_) = &tilde_commands.body[0].command else {
             panic!("expected simple command");
         };
-        let tilde = analyze_redirect_target(&tilde_commands.body[0].redirects[0], tilde_source, None)
-            .expect("expected redirect analysis");
+        let tilde =
+            analyze_redirect_target(&tilde_commands.body[0].redirects[0], tilde_source, None)
+                .expect("expected redirect analysis");
         assert!(tilde.is_file_target());
         assert_eq!(
             tilde.dev_null_status,
@@ -1252,17 +1312,17 @@ mod tests {
         let words = parse_argument_words(source);
 
         assert!(
-            analyze_literal_runtime(&words[0], source, ExpansionContext::ForList)
+            analyze_literal_runtime(&words[0], source, ExpansionContext::ForList, None)
                 .hazards
                 .tilde_expansion
         );
         assert!(
-            analyze_literal_runtime(&words[1], source, ExpansionContext::ForList)
+            analyze_literal_runtime(&words[1], source, ExpansionContext::ForList, None)
                 .hazards
                 .pathname_matching
         );
         assert!(
-            analyze_literal_runtime(&words[2], source, ExpansionContext::ForList)
+            analyze_literal_runtime(&words[2], source, ExpansionContext::ForList, None)
                 .hazards
                 .brace_fanout
         );

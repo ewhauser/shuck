@@ -1146,7 +1146,7 @@ fn evaluate_fixture_zsh_parse(
             }
         };
 
-        if let Err(err) = parse_result {
+    if let Err(err) = parse_result {
         evaluation.harness_failure = Some(FixtureFailure {
             kind: FixtureFailureKind::Other,
             message: format_fixture_failure(

@@ -219,23 +219,35 @@ pub(crate) fn analyze(
 }
 
 impl ZshOptionAnalysis {
-    pub(crate) fn options_at<'a>(&'a self, scopes: &[Scope], offset: usize) -> Option<&'a ZshOptionState> {
-        let scope = scopes
+    pub(crate) fn options_at<'a>(
+        &'a self,
+        scopes: &[Scope],
+        offset: usize,
+    ) -> Option<&'a ZshOptionState> {
+        let mut scope = scopes
             .iter()
             .filter(|scope| contains_offset(scope.span, offset))
             .min_by_key(|scope| scope.span.end.offset - scope.span.start.offset)
-            .map(|scope| scope.id)?;
+            .map(|scope| scope.id);
 
-        if let Some(snapshots) = self.snapshots.get(&scope)
-            && let Some(snapshot) = snapshots
-                .iter()
-                .rev()
-                .find(|snapshot| snapshot.offset <= offset)
-        {
-            return Some(&snapshot.state);
+        while let Some(scope_id) = scope {
+            if let Some(snapshots) = self.snapshots.get(&scope_id)
+                && let Some(snapshot) = snapshots
+                    .iter()
+                    .rev()
+                    .find(|snapshot| snapshot.offset <= offset)
+            {
+                return Some(&snapshot.state);
+            }
+
+            if let Some(entry) = self.scope_entries.get(&scope_id) {
+                return Some(entry);
+            }
+
+            scope = scopes[scope_id.index()].parent;
         }
 
-        self.scope_entries.get(&scope)
+        None
     }
 }
 
@@ -285,9 +297,7 @@ impl<'a> Analyzer<'a> {
             | RecordedCommandKind::Break { .. }
             | RecordedCommandKind::Continue { .. }
             | RecordedCommandKind::Return
-            | RecordedCommandKind::Exit => {
-                self.analyze_linear_command(scope, command, state, leak)
-            }
+            | RecordedCommandKind::Exit => self.analyze_linear_command(scope, command, state, leak),
             RecordedCommandKind::List { first, rest } => {
                 let mut list_state = self.analyze_command(scope, first, state, leak);
                 for (_operator, command) in rest {
@@ -301,11 +311,18 @@ impl<'a> Analyzer<'a> {
                 then_branch,
                 elif_branches,
                 else_branch,
-            } => self.analyze_if(scope, &state, condition, then_branch, elif_branches, else_branch, leak),
+            } => self.analyze_if(
+                scope,
+                &state,
+                condition,
+                then_branch,
+                elif_branches,
+                else_branch,
+                leak,
+            ),
             RecordedCommandKind::While { condition, body }
             | RecordedCommandKind::Until { condition, body } => {
-                let after_condition =
-                    self.analyze_sequence(scope, condition, state.clone(), leak);
+                let after_condition = self.analyze_sequence(scope, condition, state.clone(), leak);
                 let iterated = self.analyze_sequence(scope, body, after_condition.clone(), leak);
                 after_condition.merge(&iterated)
             }
@@ -319,17 +336,21 @@ impl<'a> Analyzer<'a> {
             RecordedCommandKind::Case { arms } => self.analyze_case(scope, &state, arms, leak),
             RecordedCommandKind::Subshell { body } => {
                 self.analyze_sequence(
-                    self.subshell_scope_for(command.span.start.offset).unwrap_or(scope),
+                    self.subshell_scope_for(command.span.start.offset)
+                        .unwrap_or(scope),
                     body,
                     EvalState::new(state.current.clone()),
                     LeakBehavior::Never,
                 );
                 state
             }
-            RecordedCommandKind::Pipeline { segments } => self.analyze_pipeline(scope, &state, segments, leak),
+            RecordedCommandKind::Pipeline { segments } => {
+                self.analyze_pipeline(scope, &state, segments, leak)
+            }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn analyze_if(
         &mut self,
         scope: ScopeId,
@@ -346,8 +367,7 @@ impl<'a> Analyzer<'a> {
         for (elif_condition, elif_body) in elif_branches {
             let after_elif_condition =
                 self.analyze_sequence(scope, elif_condition, after_condition.clone(), leak);
-            let elif_result =
-                self.analyze_sequence(scope, elif_body, after_elif_condition, leak);
+            let elif_result = self.analyze_sequence(scope, elif_body, after_elif_condition, leak);
             merged = merged.merge(&elif_result);
         }
 
@@ -399,12 +419,7 @@ impl<'a> Analyzer<'a> {
                 touched.extend(segment_result.outward_touched.iter().copied());
             }
             for field in touched {
-                self.apply_explicit_public_field(
-                    &mut result,
-                    leak,
-                    field,
-                    OptionValue::Unknown,
-                );
+                self.apply_explicit_public_field(&mut result, leak, field, OptionValue::Unknown);
             }
             return result;
         }
@@ -436,16 +451,19 @@ impl<'a> Analyzer<'a> {
         mut state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        let info = self.recorded_program.command_infos.get(&SpanKey::new(command.span));
+        let info = self
+            .recorded_program
+            .command_infos
+            .get(&SpanKey::new(command.span));
 
         if let Some(function_scope) = info
             .and_then(|info| info.static_callee.as_deref())
-            .and_then(|name| self.resolve_visible_function_scope(scope, command.span.start.offset, name))
+            .and_then(|name| {
+                self.resolve_visible_function_scope(scope, command.span.start.offset, name)
+            })
         {
-            let summary = self.analyze_function_scope(
-                function_scope,
-                EvalState::new(state.current.clone()),
-            );
+            let summary =
+                self.analyze_function_scope(function_scope, EvalState::new(state.current.clone()));
             for field in &summary.outward_touched {
                 let value = get_option_field(&summary.final_outward.public, *field);
                 set_option_field(&mut state.current.public, *field, value);
@@ -459,11 +477,22 @@ impl<'a> Analyzer<'a> {
             for effect in &info.zsh_effects {
                 match effect {
                     RecordedZshCommandEffect::Emulate { mode, local } => {
-                        self.apply_emulate(&mut state, leak, *mode, *local, is_function_scope(self.scopes, scope));
+                        self.apply_emulate(
+                            &mut state,
+                            leak,
+                            *mode,
+                            *local,
+                            is_function_scope(self.scopes, scope),
+                        );
                     }
                     RecordedZshCommandEffect::SetOptions { updates } => {
                         for update in updates {
-                            self.apply_option_update(&mut state, leak, update, is_function_scope(self.scopes, scope));
+                            self.apply_option_update(
+                                &mut state,
+                                leak,
+                                update,
+                                is_function_scope(self.scopes, scope),
+                            );
                         }
                     }
                 }
@@ -529,7 +558,10 @@ impl<'a> Analyzer<'a> {
             .filter(|scope| {
                 scope.span.start.offset <= offset
                     && offset <= scope.span.end.offset
-                    && matches!(scope.kind, ScopeKind::Subshell | ScopeKind::CommandSubstitution)
+                    && matches!(
+                        scope.kind,
+                        ScopeKind::Subshell | ScopeKind::CommandSubstitution
+                    )
             })
             .min_by_key(|scope| scope.span.end.offset - scope.span.start.offset)
             .map(|scope| scope.id)
@@ -554,7 +586,10 @@ impl<'a> Analyzer<'a> {
         }
 
         self.apply_explicit_public_state(state, leak, &fields, &next_public);
-        state.outward.emulation = state.outward.emulation.merge(EmulationState::from_mode(mode));
+        state.outward.emulation = state
+            .outward
+            .emulation
+            .merge(EmulationState::from_mode(mode));
         if leak == LeakBehavior::Always
             || (leak == LeakBehavior::Function && state.current.local_options.is_definitely_off())
         {
