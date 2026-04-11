@@ -86,3 +86,5 @@ install-path = "CARGO_HOME"
 install-updater = false
 # Don't run release checks on pull requests
 pr-run-mode = "skip"
+# We pin actions to commit SHAs, so skip the CI file freshness check
+allow-dirty = ["ci"]
