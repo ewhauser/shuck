@@ -28,53 +28,77 @@ pub fn short_circuit_fallthrough(checker: &mut Checker) {
 }
 
 fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
-    let segments = list.segments();
     if matches_status_propagation_assignment(list) {
         return true;
     }
 
-    let branch_names = segments
-        .iter()
-        .skip(1)
-        .map(|segment| {
-            checker
-                .facts()
-                .command(segment.command_id())
-                .effective_or_literal_name()
-        })
-        .collect::<Vec<_>>();
+    let Some(branch_names) = ternary_branch_names(checker, list) else {
+        return false;
+    };
 
     if branch_names
         .iter()
-        .flatten()
-        .any(|name| matches!(*name, "return" | "exit"))
+        .all(|name| matches!(name, Some("return" | "exit")))
     {
         return true;
     }
 
     matches!(
-        branch_names.as_slice(),
+        &branch_names,
         [Some("echo"), Some("echo")] | [Some("printf"), Some("printf")]
     )
 }
 
 fn matches_status_propagation_assignment(list: &ListFact<'_>) -> bool {
+    if !matches_and_or_ternary(list) {
+        return false;
+    }
+
     let segments = list.segments();
     let [first, _, last] = segments else {
         return false;
     };
 
-    matches!(
-        list.operators()
-            .iter()
-            .map(|operator| operator.op())
-            .collect::<Vec<_>>()
-            .as_slice(),
-        [BinaryOp::And, BinaryOp::Or]
-    ) && first.kind() == ListSegmentKind::AssignmentOnly
+    first.kind() == ListSegmentKind::AssignmentOnly
         && last.kind() == ListSegmentKind::AssignmentOnly
         && first.assignment_target().is_some()
         && first.assignment_target() == last.assignment_target()
+}
+
+fn ternary_branch_names<'a>(
+    checker: &'a Checker<'a>,
+    list: &ListFact<'a>,
+) -> Option<[Option<&'a str>; 2]> {
+    if !matches_and_or_ternary(list) {
+        return None;
+    }
+
+    let [_, then_branch, else_branch] = list.segments() else {
+        return None;
+    };
+
+    Some([
+        checker
+            .facts()
+            .command(then_branch.command_id())
+            .effective_or_literal_name(),
+        checker
+            .facts()
+            .command(else_branch.command_id())
+            .effective_or_literal_name(),
+    ])
+}
+
+fn matches_and_or_ternary(list: &ListFact<'_>) -> bool {
+    list.segments().len() == 3
+        && matches!(
+            list.operators()
+                .iter()
+                .map(|operator| operator.op())
+                .collect::<Vec<_>>()
+                .as_slice(),
+            [BinaryOp::And, BinaryOp::Or]
+        )
 }
 
 #[cfg(test)]
@@ -137,6 +161,26 @@ rc=0 && run || fallback && rc=$?
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["||", "&&"]
+        );
+    }
+
+    #[test]
+    fn only_ignores_three_segment_return_and_formatter_shapes() {
+        let source = "\
+cond && run || cleanup && exit 1
+cond || printf '%s\\n' a && printf '%s\\n' b
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ShortCircuitFallthrough),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["&&", "||"]
         );
     }
 
