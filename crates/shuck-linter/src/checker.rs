@@ -881,6 +881,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::GreaterThanInTest) {
             rules::correctness::greater_than_in_test::greater_than_in_test(self);
         }
+        if self.is_rule_enabled(Rule::StringComparisonForVersion) {
+            rules::correctness::string_comparison_for_version::string_comparison_for_version(self);
+        }
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
         }

@@ -173,6 +173,12 @@ declare_rules! {
         GreaterThanInTest
     ),
     (
+        "C087",
+        Category::Correctness,
+        Severity::Warning,
+        StringComparisonForVersion
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -655,6 +661,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-272" => Some(Rule::CaretNegationInBracket),
         "SH-207" => Some(Rule::EscapedNegationInTest),
         "SH-213" => Some(Rule::GreaterThanInTest),
+        "SH-214" => Some(Rule::StringComparisonForVersion),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),
