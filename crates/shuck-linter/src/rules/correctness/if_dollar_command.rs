@@ -77,6 +77,7 @@ if \"$(printf '%s' foo)\"; then :; fi
 if [[ \"$pm\" == apt ]] && \"$(printf '%s' missing)\" != installed; then :; fi
 if command $(false); then :; fi
 if env FOO=1 $(false); then :; fi
+if `printf '%s' ok`; then :; fi
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::IfDollarCommand));
 

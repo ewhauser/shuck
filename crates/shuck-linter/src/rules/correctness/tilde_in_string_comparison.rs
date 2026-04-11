@@ -114,7 +114,10 @@ fn conditional_operand_tilde_span(
         .then(|| operand.expression().span())
         .and_then(|span| {
             let raw = span.slice(source);
-            raw.get(1..)
+            raw.chars()
+                .next()
+                .filter(|quote| matches!(quote, '"' | '\''))
+                .and_then(|_| raw.get(1..))
                 .filter(|suffix| suffix.starts_with("~/"))
                 .and_then(|_| quoted_tilde_span_from_raw(span, raw))
         })
@@ -175,6 +178,7 @@ mod tests {
 [ \"$profile\" = \"~user/.bashrc\" ]
 [ \"$profile\" = \"~\" ]
 [ \"$profile\" = \"foo~/.bashrc\" ]
+[[ \"$profile\" == a~/.bashrc ]]
 ";
         let diagnostics = test_snippet(
             source,

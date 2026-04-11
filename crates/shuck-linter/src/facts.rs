@@ -4522,6 +4522,16 @@ fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool
     let analysis = analyze_word(word, source);
     analysis.substitution_shape == WordSubstitutionShape::Plain
         && analysis.quote == WordQuote::Unquoted
+        && matches!(
+            word.parts.as_slice(),
+            [WordPartNode {
+                kind: WordPart::CommandSubstitution {
+                    syntax: CommandSubstitutionSyntax::DollarParen,
+                    ..
+                },
+                ..
+            }]
+        )
 }
 
 fn collect_condition_status_capture_from_body(
