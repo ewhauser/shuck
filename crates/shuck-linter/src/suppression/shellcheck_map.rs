@@ -213,6 +213,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports unquoted variable-backed `[[ ... == ... ]]` patterns as SC2053.
             // Keep SC2301 as a suppression alias for authored C081 metadata.
             (2053, Rule::GlobInStringComparison),
+            // ShellCheck 0.11.0 reports unquoted glob operands in `find` predicates as SC2061.
+            // Keep SC2304 as a suppression alias for authored C083 metadata.
+            (2061, Rule::GlobInFindSubstitution),
             (1019, Rule::EmptyTest),
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),
@@ -508,6 +511,7 @@ impl Default for ShellCheckCodeMap {
                     (2296, Rule::ShortCircuitFallthrough),
                     (2062, Rule::GlobInGrepPattern),
                     (2053, Rule::GlobInStringComparison),
+                    (2061, Rule::GlobInFindSubstitution),
                     (1019, Rule::EmptyTest),
                     (2024, Rule::SudoRedirectionOrder),
                     (2034, Rule::UnusedAssignment),
@@ -697,6 +701,7 @@ impl Default for ShellCheckCodeMap {
                 (2295, Rule::UnquotedGlobsInFind),
                 (2299, Rule::GlobInGrepPattern),
                 (2301, Rule::GlobInStringComparison),
+                (2304, Rule::GlobInFindSubstitution),
                 (2060, Rule::UnquotedTrRange),
                 (2280, Rule::IfsEqualsAmbiguity),
                 (2270, Rule::IfMissingThen),
@@ -915,6 +920,8 @@ mod tests {
         assert_eq!(map.resolve("SC2299"), Some(Rule::GlobInGrepPattern));
         assert_eq!(map.resolve("SC2053"), Some(Rule::GlobInStringComparison));
         assert_eq!(map.resolve("SC2301"), Some(Rule::GlobInStringComparison));
+        assert_eq!(map.resolve("SC2061"), Some(Rule::GlobInFindSubstitution));
+        assert_eq!(map.resolve("SC2304"), Some(Rule::GlobInFindSubstitution));
         assert_eq!(map.resolve_all("SC2014"), vec![Rule::UnquotedGlobsInFind]);
         assert_eq!(map.resolve_all("SC2295"), vec![Rule::UnquotedGlobsInFind]);
         assert_eq!(
@@ -931,6 +938,14 @@ mod tests {
         assert_eq!(
             map.resolve_all("SC2301"),
             vec![Rule::GlobInStringComparison]
+        );
+        assert_eq!(
+            map.resolve_all("SC2061"),
+            vec![Rule::GlobInFindSubstitution]
+        );
+        assert_eq!(
+            map.resolve_all("SC2304"),
+            vec![Rule::GlobInFindSubstitution]
         );
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC1045"), Some(Rule::AmpersandSemicolon));
@@ -1280,6 +1295,7 @@ mod tests {
             (2014, Rule::UnquotedGlobsInFind),
             (2062, Rule::GlobInGrepPattern),
             (2053, Rule::GlobInStringComparison),
+            (2061, Rule::GlobInFindSubstitution),
             (2024, Rule::SudoRedirectionOrder),
             (2034, Rule::UnusedAssignment),
             (2035, Rule::LeadingGlobArgument),
@@ -1348,6 +1364,7 @@ mod tests {
             (2295, Rule::UnquotedGlobsInFind),
             (2299, Rule::GlobInGrepPattern),
             (2301, Rule::GlobInStringComparison),
+            (2304, Rule::GlobInFindSubstitution),
             (2292, Rule::DollarInArithmetic),
             (2297, Rule::DollarInArithmeticContext),
             (2259, Rule::SubshellTestGroup),
@@ -1541,12 +1558,14 @@ mod tests {
         assert!(comparison.contains(&(2014, Rule::UnquotedGlobsInFind)));
         assert!(comparison.contains(&(2062, Rule::GlobInGrepPattern)));
         assert!(comparison.contains(&(2053, Rule::GlobInStringComparison)));
+        assert!(comparison.contains(&(2061, Rule::GlobInFindSubstitution)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(!comparison.contains(&(2294, Rule::EvalOnArray)));
         assert!(!comparison.contains(&(2295, Rule::UnquotedGlobsInFind)));
         assert!(!comparison.contains(&(2299, Rule::GlobInGrepPattern)));
         assert!(!comparison.contains(&(2301, Rule::GlobInStringComparison)));
+        assert!(!comparison.contains(&(2304, Rule::GlobInFindSubstitution)));
         assert!(comparison.contains(&(2263, Rule::RedundantSpacesInEcho)));
         assert!(comparison.contains(&(2291, Rule::UnquotedVariableInSed)));
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));

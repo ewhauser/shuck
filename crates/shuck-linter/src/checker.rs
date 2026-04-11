@@ -467,6 +467,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UnquotedGlobsInFind) {
             rules::correctness::unquoted_globs_in_find::unquoted_globs_in_find(self);
         }
+        if self.is_rule_enabled(Rule::GlobInFindSubstitution) {
+            rules::correctness::glob_in_find_substitution::glob_in_find_substitution(self);
+        }
         if self.is_rule_enabled(Rule::GlobInGrepPattern) {
             rules::correctness::glob_in_grep_pattern::glob_in_grep_pattern(self);
         }

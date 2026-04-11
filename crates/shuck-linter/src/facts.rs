@@ -1275,11 +1275,16 @@ impl SshCommandFacts {
 pub struct FindCommandFacts {
     pub has_print0: bool,
     or_without_grouping_spans: Box<[Span]>,
+    glob_pattern_operand_spans: Box<[Span]>,
 }
 
 impl FindCommandFacts {
     pub fn or_without_grouping_spans(&self) -> &[Span] {
         &self.or_without_grouping_spans
+    }
+
+    pub fn glob_pattern_operand_spans(&self) -> &[Span] {
+        &self.glob_pattern_operand_spans
     }
 }
 
@@ -7500,6 +7505,7 @@ fn parse_find_execdir_shell_command(
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut or_without_grouping_spans = Vec::new();
+    let mut glob_pattern_operand_spans = Vec::new();
     let mut group_stack = vec![FindGroupState::default()];
     let mut pending_argument: Option<FindPendingArgument> = None;
 
@@ -7512,6 +7518,11 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
         };
 
         if let Some(state) = pending_argument {
+            if state.expects_pattern_operand()
+                && !span::word_unquoted_glob_pattern_spans(word, source).is_empty()
+            {
+                glob_pattern_operand_spans.push(word.span);
+            }
             pending_argument = state.after_consuming(text.as_str());
             continue;
         }
@@ -7568,21 +7579,31 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     FindCommandFacts {
         has_print0,
         or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
+        glob_pattern_operand_spans: glob_pattern_operand_spans.into_boxed_slice(),
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 enum FindPendingArgument {
-    Words(usize),
+    Words {
+        remaining: usize,
+        pattern_operand: bool,
+    },
     UntilExecTerminator,
 }
 
 impl FindPendingArgument {
     fn after_consuming(self, token: &str) -> Option<Self> {
         match self {
-            Self::Words(remaining) => remaining
-                .checked_sub(1)
-                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::Words {
+                remaining,
+                pattern_operand: _,
+            } => remaining.checked_sub(1).and_then(|next| {
+                (next > 0).then_some(Self::Words {
+                    remaining: next,
+                    pattern_operand: false,
+                })
+            }),
             Self::UntilExecTerminator => {
                 (!matches!(token, ";" | "\\;" | "+")).then_some(Self::UntilExecTerminator)
             }
@@ -7591,11 +7612,27 @@ impl FindPendingArgument {
 
     fn after_consuming_dynamic(self) -> Option<Self> {
         match self {
-            Self::Words(remaining) => remaining
-                .checked_sub(1)
-                .and_then(|next| (next > 0).then_some(Self::Words(next))),
+            Self::Words {
+                remaining,
+                pattern_operand: _,
+            } => remaining.checked_sub(1).and_then(|next| {
+                (next > 0).then_some(Self::Words {
+                    remaining: next,
+                    pattern_operand: false,
+                })
+            }),
             Self::UntilExecTerminator => Some(Self::UntilExecTerminator),
         }
+    }
+
+    fn expects_pattern_operand(self) -> bool {
+        matches!(
+            self,
+            Self::Words {
+                pattern_operand: true,
+                ..
+            }
+        )
     }
 }
 
@@ -7712,19 +7749,38 @@ fn is_find_reportable_action_token(token: &str) -> bool {
 
 fn find_pending_argument(token: &str) -> Option<FindPendingArgument> {
     match token {
-        "-fls" | "-fprint" | "-fprint0" | "-printf" => Some(FindPendingArgument::Words(1)),
-        "-fprintf" => Some(FindPendingArgument::Words(2)),
+        "-fls" | "-fprint" | "-fprint0" | "-printf" => Some(FindPendingArgument::Words {
+            remaining: 1,
+            pattern_operand: false,
+        }),
+        "-fprintf" => Some(FindPendingArgument::Words {
+            remaining: 2,
+            pattern_operand: false,
+        }),
         "-exec" | "-execdir" | "-ok" | "-okdir" => Some(FindPendingArgument::UntilExecTerminator),
         "-amin" | "-anewer" | "-atime" | "-cmin" | "-cnewer" | "-context" | "-fstype" | "-gid"
         | "-group" | "-ilname" | "-iname" | "-inum" | "-ipath" | "-iregex" | "-links"
         | "-lname" | "-maxdepth" | "-mindepth" | "-mmin" | "-mtime" | "-name" | "-newer"
         | "-path" | "-perm" | "-regex" | "-samefile" | "-size" | "-type" | "-uid" | "-used"
-        | "-user" | "-xtype" | "-files0-from" => Some(FindPendingArgument::Words(1)),
+        | "-user" | "-xtype" | "-files0-from" => Some(FindPendingArgument::Words {
+            remaining: 1,
+            pattern_operand: is_find_pattern_predicate_token(token),
+        }),
         token if token.starts_with("-newer") && token.len() > "-newer".len() => {
-            Some(FindPendingArgument::Words(1))
+            Some(FindPendingArgument::Words {
+                remaining: 1,
+                pattern_operand: false,
+            })
         }
         _ => None,
     }
+}
+
+fn is_find_pattern_predicate_token(token: &str) -> bool {
+    matches!(
+        token,
+        "-name" | "-iname" | "-path" | "-ipath" | "-regex" | "-iregex" | "-lname" | "-ilname"
+    )
 }
 
 fn is_find_predicate_token(token: &str) -> bool {
@@ -8801,7 +8857,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -8898,6 +8954,15 @@ complex[$((i+=1))]+=x
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+        let find_glob_pattern_operand_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.glob_pattern_operand_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(find_glob_pattern_operand_spans, vec!["*.cfg"]);
 
         let find_execdir = facts
             .commands()

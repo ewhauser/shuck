@@ -819,6 +819,11 @@ fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
     let mut index = 0usize;
 
     while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+
         match bytes[index] {
             b'*' | b'?' => {
                 spans.push(span_within_literal(span, source, index, index + 1));
@@ -826,7 +831,14 @@ fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
             }
             b'[' => {
                 let mut end = index + 1;
-                while end < bytes.len() && bytes[end] != b']' {
+                while end < bytes.len() {
+                    if bytes[end] == b'\\' {
+                        end = (end + 2).min(bytes.len());
+                        continue;
+                    }
+                    if bytes[end] == b']' {
+                        break;
+                    }
                     end += 1;
                 }
                 if end < bytes.len() {
@@ -1565,7 +1577,7 @@ mod tests {
 
     #[test]
     fn word_unquoted_glob_pattern_spans_track_unquoted_segments_only() {
-        let source = "echo foo*.txt \"bar?\" [ab] \"${name}\"*.tmp\n";
+        let source = "echo foo*.txt \"bar?\" [ab] \"${name}\"*.tmp \\*.bak foo\\?bar \\[ab\\]\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
@@ -1596,6 +1608,18 @@ mod tests {
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["*"]
+        );
+        assert!(
+            word_unquoted_glob_pattern_spans(&command.args[4], source).is_empty(),
+            "escaped wildcard should not be reported"
+        );
+        assert!(
+            word_unquoted_glob_pattern_spans(&command.args[5], source).is_empty(),
+            "escaped question mark should not be reported"
+        );
+        assert!(
+            word_unquoted_glob_pattern_spans(&command.args[6], source).is_empty(),
+            "escaped bracket expression should not be reported"
         );
     }
 
