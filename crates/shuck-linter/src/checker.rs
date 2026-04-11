@@ -830,6 +830,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AtSignInStringCompare) {
             rules::correctness::at_sign_in_string_compare::at_sign_in_string_compare(self);
         }
+        if self.is_rule_enabled(Rule::ArraySliceInComparison) {
+            rules::correctness::array_slice_in_comparison::array_slice_in_comparison(self);
+        }
         if self.is_rule_enabled(Rule::LiteralUnaryStringTest) {
             rules::correctness::literal_unary_string_test::literal_unary_string_test(self);
         }

@@ -1,0 +1,7 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 757
+    labels:
+      - project-closure
+    reason: "C112 is intentionally scoped to all-elements array-slice forms in string comparisons, while this SC2199 finding is for a non-slice `${sources[@]}` operand."

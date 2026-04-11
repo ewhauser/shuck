@@ -1,6 +1,7 @@
 pub mod append_to_array_as_string;
 pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
+pub mod array_slice_in_comparison;
 pub mod array_to_string_conversion;
 pub mod assignment_looks_like_comparison;
 pub mod assignment_to_numeric_variable;
@@ -184,6 +185,7 @@ mod tests {
     #[test_case(Rule::NonShellSyntaxInScript, Path::new("C104.sh"))]
     #[test_case(Rule::ExportWithPositionalParams, Path::new("C105.sh"))]
     #[test_case(Rule::AtSignInStringCompare, Path::new("C111.sh"))]
+    #[test_case(Rule::ArraySliceInComparison, Path::new("C112.sh"))]
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
     #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]

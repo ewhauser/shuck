@@ -136,7 +136,7 @@ impl Default for ShellCheckCodeMap {
             (2116, Rule::EchoInsideCommandSubstitution),
             (2143, Rule::GrepOutputInTest),
             (2198, Rule::AtSignInStringCompare),
-            (2199, Rule::AtSignInStringCompare),
+            (2199, Rule::ArraySliceInComparison),
             // ShellCheck 0.11.0 reports quoted array-to-scalar assignments as SC2124.
             // Keep SC2325 as a suppression alias for the authored C099 rule code.
             (2124, Rule::QuotedArraySlice),
@@ -511,7 +511,7 @@ impl Default for ShellCheckCodeMap {
                     (2263, Rule::RedundantSpacesInEcho),
                     (2143, Rule::GrepOutputInTest),
                     (2198, Rule::AtSignInStringCompare),
-                    (2199, Rule::AtSignInStringCompare),
+                    (2199, Rule::ArraySliceInComparison),
                     (2124, Rule::QuotedArraySlice),
                     (2294, Rule::LsInSubstitution),
                     (2291, Rule::UnquotedVariableInSed),
@@ -726,6 +726,7 @@ impl Default for ShellCheckCodeMap {
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
                 (2344, Rule::AtSignInStringCompare),
+                (2345, Rule::ArraySliceInComparison),
                 (2398, Rule::KeywordFunctionName),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
@@ -774,8 +775,9 @@ mod tests {
         assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(map.resolve("2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(map.resolve("SC2198"), Some(Rule::AtSignInStringCompare));
-        assert_eq!(map.resolve("SC2199"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(map.resolve("SC2199"), Some(Rule::ArraySliceInComparison));
         assert_eq!(map.resolve("SC2344"), Some(Rule::AtSignInStringCompare));
+        assert_eq!(map.resolve("SC2345"), Some(Rule::ArraySliceInComparison));
         assert_eq!(map.resolve("SC2124"), Some(Rule::QuotedArraySlice));
         assert_eq!(map.resolve("SC2325"), Some(Rule::QuotedArraySlice));
         assert_eq!(
@@ -839,8 +841,9 @@ mod tests {
         assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(map.resolve_all("SC2198"), vec![Rule::AtSignInStringCompare]);
-        assert_eq!(map.resolve_all("SC2199"), vec![Rule::AtSignInStringCompare]);
+        assert_eq!(map.resolve_all("SC2199"), vec![Rule::ArraySliceInComparison]);
         assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
+        assert_eq!(map.resolve_all("SC2345"), vec![Rule::ArraySliceInComparison]);
         assert_eq!(map.resolve_all("SC2124"), vec![Rule::QuotedArraySlice]);
         assert_eq!(map.resolve_all("SC2325"), vec![Rule::QuotedArraySlice]);
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
@@ -1369,6 +1372,7 @@ mod tests {
                 (2340, Rule::DeprecatedTempfileCommand),
                 (2342, Rule::EgrepDeprecated),
                 (2344, Rule::AtSignInStringCompare),
+                (2345, Rule::ArraySliceInComparison),
                 (2325, Rule::QuotedArraySlice),
                 (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
@@ -1688,7 +1692,7 @@ mod tests {
         assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
         assert!(comparison.contains(&(2198, Rule::AtSignInStringCompare)));
-        assert!(comparison.contains(&(2199, Rule::AtSignInStringCompare)));
+        assert!(comparison.contains(&(2199, Rule::ArraySliceInComparison)));
         assert!(comparison.contains(&(2124, Rule::QuotedArraySlice)));
         assert!(!comparison.contains(&(2325, Rule::QuotedArraySlice)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));

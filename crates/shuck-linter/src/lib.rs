@@ -49,7 +49,7 @@ pub use rules::common::span::{
     word_has_quoted_all_elements_array_slice, word_is_pure_positional_at_splat,
     word_has_unquoted_brace_expansion, word_literal_part_spans_excluding_parameter_operator_tails,
     word_literal_scan_segments_excluding_expansions, word_nested_zsh_substitution_spans,
-    word_all_elements_array_slice_spans,
+    word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
     word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
     word_quoted_all_elements_array_slice_spans,
     word_quoted_star_splat_spans, word_standalone_literal_backslash_span,

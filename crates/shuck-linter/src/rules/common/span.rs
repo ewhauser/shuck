@@ -87,6 +87,12 @@ pub fn word_has_quoted_all_elements_array_slice(word: &Word) -> bool {
     !word_quoted_all_elements_array_slice_spans(word).is_empty()
 }
 
+pub fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -> Option<Span> {
+    word_all_elements_array_slice_spans(word)
+        .into_iter()
+        .find(|span| !span_is_escaped(*span, source))
+}
+
 pub fn unquoted_array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_array_expansion_spans(&word.parts, false, true, &mut spans);
@@ -1791,6 +1797,7 @@ mod tests {
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
         word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
         word_all_elements_array_slice_spans, word_has_quoted_all_elements_array_slice,
+        word_all_elements_array_slice_span_in_source,
         word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
         word_has_folded_positional_at_splat, word_is_pure_positional_at_splat,
         word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
@@ -2228,6 +2235,24 @@ printf '%s\\n' \"${@:2}\" \"x${@:2}y\" \"${arr[@]:1}\" \"${arr[@]:1:2}\" ${@:2} 
         );
         assert!(word_has_quoted_all_elements_array_slice(&command.args[1]));
         assert!(!word_has_quoted_all_elements_array_slice(&command.args[5]));
+    }
+
+    #[test]
+    fn word_all_elements_array_slice_span_in_source_ignores_escaped_markers() {
+        let source = "printf '%s\\n' \"\\${arr[@]:1}\" \"${arr[@]:1}\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(word_all_elements_array_slice_span_in_source(&command.args[1], source).is_none());
+        assert_eq!(
+            word_all_elements_array_slice_span_in_source(&command.args[2], source)
+                .expect("expected array slice span")
+                .slice(source),
+            "${arr[@]:1}"
+        );
     }
 
     #[test]
