@@ -31,15 +31,17 @@ fn comparison_redirect_span(command: &CommandFact<'_>, source: &str) -> Option<S
         return None;
     }
 
+    let opening_bracket = command.body_word_span()?;
     let closing_bracket = command.body_args().last()?;
 
     command.redirect_facts().iter().find_map(|redirect| {
-        internal_plain_output_redirect_span(redirect, closing_bracket.span, source)
+        internal_plain_output_redirect_span(redirect, opening_bracket, closing_bracket.span, source)
     })
 }
 
 fn internal_plain_output_redirect_span(
     redirect: &RedirectFact<'_>,
+    opening_bracket_span: Span,
     closing_bracket_span: Span,
     source: &str,
 ) -> Option<Span> {
@@ -49,7 +51,9 @@ fn internal_plain_output_redirect_span(
     }
 
     let target = redirect_data.word_target()?;
-    if redirect_data.span.start.offset >= closing_bracket_span.start.offset {
+    if redirect_data.span.start.offset < opening_bracket_span.end.offset
+        || redirect_data.span.start.offset >= closing_bracket_span.start.offset
+    {
         return None;
     }
 
@@ -93,6 +97,7 @@ mod tests {
     fn ignores_redirects_after_the_test_and_non_operator_literals() {
         let source = "\
 #!/bin/bash
+>\"$log\" [ \"$value\" ]
 [ \"$value\" ] > \"$log\"
 [ \"$value\" \\> \"$other\" ]
 [ \"$value\" \">\" \"$other\" ]

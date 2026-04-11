@@ -79,11 +79,7 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
         .nodes()
         .iter()
         .filter_map(|node| match node {
-            ConditionalNodeFact::Unary(unary)
-                if unary.operator_family() == ConditionalOperatorFamily::StringUnary =>
-            {
-                unary.operand().word().map(|word| word.span)
-            }
+            ConditionalNodeFact::Unary(unary) => unary.operand().word().map(|word| word.span),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -266,6 +262,8 @@ mod tests {
 [ \"foo | bar\" = x ]
 [[ \"grep foo file\" = x ]]
 [[ -n \"echo hi\" ]]
+[[ -f \"foo | bar\" ]]
+[[ -x \"foo | bar\" ]]
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::QuotedCommandInTest));
