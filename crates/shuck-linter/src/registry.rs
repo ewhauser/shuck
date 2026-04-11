@@ -399,6 +399,7 @@ declare_rules! {
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
     ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
     ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
+    ("S020", Category::Style, Severity::Warning, SingleIterationLoop),
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
@@ -540,6 +541,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-245" => Some(Rule::DeprecatedTempfileCommand),
         "SH-247" => Some(Rule::EgrepDeprecated),
         "SH-071" => Some(Rule::GrepOutputInTest),
+        "SH-076" => Some(Rule::SingleIterationLoop),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
@@ -718,6 +720,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
         assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
         assert_eq!(code_to_rule("SH-057"), Some(Rule::LsGrepPipeline));
+        assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));
+        assert_eq!(code_to_rule("SH-076"), Some(Rule::SingleIterationLoop));
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));

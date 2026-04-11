@@ -449,6 +449,8 @@ fn context_allows_tilde(context: ExpansionContext) -> bool {
         context,
         ExpansionContext::CommandName
             | ExpansionContext::CommandArgument
+            | ExpansionContext::ForList
+            | ExpansionContext::SelectList
             | ExpansionContext::AssignmentValue
             | ExpansionContext::DeclarationAssignmentValue
             | ExpansionContext::StringTestOperand
@@ -462,6 +464,8 @@ fn context_allows_pathname_matching(context: ExpansionContext) -> bool {
         context,
         ExpansionContext::CommandName
             | ExpansionContext::CommandArgument
+            | ExpansionContext::ForList
+            | ExpansionContext::SelectList
             | ExpansionContext::DeclarationAssignmentValue
             | ExpansionContext::RedirectTarget(_)
     )
@@ -472,6 +476,8 @@ fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
         context,
         ExpansionContext::CommandName
             | ExpansionContext::CommandArgument
+            | ExpansionContext::ForList
+            | ExpansionContext::SelectList
             | ExpansionContext::AssignmentValue
             | ExpansionContext::DeclarationAssignmentValue
             | ExpansionContext::RedirectTarget(_)
@@ -1092,6 +1098,28 @@ mod tests {
         assert!(
             !analyze_literal_runtime(&words[4], source, ExpansionContext::CasePattern)
                 .is_runtime_sensitive()
+        );
+    }
+
+    #[test]
+    fn analyze_literal_runtime_treats_loop_lists_like_argument_lists() {
+        let source = "printf ~ *.sh {a,b}\n";
+        let words = parse_argument_words(source);
+
+        assert!(
+            analyze_literal_runtime(&words[0], source, ExpansionContext::ForList)
+                .hazards
+                .tilde_expansion
+        );
+        assert!(
+            analyze_literal_runtime(&words[1], source, ExpansionContext::ForList)
+                .hazards
+                .pathname_matching
+        );
+        assert!(
+            analyze_literal_runtime(&words[2], source, ExpansionContext::ForList)
+                .hazards
+                .brace_fanout
         );
     }
 }

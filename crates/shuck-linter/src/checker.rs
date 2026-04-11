@@ -491,6 +491,9 @@ impl<'a> Checker<'a> {
     }
 
     fn check_loop_list_and_pipeline_facts(&mut self) {
+        if self.is_rule_enabled(Rule::SingleIterationLoop) {
+            rules::style::single_iteration_loop::single_iteration_loop(self);
+        }
         if self.is_rule_enabled(Rule::LoopFromCommandOutput) {
             rules::style::loop_from_command_output::loop_from_command_output(self);
         }

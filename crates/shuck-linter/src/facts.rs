@@ -46,9 +46,9 @@ use self::{
 use crate::FileContext;
 use crate::context::ContextRegionKind;
 use crate::rules::common::expansion::{
-    ExpansionAnalysis, ExpansionContext, RedirectTargetAnalysis, SubstitutionOutputIntent,
-    WordExpansionKind, WordLiteralness, WordSubstitutionShape, analyze_literal_runtime,
-    analyze_redirect_target, analyze_word,
+    ExpansionAnalysis, ExpansionContext, RedirectTargetAnalysis, RuntimeLiteralAnalysis,
+    SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordSubstitutionShape,
+    analyze_literal_runtime, analyze_redirect_target, analyze_word,
 };
 use crate::rules::common::span::expansion_part_spans;
 use crate::rules::common::{
@@ -635,6 +635,7 @@ pub struct WordFact<'a> {
     context: WordFactContext,
     host_kind: WordFactHostKind,
     analysis: ExpansionAnalysis,
+    runtime_literal: RuntimeLiteralAnalysis,
     operand_class: Option<TestOperandClass>,
     static_text: Option<Box<str>>,
     has_literal_affixes: bool,
@@ -694,6 +695,10 @@ impl<'a> WordFact<'a> {
 
     pub fn analysis(&self) -> ExpansionAnalysis {
         self.analysis
+    }
+
+    pub fn runtime_literal(&self) -> RuntimeLiteralAnalysis {
+        self.runtime_literal
     }
 
     pub fn classification(&self) -> WordClassification {
@@ -5350,12 +5355,19 @@ impl<'a> WordFactCollector<'a> {
         self.collect_arithmetic_summary(word_ref, context, host_kind);
 
         let analysis = analyze_word(word_ref, self.source);
+        let runtime_literal = match context {
+            WordFactContext::Expansion(context) => {
+                analyze_literal_runtime(word_ref, self.source, context)
+            }
+            WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
+                RuntimeLiteralAnalysis::default()
+            }
+        };
         let operand_class = match context {
             WordFactContext::Expansion(context) if word_context_supports_operand_class(context) => {
                 Some(
                     if analysis.literalness == WordLiteralness::Expanded
-                        || analyze_literal_runtime(word_ref, self.source, context)
-                            .is_runtime_sensitive()
+                        || runtime_literal.is_runtime_sensitive()
                     {
                         TestOperandClass::RuntimeSensitive
                     } else {
@@ -5400,6 +5412,7 @@ impl<'a> WordFactCollector<'a> {
             context,
             host_kind,
             analysis,
+            runtime_literal,
             operand_class,
         });
     }
