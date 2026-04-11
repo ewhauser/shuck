@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 205
+---
+C086 `>` inside `[` redirects output instead of comparing values
+ --> <source>:4:14
+  |
+4 | [ "$version" > "10" ]
+  |
+
+C086 `>` inside `[` redirects output instead of comparing values
+ --> <source>:7:5
+  |
+7 | [ 1 > 2 ]
+  |

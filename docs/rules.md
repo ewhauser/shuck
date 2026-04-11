@@ -198,7 +198,7 @@ Rules about `[`, `[[`, test operators, and conditional structure. Use
 `simple_test()` and `conditional()` facts.
 
 - [x] **L** C082 (SC2302) `escaped-negation-in-test` — backslash-escaped `!` in test
-- [ ] **M** C086 (SC2308) `greater-than-in-test` — `>` in `[ ]` creates file instead of comparing
+- [x] **M** C086 (SC2308) `greater-than-in-test` — `>` in `[ ]` creates file instead of comparing
 - [ ] **M** C087 (SC2309) `string-comparison-for-version` — `<` in `[[ ]]` compares lexicographically
 - [ ] **M** C088 (SC2310) `mixed-and-or-in-condition` — `&&`/`||` without grouping in `[[ ]]`
 - [ ] **M** C089 (SC2311) `quoted-command-in-test` — pipeline quoted as string in test

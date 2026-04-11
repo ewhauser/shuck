@@ -397,6 +397,7 @@ impl Default for ShellCheckCodeMap {
             (2292, Rule::DollarInArithmetic),
             (2297, Rule::DollarInArithmeticContext),
             (2302, Rule::EscapedNegationInTest),
+            (2308, Rule::GreaterThanInTest),
             (2333, Rule::NonShellSyntaxInScript),
             // ShellCheck 0.11.0 reports `export "$@"`-style findings as SC2163.
             // Keep SC2334 as a suppression alias for the authored C105 rule code.
@@ -755,6 +756,15 @@ impl Default for ShellCheckCodeMap {
                 (2376, Rule::DoubleQuoteNesting),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
+                // ShellCheck 0.11.0 currently emits SC2057 for leading `\!` test operators.
+                // Keep SC2302 as the authored rule code and accept the oracle's live code too.
+                (2057, Rule::EscapedNegationInTest),
+                (2073, Rule::GreaterThanInTest),
+                (2072, Rule::StringComparisonForVersion),
+                (2081, Rule::GlobInTestComparison),
+                (2088, Rule::TildeInStringComparison),
+                (2091, Rule::IfDollarCommand),
+                (2092, Rule::BacktickInCommandPosition),
                 (2307, Rule::UnquotedVariableInTest),
                 (2300, Rule::UnquotedWordBetweenQuotes),
                 (2346, Rule::DefaultValueInColonAssign),
