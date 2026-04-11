@@ -235,7 +235,7 @@ contexts. Use word facts and expansion word facts.
 
 - [ ] **M** C096 (SC2320) `unquoted-pipe-in-echo` — pipe/brace in echo may be interpreted
 - [x] **M** C099 (SC2325) `quoted-array-slice` — quoted array slice prevents splitting
-- [ ] **M** C100 (SC2327) `quoted-bash-source` — `$BASH_SOURCE` quoted without array syntax
+- [x] **M** C100 (SC2327) `quoted-bash-source` — `$BASH_SOURCE` quoted without array syntax
 - [x] **M** C105 (SC2334) `export-with-positional-params` — export with `$@`
 - [x] **M** C111 (SC2344) `at-sign-in-string-compare` — `$@` in string comparison folds args
 - [x] **M** C112 (SC2345) `array-slice-in-comparison` — array slice in string comparison

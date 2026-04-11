@@ -318,6 +318,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::QuotedArraySlice) {
             rules::correctness::quoted_array_slice::quoted_array_slice(self);
         }
+        if self.is_rule_enabled(Rule::QuotedBashSource) {
+            rules::correctness::quoted_bash_source::quoted_bash_source(self);
+        }
         if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
             rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
         }

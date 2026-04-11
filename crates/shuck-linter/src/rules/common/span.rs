@@ -93,6 +93,15 @@ pub fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -
         .find(|span| !span_is_escaped(*span, source))
 }
 
+pub fn word_quoted_unindexed_bash_source_span_in_source(
+    word: &Word,
+    source: &str,
+) -> Option<Span> {
+    let mut spans = Vec::new();
+    collect_quoted_unindexed_bash_source_spans(&word.parts, false, source, &mut spans);
+    spans.into_iter().next()
+}
+
 pub fn unquoted_array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_array_expansion_spans(&word.parts, false, true, &mut spans);
@@ -618,6 +627,35 @@ fn collect_all_elements_array_slice_spans(
             }
             _ if (!only_quoted || quoted) && part_uses_all_elements_array_slice(&part.kind) => {
                 spans.push(part.span)
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_quoted_unindexed_bash_source_spans(
+    parts: &[WordPartNode],
+    quoted: bool,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_quoted_unindexed_bash_source_spans(parts, true, source, spans)
+            }
+            WordPart::Variable(name)
+                if quoted && name.as_str() == "BASH_SOURCE" && !span_is_escaped(part.span, source) =>
+            {
+                spans.push(part.span);
+            }
+            WordPart::Parameter(parameter)
+                if quoted
+                    && parameter_is_unindexed_bash_source(parameter)
+                    && !span_is_escaped(part.span, source) =>
+            {
+                spans.push(part.span);
             }
             _ => {}
         }
@@ -1668,6 +1706,18 @@ fn parameter_uses_all_elements_array_slice(parameter: &ParameterExpansion) -> bo
     )
 }
 
+fn parameter_is_unindexed_bash_source(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    matches!(
+        syntax,
+        BourneParameterExpansion::Access { reference }
+            if reference.name.as_str() == "BASH_SOURCE" && reference.subscript.is_none()
+    )
+}
+
 fn parameter_uses_star_splat(parameter: &ParameterExpansion) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
@@ -1803,6 +1853,7 @@ mod tests {
         word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
         word_quoted_all_elements_array_slice_spans,
         word_has_unquoted_brace_expansion, word_unquoted_glob_pattern_spans,
+        word_quoted_unindexed_bash_source_span_in_source,
         word_quoted_star_splat_spans, word_unquoted_star_splat_spans,
     };
 
@@ -2252,6 +2303,40 @@ printf '%s\\n' \"${@:2}\" \"x${@:2}y\" \"${arr[@]:1}\" \"${arr[@]:1:2}\" ${@:2} 
                 .expect("expected array slice span")
                 .slice(source),
             "${arr[@]:1}"
+        );
+    }
+
+    #[test]
+    fn word_quoted_unindexed_bash_source_span_in_source_tracks_scalar_forms() {
+        let source = "\
+printf '%s\\n' \"$BASH_SOURCE\" \"${BASH_SOURCE}\" \"$(dirname \"$BASH_SOURCE\")\" \"${BASH_SOURCE[0]}\" \"\\$BASH_SOURCE\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            word_quoted_unindexed_bash_source_span_in_source(&command.args[1], source)
+                .expect("expected BASH_SOURCE span")
+                .slice(source),
+            "$BASH_SOURCE"
+        );
+        assert_eq!(
+            word_quoted_unindexed_bash_source_span_in_source(&command.args[2], source)
+                .expect("expected BASH_SOURCE span")
+                .slice(source),
+            "${BASH_SOURCE}"
+        );
+        assert!(
+            word_quoted_unindexed_bash_source_span_in_source(&command.args[3], source).is_none()
+        );
+        assert!(
+            word_quoted_unindexed_bash_source_span_in_source(&command.args[4], source).is_none()
+        );
+        assert!(
+            word_quoted_unindexed_bash_source_span_in_source(&command.args[5], source).is_none()
         );
     }
 

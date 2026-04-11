@@ -140,6 +140,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports quoted array-to-scalar assignments as SC2124.
             // Keep SC2325 as a suppression alias for the authored C099 rule code.
             (2124, Rule::QuotedArraySlice),
+            // ShellCheck 0.11.0 reports quoted unindexed BASH_SOURCE expansions as SC2128.
+            // Keep SC2327 as a suppression alias for the authored C100 rule code.
+            (2128, Rule::QuotedBashSource),
             (2006, Rule::LegacyBackticks),
             (2007, Rule::LegacyArithmeticExpansion),
             (2009, Rule::PsGrepPipeline),
@@ -513,6 +516,7 @@ impl Default for ShellCheckCodeMap {
                     (2198, Rule::AtSignInStringCompare),
                     (2199, Rule::ArraySliceInComparison),
                     (2124, Rule::QuotedArraySlice),
+                    (2128, Rule::QuotedBashSource),
                     (2294, Rule::LsInSubstitution),
                     (2291, Rule::UnquotedVariableInSed),
                     (2060, Rule::UnquotedTrClass),
@@ -727,6 +731,7 @@ impl Default for ShellCheckCodeMap {
                 (2388, Rule::BadVarName),
                 (2344, Rule::AtSignInStringCompare),
                 (2345, Rule::ArraySliceInComparison),
+                (2327, Rule::QuotedBashSource),
                 (2398, Rule::KeywordFunctionName),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
@@ -780,6 +785,8 @@ mod tests {
         assert_eq!(map.resolve("SC2345"), Some(Rule::ArraySliceInComparison));
         assert_eq!(map.resolve("SC2124"), Some(Rule::QuotedArraySlice));
         assert_eq!(map.resolve("SC2325"), Some(Rule::QuotedArraySlice));
+        assert_eq!(map.resolve("SC2128"), Some(Rule::QuotedBashSource));
+        assert_eq!(map.resolve("SC2327"), Some(Rule::QuotedBashSource));
         assert_eq!(
             map.resolve_all("SC2009"),
             vec![Rule::PsGrepPipeline, Rule::DoubleParenGrouping]
@@ -846,6 +853,8 @@ mod tests {
         assert_eq!(map.resolve_all("SC2345"), vec![Rule::ArraySliceInComparison]);
         assert_eq!(map.resolve_all("SC2124"), vec![Rule::QuotedArraySlice]);
         assert_eq!(map.resolve_all("SC2325"), vec![Rule::QuotedArraySlice]);
+        assert_eq!(map.resolve_all("SC2128"), vec![Rule::QuotedBashSource]);
+        assert_eq!(map.resolve_all("SC2327"), vec![Rule::QuotedBashSource]);
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
@@ -1374,6 +1383,7 @@ mod tests {
                 (2344, Rule::AtSignInStringCompare),
                 (2345, Rule::ArraySliceInComparison),
                 (2325, Rule::QuotedArraySlice),
+                (2327, Rule::QuotedBashSource),
                 (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
             (2298, Rule::UnquotedTrRange),
@@ -1695,6 +1705,8 @@ mod tests {
         assert!(comparison.contains(&(2199, Rule::ArraySliceInComparison)));
         assert!(comparison.contains(&(2124, Rule::QuotedArraySlice)));
         assert!(!comparison.contains(&(2325, Rule::QuotedArraySlice)));
+        assert!(comparison.contains(&(2128, Rule::QuotedBashSource)));
+        assert!(!comparison.contains(&(2327, Rule::QuotedBashSource)));
         assert!(comparison.contains(&(2283, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2219, Rule::AvoidLetBuiltin)));
         assert!(comparison.contains(&(2066, Rule::QuotedDollarStarLoop)));

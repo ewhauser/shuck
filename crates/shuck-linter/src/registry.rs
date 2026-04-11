@@ -185,6 +185,12 @@ declare_rules! {
         QuotedArraySlice
     ),
     (
+        "C100",
+        Category::Correctness,
+        Severity::Warning,
+        QuotedBashSource
+    ),
+    (
         "C101",
         Category::Correctness,
         Severity::Warning,
@@ -670,6 +676,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-210" => Some(Rule::UnquotedGrepRegex),
         "SH-229" => Some(Rule::SetFlagsWithoutDashes),
         "SH-230" => Some(Rule::QuotedArraySlice),
+        "SH-232" => Some(Rule::QuotedBashSource),
         "SH-233" => Some(Rule::CommandSubstitutionInAlias),
         "SH-235" => Some(Rule::FunctionInAlias),
         "SH-237" => Some(Rule::FindOrWithoutGrouping),
@@ -997,6 +1004,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-229"), Some(Rule::SetFlagsWithoutDashes));
         assert_eq!(code_to_rule("C099"), Some(Rule::QuotedArraySlice));
         assert_eq!(code_to_rule("SH-230"), Some(Rule::QuotedArraySlice));
+        assert_eq!(code_to_rule("C100"), Some(Rule::QuotedBashSource));
+        assert_eq!(code_to_rule("SH-232"), Some(Rule::QuotedBashSource));
         assert_eq!(
             code_to_rule("SH-233"),
             Some(Rule::CommandSubstitutionInAlias)

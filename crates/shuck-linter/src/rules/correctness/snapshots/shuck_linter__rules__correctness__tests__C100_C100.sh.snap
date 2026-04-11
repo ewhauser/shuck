@@ -1,0 +1,44 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C100 quoted BASH_SOURCE expansions should use an explicit array index
+ --> <source>:6:4
+  |
+6 | x="$BASH_SOURCE"
+  |
+
+C100 quoted BASH_SOURCE expansions should use an explicit array index
+ --> <source>:7:4
+  |
+7 | y="${BASH_SOURCE}"
+  |
+
+C100 quoted BASH_SOURCE expansions should use an explicit array index
+ --> <source>:8:16
+  |
+8 | printf '%s\n' "$BASH_SOURCE" "${BASH_SOURCE}"
+  |
+
+C100 quoted BASH_SOURCE expansions should use an explicit array index
+ --> <source>:8:31
+  |
+8 | printf '%s\n' "$BASH_SOURCE" "${BASH_SOURCE}"
+  |
+
+C100 quoted BASH_SOURCE expansions should use an explicit array index
+ --> <source>:9:20
+  |
+9 | source "$(dirname "$BASH_SOURCE")/helper.bash"
+  |
+
+C100 quoted BASH_SOURCE expansions should use an explicit array index
+  --> <source>:10:8
+   |
+10 | if [[ "$BASH_SOURCE" == "main.bash" ]]; then :; fi
+   |
+
+C100 quoted BASH_SOURCE expansions should use an explicit array index
+  --> <source>:11:14
+   |
+11 | for item in "$BASH_SOURCE"; do
+   |

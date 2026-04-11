@@ -1,0 +1,13 @@
+comparison_target_notes:
+  - current_shellcheck_code: "SC2128"
+    reason: "Current ShellCheck releases emit SC2128 for many unindexed array expansions, while C100 is authored for quoted BASH_SOURCE scalar access."
+reviewed_divergences:
+  - side: shellcheck-only
+    reason: "C100 is intentionally scoped to quoted BASH_SOURCE scalar expansions, while the oracle's SC2128 check also reports broader unindexed array and array-to-scalar patterns."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 146
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This helper fixture hits a ShellCheck parse abort before full analysis, so SC2128 is not emitted while shuck still reports the quoted BASH_SOURCE scalar expansion."

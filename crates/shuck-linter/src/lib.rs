@@ -52,6 +52,7 @@ pub use rules::common::span::{
     word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
     word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
     word_quoted_all_elements_array_slice_spans,
+    word_quoted_unindexed_bash_source_span_in_source,
     word_quoted_star_splat_spans, word_standalone_literal_backslash_span,
     word_unquoted_glob_pattern_spans, word_unquoted_star_parameter_spans,
     word_unquoted_star_splat_spans, word_zsh_flag_modifier_spans,
