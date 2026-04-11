@@ -884,6 +884,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::StringComparisonForVersion) {
             rules::correctness::string_comparison_for_version::string_comparison_for_version(self);
         }
+        if self.is_rule_enabled(Rule::MixedAndOrInCondition) {
+            rules::correctness::mixed_and_or_in_condition::mixed_and_or_in_condition(self);
+        }
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
         }

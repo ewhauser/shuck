@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 209
+---
+C088 mixing `&&` and `||` inside `[[ ... ]]` needs parentheses to stay clear
+ --> <source>:4:19
+  |
+4 | [[ -n $a && -n $b || -n $c ]]
+  |
+
+C088 mixing `&&` and `||` inside `[[ ... ]]` needs parentheses to stay clear
+ --> <source>:7:10
+  |
+7 | [[ -n $a || -n $b && -n $c ]]
+  |
+
+C088 mixing `&&` and `||` inside `[[ ... ]]` needs parentheses to stay clear
+  --> <source>:10:21
+   |
+10 | [[ ( -n $a && -n $b || -n $c ) && -n $d ]]
+   |

@@ -1,0 +1,8 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__clvk__build.sh"
+    line: 73
+    end_line: 73
+    column: 54
+    end_column: 56
+    reason: "This `[[ ... ]]` chain mixes `||` and `&&` without any inner grouping. Shuck keeps warning on that readability hazard even though the pinned ShellCheck oracle stays silent on this fixture."

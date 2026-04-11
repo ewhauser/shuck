@@ -383,6 +383,7 @@ impl<'a> ConditionalNodeFact<'a> {
 #[derive(Debug, Clone)]
 pub struct ConditionalFact<'a> {
     nodes: Box<[ConditionalNodeFact<'a>]>,
+    mixed_logical_operator_spans: Box<[Span]>,
 }
 
 impl<'a> ConditionalFact<'a> {
@@ -396,6 +397,10 @@ impl<'a> ConditionalFact<'a> {
 
     pub fn nodes(&self) -> &[ConditionalNodeFact<'a>] {
         &self.nodes
+    }
+
+    pub fn mixed_logical_operator_spans(&self) -> &[Span] {
+        &self.mixed_logical_operator_spans
     }
 
     pub fn regex_nodes(&self) -> impl Iterator<Item = &ConditionalBinaryFact<'a>> + '_ {
@@ -6556,9 +6561,82 @@ fn build_conditional_fact<'a>(command: &'a Command, source: &str) -> Option<Cond
     };
     let mut nodes = Vec::new();
     collect_conditional_nodes(&command.expression, source, &mut nodes);
+    let mut mixed_logical_operator_spans = Vec::new();
+    collect_mixed_logical_operator_spans(
+        &command.expression,
+        false,
+        &mut mixed_logical_operator_spans,
+    );
     (!nodes.is_empty()).then_some(ConditionalFact {
         nodes: nodes.into_boxed_slice(),
+        mixed_logical_operator_spans: mixed_logical_operator_spans.into_boxed_slice(),
     })
+}
+
+fn collect_mixed_logical_operator_spans(
+    expression: &ConditionalExpr,
+    parent_in_same_logical_group: bool,
+    spans: &mut Vec<Span>,
+) {
+    match expression {
+        ConditionalExpr::Parenthesized(parenthesized) => {
+            collect_mixed_logical_operator_spans(&parenthesized.expr, false, spans);
+        }
+        ConditionalExpr::Unary(unary) => {
+            collect_mixed_logical_operator_spans(&unary.expr, false, spans);
+        }
+        ConditionalExpr::Binary(binary) => {
+            let left_continues_group = matches!(
+                binary.left.as_ref(),
+                ConditionalExpr::Binary(left)
+                    if matches!(left.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
+            );
+            let right_continues_group = matches!(
+                binary.right.as_ref(),
+                ConditionalExpr::Binary(right)
+                    if matches!(right.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
+            );
+
+            collect_mixed_logical_operator_spans(&binary.left, left_continues_group, spans);
+            collect_mixed_logical_operator_spans(&binary.right, right_continues_group, spans);
+
+            if matches!(
+                binary.op,
+                ConditionalBinaryOp::And | ConditionalBinaryOp::Or
+            ) && !parent_in_same_logical_group
+                && logical_operator_mask(expression) == (LOGICAL_AND_MASK | LOGICAL_OR_MASK)
+            {
+                spans.push(binary.op_span);
+            }
+        }
+        ConditionalExpr::Word(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => {}
+    }
+}
+
+const LOGICAL_AND_MASK: u8 = 0b01;
+const LOGICAL_OR_MASK: u8 = 0b10;
+
+fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
+    match expression {
+        ConditionalExpr::Parenthesized(_) => 0,
+        ConditionalExpr::Unary(unary) => logical_operator_mask(&unary.expr),
+        ConditionalExpr::Binary(binary) => {
+            let own = match binary.op {
+                ConditionalBinaryOp::And => LOGICAL_AND_MASK,
+                ConditionalBinaryOp::Or => LOGICAL_OR_MASK,
+                _ => 0,
+            };
+
+            own | logical_operator_mask(&binary.left) | logical_operator_mask(&binary.right)
+        }
+        ConditionalExpr::Word(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => 0,
+    }
 }
 
 fn collect_conditional_nodes<'a>(
@@ -10616,11 +10694,47 @@ for version ($versions); do :; done
                 regex.right().word().map(|word| word.span.slice(source)),
                 Some("^\"foo\"bar$")
             );
+            assert!(logical.mixed_logical_operator_spans().is_empty());
             assert!(
                 regex
                     .right()
                     .quote()
                     .is_some_and(|quote| quote != crate::rules::common::word::WordQuote::Unquoted)
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_parenthesized_logical_groups_separate_for_mixed_operator_detection() {
+        let source = "\
+#!/bin/bash
+[[ -n $a && -n $b || -n $c ]]
+[[ -n $a && ( -n $b || -n $c ) ]]
+[[ ( -n $a && -n $b || -n $c ) && -n $d ]]
+";
+
+        with_facts(source, None, |_, facts| {
+            let conditionals = facts
+                .structural_commands()
+                .filter_map(|fact| fact.conditional())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                conditionals[0]
+                    .mixed_logical_operator_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["||"]
+            );
+            assert!(conditionals[1].mixed_logical_operator_spans().is_empty());
+            assert_eq!(
+                conditionals[2]
+                    .mixed_logical_operator_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["||"]
             );
         });
     }

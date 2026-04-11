@@ -179,6 +179,12 @@ declare_rules! {
         StringComparisonForVersion
     ),
     (
+        "C088",
+        Category::Correctness,
+        Severity::Warning,
+        MixedAndOrInCondition
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -662,6 +668,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-207" => Some(Rule::EscapedNegationInTest),
         "SH-213" => Some(Rule::GreaterThanInTest),
         "SH-214" => Some(Rule::StringComparisonForVersion),
+        "SH-215" => Some(Rule::MixedAndOrInCondition),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),
