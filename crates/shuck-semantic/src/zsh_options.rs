@@ -2,8 +2,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
 
 use crate::cfg::{
-    RecordedCaseArm, RecordedCommand, RecordedCommandKind, RecordedPipelineSegment,
-    RecordedProgram, RecordedZshCommandEffect, RecordedZshOptionUpdate,
+    RecordedCaseArmRange, RecordedCommand, RecordedCommandId, RecordedCommandKind,
+    RecordedCommandRange, RecordedElifBranchRange, RecordedPipelineSegmentRange, RecordedProgram,
+    RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 use crate::{Binding, BindingKind, Scope, ScopeId, ScopeKind, SpanKey};
 
@@ -203,7 +204,7 @@ pub(crate) fn analyze(
 
     analyzer.analyze_sequence(
         ScopeId(0),
-        &recorded_program.file_commands,
+        recorded_program.file_commands(),
         EvalState::new(entry),
         LeakBehavior::Always,
     );
@@ -261,16 +262,30 @@ struct Analyzer<'a> {
 }
 
 impl<'a> Analyzer<'a> {
+    fn analyze_single_command_sequence(
+        &mut self,
+        scope: ScopeId,
+        command: RecordedCommandId,
+        state: EvalState,
+        leak: LeakBehavior,
+    ) -> EvalState {
+        self.record_scope_entry(scope, &state.current.public);
+        let recorded = self.recorded_program.command(command);
+        self.record_snapshot(scope, recorded.span.start.offset, &state.current.public);
+        self.analyze_command(scope, command, state, leak)
+    }
+
     fn analyze_sequence(
         &mut self,
         scope: ScopeId,
-        commands: &[RecordedCommand],
+        commands: RecordedCommandRange,
         mut state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
         self.record_scope_entry(scope, &state.current.public);
-        for command in commands {
-            self.record_snapshot(scope, command.span.start.offset, &state.current.public);
+        for &command in self.recorded_program.commands_in(commands) {
+            let recorded = self.recorded_program.command(command);
+            self.record_snapshot(scope, recorded.span.start.offset, &state.current.public);
             state = self.analyze_command(scope, command, state, leak);
         }
         state
@@ -279,14 +294,15 @@ impl<'a> Analyzer<'a> {
     fn analyze_command(
         &mut self,
         scope: ScopeId,
-        command: &RecordedCommand,
+        command: RecordedCommandId,
         state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        for region in &command.nested_regions {
+        let command = self.recorded_program.command(command);
+        for region in self.recorded_program.nested_regions(command.nested_regions) {
             self.analyze_sequence(
                 region.scope,
-                &region.commands,
+                region.commands,
                 EvalState::new(state.current.clone()),
                 LeakBehavior::Never,
             );
@@ -299,9 +315,10 @@ impl<'a> Analyzer<'a> {
             | RecordedCommandKind::Return
             | RecordedCommandKind::Exit => self.analyze_linear_command(scope, command, state, leak),
             RecordedCommandKind::List { first, rest } => {
-                let mut list_state = self.analyze_command(scope, first, state, leak);
-                for (_operator, command) in rest {
-                    let branch = self.analyze_command(scope, command, list_state.clone(), leak);
+                let mut list_state = self.analyze_command(scope, *first, state, leak);
+                for item in self.recorded_program.list_items(*rest) {
+                    let branch =
+                        self.analyze_command(scope, item.command, list_state.clone(), leak);
                     list_state = list_state.merge(&branch);
                 }
                 list_state
@@ -314,38 +331,38 @@ impl<'a> Analyzer<'a> {
             } => self.analyze_if(
                 scope,
                 &state,
-                condition,
-                then_branch,
-                elif_branches,
-                else_branch,
+                *condition,
+                *then_branch,
+                *elif_branches,
+                *else_branch,
                 leak,
             ),
             RecordedCommandKind::While { condition, body }
             | RecordedCommandKind::Until { condition, body } => {
-                let after_condition = self.analyze_sequence(scope, condition, state.clone(), leak);
-                let iterated = self.analyze_sequence(scope, body, after_condition.clone(), leak);
+                let after_condition = self.analyze_sequence(scope, *condition, state.clone(), leak);
+                let iterated = self.analyze_sequence(scope, *body, after_condition.clone(), leak);
                 after_condition.merge(&iterated)
             }
             RecordedCommandKind::For { body }
             | RecordedCommandKind::Select { body }
             | RecordedCommandKind::ArithmeticFor { body }
             | RecordedCommandKind::BraceGroup { body } => {
-                let iterated = self.analyze_sequence(scope, body, state.clone(), leak);
+                let iterated = self.analyze_sequence(scope, *body, state.clone(), leak);
                 state.merge(&iterated)
             }
-            RecordedCommandKind::Case { arms } => self.analyze_case(scope, &state, arms, leak),
+            RecordedCommandKind::Case { arms } => self.analyze_case(scope, &state, *arms, leak),
             RecordedCommandKind::Subshell { body } => {
                 self.analyze_sequence(
                     self.subshell_scope_for(command.span.start.offset)
                         .unwrap_or(scope),
-                    body,
+                    *body,
                     EvalState::new(state.current.clone()),
                     LeakBehavior::Never,
                 );
                 state
             }
             RecordedCommandKind::Pipeline { segments } => {
-                self.analyze_pipeline(scope, &state, segments, leak)
+                self.analyze_pipeline(scope, &state, *segments, leak)
             }
         }
     }
@@ -355,19 +372,20 @@ impl<'a> Analyzer<'a> {
         &mut self,
         scope: ScopeId,
         state: &EvalState,
-        condition: &[RecordedCommand],
-        then_branch: &[RecordedCommand],
-        elif_branches: &[(Vec<RecordedCommand>, Vec<RecordedCommand>)],
-        else_branch: &[RecordedCommand],
+        condition: RecordedCommandRange,
+        then_branch: RecordedCommandRange,
+        elif_branches: RecordedElifBranchRange,
+        else_branch: RecordedCommandRange,
         leak: LeakBehavior,
     ) -> EvalState {
         let after_condition = self.analyze_sequence(scope, condition, state.clone(), leak);
         let mut merged = self.analyze_sequence(scope, then_branch, after_condition.clone(), leak);
 
-        for (elif_condition, elif_body) in elif_branches {
+        for elif_branch in self.recorded_program.elif_branches(elif_branches) {
             let after_elif_condition =
-                self.analyze_sequence(scope, elif_condition, after_condition.clone(), leak);
-            let elif_result = self.analyze_sequence(scope, elif_body, after_elif_condition, leak);
+                self.analyze_sequence(scope, elif_branch.condition, after_condition.clone(), leak);
+            let elif_result =
+                self.analyze_sequence(scope, elif_branch.body, after_elif_condition, leak);
             merged = merged.merge(&elif_result);
         }
 
@@ -383,12 +401,12 @@ impl<'a> Analyzer<'a> {
         &mut self,
         scope: ScopeId,
         state: &EvalState,
-        arms: &[RecordedCaseArm],
+        arms: RecordedCaseArmRange,
         leak: LeakBehavior,
     ) -> EvalState {
         let mut merged = state.clone();
-        for arm in arms {
-            let arm_result = self.analyze_sequence(scope, &arm.commands, state.clone(), leak);
+        for arm in self.recorded_program.case_arms(arms) {
+            let arm_result = self.analyze_sequence(scope, arm.commands, state.clone(), leak);
             merged = merged.merge(&arm_result);
             if arm.matches_anything {
                 return merged;
@@ -401,18 +419,19 @@ impl<'a> Analyzer<'a> {
         &mut self,
         _scope: ScopeId,
         state: &EvalState,
-        segments: &[RecordedPipelineSegment],
+        segments: RecordedPipelineSegmentRange,
         leak: LeakBehavior,
     ) -> EvalState {
         let mut result = state.clone();
         let emulation = state.current.emulation;
+        let segments = self.recorded_program.pipeline_segments(segments);
 
         if emulation == EmulationState::Unknown {
             let mut touched = FxHashSet::default();
             for segment in segments {
-                let segment_result = self.analyze_sequence(
+                let segment_result = self.analyze_single_command_sequence(
                     segment.scope,
-                    std::slice::from_ref(&segment.command),
+                    segment.command,
                     EvalState::new(state.current.clone()),
                     LeakBehavior::Never,
                 );
@@ -430,9 +449,9 @@ impl<'a> Analyzer<'a> {
             } else {
                 leak
             };
-            let segment_result = self.analyze_sequence(
+            let segment_result = self.analyze_single_command_sequence(
                 segment.scope,
-                std::slice::from_ref(&segment.command),
+                segment.command,
                 EvalState::new(state.current.clone()),
                 segment_leak,
             );
@@ -510,12 +529,7 @@ impl<'a> Analyzer<'a> {
             };
         }
 
-        let body = self
-            .recorded_program
-            .function_bodies
-            .get(&scope)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
+        let body = self.recorded_program.function_body(scope);
         let result = self.analyze_sequence(scope, body, entry, LeakBehavior::Function);
         self.active_function_scopes.remove(&scope);
         FunctionSummary {

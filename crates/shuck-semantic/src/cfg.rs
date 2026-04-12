@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{CaseTerminator, Span};
 use shuck_parser::ZshEmulationMode;
+use std::marker::PhantomData;
 
 use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
 
@@ -101,28 +102,95 @@ impl ControlFlowGraph {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct RecordedProgram {
-    pub(crate) file_commands: Vec<RecordedCommand>,
-    pub(crate) function_bodies: FxHashMap<ScopeId, Vec<RecordedCommand>>,
+    file_commands: RecordedCommandRange,
+    function_bodies: FxHashMap<ScopeId, RecordedCommandRange>,
+    commands: Vec<RecordedCommand>,
+    command_sequence_items: Vec<RecordedCommandId>,
+    isolated_regions: Vec<IsolatedRegion>,
+    case_arms: Vec<RecordedCaseArm>,
+    pipeline_segments: Vec<RecordedPipelineSegment>,
+    list_items: Vec<RecordedListItem>,
+    elif_branches: Vec<RecordedElifBranch>,
     pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
     pub(crate) function_body_scopes: FxHashMap<BindingId, ScopeId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct RecordedCommandId(u32);
+
+impl RecordedCommandId {
+    pub(crate) fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RecordedRange<T> {
+    start: u32,
+    len: u32,
+    marker: PhantomData<fn() -> T>,
+}
+
+impl<T> RecordedRange<T> {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            start: 0,
+            len: 0,
+            marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn new(start: usize, len: usize) -> Self {
+        Self {
+            start: u32::try_from(start).expect("recorded IR start fits in u32"),
+            len: u32::try_from(len).expect("recorded IR length fits in u32"),
+            marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn len(self) -> usize {
+        self.len as usize
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn slice(self, store: &[T]) -> &[T] {
+        let start = self.start as usize;
+        &store[start..start + self.len()]
+    }
+}
+
+impl<T> Default for RecordedRange<T> {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+pub(crate) type RecordedCommandRange = RecordedRange<RecordedCommandId>;
+pub(crate) type RecordedRegionRange = RecordedRange<IsolatedRegion>;
+pub(crate) type RecordedCaseArmRange = RecordedRange<RecordedCaseArm>;
+pub(crate) type RecordedPipelineSegmentRange = RecordedRange<RecordedPipelineSegment>;
+pub(crate) type RecordedListItemRange = RecordedRange<RecordedListItem>;
+pub(crate) type RecordedElifBranchRange = RecordedRange<RecordedElifBranch>;
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedCommand {
     pub(crate) span: Span,
-    pub(crate) nested_regions: Vec<IsolatedRegion>,
+    pub(crate) nested_regions: RecordedRegionRange,
     pub(crate) kind: RecordedCommandKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct IsolatedRegion {
     pub(crate) scope: ScopeId,
-    pub(crate) commands: Vec<RecordedCommand>,
+    pub(crate) commands: RecordedCommandRange,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum RecordedCommandKind {
     Linear,
     Break {
@@ -134,57 +202,69 @@ pub(crate) enum RecordedCommandKind {
     Return,
     Exit,
     List {
-        first: Box<RecordedCommand>,
-        rest: Vec<(RecordedListOperator, RecordedCommand)>,
+        first: RecordedCommandId,
+        rest: RecordedListItemRange,
     },
     If {
-        condition: Vec<RecordedCommand>,
-        then_branch: Vec<RecordedCommand>,
-        elif_branches: Vec<(Vec<RecordedCommand>, Vec<RecordedCommand>)>,
-        else_branch: Vec<RecordedCommand>,
+        condition: RecordedCommandRange,
+        then_branch: RecordedCommandRange,
+        elif_branches: RecordedElifBranchRange,
+        else_branch: RecordedCommandRange,
     },
     While {
-        condition: Vec<RecordedCommand>,
-        body: Vec<RecordedCommand>,
+        condition: RecordedCommandRange,
+        body: RecordedCommandRange,
     },
     Until {
-        condition: Vec<RecordedCommand>,
-        body: Vec<RecordedCommand>,
+        condition: RecordedCommandRange,
+        body: RecordedCommandRange,
     },
     For {
-        body: Vec<RecordedCommand>,
+        body: RecordedCommandRange,
     },
     Select {
-        body: Vec<RecordedCommand>,
+        body: RecordedCommandRange,
     },
     ArithmeticFor {
-        body: Vec<RecordedCommand>,
+        body: RecordedCommandRange,
     },
     Case {
-        arms: Vec<RecordedCaseArm>,
+        arms: RecordedCaseArmRange,
     },
     BraceGroup {
-        body: Vec<RecordedCommand>,
+        body: RecordedCommandRange,
     },
     Subshell {
-        body: Vec<RecordedCommand>,
+        body: RecordedCommandRange,
     },
     Pipeline {
-        segments: Vec<RecordedPipelineSegment>,
+        segments: RecordedPipelineSegmentRange,
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedCaseArm {
     pub(crate) terminator: CaseTerminator,
     pub(crate) matches_anything: bool,
-    pub(crate) commands: Vec<RecordedCommand>,
+    pub(crate) commands: RecordedCommandRange,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedPipelineSegment {
     pub(crate) scope: ScopeId,
-    pub(crate) command: RecordedCommand,
+    pub(crate) command: RecordedCommandId,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordedListItem {
+    pub(crate) operator: RecordedListOperator,
+    pub(crate) command: RecordedCommandId,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordedElifBranch {
+    pub(crate) condition: RecordedCommandRange,
+    pub(crate) body: RecordedCommandRange,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -216,6 +296,120 @@ pub(crate) enum RecordedListOperator {
     Or,
 }
 
+impl RecordedProgram {
+    pub(crate) fn file_commands(&self) -> RecordedCommandRange {
+        self.file_commands
+    }
+
+    pub(crate) fn set_file_commands(&mut self, commands: RecordedCommandRange) {
+        self.file_commands = commands;
+    }
+
+    pub(crate) fn function_body(&self, scope: ScopeId) -> RecordedCommandRange {
+        self.function_bodies
+            .get(&scope)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn set_function_body(&mut self, scope: ScopeId, commands: RecordedCommandRange) {
+        self.function_bodies.insert(scope, commands);
+    }
+
+    pub(crate) fn function_bodies(&self) -> &FxHashMap<ScopeId, RecordedCommandRange> {
+        &self.function_bodies
+    }
+
+    pub(crate) fn command(&self, id: RecordedCommandId) -> &RecordedCommand {
+        &self.commands[id.index()]
+    }
+
+    pub(crate) fn command_mut(&mut self, id: RecordedCommandId) -> &mut RecordedCommand {
+        &mut self.commands[id.index()]
+    }
+
+    pub(crate) fn commands_in(&self, range: RecordedCommandRange) -> &[RecordedCommandId] {
+        range.slice(&self.command_sequence_items)
+    }
+
+    pub(crate) fn nested_regions(&self, range: RecordedRegionRange) -> &[IsolatedRegion] {
+        range.slice(&self.isolated_regions)
+    }
+
+    pub(crate) fn case_arms(&self, range: RecordedCaseArmRange) -> &[RecordedCaseArm] {
+        range.slice(&self.case_arms)
+    }
+
+    pub(crate) fn pipeline_segments(
+        &self,
+        range: RecordedPipelineSegmentRange,
+    ) -> &[RecordedPipelineSegment] {
+        range.slice(&self.pipeline_segments)
+    }
+
+    pub(crate) fn list_items(&self, range: RecordedListItemRange) -> &[RecordedListItem] {
+        range.slice(&self.list_items)
+    }
+
+    pub(crate) fn elif_branches(&self, range: RecordedElifBranchRange) -> &[RecordedElifBranch] {
+        range.slice(&self.elif_branches)
+    }
+
+    pub(crate) fn push_command(&mut self, command: RecordedCommand) -> RecordedCommandId {
+        let id = RecordedCommandId(
+            u32::try_from(self.commands.len()).expect("recorded command count fits in u32"),
+        );
+        self.commands.push(command);
+        id
+    }
+
+    pub(crate) fn push_command_ids(
+        &mut self,
+        command_ids: Vec<RecordedCommandId>,
+    ) -> RecordedCommandRange {
+        push_range(&mut self.command_sequence_items, command_ids)
+    }
+
+    pub(crate) fn push_regions(&mut self, regions: Vec<IsolatedRegion>) -> RecordedRegionRange {
+        push_range(&mut self.isolated_regions, regions)
+    }
+
+    pub(crate) fn push_case_arms(&mut self, arms: Vec<RecordedCaseArm>) -> RecordedCaseArmRange {
+        push_range(&mut self.case_arms, arms)
+    }
+
+    pub(crate) fn push_pipeline_segments(
+        &mut self,
+        segments: Vec<RecordedPipelineSegment>,
+    ) -> RecordedPipelineSegmentRange {
+        push_range(&mut self.pipeline_segments, segments)
+    }
+
+    pub(crate) fn push_list_items(
+        &mut self,
+        list_items: Vec<RecordedListItem>,
+    ) -> RecordedListItemRange {
+        push_range(&mut self.list_items, list_items)
+    }
+
+    pub(crate) fn push_elif_branches(
+        &mut self,
+        elif_branches: Vec<RecordedElifBranch>,
+    ) -> RecordedElifBranchRange {
+        push_range(&mut self.elif_branches, elif_branches)
+    }
+}
+
+fn push_range<T>(store: &mut Vec<T>, mut items: Vec<T>) -> RecordedRange<T> {
+    if items.is_empty() {
+        return RecordedRange::empty();
+    }
+
+    let start = store.len();
+    store.append(&mut items);
+    RecordedRange::new(start, store.len() - start)
+}
+
 struct SequenceResult {
     entry: Option<BlockId>,
     exits: Vec<BlockId>,
@@ -228,6 +422,7 @@ struct LoopTarget {
 }
 
 struct GraphBuilder<'a> {
+    program: &'a RecordedProgram,
     command_bindings: &'a FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: &'a FxHashMap<SpanKey, Vec<ReferenceId>>,
     blocks: Vec<BasicBlock>,
@@ -243,6 +438,7 @@ pub(crate) fn build_control_flow_graph(
     command_references: &FxHashMap<SpanKey, Vec<ReferenceId>>,
 ) -> ControlFlowGraph {
     let mut builder = GraphBuilder {
+        program,
         command_bindings,
         command_references,
         blocks: Vec::new(),
@@ -252,7 +448,7 @@ pub(crate) fn build_control_flow_graph(
         scope_entries: FxHashMap::default(),
     };
 
-    let file = builder.build_sequence(&program.file_commands, &[]);
+    let file = builder.build_sequence(program.file_commands(), &[]);
     let entry = file.entry.unwrap_or_else(|| builder.empty_block());
     builder.scope_entries.insert(ScopeId(0), entry);
     let file_exits = if file.exits.is_empty() {
@@ -265,8 +461,8 @@ pub(crate) fn build_control_flow_graph(
 
     let mut exits = file_exits;
 
-    for (scope, commands) in &program.function_bodies {
-        let function = builder.build_sequence(commands, &[]);
+    for (scope, commands) in program.function_bodies() {
+        let function = builder.build_sequence(*commands, &[]);
         let function_entry = function.entry.unwrap_or_else(|| builder.empty_block());
         builder.scope_entries.insert(*scope, function_entry);
         let function_exits = if function.exits.is_empty() {
@@ -299,16 +495,17 @@ pub(crate) fn build_control_flow_graph(
 impl<'a> GraphBuilder<'a> {
     fn build_sequence(
         &mut self,
-        commands: &[RecordedCommand],
+        commands: RecordedCommandRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {
         let mut entry = None;
         let mut pending = Vec::new();
         let mut unreachable_cause = None;
 
-        for command in commands {
+        for &command_id in self.program.commands_in(commands) {
+            let command = self.program.command(command_id);
             let start = self.blocks.len();
-            let sequence = self.build_command(command, loops);
+            let sequence = self.build_command(command_id, loops);
             if entry.is_none() {
                 entry = sequence.entry;
             }
@@ -339,11 +536,16 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    fn build_command(&mut self, command: &RecordedCommand, loops: &[LoopTarget]) -> SequenceResult {
+    fn build_command(
+        &mut self,
+        command_id: RecordedCommandId,
+        loops: &[LoopTarget],
+    ) -> SequenceResult {
+        let command = self.program.command(command_id);
         match &command.kind {
             RecordedCommandKind::Linear => {
                 let block = self.command_block(command.span);
-                self.attach_nested_regions(block, &command.nested_regions, loops);
+                self.attach_nested_regions(block, command.nested_regions, loops);
                 SequenceResult {
                     entry: Some(block),
                     exits: vec![block],
@@ -377,7 +579,7 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
             RecordedCommandKind::List { first, rest } => {
-                self.build_list(command, first, rest, loops)
+                self.build_list(command_id, *first, *rest, loops)
             }
             RecordedCommandKind::If {
                 condition,
@@ -385,30 +587,30 @@ impl<'a> GraphBuilder<'a> {
                 elif_branches,
                 else_branch,
             } => self.build_if(
-                command,
-                condition,
-                then_branch,
-                elif_branches,
-                else_branch,
+                command_id,
+                *condition,
+                *then_branch,
+                *elif_branches,
+                *else_branch,
                 loops,
             ),
             RecordedCommandKind::While { condition, body } => {
-                self.build_while_like(command, condition, body, loops, true)
+                self.build_while_like(command_id, *condition, *body, loops, true)
             }
             RecordedCommandKind::Until { condition, body } => {
-                self.build_while_like(command, condition, body, loops, false)
+                self.build_while_like(command_id, *condition, *body, loops, false)
             }
             RecordedCommandKind::For { body }
             | RecordedCommandKind::Select { body }
             | RecordedCommandKind::ArithmeticFor { body } => {
-                self.build_loop_command(command, body, loops)
+                self.build_loop_command(command_id, *body, loops)
             }
-            RecordedCommandKind::Case { arms } => self.build_case(command, arms, loops),
-            RecordedCommandKind::BraceGroup { body } => self.build_sequence(body, loops),
+            RecordedCommandKind::Case { arms } => self.build_case(command_id, *arms, loops),
+            RecordedCommandKind::BraceGroup { body } => self.build_sequence(*body, loops),
             RecordedCommandKind::Subshell { body, .. } => {
                 let block = self.command_block(command.span);
-                self.attach_nested_regions(block, &command.nested_regions, loops);
-                let body_sequence = self.build_sequence(body, loops);
+                self.attach_nested_regions(block, command.nested_regions, loops);
+                let body_sequence = self.build_sequence(*body, loops);
                 if let Some(body_entry) = body_sequence.entry {
                     self.add_edge(block, body_entry, EdgeKind::Sequential);
                 }
@@ -419,9 +621,9 @@ impl<'a> GraphBuilder<'a> {
             }
             RecordedCommandKind::Pipeline { segments } => {
                 let block = self.command_block(command.span);
-                self.attach_nested_regions(block, &command.nested_regions, loops);
-                for segment in segments {
-                    let sequence = self.build_command(&segment.command, loops);
+                self.attach_nested_regions(block, command.nested_regions, loops);
+                for segment in self.program.pipeline_segments(*segments) {
+                    let sequence = self.build_command(segment.command, loops);
                     if let Some(segment_entry) = sequence.entry {
                         self.scope_entries
                             .entry(segment.scope)
@@ -439,20 +641,20 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_list(
         &mut self,
-        command: &RecordedCommand,
-        first: &RecordedCommand,
-        rest: &[(RecordedListOperator, RecordedCommand)],
+        command: RecordedCommandId,
+        first: RecordedCommandId,
+        rest: RecordedListItemRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {
         let mut current = self.build_command(first, loops);
         let entry = current.entry;
         let mut shortcut_exits = Vec::new();
 
-        for (op, command) in rest {
-            let next = self.build_command(command, loops);
+        for item in self.program.list_items(rest) {
+            let next = self.build_command(item.command, loops);
             if let Some(next_entry) = next.entry {
                 for exit in &current.exits {
-                    let edge = match op {
+                    let edge = match item.operator {
                         RecordedListOperator::And => EdgeKind::ConditionalTrue,
                         RecordedListOperator::Or => EdgeKind::ConditionalFalse,
                     };
@@ -475,11 +677,11 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_if(
         &mut self,
-        command: &RecordedCommand,
-        condition: &[RecordedCommand],
-        then_branch: &[RecordedCommand],
-        elif_branches: &[(Vec<RecordedCommand>, Vec<RecordedCommand>)],
-        else_branch: &[RecordedCommand],
+        command: RecordedCommandId,
+        condition: RecordedCommandRange,
+        then_branch: RecordedCommandRange,
+        elif_branches: RecordedElifBranchRange,
+        else_branch: RecordedCommandRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {
         let condition_seq = self.build_sequence(condition, loops);
@@ -498,15 +700,15 @@ impl<'a> GraphBuilder<'a> {
 
         let mut branch_exits = then_seq.exits;
 
-        for (elif_condition, elif_body) in elif_branches {
-            let elif_cond = self.build_sequence(elif_condition, loops);
+        for elif_branch in self.program.elif_branches(elif_branches) {
+            let elif_cond = self.build_sequence(elif_branch.condition, loops);
             if let Some(elif_entry) = elif_cond.entry {
                 for exit in &false_exits {
                     self.add_edge(*exit, elif_entry, EdgeKind::ConditionalFalse);
                 }
             }
 
-            let elif_body_seq = self.build_sequence(elif_body, loops);
+            let elif_body_seq = self.build_sequence(elif_branch.body, loops);
             if let Some(body_entry) = elif_body_seq.entry {
                 for exit in &elif_cond.exits {
                     self.add_edge(*exit, body_entry, EdgeKind::ConditionalTrue);
@@ -536,9 +738,9 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_while_like(
         &mut self,
-        command: &RecordedCommand,
-        condition: &[RecordedCommand],
-        body: &[RecordedCommand],
+        command: RecordedCommandId,
+        condition: RecordedCommandRange,
+        body: RecordedCommandRange,
         loops: &[LoopTarget],
         while_sense: bool,
     ) -> SequenceResult {
@@ -592,12 +794,13 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_loop_command(
         &mut self,
-        command: &RecordedCommand,
-        body: &[RecordedCommand],
+        command: RecordedCommandId,
+        body: RecordedCommandRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {
+        let command = self.program.command(command);
         let header = self.command_block(command.span);
-        self.attach_nested_regions(header, &command.nested_regions, loops);
+        self.attach_nested_regions(header, command.nested_regions, loops);
         let exit_block = self.empty_block();
         let mut next_loops = loops.to_vec();
         next_loops.push(LoopTarget {
@@ -622,12 +825,14 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_case(
         &mut self,
-        command: &RecordedCommand,
-        arms: &[RecordedCaseArm],
+        command: RecordedCommandId,
+        arms: RecordedCaseArmRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {
+        let command = self.program.command(command);
+        let arms = self.program.case_arms(arms);
         let head = self.command_block(command.span);
-        self.attach_nested_regions(head, &command.nested_regions, loops);
+        self.attach_nested_regions(head, command.nested_regions, loops);
         let exit_block = self.empty_block();
         let dispatch_count = arms.len().max(1);
         let mut dispatch_blocks = Vec::with_capacity(dispatch_count);
@@ -637,7 +842,7 @@ impl<'a> GraphBuilder<'a> {
         }
         let mut arm_sequences = Vec::with_capacity(arms.len());
         for arm in arms {
-            let mut arm_seq = self.build_sequence(&arm.commands, loops);
+            let mut arm_seq = self.build_sequence(arm.commands, loops);
             if arm_seq.entry.is_none() {
                 let empty_arm = self.empty_block();
                 arm_seq.entry = Some(empty_arm);
@@ -716,11 +921,11 @@ impl<'a> GraphBuilder<'a> {
     fn attach_nested_regions(
         &mut self,
         block: BlockId,
-        regions: &[IsolatedRegion],
+        regions: RecordedRegionRange,
         loops: &[LoopTarget],
     ) {
-        for region in regions {
-            let sequence = self.build_sequence(&region.commands, loops);
+        for region in self.program.nested_regions(regions) {
+            let sequence = self.build_sequence(region.commands, loops);
             if let Some(entry) = sequence.entry {
                 self.scope_entries.entry(region.scope).or_insert(entry);
                 self.add_edge(block, entry, EdgeKind::Sequential);
@@ -728,7 +933,8 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    fn attach_nested_regions_from_command(&mut self, command: &RecordedCommand) {
+    fn attach_nested_regions_from_command(&mut self, command: RecordedCommandId) {
+        let command = self.program.command(command);
         if command.nested_regions.is_empty() {
             return;
         }
@@ -738,7 +944,7 @@ impl<'a> GraphBuilder<'a> {
             .cloned()
         {
             for block in blocks {
-                self.attach_nested_regions(block, &command.nested_regions, &[]);
+                self.attach_nested_regions(block, command.nested_regions, &[]);
             }
         }
     }

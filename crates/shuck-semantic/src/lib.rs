@@ -1235,7 +1235,7 @@ fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cfg::build_control_flow_graph;
+    use crate::cfg::{RecordedCommandKind, build_control_flow_graph};
     use shuck_ast::{Command, CompoundCommand};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect};
@@ -1688,6 +1688,95 @@ done
             .filter(|scope| matches!(scope.kind, ScopeKind::Pipeline))
             .count();
         assert_eq!(pipeline_scopes, 3);
+    }
+
+    #[test]
+    fn recorded_program_preserves_logical_list_order_in_ranges() {
+        let source = "a && b || c\n";
+        let model = model(source);
+
+        let file_commands = model
+            .recorded_program
+            .commands_in(model.recorded_program.file_commands());
+        assert_eq!(file_commands.len(), 1);
+
+        let command = model.recorded_program.command(file_commands[0]);
+        let (first, rest) = match command.kind {
+            RecordedCommandKind::List { first, rest } => (first, rest),
+            other => panic!("expected list command, found {other:?}"),
+        };
+
+        assert!(
+            model
+                .recorded_program
+                .command(first)
+                .span
+                .slice(source)
+                .starts_with("a")
+        );
+        let rest = model.recorded_program.list_items(rest);
+        assert_eq!(rest.len(), 2);
+        assert!(
+            model
+                .recorded_program
+                .command(rest[0].command)
+                .span
+                .slice(source)
+                .starts_with("b")
+        );
+        assert!(
+            model
+                .recorded_program
+                .command(rest[1].command)
+                .span
+                .slice(source)
+                .starts_with("c")
+        );
+    }
+
+    #[test]
+    fn recorded_program_preserves_pipeline_segment_order_in_ranges() {
+        let source = "a | b | c\n";
+        let model = model(source);
+
+        let file_commands = model
+            .recorded_program
+            .commands_in(model.recorded_program.file_commands());
+        assert_eq!(file_commands.len(), 1);
+
+        let command = model.recorded_program.command(file_commands[0]);
+        let segments = match command.kind {
+            RecordedCommandKind::Pipeline { segments } => {
+                model.recorded_program.pipeline_segments(segments)
+            }
+            other => panic!("expected pipeline command, found {other:?}"),
+        };
+
+        assert_eq!(segments.len(), 3);
+        assert!(
+            model
+                .recorded_program
+                .command(segments[0].command)
+                .span
+                .slice(source)
+                .starts_with("a")
+        );
+        assert!(
+            model
+                .recorded_program
+                .command(segments[1].command)
+                .span
+                .slice(source)
+                .starts_with("b")
+        );
+        assert!(
+            model
+                .recorded_program
+                .command(segments[2].command)
+                .span
+                .slice(source)
+                .starts_with("c")
+        );
     }
 
     #[test]
@@ -4643,11 +4732,20 @@ echo done
         let indexer = Indexer::new(source, &output);
         let model = SemanticModel::build(&output.file, source, &indexer);
 
-        assert_eq!(model.recorded_program.file_commands.len(), 2);
-        let conditional = &model.recorded_program.file_commands[0];
-        assert_eq!(conditional.nested_regions.len(), 1);
-        assert_eq!(conditional.nested_regions[0].commands.len(), 1);
-        let nested = &conditional.nested_regions[0].commands[0];
+        let file_commands = model
+            .recorded_program
+            .commands_in(model.recorded_program.file_commands());
+        assert_eq!(file_commands.len(), 2);
+        let conditional = model.recorded_program.command(file_commands[0]);
+        let nested_regions = model
+            .recorded_program
+            .nested_regions(conditional.nested_regions);
+        assert_eq!(nested_regions.len(), 1);
+        let nested_commands = model
+            .recorded_program
+            .commands_in(nested_regions[0].commands);
+        assert_eq!(nested_commands.len(), 1);
+        let nested = model.recorded_program.command(nested_commands[0]);
         assert_eq!(nested.span.slice(source), "printf inner");
 
         let cfg = build_control_flow_graph(
@@ -4676,11 +4774,20 @@ echo done
         let indexer = Indexer::new(source, &output);
         let model = SemanticModel::build(&output.file, source, &indexer);
 
-        assert_eq!(model.recorded_program.file_commands.len(), 2);
-        let conditional = &model.recorded_program.file_commands[0];
-        assert_eq!(conditional.nested_regions.len(), 1);
-        assert_eq!(conditional.nested_regions[0].commands.len(), 1);
-        let nested = &conditional.nested_regions[0].commands[0];
+        let file_commands = model
+            .recorded_program
+            .commands_in(model.recorded_program.file_commands());
+        assert_eq!(file_commands.len(), 2);
+        let conditional = model.recorded_program.command(file_commands[0]);
+        let nested_regions = model
+            .recorded_program
+            .nested_regions(conditional.nested_regions);
+        assert_eq!(nested_regions.len(), 1);
+        let nested_commands = model
+            .recorded_program
+            .commands_in(nested_regions[0].commands);
+        assert_eq!(nested_commands.len(), 1);
+        let nested = model.recorded_program.command(nested_commands[0]);
         assert_eq!(nested.span.slice(source), "printf inner");
 
         let cfg = build_control_flow_graph(
