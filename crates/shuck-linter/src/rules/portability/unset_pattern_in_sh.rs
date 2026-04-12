@@ -45,8 +45,7 @@ mod tests {
 unset -v \"${!prefix_@}\" x${!prefix_*} \"${!name}\" \"${!arr[@]}\"
 unset -f \"${!func_@}\"
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::UnsetPatternInSh));
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnsetPatternInSh));
 
         assert_eq!(
             diagnostics
@@ -64,8 +63,7 @@ unset -f \"${!func_@}\"
 unset -v \"${!name}\" \"${!arr[@]}\"
 unset value
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::UnsetPatternInSh));
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnsetPatternInSh));
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }

@@ -31,7 +31,8 @@ pub fn hyphenated_function_name(checker: &mut Checker) {
                     .as_ref()
                     .map(|name| name.as_str())
                     .unwrap_or_else(|| entry.word.span.slice(source));
-                name.contains('-').then_some(header.function_span_in_source(source))
+                name.contains('-')
+                    .then_some(header.function_span_in_source(source))
             })
         })
         .collect::<Vec<Span>>();
