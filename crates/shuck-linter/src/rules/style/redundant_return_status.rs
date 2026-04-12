@@ -1,9 +1,8 @@
-use rustc_hash::FxHashMap;
-use shuck_ast::{BuiltinCommand, Command, Span};
-use shuck_semantic::{ScopeId, ScopeKind};
-
-use crate::facts::CommandFact;
 use crate::{Checker, Rule, Violation, word_is_standalone_status_capture};
+use shuck_ast::{
+    BuiltinCommand, Command, CompoundCommand, FunctionDef, IfCommand, Span, Stmt, StmtSeq,
+    StmtTerminator,
+};
 
 pub struct RedundantReturnStatus;
 
@@ -19,55 +18,74 @@ impl Violation for RedundantReturnStatus {
 
 pub fn redundant_return_status(checker: &mut Checker) {
     let mut spans = Vec::new();
-    let mut last_structural_by_function: FxHashMap<ScopeId, &CommandFact<'_>> =
-        FxHashMap::default();
-
-    let mut structural_commands = checker.facts().structural_commands().collect::<Vec<_>>();
-    structural_commands.sort_by_key(|fact| fact.span().start.offset);
-
-    for fact in structural_commands {
-        let Some(function_scope) = enclosing_function_scope(checker, fact.span()) else {
-            continue;
-        };
-
-        let previous = last_structural_by_function.insert(function_scope, fact);
-
-        let Command::Builtin(BuiltinCommand::Return(command)) = fact.command() else {
-            continue;
-        };
-        let Some(code) = command.code.as_ref() else {
-            continue;
-        };
-        if !word_is_standalone_status_capture(code) {
-            continue;
-        }
-
-        let Some(previous) = previous else {
-            continue;
-        };
-        if !is_plain_command(previous.command()) {
-            continue;
-        }
-
-        spans.push(code.span);
+    for header in checker.facts().function_headers() {
+        collect_terminal_redundant_return_spans(header.function(), &mut spans);
     }
 
     checker.report_all_dedup(spans, || RedundantReturnStatus);
 }
 
-fn enclosing_function_scope(checker: &Checker<'_>, span: Span) -> Option<ScopeId> {
-    let scope = checker.semantic().scope_at(span.start.offset);
-    checker.semantic().ancestor_scopes(scope).find(|scope| {
-        matches!(
-            checker.semantic().scope_kind(*scope),
-            ScopeKind::Function(_)
-        )
-    })
+fn collect_terminal_redundant_return_spans(function: &FunctionDef, spans: &mut Vec<Span>) {
+    collect_terminal_redundant_return_spans_in_stmt(&function.body, spans);
 }
 
-fn is_plain_command(command: &Command) -> bool {
+fn collect_terminal_redundant_return_spans_in_stmt(stmt: &Stmt, spans: &mut Vec<Span>) {
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            collect_terminal_redundant_return_spans_in_seq(commands, spans);
+        }
+        Command::Compound(CompoundCommand::If(command)) => {
+            collect_terminal_redundant_return_spans_in_if(command, spans);
+        }
+        _ => {}
+    }
+}
+
+fn collect_terminal_redundant_return_spans_in_if(command: &IfCommand, spans: &mut Vec<Span>) {
+    collect_terminal_redundant_return_spans_in_seq(&command.then_branch, spans);
+    for (_, branch) in &command.elif_branches {
+        collect_terminal_redundant_return_spans_in_seq(branch, spans);
+    }
+    if let Some(branch) = &command.else_branch {
+        collect_terminal_redundant_return_spans_in_seq(branch, spans);
+    }
+}
+
+fn collect_terminal_redundant_return_spans_in_seq(commands: &StmtSeq, spans: &mut Vec<Span>) {
+    if let Some(span) = terminal_redundant_return_span(commands) {
+        spans.push(span);
+    }
+
+    let Some(last) = commands.last() else {
+        return;
+    };
+    collect_terminal_redundant_return_spans_in_stmt(last, spans);
+}
+
+fn terminal_redundant_return_span(commands: &StmtSeq) -> Option<Span> {
+    let [.., previous, last] = commands.as_slice() else {
+        return None;
+    };
+    if !stmt_is_plain_command(previous) {
+        return None;
+    }
+
+    let Command::Builtin(BuiltinCommand::Return(command)) = &last.command else {
+        return None;
+    };
+    let Some(code) = command.code.as_ref() else {
+        return None;
+    };
+    word_is_standalone_status_capture(code).then_some(code.span)
+}
+
+fn stmt_is_plain_command(stmt: &Stmt) -> bool {
+    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return false;
+    }
+
     matches!(
-        command,
+        stmt.command,
         Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
     )
 }
@@ -110,5 +128,45 @@ f() {
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_non_terminal_returns_inside_function_branches() {
+        let source = "\
+#!/bin/sh
+f() {
+  if cond; then
+    false
+    return $?
+  fi
+  echo done
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_terminal_returns_inside_final_if_branches() {
+        let source = "\
+#!/bin/sh
+f() {
+  if cond; then
+    false
+    return $?
+  fi
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$?");
     }
 }

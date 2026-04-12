@@ -109,9 +109,6 @@ fn is_standalone_status_capture_part(part: &WordPart) -> bool {
             Some(BourneParameterExpansion::Access { reference })
                 if reference.name.as_str() == "?" && reference.subscript.is_none()
         ),
-        WordPart::ParameterExpansion { reference, .. } => {
-            reference.name.as_str() == "?" && reference.subscript.is_none()
-        }
         _ => false,
     }
 }
@@ -297,7 +294,7 @@ mod tests {
 
     #[test]
     fn word_is_standalone_status_capture_handles_plain_and_quoted_forms() {
-        let source = "return $?; return \"$?\"; return $foo\n";
+        let source = "return $?; return \"$?\"; return ${?+0}; return ${?:-1}; return $foo\n";
         let commands = parse_commands(source);
 
         let Command::Builtin(BuiltinCommand::Return(plain)) = &commands[0].command else {
@@ -314,7 +311,22 @@ mod tests {
             quoted.code.as_ref().unwrap()
         ));
 
-        let Command::Builtin(BuiltinCommand::Return(other)) = &commands[2].command else {
+        let Command::Builtin(BuiltinCommand::Return(operator_default)) = &commands[2].command
+        else {
+            panic!("expected return builtin");
+        };
+        assert!(!word_is_standalone_status_capture(
+            operator_default.code.as_ref().unwrap()
+        ));
+
+        let Command::Builtin(BuiltinCommand::Return(operator_assign)) = &commands[3].command else {
+            panic!("expected return builtin");
+        };
+        assert!(!word_is_standalone_status_capture(
+            operator_assign.code.as_ref().unwrap()
+        ));
+
+        let Command::Builtin(BuiltinCommand::Return(other)) = &commands[4].command else {
             panic!("expected return builtin");
         };
         assert!(!word_is_standalone_status_capture(
