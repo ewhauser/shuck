@@ -163,7 +163,17 @@ fn function_parameter_syntax_span(source: &str, diagnostic: &ParseDiagnostic) ->
     }
 
     let line = line_text_at(source, diagnostic.span.start.line)?;
-    let paren_index = line.find('(')?;
+    let search_end = line
+        .char_indices()
+        .nth(diagnostic.span.start.column.saturating_sub(1))
+        .map_or(line.len(), |(index, ch)| index + ch.len_utf8());
+    let paren_index = line
+        .get(..search_end)
+        .and_then(|prefix| prefix.rfind('('))
+        .or_else(|| {
+            line.get(search_end..)
+                .and_then(|suffix| suffix.find('(').map(|relative| search_end + relative))
+        })?;
     let line_start = line_start_offset(source, diagnostic.span.start.line)?;
     let start_offset = line_start + paren_index;
     let start = position_at_offset(source, start_offset)?;
@@ -806,6 +816,26 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::FunctionParamsInSh);
         assert_eq!(diagnostics[0].span.slice(source), "(");
+    }
+
+    #[test]
+    fn maps_function_parameter_parse_error_to_the_paren_near_reported_position() {
+        let source = "#!/bin/sh\necho \"$(x)\"; function f(y) { :; }\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::FunctionParamsInSh);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionParamsInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "(");
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 24);
     }
 
     #[test]
