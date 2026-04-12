@@ -54,7 +54,7 @@ fn function_parameter_syntax_span(pair: &[&crate::CommandFact<'_>], source: &str
         return None;
     }
     let tail = source.get(second.span().end.offset..)?;
-    let tail = tail.trim_start_matches([' ', '\t', '\r']);
+    let tail = tail.trim_start_matches([' ', '\t', '\r', '\n']);
     if !matches!(tail.chars().next(), Some('{') | Some('(')) {
         return None;
     }
@@ -73,7 +73,7 @@ fn is_plausible_shell_function_name(name: &str) -> bool {
     }
     if !name
         .chars()
-        .all(|ch| matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
+        .all(|ch| matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-'))
     {
         return false;
     }
@@ -144,6 +144,31 @@ function g() { :; }
         let source = "\
 #!/bin/sh
 f(x) ( : )
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionParamsInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "(");
+    }
+
+    #[test]
+    fn reports_function_parameter_syntax_when_body_starts_on_next_line() {
+        let source = "\
+#!/bin/sh
+f(x)
+{ :; }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionParamsInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "(");
+    }
+
+    #[test]
+    fn reports_function_parameter_syntax_for_hyphenated_names() {
+        let source = "\
+#!/bin/sh
+my-func(x) { :; }
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionParamsInSh));
 
