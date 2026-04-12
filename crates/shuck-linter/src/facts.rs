@@ -10512,11 +10512,15 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
                 inline_replace_option_spans.push(word.span);
             }
 
-            if xargs_short_option_takes_argument(flag) {
-                if chars.peek().is_none() {
-                    consume_next_argument = true;
+            match xargs_short_option_argument_style(flag) {
+                XargsShortOptionArgumentStyle::None => {}
+                XargsShortOptionArgumentStyle::OptionalInlineOnly => break,
+                XargsShortOptionArgumentStyle::Required => {
+                    if chars.peek().is_none() {
+                        consume_next_argument = true;
+                    }
+                    break;
                 }
-                break;
             }
         }
 
@@ -10532,8 +10536,19 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
     }
 }
 
-fn xargs_short_option_takes_argument(flag: char) -> bool {
-    matches!(flag, 'I' | 'L' | 'l' | 'n' | 'P' | 's' | 'd')
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum XargsShortOptionArgumentStyle {
+    None,
+    OptionalInlineOnly,
+    Required,
+}
+
+fn xargs_short_option_argument_style(flag: char) -> XargsShortOptionArgumentStyle {
+    match flag {
+        'e' | 'i' | 'l' => XargsShortOptionArgumentStyle::OptionalInlineOnly,
+        'E' | 'I' | 'L' | 'n' | 'P' | 's' | 'd' => XargsShortOptionArgumentStyle::Required,
+        _ => XargsShortOptionArgumentStyle::None,
+    }
 }
 
 fn xargs_long_option_takes_argument(option: &str) -> bool {
@@ -10545,7 +10560,6 @@ fn xargs_long_option_takes_argument(option: &str) -> bool {
         option,
         "arg-file"
             | "delimiter"
-            | "eof"
             | "max-args"
             | "max-chars"
             | "max-lines"
@@ -12138,6 +12152,41 @@ command run0 --version
         );
         assert!(exit.has_static_status());
         assert!(exit.is_numeric_literal);
+    }
+
+    #[test]
+    fn keeps_parsing_xargs_flags_after_optional_argument_forms() {
+        let source = "\
+#!/bin/bash
+find . -print0 | xargs -l -0 rm
+find . -print0 | xargs --eof --null rm
+xargs -i0 echo
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let xargs_facts = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("xargs"))
+            .filter_map(|fact| fact.options().xargs())
+            .collect::<Vec<_>>();
+
+        assert_eq!(xargs_facts.len(), 3);
+        assert!(xargs_facts[0].uses_null_input);
+        assert!(xargs_facts[1].uses_null_input);
+        assert!(!xargs_facts[2].uses_null_input);
+        assert_eq!(
+            xargs_facts[2]
+                .inline_replace_option_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-i0"]
+        );
     }
 
     #[test]
