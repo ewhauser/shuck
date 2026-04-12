@@ -20,6 +20,7 @@ pub fn single_letter_case_label(checker: &mut Checker) {
         .filter(|fact| !fact.has_fallback_pattern())
         .filter(|fact| !fact.missing_options().is_empty())
         .filter(|fact| fact.unexpected_case_labels().is_empty())
+        .filter(|fact| fact.invalid_case_pattern_spans().is_empty())
         .flat_map(|fact| fact.handled_case_labels().iter().copied())
         .filter(|label| label.is_bare_single_letter())
         .map(|label| label.span())
@@ -127,6 +128,24 @@ while getopts 'ab' opt; do
   case \"$opt\" in
     \"a\") : ;;
     \"b\") : ;;
+  esac
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleLetterCaseLabel),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_handlers_with_invalid_static_case_patterns() {
+        let source = "\
+while getopts 'ab' opt; do
+  case \"$opt\" in
+    a) : ;;
+    bc) : ;;
   esac
 done
 ";

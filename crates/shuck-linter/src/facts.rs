@@ -1058,6 +1058,7 @@ pub struct GetoptsCaseFact {
     declared_options: Box<[GetoptsOptionSpec]>,
     handled_case_labels: Box<[GetoptsCaseLabelFact]>,
     unexpected_case_labels: Box<[GetoptsCaseLabelFact]>,
+    invalid_case_pattern_spans: Box<[Span]>,
     has_fallback_pattern: bool,
     missing_options: Box<[GetoptsOptionSpec]>,
 }
@@ -1077,6 +1078,10 @@ impl GetoptsCaseFact {
 
     pub fn unexpected_case_labels(&self) -> &[GetoptsCaseLabelFact] {
         &self.unexpected_case_labels
+    }
+
+    pub fn invalid_case_pattern_spans(&self) -> &[Span] {
+        &self.invalid_case_pattern_spans
     }
 
     pub fn has_fallback_pattern(&self) -> bool {
@@ -6207,6 +6212,15 @@ struct ParsedGetoptsCommand {
     target_name: Name,
 }
 
+#[derive(Debug, Clone)]
+struct GetoptsCaseMatch {
+    case_span: Span,
+    handled_case_labels: Vec<GetoptsCaseLabelFact>,
+    invalid_case_pattern_spans: Vec<Span>,
+    has_fallback_pattern: bool,
+    has_unknown_coverage: bool,
+}
+
 fn build_getopts_case_facts(commands: &StmtSeq, source: &str) -> Vec<GetoptsCaseFact> {
     query::iter_commands(
         commands,
@@ -6229,8 +6243,13 @@ fn build_getopts_case_fact_for_while(
     source: &str,
 ) -> Option<GetoptsCaseFact> {
     let parsed = parse_getopts_command_from_condition(&command.condition, source)?;
-    let (case_span, handled_case_labels, has_fallback_pattern, has_unknown_coverage) =
-        first_getopts_case_match(&command.body, parsed.target_name.as_str(), source)?;
+    let GetoptsCaseMatch {
+        case_span,
+        handled_case_labels,
+        invalid_case_pattern_spans,
+        has_fallback_pattern,
+        has_unknown_coverage,
+    } = first_getopts_case_match(&command.body, parsed.target_name.as_str(), source)?;
 
     let handled = handled_case_labels
         .iter()
@@ -6263,6 +6282,7 @@ fn build_getopts_case_fact_for_while(
         declared_options: parsed.declared_options.into_boxed_slice(),
         handled_case_labels: handled_case_labels.into_boxed_slice(),
         unexpected_case_labels: unexpected_case_labels.into_boxed_slice(),
+        invalid_case_pattern_spans: invalid_case_pattern_spans.into_boxed_slice(),
         has_fallback_pattern,
         missing_options: missing_options.into_boxed_slice(),
     })
@@ -6326,7 +6346,7 @@ fn first_getopts_case_match(
     body: &StmtSeq,
     target_name: &str,
     source: &str,
-) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+) -> Option<GetoptsCaseMatch> {
     first_getopts_case_match_in_commands(body, target_name, source)
 }
 
@@ -6334,7 +6354,7 @@ fn first_getopts_case_match_in_commands(
     commands: &StmtSeq,
     target_name: &str,
     source: &str,
-) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+) -> Option<GetoptsCaseMatch> {
     commands
         .iter()
         .find_map(|stmt| first_getopts_case_match_in_command(&stmt.command, target_name, source))
@@ -6344,7 +6364,7 @@ fn first_getopts_case_match_in_command(
     command: &Command,
     target_name: &str,
     source: &str,
-) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+) -> Option<GetoptsCaseMatch> {
     match command {
         Command::Binary(command) => {
             first_getopts_case_match_in_command(&command.left.command, target_name, source).or_else(
@@ -6364,7 +6384,7 @@ fn first_getopts_case_match_in_compound(
     command: &CompoundCommand,
     target_name: &str,
     source: &str,
-) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+) -> Option<GetoptsCaseMatch> {
     match command {
         CompoundCommand::If(command) => {
             first_getopts_case_match_in_commands(&command.condition, target_name, source)
@@ -6411,6 +6431,7 @@ fn first_getopts_case_match_in_compound(
             if case_subject_variable_name(&command.word) == Some(target_name) {
                 let mut has_fallback_pattern = false;
                 let mut has_unknown_coverage = false;
+                let mut invalid_case_pattern_spans = Vec::new();
                 let labels = command
                     .cases
                     .iter()
@@ -6422,6 +6443,10 @@ fn first_getopts_case_match_in_compound(
                                 None
                             }
                             GetoptsCasePatternKind::SingleLabel(label) => Some(label),
+                            GetoptsCasePatternKind::InvalidStaticPattern(span) => {
+                                invalid_case_pattern_spans.push(span);
+                                None
+                            }
                             GetoptsCasePatternKind::UnknownCoverage => {
                                 has_unknown_coverage = true;
                                 None
@@ -6429,12 +6454,13 @@ fn first_getopts_case_match_in_compound(
                         },
                     )
                     .collect::<Vec<_>>();
-                Some((
-                    command.span,
-                    labels,
+                Some(GetoptsCaseMatch {
+                    case_span: command.span,
+                    handled_case_labels: labels,
+                    invalid_case_pattern_spans,
                     has_fallback_pattern,
                     has_unknown_coverage,
-                ))
+                })
             } else {
                 command.cases.iter().find_map(|item| {
                     first_getopts_case_match_in_commands(&item.body, target_name, source)
@@ -6465,6 +6491,7 @@ fn first_getopts_case_match_in_compound(
 enum GetoptsCasePatternKind {
     Fallback,
     SingleLabel(GetoptsCaseLabelFact),
+    InvalidStaticPattern(Span),
     UnknownCoverage,
 }
 
@@ -6481,7 +6508,7 @@ fn classify_getopts_case_pattern(pattern: &Pattern, source: &str) -> GetoptsCase
         return GetoptsCasePatternKind::UnknownCoverage;
     };
     if chars.next().is_some() {
-        return GetoptsCasePatternKind::UnknownCoverage;
+        return GetoptsCasePatternKind::InvalidStaticPattern(pattern.span);
     }
 
     let is_bare_single_letter = label.is_ascii_alphabetic() && pattern.span.slice(source) == text;

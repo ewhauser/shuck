@@ -1,7 +1,7 @@
 use crate::{Checker, Rule, Violation};
 
 pub struct CaseArmNotInGetopts {
-    option: char,
+    option: Option<char>,
 }
 
 impl Violation for CaseArmNotInGetopts {
@@ -10,10 +10,13 @@ impl Violation for CaseArmNotInGetopts {
     }
 
     fn message(&self) -> String {
-        format!(
-            "this case arm handles -{}, but getopts does not declare it",
-            self.option
-        )
+        match self.option {
+            Some(option) => format!(
+                "this case arm handles -{}, but getopts does not declare it",
+                option
+            ),
+            None => "this case arm does not match any option declared by getopts".to_owned(),
+        }
     }
 }
 
@@ -25,7 +28,13 @@ pub fn case_arm_not_in_getopts(checker: &mut Checker) {
         .flat_map(|fact| {
             fact.unexpected_case_labels()
                 .iter()
-                .map(|label| (label.span(), label.label()))
+                .map(|label| (label.span(), Some(label.label())))
+                .chain(
+                    fact.invalid_case_pattern_spans()
+                        .iter()
+                        .copied()
+                        .map(|span| (span, None)),
+                )
         })
         .collect::<Vec<_>>();
 
@@ -134,5 +143,26 @@ done
             test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_static_multi_character_patterns_as_invalid_getopts_arms() {
+        let source = "\
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    ab) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ab");
+        assert_eq!(
+            diagnostics[0].message,
+            "this case arm does not match any option declared by getopts"
+        );
     }
 }

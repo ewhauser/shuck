@@ -211,4 +211,26 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn static_multi_character_patterns_do_not_hide_missing_options() {
+        let source = "\
+while getopts 'ac' opt; do
+  case \"$opt\" in
+    a) : ;;
+    ab) : ;;
+  esac
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GetoptsOptionNotInCase),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "getopts option -c is not handled by this case statement"
+        );
+    }
 }
