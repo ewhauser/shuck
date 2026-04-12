@@ -186,4 +186,25 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_short_circuit_case_branches_before_the_real_getopts_handler() {
+        let source = "\
+while getopts 'a' opt; do
+  true && {
+    case \"$opt\" in
+      b) : ;;
+    esac
+  }
+
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert!(diagnostics.is_empty());
+    }
 }
