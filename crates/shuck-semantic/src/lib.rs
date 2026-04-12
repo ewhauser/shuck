@@ -37,7 +37,7 @@ use std::sync::OnceLock;
 
 use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
-use crate::dataflow::{DataflowContext, DataflowResult};
+use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::runtime::RuntimePrelude;
 use crate::zsh_options::ZshOptionAnalysis;
 
@@ -233,6 +233,7 @@ pub struct SemanticModel {
 pub struct SemanticAnalysis<'model> {
     model: &'model SemanticModel,
     cfg: OnceLock<ControlFlowGraph>,
+    exact_variable_dataflow: OnceLock<ExactVariableDataflow>,
     dataflow: OnceLock<DataflowResult>,
     unused_assignments: OnceLock<Vec<BindingId>>,
     uninitialized_references: OnceLock<Vec<UninitializedReference>>,
@@ -719,6 +720,7 @@ impl<'model> SemanticAnalysis<'model> {
         Self {
             model,
             cfg: OnceLock::new(),
+            exact_variable_dataflow: OnceLock::new(),
             dataflow: OnceLock::new(),
             unused_assignments: OnceLock::new(),
             uninitialized_references: OnceLock::new(),
@@ -737,12 +739,21 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    fn exact_variable_dataflow(&self) -> &ExactVariableDataflow {
+        self.exact_variable_dataflow.get_or_init(|| {
+            let cfg = self.cfg();
+            let context = self.model.dataflow_context(cfg);
+            dataflow::build_exact_variable_dataflow(&context)
+        })
+    }
+
     #[allow(dead_code)]
     fn dataflow(&self) -> &DataflowResult {
         self.dataflow.get_or_init(|| {
             let cfg = self.cfg();
             let context = self.model.dataflow_context(cfg);
-            dataflow::analyze(&context)
+            let exact = self.exact_variable_dataflow();
+            dataflow::analyze(&context, exact)
         })
     }
 
@@ -761,7 +772,8 @@ impl<'model> SemanticAnalysis<'model> {
                     return self.model.heuristic_unused_assignments.clone();
                 }
                 let context = self.model.dataflow_context(cfg);
-                dataflow::analyze_unused_assignments(&context)
+                let exact = self.exact_variable_dataflow();
+                dataflow::analyze_unused_assignments(&context, exact)
             })
             .as_slice()
     }
@@ -771,7 +783,8 @@ impl<'model> SemanticAnalysis<'model> {
             .get_or_init(|| {
                 let cfg = self.cfg();
                 let context = self.model.dataflow_context(cfg);
-                dataflow::analyze_uninitialized_references(&context)
+                let exact = self.exact_variable_dataflow();
+                dataflow::analyze_uninitialized_references(&context, exact)
             })
             .as_slice()
     }
@@ -1354,6 +1367,26 @@ mod tests {
         ids.iter()
             .map(|binding_id| model.binding(*binding_id).name.to_string())
             .collect()
+    }
+
+    fn sorted_binding_names<I>(model: &SemanticModel, ids: I) -> Vec<String>
+    where
+        I: IntoIterator<Item = BindingId>,
+    {
+        let mut names = ids
+            .into_iter()
+            .map(|binding_id| model.binding(binding_id).name.to_string())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names
+    }
+
+    fn block_with_reference(cfg: &ControlFlowGraph, reference: ReferenceId) -> BlockId {
+        cfg.blocks()
+            .iter()
+            .find(|block| block.references.contains(&reference))
+            .map(|block| block.id)
+            .expect("reference should be assigned to a CFG block")
     }
 
     fn unresolved_names(model: &SemanticModel) -> Vec<String> {
@@ -2080,6 +2113,86 @@ emoji[smile]=2
 
         let exact = analysis.dataflow().unused_assignment_ids().to_vec();
         assert_eq!(precise, exact);
+    }
+
+    #[test]
+    fn heuristic_unused_assignment_path_skips_exact_variable_dataflow_bundle() {
+        let model = model("unused=1\n");
+        let analysis = model.analysis();
+
+        let precise = analysis.unused_assignments().to_vec();
+
+        assert!(analysis.exact_variable_dataflow.get().is_none());
+        assert!(analysis.dataflow.get().is_none());
+        assert_eq!(binding_names(&model, &precise), vec!["unused"]);
+    }
+
+    #[test]
+    fn variable_dataflow_results_do_not_depend_on_query_order() {
+        let source = "VAR=x\nVAR=y\necho $VAR\necho $UNDEF\n";
+        let model = model(source);
+
+        let unused_then_uninitialized = {
+            let analysis = model.analysis();
+            let unused = analysis.unused_assignments().to_vec();
+            let uninitialized = analysis.uninitialized_references().to_vec();
+            (unused, uninitialized)
+        };
+        let uninitialized_then_unused = {
+            let analysis = model.analysis();
+            let uninitialized = analysis.uninitialized_references().to_vec();
+            let unused = analysis.unused_assignments().to_vec();
+            (unused, uninitialized)
+        };
+
+        assert_eq!(unused_then_uninitialized.0, uninitialized_then_unused.0);
+        assert_eq!(unused_then_uninitialized.1, uninitialized_then_unused.1);
+    }
+
+    #[test]
+    fn shared_exact_variable_dataflow_is_reused_across_accessors() {
+        let model = model("VAR=x\nVAR=y\necho $VAR\necho $UNDEF\n");
+        let analysis = model.analysis();
+
+        assert!(analysis.exact_variable_dataflow.get().is_none());
+
+        let unused = analysis.unused_assignments().to_vec();
+        let bundle_ptr = analysis.exact_variable_dataflow() as *const ExactVariableDataflow;
+        let uninitialized = analysis.uninitialized_references().to_vec();
+        let reused_ptr = analysis.exact_variable_dataflow() as *const ExactVariableDataflow;
+
+        assert_eq!(bundle_ptr, reused_ptr);
+        assert_eq!(binding_names(&model, &unused), vec!["VAR"]);
+        assert_eq!(
+            uninitialized
+                .iter()
+                .map(|reference| model.reference(reference.reference).name.to_string())
+                .collect::<Vec<_>>(),
+            vec!["UNDEF"]
+        );
+    }
+
+    #[test]
+    fn materialized_reaching_definitions_match_dense_exact_results() {
+        let model = model("VAR=outer\nif cond; then VAR=inner; fi\necho $VAR\n");
+        let analysis = model.analysis();
+        let dataflow = analysis.dataflow();
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name.as_str() == "VAR")
+            .expect("expected a VAR reference");
+        let block_id = block_with_reference(analysis.cfg(), reference.id);
+
+        assert_eq!(
+            sorted_binding_names(
+                &model,
+                dataflow.reaching_definitions.reaching_in[&block_id]
+                    .iter()
+                    .copied()
+            ),
+            vec!["VAR", "VAR"]
+        );
     }
 
     #[test]

@@ -49,6 +49,7 @@ crates/shuck-benchmark/
 │   ├── lexer.rs          # Criterion: lex throughput per file
 │   ├── parser.rs         # Criterion: parse throughput per file
 │   ├── semantic.rs       # Criterion: semantic-model throughput per file
+│   ├── unused_assignment.rs # Criterion: exact variable-dataflow throughput per file
 │   └── linter.rs         # Criterion: full lint pipeline per file
 ├── src/
 │   └── lib.rs            # TestCase, TestFile, load helpers
@@ -99,8 +100,26 @@ name = "semantic"
 harness = false
 
 [[bench]]
+name = "unused_assignment"
+harness = false
+
+[[bench]]
 name = "linter"
 harness = false
+```
+
+`unused_assignment.rs` is the dedicated Criterion harness for exact variable-dataflow work. It keeps the isolated `unused_assignment` and `uninitialized_reference` groups and also provides a combined `variable_dataflow_combined` group that measures the real shared-cache access pattern on one `SemanticAnalysis`.
+
+Before/after exact-dataflow comparisons should use explicit Criterion baseline commands against that bench target:
+
+```bash
+env CARGO_TARGET_DIR="$SCRATCH/target" \
+  cargo bench -p shuck-benchmark --bench unused_assignment \
+  -- --save-baseline=exact-dataflow-before --noplot
+
+env CARGO_TARGET_DIR="$SCRATCH/target" \
+  cargo bench -p shuck-benchmark --bench unused_assignment \
+  -- --baseline=exact-dataflow-before --noplot
 ```
 
 #### src/lib.rs — Test Case Infrastructure
