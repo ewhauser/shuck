@@ -155,6 +155,7 @@ mod tests {
 [ \"~/.bashrc\" = \"$profile\" ]
 [[ \"$profile\" == \"~/.profile\" ]]
 [ \"$profile\" != '~/.zshrc' ]
+[ ! = \"~/.bashrc\" ]
 [ ! \"$profile\" = \"~/.bashrc\" ]
 [ ! \"~/.bashrc\" = \"$profile\" ]
 [ ! \"$profile\" != '~/.zshrc' ]
@@ -174,6 +175,7 @@ mod tests {
                 "~/.bashrc",
                 "~/.profile",
                 "~/.zshrc",
+                "~/.bashrc",
                 "~/.bashrc",
                 "~/.bashrc",
                 "~/.zshrc",
