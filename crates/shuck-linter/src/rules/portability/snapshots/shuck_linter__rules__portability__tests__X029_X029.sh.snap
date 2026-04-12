@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 165
+---
+X029 use `[:upper:]` instead of `A-Z` in `tr` for locale-aware upper-case matching
+ --> <source>:4:4
+  |
+4 | tr A-Z xyz < foo
+  |
+
+X029 use `[:upper:]` instead of `A-Z` in `tr` for locale-aware upper-case matching
+ --> <source>:5:8
+  |
+5 | tr abc A-Z < foo
+  |
+
+X029 use `[:upper:]` instead of `A-Z` in `tr` for locale-aware upper-case matching
+ --> <source>:6:4
+  |
+6 | tr A-Z a-z < foo
+  |
+
+X029 use `[:upper:]` instead of `A-Z` in `tr` for locale-aware upper-case matching
+ --> <source>:7:7
+  |
+7 | tr -d A-Z < foo
+  |
+
+X029 use `[:upper:]` instead of `A-Z` in `tr` for locale-aware upper-case matching
+ --> <source>:8:7
+  |
+8 | tr -s 'A-Z' < foo
+  |
+
+X029 use `[:upper:]` instead of `A-Z` in `tr` for locale-aware upper-case matching
+ --> <source>:9:7
+  |
+9 | tr -- "A-Z" xyz < foo
+  |

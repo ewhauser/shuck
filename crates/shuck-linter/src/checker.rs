@@ -401,6 +401,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TrLowerRange) {
             rules::portability::tr_lower_range::tr_lower_range(self);
         }
+        if self.is_rule_enabled(Rule::TrUpperRange) {
+            rules::portability::tr_upper_range::tr_upper_range(self);
+        }
         if self.is_rule_enabled(Rule::TrapErr) {
             rules::portability::trap_err::trap_err(self);
         }

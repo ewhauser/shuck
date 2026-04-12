@@ -380,6 +380,7 @@ declare_rules! {
     ("X026", Category::Portability, Severity::Warning, BashFileSlurp),
     ("X027", Category::Portability, Severity::Warning, EchoFlags),
     ("X028", Category::Portability, Severity::Warning, TrLowerRange),
+    ("X029", Category::Portability, Severity::Warning, TrUpperRange),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
@@ -555,6 +556,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-081" => Some(Rule::PrintfQFormatInSh),
         "SH-054" => Some(Rule::EchoFlags),
         "SH-058" => Some(Rule::TrLowerRange),
+        "SH-059" => Some(Rule::TrUpperRange),
         "SH-226" => Some(Rule::FunctionKeywordInSh),
         "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
@@ -1219,5 +1221,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-054"), Some(Rule::EchoFlags));
         assert_eq!(code_to_rule("X028"), Some(Rule::TrLowerRange));
         assert_eq!(code_to_rule("SH-058"), Some(Rule::TrLowerRange));
+        assert_eq!(code_to_rule("X029"), Some(Rule::TrUpperRange));
+        assert_eq!(code_to_rule("SH-059"), Some(Rule::TrUpperRange));
     }
 }
