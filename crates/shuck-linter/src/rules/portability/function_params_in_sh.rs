@@ -67,7 +67,7 @@ fn next_function_body_delimiter(text: &str) -> Option<char> {
     let mut tail = text;
 
     loop {
-        tail = tail.trim_start_matches([' ', '\t', '\r', '\n']);
+        tail = trim_shell_layout_prefix(tail);
 
         if let Some(rest) = tail.strip_prefix('#') {
             tail = rest.split_once('\n').map_or("", |(_, rest)| rest);
@@ -75,6 +75,24 @@ fn next_function_body_delimiter(text: &str) -> Option<char> {
         }
 
         return tail.chars().next();
+    }
+}
+
+fn trim_shell_layout_prefix(text: &str) -> &str {
+    let mut tail = text;
+
+    loop {
+        tail = tail.trim_start_matches([' ', '\t', '\r', '\n']);
+
+        if let Some(rest) = tail
+            .strip_prefix("\\\r\n")
+            .or_else(|| tail.strip_prefix("\\\n"))
+        {
+            tail = rest;
+            continue;
+        }
+
+        return tail;
     }
 }
 
@@ -195,6 +213,19 @@ my-func(x) { :; }
         let source = "\
 #!/bin/sh
 f(x) # note
+{ :; }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionParamsInSh));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "(");
+    }
+
+    #[test]
+    fn reports_function_parameter_syntax_when_line_continuation_precedes_body() {
+        let source = "\
+#!/bin/sh
+f(x) \\
 { :; }
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionParamsInSh));
