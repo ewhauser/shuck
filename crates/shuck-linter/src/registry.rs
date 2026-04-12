@@ -352,6 +352,12 @@ declare_rules! {
         StringComparedWithEq
     ),
     (
+        "C122",
+        Category::Correctness,
+        Severity::Warning,
+        AFlagInDoubleBracket
+    ),
+    (
         "C123",
         Category::Correctness,
         Severity::Error,

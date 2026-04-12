@@ -897,6 +897,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::StringComparedWithEq) {
             rules::correctness::string_compared_with_eq::string_compared_with_eq(self);
         }
+        if self.is_rule_enabled(Rule::AFlagInDoubleBracket) {
+            rules::correctness::a_flag_in_double_bracket::a_flag_in_double_bracket(self);
+        }
         if self.is_rule_enabled(Rule::MalformedArithmeticInCondition) {
             rules::correctness::malformed_arithmetic_in_condition::malformed_arithmetic_in_condition(
                 self,

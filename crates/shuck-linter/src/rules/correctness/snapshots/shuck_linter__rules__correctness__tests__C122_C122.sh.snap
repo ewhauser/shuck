@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C122 use `-e` or `&&` instead of `-a` inside `[[ ... ]]`
+ --> <source>:2:4
+  |
+2 | [[ -a "$path" ]]
+  |
+
+C122 use `-e` or `&&` instead of `-a` inside `[[ ... ]]`
+ --> <source>:3:6
+  |
+3 | [[ ! -a "$path" ]]
+  |

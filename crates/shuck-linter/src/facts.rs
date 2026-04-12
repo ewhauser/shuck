@@ -251,6 +251,14 @@ impl<'a> SimpleTestFact<'a> {
             .flatten()
     }
 
+    pub fn effective_operator_word(&self) -> Option<&'a Word> {
+        match self.effective_shape {
+            SimpleTestShape::Unary => self.effective_operands().first().copied(),
+            SimpleTestShape::Binary => self.effective_operands().get(1).copied(),
+            SimpleTestShape::Empty | SimpleTestShape::Truthy | SimpleTestShape::Other => None,
+        }
+    }
+
     pub fn binary_operand_classes(&self) -> Option<(TestOperandClass, TestOperandClass)> {
         (self.shape == SimpleTestShape::Binary)
             .then(|| Some((self.operand_class(0)?, self.operand_class(2)?)))

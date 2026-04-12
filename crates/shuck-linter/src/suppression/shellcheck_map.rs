@@ -155,6 +155,7 @@ impl Default for ShellCheckCodeMap {
             (2143, Rule::GrepOutputInTest),
             (2360, Rule::ExprSubstrInTest),
             (2170, Rule::StringComparedWithEq),
+            (2331, Rule::AFlagInDoubleBracket),
             (2145, Rule::PositionalArgsInString),
             (2198, Rule::AtSignInStringCompare),
             (2199, Rule::ArraySliceInComparison),
@@ -767,6 +768,7 @@ impl Default for ShellCheckCodeMap {
                     (2308, Rule::GreaterThanInTest),
                     (2309, Rule::StringComparisonForVersion),
                     (2170, Rule::StringComparedWithEq),
+                    (2331, Rule::AFlagInDoubleBracket),
                     (2310, Rule::MixedAndOrInCondition),
                     (2311, Rule::QuotedCommandInTest),
                     (2312, Rule::GlobInTestComparison),
@@ -1061,6 +1063,8 @@ mod tests {
             map.resolve_all("SC2199"),
             vec![Rule::ArraySliceInComparison]
         );
+        assert_eq!(map.resolve_all("SC2144"), vec![Rule::GlobInTestDirectory]);
+        assert_eq!(map.resolve_all("SC2331"), vec![Rule::AFlagInDoubleBracket]);
         assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
         assert_eq!(
             map.resolve_all("SC2345"),
@@ -1072,6 +1076,8 @@ mod tests {
         assert_eq!(map.resolve_all("SC2327"), vec![Rule::QuotedBashSource]);
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2144"), Some(Rule::GlobInTestDirectory));
+        assert_eq!(map.resolve("SC2331"), Some(Rule::AFlagInDoubleBracket));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve("SC3072"), Some(Rule::CaretNegationInBracket));
@@ -1728,6 +1734,7 @@ mod tests {
             (2327, Rule::QuotedBashSource),
             (2328, Rule::CommandSubstitutionInAlias),
             (2330, Rule::FunctionInAlias),
+            (2331, Rule::AFlagInDoubleBracket),
             (2376, Rule::DoubleQuoteNesting),
             (2298, Rule::UnquotedTrRange),
             (2057, Rule::EscapedNegationInTest),

@@ -1,3 +1,4 @@
+pub mod a_flag_in_double_bracket;
 pub mod append_to_array_as_string;
 pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
@@ -158,6 +159,7 @@ mod tests {
     #[test_case(Rule::ConstantComparisonTest, Path::new("C017.sh"))]
     #[test_case(Rule::ConstantInTestAssignment, Path::new("C110.sh"))]
     #[test_case(Rule::StringComparedWithEq, Path::new("C121.sh"))]
+    #[test_case(Rule::AFlagInDoubleBracket, Path::new("C122.sh"))]
     #[test_case(Rule::MalformedArithmeticInCondition, Path::new("C118.sh"))]
     #[test_case(Rule::ExprSubstrInTest, Path::new("C120.sh"))]
     #[test_case(Rule::LoopControlOutsideLoop, Path::new("C018.sh"))]

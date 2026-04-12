@@ -415,7 +415,7 @@ Rules about `[`, `[[`, test operators, and conditional structure. Use
 - [x] **M** C118 (SC2357) `malformed-arithmetic-in-condition` — malformed arithmetic in condition
 - [x] **M** C120 (SC2360) `expr-substr-in-test` — `expr substr` inside test
 - [x] **M** C121 (SC2361) `string-compared-with-eq` — string compared with `-eq`
-- [ ] **L** C122 (SC2363) `a-flag-in-double-bracket` — `-a` in `[[ ]]` is ambiguous
+- [x] **L** C122 (SC2363) `a-flag-in-double-bracket` — `-a` in `[[ ]]` is ambiguous
 - [ ] **M** S011 (SC2166) `compound-test-operator` — `-a`/`-o` inside `[` expression
 - [ ] **L** S065 (SC2351) `x-prefix-in-test` — `x$var` idiom for empty-string safety
 
