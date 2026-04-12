@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, Rule, Violation};
 
 pub struct NestedDefaultExpansion;
 
@@ -12,11 +12,7 @@ impl Violation for NestedDefaultExpansion {
     }
 }
 
-pub fn nested_default_expansion(checker: &mut Checker) {
-    if !matches!(checker.shell(), ShellDialect::Sh | ShellDialect::Dash) {
-        return;
-    }
-}
+pub fn nested_default_expansion(_: &mut Checker) {}
 
 #[cfg(test)]
 mod tests {
