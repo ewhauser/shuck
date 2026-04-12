@@ -10546,9 +10546,7 @@ enum XargsShortOptionArgumentStyle {
 fn xargs_short_option_argument_style(flag: char) -> XargsShortOptionArgumentStyle {
     match flag {
         'e' | 'i' | 'l' => XargsShortOptionArgumentStyle::OptionalInlineOnly,
-        'a' | 'E' | 'I' | 'L' | 'n' | 'P' | 's' | 'd' => {
-            XargsShortOptionArgumentStyle::Required
-        }
+        'a' | 'E' | 'I' | 'L' | 'n' | 'P' | 's' | 'd' => XargsShortOptionArgumentStyle::Required,
         _ => XargsShortOptionArgumentStyle::None,
     }
 }
