@@ -95,6 +95,7 @@ pub mod quoted_bash_regex;
 pub mod quoted_bash_source;
 pub mod quoted_command_in_test;
 pub mod redirect_clobbers_input;
+pub mod redirect_before_pipe;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
@@ -226,6 +227,7 @@ mod tests {
     #[test_case(Rule::IfDollarCommand, Path::new("C092.sh"))]
     #[test_case(Rule::BacktickInCommandPosition, Path::new("C093.sh"))]
     #[test_case(Rule::RedirectClobbersInput, Path::new("C094.sh"))]
+    #[test_case(Rule::RedirectBeforePipe, Path::new("C119.sh"))]
     #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::UnquotedPipeInEcho, Path::new("C096.sh"))]

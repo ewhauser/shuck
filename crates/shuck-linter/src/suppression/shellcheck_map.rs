@@ -183,6 +183,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports stderr-before-stdout redirect ordering as SC2069.
             // Keep SC2306 as the authored suppression code and compare against the live code.
             (2069, Rule::StderrBeforeStdoutRedirect),
+            // ShellCheck 0.11.0 reports redirect-before-pipe warnings as SC2358.
+            // Keep SC2358 as the authored compatibility code and compare directly.
+            (2358, Rule::RedirectBeforePipe),
             // ShellCheck 0.11.0 reports read/write redirect collisions as SC2094.
             // Keep SC2317 as the authored suppression code and compare against the live code.
             (2094, Rule::RedirectClobbersInput),
@@ -560,6 +563,7 @@ impl Default for ShellCheckCodeMap {
                     (2009, Rule::PsGrepPipeline),
                     (2010, Rule::LsGrepPipeline),
                     (2306, Rule::StderrBeforeStdoutRedirect),
+                    (2358, Rule::RedirectBeforePipe),
                     (2317, Rule::RedirectClobbersInput),
                     (2293, Rule::LsPipedToXargs),
                     (2117, Rule::SuWithoutFlag),
@@ -1571,6 +1575,7 @@ mod tests {
         assert_eq!(map.resolve_all("SC2268"), vec![Rule::XPrefixInTest]);
         assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2358"), Some(Rule::RedirectBeforePipe));
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
@@ -1742,6 +1747,7 @@ mod tests {
             (2009, Rule::DoubleParenGrouping),
             (2010, Rule::LsGrepPipeline),
             (2306, Rule::StderrBeforeStdoutRedirect),
+            (2358, Rule::RedirectBeforePipe),
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
@@ -2152,6 +2158,7 @@ mod tests {
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
         assert!(comparison.contains(&(2069, Rule::StderrBeforeStdoutRedirect)));
+        assert!(comparison.contains(&(2358, Rule::RedirectBeforePipe)));
         assert!(comparison.contains(&(2014, Rule::UnquotedGlobsInFind)));
         assert!(comparison.contains(&(2231, Rule::GlobWithExpansionInLoop)));
         assert!(comparison.contains(&(2022, Rule::GlobInGrepPattern)));

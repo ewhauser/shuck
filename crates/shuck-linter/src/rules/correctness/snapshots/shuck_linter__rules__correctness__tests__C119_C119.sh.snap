@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C119 a stdout redirect before a pipe only affects the command on the left
+ --> <source>:4:5
+  |
+4 | cmd >/dev/null | next
+  |
+
+C119 a stdout redirect before a pipe only affects the command on the left
+ --> <source>:5:5
+  |
+5 | cmd >out | next
+  |
+
+C119 a stdout redirect before a pipe only affects the command on the left
+ --> <source>:8:12
+  |
+8 | left | mid >/dev/null | right
+  |

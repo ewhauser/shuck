@@ -358,6 +358,12 @@ declare_rules! {
         MalformedArithmeticInCondition
     ),
     (
+        "C119",
+        Category::Correctness,
+        Severity::Warning,
+        RedirectBeforePipe
+    ),
+    (
         "C120",
         Category::Correctness,
         Severity::Warning,
@@ -874,6 +880,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-159" => Some(Rule::SubstWithRedirect),
         "SH-160" => Some(Rule::SubstWithRedirectErr),
         "SH-165" => Some(Rule::RedirectToCommandName),
+        "SH-285" => Some(Rule::RedirectBeforePipe),
         "SH-166" => Some(Rule::NonAbsoluteShebang),
         "SH-167" => Some(Rule::TemplateBraceInCommand),
         "SH-169" => Some(Rule::NestedParameterExpansion),

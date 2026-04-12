@@ -553,7 +553,7 @@ Rules about redirection ordering, clobbering, and pipe interactions.
 
 - [x] **M** C085 (SC2306) `stderr-before-stdout-redirect` — stderr redirected before stdout
 - [x] **M** C094 (SC2317) `redirect-clobbers-input` — read and write same file via redirect
-- [ ] **M** C119 (SC2358) `redirect-before-pipe` — redirect before pipe only affects LHS
+- [x] **M** C119 (SC2358) `redirect-before-pipe` — redirect before pipe only affects LHS
 - [ ] **M** S075 (SC2129) `combine-appends` — multiple commands append same file separately
 
 ### Boolean Logic and Short-Circuit
