@@ -1982,6 +1982,7 @@ pub struct LinterFacts<'a> {
     subshell_test_group_spans: Vec<Span>,
     indented_shebang_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
+    shebang_not_on_first_line_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
@@ -2199,6 +2200,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn space_after_hash_bang_span(&self) -> Option<Span> {
         self.space_after_hash_bang_span
+    }
+
+    pub fn shebang_not_on_first_line_span(&self) -> Option<Span> {
+        self.shebang_not_on_first_line_span
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
@@ -2699,6 +2704,7 @@ impl<'a> LinterFactsBuilder<'a> {
             subshell_test_group_spans,
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
             space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
+            shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
@@ -3817,18 +3823,19 @@ fn special_positional_parameter_name(name: &str) -> Option<bool> {
 struct ShebangHeaderFacts {
     indented_shebang_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
+    shebang_not_on_first_line_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
 }
 
 fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
-    let Some(first_line) = source.lines().next() else {
+    let Some((first_line_offset, first_line_text)) = nth_source_line(source, 0) else {
         return ShebangHeaderFacts::default();
     };
-    let line = first_line.trim_end_matches('\r');
+    let line = first_line_text.trim_end_matches('\r');
 
     let trimmed = line.trim_start_matches(char::is_whitespace);
-    let indented_shebang_span =
-        (trimmed.len() != line.len() && trimmed.starts_with("#!")).then(|| first_line_span(line));
+    let indented_shebang_span = (trimmed.len() != line.len() && trimmed.starts_with("#!"))
+        .then(|| line_span(1, first_line_offset, line));
 
     let space_after_hash_bang_span = line
         .strip_prefix('#')
@@ -3838,7 +3845,13 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
                 .starts_with('!')
                 .then_some(())
         })
-        .map(|()| first_line_span(line));
+        .map(|()| line_span(1, first_line_offset, line));
+
+    let first_line_header_like = line.trim_start().is_empty() || line.trim_start().starts_with('#');
+    let shebang_not_on_first_line_span = nth_source_line(source, 1).and_then(|(offset, line)| {
+        let line = line.trim_end_matches('\r');
+        (first_line_header_like && line.starts_with("#!")).then(|| line_span(2, offset, line))
+    });
 
     let non_absolute_shebang_span = line.strip_prefix("#!").and_then(|shebang| {
         let interpreter = shebang.split_whitespace().next()?;
@@ -3848,21 +3861,41 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         if has_header_shellcheck_shell_directive(source) {
             return None;
         }
-        Some(first_line_span(line))
+        Some(line_span(1, first_line_offset, line))
     });
 
     ShebangHeaderFacts {
         indented_shebang_span,
         space_after_hash_bang_span,
+        shebang_not_on_first_line_span,
         non_absolute_shebang_span,
     }
 }
 
-fn first_line_span(line: &str) -> Span {
+fn nth_source_line(source: &str, index: usize) -> Option<(usize, &str)> {
+    let mut offset = 0;
+
+    for (line_index, raw_line) in source.split_inclusive('\n').enumerate() {
+        let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+        if line_index == index {
+            return Some((offset, line));
+        }
+        offset += raw_line.len();
+    }
+
+    if source.is_empty() {
+        return None;
+    }
+
+    let total_lines = source.split_inclusive('\n').count();
+    (total_lines == index + 1 && !source.ends_with('\n')).then_some((offset, &source[offset..]))
+}
+
+fn line_span(line_number: usize, offset: usize, line: &str) -> Span {
     let start = Position {
-        line: 1,
+        line: line_number,
         column: 1,
-        offset: 0,
+        offset,
     };
     let end = start.advanced_by(line);
     Span::from_positions(start, end)

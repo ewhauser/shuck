@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 270
+---
+C075 move the shebang to the first line of the file
+ --> <source>:2:1
+  |
+2 | #!/bin/sh
+  |

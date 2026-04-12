@@ -1913,6 +1913,7 @@ mod tests {
             Rule::ArraySubscriptCondition,
             Rule::ExtglobInTest,
             Rule::BackslashBeforeCommand,
+            Rule::ShebangNotOnFirstLine,
         ]);
 
         let unmapped: Vec<&str> = Rule::iter()

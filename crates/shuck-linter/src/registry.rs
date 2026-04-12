@@ -144,6 +144,7 @@ declare_rules! {
     ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
     ("C073", Category::Correctness, Severity::Warning, IndentedShebang),
     ("C074", Category::Correctness, Severity::Warning, SpaceAfterHashBang),
+    ("C075", Category::Correctness, Severity::Warning, ShebangNotOnFirstLine),
     (
         "C076",
         Category::Correctness,
@@ -805,6 +806,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-191" => Some(Rule::IndentedShebang),
         "SH-192" => Some(Rule::SpaceAfterHashBang),
+        "SH-193" => Some(Rule::ShebangNotOnFirstLine),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-225" => Some(Rule::UnquotedPipeInEcho),
         "SH-227" => Some(Rule::SuWithoutFlag),
@@ -1152,6 +1154,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(code_to_rule("SH-191"), Some(Rule::IndentedShebang));
         assert_eq!(code_to_rule("SH-192"), Some(Rule::SpaceAfterHashBang));
+        assert_eq!(code_to_rule("SH-193"), Some(Rule::ShebangNotOnFirstLine));
         assert_eq!(code_to_rule("SH-079"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(
             code_to_rule("SH-224"),
