@@ -45,6 +45,7 @@ pub mod ps_grep_pipeline;
 pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
 pub mod redundant_spaces_in_echo;
+pub mod relative_symlink_target;
 pub mod single_iteration_loop;
 pub mod single_letter_case_label;
 pub mod single_quote_backslash;
@@ -90,6 +91,7 @@ mod tests {
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
     #[test_case(Rule::FgrepDeprecated, Path::new("S061.sh"))]
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
+    #[test_case(Rule::RelativeSymlinkTarget, Path::new("S063.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]

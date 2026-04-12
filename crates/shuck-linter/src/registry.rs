@@ -568,6 +568,7 @@ declare_rules! {
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
     ("S061", Category::Style, Severity::Warning, FgrepDeprecated),
     ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
+    ("S063", Category::Style, Severity::Warning, RelativeSymlinkTarget),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
     ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
@@ -716,6 +717,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-245" => Some(Rule::DeprecatedTempfileCommand),
         "SH-247" => Some(Rule::EgrepDeprecated),
         "SH-248" => Some(Rule::FgrepDeprecated),
+        "SH-252" => Some(Rule::RelativeSymlinkTarget),
         "SH-306" => Some(Rule::DoubleQuoteNesting),
         "SH-309" => Some(Rule::EnvPrefixQuoting),
         "SH-350" => Some(Rule::MixedQuoteWord),
@@ -1007,6 +1009,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-212"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(code_to_rule("S058"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(code_to_rule("S062"), Some(Rule::DefaultValueInColonAssign));
+        assert_eq!(code_to_rule("S063"), Some(Rule::RelativeSymlinkTarget));
         assert_eq!(
             code_to_rule("SH-251"),
             Some(Rule::DefaultValueInColonAssign)
@@ -1091,6 +1094,7 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-247"), Some(Rule::EgrepDeprecated));
         assert_eq!(code_to_rule("SH-248"), Some(Rule::FgrepDeprecated));
+        assert_eq!(code_to_rule("SH-252"), Some(Rule::RelativeSymlinkTarget));
         assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("S030"), Some(Rule::HeredocEndSpace));
