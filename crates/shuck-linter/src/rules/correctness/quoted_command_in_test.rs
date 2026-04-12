@@ -3,7 +3,6 @@ use shuck_ast::{ConditionalUnaryOp, Span, Word};
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
     SimpleTestOperatorFamily, SimpleTestShape, Violation, WordFactContext, WordQuote,
-    static_word_text,
 };
 
 pub struct QuotedCommandInTest;
@@ -43,7 +42,7 @@ fn collect_simple_test_spans(
     checker: &Checker<'_>,
     simple_test: &crate::SimpleTestFact<'_>,
 ) -> Vec<Span> {
-    simple_test_condition_operand(simple_test, checker.source())
+    simple_test_condition_operand(simple_test)
         .and_then(|word| {
             simple_test_word_looks_like_quoted_pipeline(checker, word.span).then_some(word.span)
         })
@@ -53,20 +52,13 @@ fn collect_simple_test_spans(
 
 fn simple_test_condition_operand<'a>(
     simple_test: &'a crate::SimpleTestFact<'a>,
-    source: &str,
 ) -> Option<&'a Word> {
-    match simple_test.shape() {
-        SimpleTestShape::Truthy => simple_test.operands().first().copied(),
+    match simple_test.effective_shape() {
+        SimpleTestShape::Truthy => simple_test.effective_operands().first().copied(),
         SimpleTestShape::Unary
-            if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary
-                || simple_test
-                    .operands()
-                    .first()
-                    .and_then(|word| static_word_text(word, source))
-                    .as_deref()
-                    == Some("!") =>
+            if simple_test.effective_operator_family() == SimpleTestOperatorFamily::StringUnary =>
         {
-            simple_test.operands().get(1).copied()
+            simple_test.effective_operands().get(1).copied()
         }
         SimpleTestShape::Unary
         | SimpleTestShape::Empty
@@ -245,6 +237,8 @@ mod tests {
 #!/bin/sh
 [ ! \"lsmod | grep v4l2loopback\" ]
 test ! \"modprobe | grep snd\"
+[ ! -n \"lsmod | grep usb\" ]
+test ! -z \"modprobe | grep snd_hda\"
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::QuotedCommandInTest));
@@ -254,7 +248,12 @@ test ! \"modprobe | grep snd\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\"lsmod | grep v4l2loopback\"", "\"modprobe | grep snd\""]
+            vec![
+                "\"lsmod | grep v4l2loopback\"",
+                "\"modprobe | grep snd\"",
+                "\"lsmod | grep usb\"",
+                "\"modprobe | grep snd_hda\""
+            ]
         );
     }
 

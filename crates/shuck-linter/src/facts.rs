@@ -180,6 +180,9 @@ pub struct SimpleTestFact<'a> {
     operands: Box<[&'a Word]>,
     shape: SimpleTestShape,
     operator_family: SimpleTestOperatorFamily,
+    effective_operand_offset: usize,
+    effective_shape: SimpleTestShape,
+    effective_operator_family: SimpleTestOperatorFamily,
     operand_classes: Box<[TestOperandClass]>,
     empty_test_suppressed: bool,
 }
@@ -201,12 +204,34 @@ impl<'a> SimpleTestFact<'a> {
         self.operator_family
     }
 
+    pub fn is_effectively_negated(&self) -> bool {
+        self.effective_operand_offset != 0
+    }
+
+    pub fn effective_operands(&self) -> &[&'a Word] {
+        &self.operands[self.effective_operand_offset..]
+    }
+
+    pub fn effective_shape(&self) -> SimpleTestShape {
+        self.effective_shape
+    }
+
+    pub fn effective_operator_family(&self) -> SimpleTestOperatorFamily {
+        self.effective_operator_family
+    }
+
     pub fn operand_classes(&self) -> &[TestOperandClass] {
         &self.operand_classes
     }
 
     pub fn operand_class(&self, index: usize) -> Option<TestOperandClass> {
         self.operand_classes.get(index).copied()
+    }
+
+    pub fn effective_operand_class(&self, index: usize) -> Option<TestOperandClass> {
+        self.operand_classes
+            .get(self.effective_operand_offset + index)
+            .copied()
     }
 
     pub fn empty_test_suppressed(&self) -> bool {
@@ -6653,14 +6678,97 @@ fn build_simple_test_fact<'a>(
             operands.iter().collect::<Vec<_>>()
         }
     };
-    let shape = match operands.len() {
+    let shape = simple_test_shape(operands.len());
+    let operator_family = simple_test_operator_family(&operands, shape, source);
+    let effective_operand_offset = simple_test_effective_operand_offset(&operands, source);
+    let effective_shape =
+        simple_test_shape(operands.len().saturating_sub(effective_operand_offset));
+    let effective_operator_family = simple_test_operator_family(
+        &operands[effective_operand_offset..],
+        effective_shape,
+        source,
+    );
+    let operand_classes = operands
+        .iter()
+        .map(|word| classify_contextual_operand(word, source, ExpansionContext::CommandArgument))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    Some(SimpleTestFact {
+        syntax,
+        operands: operands.into_boxed_slice(),
+        shape,
+        operator_family,
+        effective_operand_offset,
+        effective_shape,
+        effective_operator_family,
+        operand_classes,
+        empty_test_suppressed: file_context
+            .span_intersects_kind(ContextRegionKind::ShellSpecParametersBlock, command.span),
+    })
+}
+
+fn simple_test_shape(operand_count: usize) -> SimpleTestShape {
+    match operand_count {
         0 => SimpleTestShape::Empty,
         1 => SimpleTestShape::Truthy,
         2 => SimpleTestShape::Unary,
         3 => SimpleTestShape::Binary,
         _ => SimpleTestShape::Other,
-    };
-    let operator_family = match shape {
+    }
+}
+
+fn simple_test_effective_operand_offset(operands: &[&Word], source: &str) -> usize {
+    if operands
+        .first()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        != Some("!")
+    {
+        return 0;
+    }
+
+    match operands.len() {
+        0 | 1 => 0,
+        3 if operands
+            .get(1)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            .is_some_and(simple_test_is_binary_operator) =>
+        {
+            0
+        }
+        _ => 1,
+    }
+}
+
+fn simple_test_is_binary_operator(operator: &str) -> bool {
+    matches!(
+        operator,
+        "=" | "=="
+            | "!="
+            | "<"
+            | ">"
+            | "-eq"
+            | "-ne"
+            | "-gt"
+            | "-ge"
+            | "-lt"
+            | "-le"
+            | "-nt"
+            | "-ot"
+            | "-ef"
+            | "-a"
+            | "-o"
+    )
+}
+
+fn simple_test_operator_family(
+    operands: &[&Word],
+    shape: SimpleTestShape,
+    source: &str,
+) -> SimpleTestOperatorFamily {
+    match shape {
         SimpleTestShape::Unary => operands
             .first()
             .and_then(|word| static_word_text(word, source))
@@ -6678,22 +6786,7 @@ fn build_simple_test_fact<'a>(
                 simple_test_binary_operator_family,
             ),
         _ => SimpleTestOperatorFamily::Other,
-    };
-    let operand_classes = operands
-        .iter()
-        .map(|word| classify_contextual_operand(word, source, ExpansionContext::CommandArgument))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    Some(SimpleTestFact {
-        syntax,
-        operands: operands.into_boxed_slice(),
-        shape,
-        operator_family,
-        operand_classes,
-        empty_test_suppressed: file_context
-            .span_intersects_kind(ContextRegionKind::ShellSpecParametersBlock, command.span),
-    })
+    }
 }
 
 fn simple_test_unary_operator_family(operator: &str) -> SimpleTestOperatorFamily {
@@ -10451,6 +10544,9 @@ test
 [ foo ]
 [ -n foo ]
 [ left = right ]
+[ ! = right ]
+[ ! -n foo ]
+[ ! left = right ]
 [ foo -eq 1 ]
 [ missing
 ";
@@ -10514,6 +10610,69 @@ test
                     .is_some_and(
                         |(left, right)| left.is_fixed_literal() && right.is_fixed_literal()
                     )
+            );
+
+            let literal_bang_binary = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! = right ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected literal bang binary test fact");
+            assert_eq!(literal_bang_binary.shape(), SimpleTestShape::Binary);
+            assert!(!literal_bang_binary.is_effectively_negated());
+            assert_eq!(
+                literal_bang_binary.effective_shape(),
+                SimpleTestShape::Binary
+            );
+            assert_eq!(
+                literal_bang_binary.effective_operator_family(),
+                SimpleTestOperatorFamily::StringBinary
+            );
+            assert!(
+                literal_bang_binary
+                    .effective_operand_class(0)
+                    .zip(literal_bang_binary.effective_operand_class(2))
+                    .is_some_and(|(left, right)| {
+                        left.is_fixed_literal() && right.is_fixed_literal()
+                    })
+            );
+
+            let negated_unary = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! -n foo ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated unary test fact");
+            assert_eq!(negated_unary.shape(), SimpleTestShape::Binary);
+            assert!(negated_unary.is_effectively_negated());
+            assert_eq!(negated_unary.effective_shape(), SimpleTestShape::Unary);
+            assert_eq!(
+                negated_unary.effective_operator_family(),
+                SimpleTestOperatorFamily::StringUnary
+            );
+            assert!(
+                negated_unary
+                    .effective_operand_class(1)
+                    .is_some_and(|class| class.is_fixed_literal())
+            );
+
+            let negated_binary = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! left = right ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated binary test fact");
+            assert_eq!(negated_binary.shape(), SimpleTestShape::Other);
+            assert!(negated_binary.is_effectively_negated());
+            assert_eq!(negated_binary.effective_shape(), SimpleTestShape::Binary);
+            assert_eq!(
+                negated_binary.effective_operator_family(),
+                SimpleTestOperatorFamily::StringBinary
+            );
+            assert!(
+                negated_binary
+                    .effective_operand_class(0)
+                    .zip(negated_binary.effective_operand_class(2))
+                    .is_some_and(|(left, right)| {
+                        left.is_fixed_literal() && right.is_fixed_literal()
+                    })
             );
 
             let non_string_binary = commands
