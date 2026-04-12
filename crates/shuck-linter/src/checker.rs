@@ -404,6 +404,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::TrUpperRange) {
             rules::portability::tr_upper_range::tr_upper_range(self);
         }
+        if self.is_rule_enabled(Rule::EchoBackslashEscapes) {
+            rules::portability::echo_backslash_escapes::echo_backslash_escapes(self);
+        }
         if self.is_rule_enabled(Rule::TrapErr) {
             rules::portability::trap_err::trap_err(self);
         }
