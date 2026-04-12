@@ -408,7 +408,12 @@ impl Default for ShellCheckCodeMap {
             (2194, Rule::ConstantCaseSubject),
             (2210, Rule::BadRedirectionFdOrder),
             (2154, Rule::UndefinedVariable),
+            // ShellCheck 0.11.0 reports missing shebangs on comment-first scripts as SC2148.
+            // Keep SC2285 as a suppression alias for the authored S043 rule code.
+            (2148, Rule::MissingShebangLine),
             (2239, Rule::NonAbsoluteShebang),
+            (2286, Rule::IndentedShebang),
+            (2287, Rule::SpaceAfterHashBang),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
@@ -663,6 +668,8 @@ impl Default for ShellCheckCodeMap {
                     (2112, Rule::FunctionKeyword),
                     (2125, Rule::GlobAssignedToVariable),
                     (2216, Rule::PipeToKill),
+                    (2148, Rule::MissingShebangLine),
+                    (2285, Rule::MissingShebangLine),
                     (3005, Rule::CStyleForInSh),
                     (3006, Rule::StandaloneArithmetic),
                     (3007, Rule::LegacyArithmeticInSh),
@@ -703,7 +710,10 @@ impl Default for ShellCheckCodeMap {
                     (2210, Rule::BadRedirectionFdOrder),
                     (2217, Rule::EchoHereDoc),
                     (2154, Rule::UndefinedVariable),
+                    (2148, Rule::MissingShebangLine),
                     (2239, Rule::NonAbsoluteShebang),
+                    (2286, Rule::IndentedShebang),
+                    (2287, Rule::SpaceAfterHashBang),
                     (2288, Rule::TemplateBraceInCommand),
                     (2289, Rule::CommentedContinuationLine),
                     (1133, Rule::LinebreakBeforeAnd),
@@ -834,6 +844,9 @@ impl Default for ShellCheckCodeMap {
                 (2368, Rule::ContinueOutsideLoopInFunction),
                 (2378, Rule::VariableAsCommandName),
                 (2384, Rule::LocalCrossReference),
+                // Keep SC2318 mapped primarily to LocalCrossReference, but still accept the
+                // authored duplicate-shebang compatibility code as a suppression alias.
+                (2318, Rule::DuplicateShebangFlag),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
                 (2344, Rule::AtSignInStringCompare),
@@ -841,6 +854,9 @@ impl Default for ShellCheckCodeMap {
                 (2325, Rule::QuotedArraySlice),
                 (2327, Rule::QuotedBashSource),
                 (2398, Rule::KeywordFunctionName),
+                // ShellCheck 0.11.0 reports repeated shebang flags under SC2096's broader
+                // "single shebang parameter" warning family.
+                (2096, Rule::DuplicateShebangFlag),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
@@ -1419,6 +1435,7 @@ mod tests {
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
         assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
+        assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve("SC2270"),
@@ -1443,6 +1460,14 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(map.resolve("SC2148"), Some(Rule::MissingShebangLine));
+        assert_eq!(map.resolve("SC2285"), Some(Rule::MissingShebangLine));
+        assert_eq!(
+            map.resolve_all("SC2318"),
+            vec![Rule::LocalCrossReference, Rule::DuplicateShebangFlag]
+        );
+        assert_eq!(map.resolve("SC2286"), Some(Rule::IndentedShebang));
+        assert_eq!(map.resolve("SC2287"), Some(Rule::SpaceAfterHashBang));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2289"), Some(Rule::CommentedContinuationLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
@@ -1714,6 +1739,8 @@ mod tests {
             (2270, Rule::AssignmentToNumericVariable),
             (2270, Rule::IfMissingThen),
             (2318, Rule::LocalCrossReference),
+            (2318, Rule::DuplicateShebangFlag),
+            (2096, Rule::DuplicateShebangFlag),
             (2290, Rule::SpacedAssignment),
             (2384, Rule::LocalCrossReference),
             (2387, Rule::SpacedAssignment),
@@ -1727,6 +1754,10 @@ mod tests {
             (2280, Rule::IfsEqualsAmbiguity),
             (2282, Rule::BadVarName),
             (2283, Rule::DoubleParenGrouping),
+            (2148, Rule::MissingShebangLine),
+            (2285, Rule::MissingShebangLine),
+            (2286, Rule::IndentedShebang),
+            (2287, Rule::SpaceAfterHashBang),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
@@ -1876,6 +1907,9 @@ mod tests {
             (3084, Rule::SourceInsideFunctionInSh),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::AssignmentLooksLikeComparison),
+            (2148, Rule::MissingShebangLine),
+            (2286, Rule::IndentedShebang),
+            (2287, Rule::SpaceAfterHashBang),
             (2277, Rule::ExtglobInCasePattern),
         ]
         .into_iter()
@@ -1903,6 +1937,7 @@ mod tests {
             Rule::ArraySubscriptCondition,
             Rule::ExtglobInTest,
             Rule::BackslashBeforeCommand,
+            Rule::ShebangNotOnFirstLine,
         ]);
 
         let unmapped: Vec<&str> = Rule::iter()

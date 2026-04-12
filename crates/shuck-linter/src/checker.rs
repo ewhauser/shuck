@@ -972,6 +972,21 @@ impl<'a> Checker<'a> {
     }
 
     fn check_flow(&mut self) {
+        if self.is_rule_enabled(Rule::IndentedShebang) {
+            rules::correctness::indented_shebang::indented_shebang(self);
+        }
+        if self.is_rule_enabled(Rule::SpaceAfterHashBang) {
+            rules::correctness::space_after_hash_bang::space_after_hash_bang(self);
+        }
+        if self.is_rule_enabled(Rule::ShebangNotOnFirstLine) {
+            rules::correctness::shebang_not_on_first_line::shebang_not_on_first_line(self);
+        }
+        if self.is_rule_enabled(Rule::MissingShebangLine) {
+            rules::style::missing_shebang_line::missing_shebang_line(self);
+        }
+        if self.is_rule_enabled(Rule::DuplicateShebangFlag) {
+            rules::style::duplicate_shebang_flag::duplicate_shebang_flag(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }

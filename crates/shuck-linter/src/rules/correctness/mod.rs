@@ -57,6 +57,7 @@ pub mod if_bracket_glued;
 pub mod if_dollar_command;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
+pub mod indented_shebang;
 pub mod invalid_exit_status;
 pub mod keyword_function_name;
 pub mod leading_glob_argument;
@@ -91,8 +92,10 @@ pub mod quoted_command_in_test;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
+pub mod shebang_not_on_first_line;
 pub mod short_circuit_fallthrough;
 pub mod single_quoted_literal;
+pub mod space_after_hash_bang;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
 pub mod string_comparison_for_version;
@@ -187,6 +190,9 @@ mod tests {
     #[test_case(Rule::PositionalParamAsOperator, Path::new("C070.sh"))]
     #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
+    #[test_case(Rule::IndentedShebang, Path::new("C073.sh"))]
+    #[test_case(Rule::SpaceAfterHashBang, Path::new("C074.sh"))]
+    #[test_case(Rule::ShebangNotOnFirstLine, Path::new("C075.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::UnquotedGlobsInFind, Path::new("C078.sh"))]

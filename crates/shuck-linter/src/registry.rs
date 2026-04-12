@@ -142,6 +142,9 @@ declare_rules! {
     ("C070", Category::Correctness, Severity::Warning, PositionalParamAsOperator),
     ("C071", Category::Correctness, Severity::Warning, DoubleParenGrouping),
     ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
+    ("C073", Category::Correctness, Severity::Warning, IndentedShebang),
+    ("C074", Category::Correctness, Severity::Warning, SpaceAfterHashBang),
+    ("C075", Category::Correctness, Severity::Warning, ShebangNotOnFirstLine),
     (
         "C076",
         Category::Correctness,
@@ -615,6 +618,8 @@ declare_rules! {
     ),
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
     ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
+    ("S043", Category::Style, Severity::Warning, MissingShebangLine),
+    ("S053", Category::Style, Severity::Warning, DuplicateShebangFlag),
     ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
     ("S073", Category::Style, Severity::Warning, SpacedTabstripClose),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
@@ -801,6 +806,11 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-187" => Some(Rule::PositionalParamAsOperator),
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
+        "SH-190" => Some(Rule::MissingShebangLine),
+        "SH-191" => Some(Rule::IndentedShebang),
+        "SH-192" => Some(Rule::SpaceAfterHashBang),
+        "SH-193" => Some(Rule::ShebangNotOnFirstLine),
+        "SH-223" => Some(Rule::DuplicateShebangFlag),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-225" => Some(Rule::UnquotedPipeInEcho),
         "SH-227" => Some(Rule::SuWithoutFlag),
@@ -1146,6 +1156,11 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-188"), Some(Rule::DoubleParenGrouping));
         assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(code_to_rule("SH-190"), Some(Rule::MissingShebangLine));
+        assert_eq!(code_to_rule("SH-191"), Some(Rule::IndentedShebang));
+        assert_eq!(code_to_rule("SH-192"), Some(Rule::SpaceAfterHashBang));
+        assert_eq!(code_to_rule("SH-193"), Some(Rule::ShebangNotOnFirstLine));
+        assert_eq!(code_to_rule("SH-223"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(code_to_rule("SH-079"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(
             code_to_rule("SH-224"),
