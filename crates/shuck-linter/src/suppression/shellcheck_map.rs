@@ -844,6 +844,9 @@ impl Default for ShellCheckCodeMap {
                 (2368, Rule::ContinueOutsideLoopInFunction),
                 (2378, Rule::VariableAsCommandName),
                 (2384, Rule::LocalCrossReference),
+                // Keep SC2318 mapped primarily to LocalCrossReference, but still accept the
+                // authored duplicate-shebang compatibility code as a suppression alias.
+                (2318, Rule::DuplicateShebangFlag),
                 (2387, Rule::SpacedAssignment),
                 (2388, Rule::BadVarName),
                 (2344, Rule::AtSignInStringCompare),
@@ -851,6 +854,9 @@ impl Default for ShellCheckCodeMap {
                 (2325, Rule::QuotedArraySlice),
                 (2327, Rule::QuotedBashSource),
                 (2398, Rule::KeywordFunctionName),
+                // ShellCheck 0.11.0 reports repeated shebang flags under SC2096's broader
+                // "single shebang parameter" warning family.
+                (2096, Rule::DuplicateShebangFlag),
                 // Preserve SC2290 for suppressing C139 without taking over the large-corpus
                 // comparison slot that already belongs to C077.
                 (2290, Rule::SpacedAssignment),
@@ -1429,6 +1435,7 @@ mod tests {
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
         assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
+        assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve("SC2270"),
@@ -1455,6 +1462,10 @@ mod tests {
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2148"), Some(Rule::MissingShebangLine));
         assert_eq!(map.resolve("SC2285"), Some(Rule::MissingShebangLine));
+        assert_eq!(
+            map.resolve_all("SC2318"),
+            vec![Rule::LocalCrossReference, Rule::DuplicateShebangFlag]
+        );
         assert_eq!(map.resolve("SC2286"), Some(Rule::IndentedShebang));
         assert_eq!(map.resolve("SC2287"), Some(Rule::SpaceAfterHashBang));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
@@ -1728,6 +1739,8 @@ mod tests {
             (2270, Rule::AssignmentToNumericVariable),
             (2270, Rule::IfMissingThen),
             (2318, Rule::LocalCrossReference),
+            (2318, Rule::DuplicateShebangFlag),
+            (2096, Rule::DuplicateShebangFlag),
             (2290, Rule::SpacedAssignment),
             (2384, Rule::LocalCrossReference),
             (2387, Rule::SpacedAssignment),

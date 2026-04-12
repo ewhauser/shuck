@@ -13,6 +13,7 @@ pub mod deprecated_tempfile_command;
 pub mod dollar_in_arithmetic;
 pub mod dollar_in_arithmetic_context;
 pub mod double_quote_nesting;
+pub mod duplicate_shebang_flag;
 pub mod echo_here_doc;
 pub mod echo_inside_command_substitution;
 pub mod echoed_command_substitution;
@@ -129,6 +130,7 @@ mod tests {
     #[test_case(Rule::LiteralBackslash, Path::new("S025.sh"))]
     #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]
     #[test_case(Rule::MissingShebangLine, Path::new("S043.txt"))]
+    #[test_case(Rule::DuplicateShebangFlag, Path::new("S053.sh"))]
     #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
     #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
     #[test_case(Rule::IfsEqualsAmbiguity, Path::new("S042.sh"))]

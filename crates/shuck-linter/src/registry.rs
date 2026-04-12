@@ -619,6 +619,7 @@ declare_rules! {
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
     ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S043", Category::Style, Severity::Warning, MissingShebangLine),
+    ("S053", Category::Style, Severity::Warning, DuplicateShebangFlag),
     ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
     ("S073", Category::Style, Severity::Warning, SpacedTabstripClose),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
@@ -809,6 +810,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-191" => Some(Rule::IndentedShebang),
         "SH-192" => Some(Rule::SpaceAfterHashBang),
         "SH-193" => Some(Rule::ShebangNotOnFirstLine),
+        "SH-223" => Some(Rule::DuplicateShebangFlag),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-225" => Some(Rule::UnquotedPipeInEcho),
         "SH-227" => Some(Rule::SuWithoutFlag),
@@ -1158,6 +1160,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-191"), Some(Rule::IndentedShebang));
         assert_eq!(code_to_rule("SH-192"), Some(Rule::SpaceAfterHashBang));
         assert_eq!(code_to_rule("SH-193"), Some(Rule::ShebangNotOnFirstLine));
+        assert_eq!(code_to_rule("SH-223"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(code_to_rule("SH-079"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(
             code_to_rule("SH-224"),

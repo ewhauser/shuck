@@ -3413,6 +3413,23 @@ mod tests {
     }
 
     #[test]
+    fn selected_rule_filter_uses_oracle_code_for_s053() {
+        let rules = parse_large_corpus_rule_set("S053").unwrap();
+
+        assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
+        assert_eq!(
+            build_rule_to_shellcheck_index(Some(&rules))
+                .get("S053")
+                .map(String::as_str),
+            Some("SC2096")
+        );
+        assert_eq!(
+            build_shellcheck_filter_codes(Some(rules), true),
+            Some(HashSet::from([2096]))
+        );
+    }
+
+    #[test]
     fn selected_rule_filter_accepts_reviewed_metadata_only_rules() {
         let rules = parse_large_corpus_rule_set("C096,S071").unwrap();
 

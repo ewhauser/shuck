@@ -984,6 +984,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::MissingShebangLine) {
             rules::style::missing_shebang_line::missing_shebang_line(self);
         }
+        if self.is_rule_enabled(Rule::DuplicateShebangFlag) {
+            rules::style::duplicate_shebang_flag::duplicate_shebang_flag(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }

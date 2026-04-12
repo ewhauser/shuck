@@ -1984,6 +1984,7 @@ pub struct LinterFacts<'a> {
     space_after_hash_bang_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
     missing_shebang_line_span: Option<Span>,
+    duplicate_shebang_flag_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
@@ -2209,6 +2210,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn missing_shebang_line_span(&self) -> Option<Span> {
         self.missing_shebang_line_span
+    }
+
+    pub fn duplicate_shebang_flag_span(&self) -> Option<Span> {
+        self.duplicate_shebang_flag_span
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
@@ -2711,6 +2716,7 @@ impl<'a> LinterFactsBuilder<'a> {
             space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
             shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
             missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
+            duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
@@ -3831,6 +3837,7 @@ struct ShebangHeaderFacts {
     space_after_hash_bang_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
     missing_shebang_line_span: Option<Span>,
+    duplicate_shebang_flag_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
 }
 
@@ -3874,9 +3881,16 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         && line.trim_start().starts_with('#'))
     .then(|| line_span(1, first_line_offset, line));
 
-    let non_absolute_shebang_span = line.strip_prefix("#!").and_then(|shebang| {
-        let interpreter = shebang.split_whitespace().next()?;
-        if interpreter.starts_with('/') || interpreter == "/usr/bin/env" {
+    let shebang_words = line
+        .strip_prefix("#!")
+        .map(parse_shebang_words)
+        .unwrap_or_default();
+
+    let duplicate_shebang_flag_span =
+        shebang_duplicate_flag(&shebang_words).map(|_| line_span(1, first_line_offset, line));
+
+    let non_absolute_shebang_span = shebang_words.first().and_then(|interpreter| {
+        if interpreter.starts_with('/') || *interpreter == "/usr/bin/env" {
             return None;
         }
         if has_header_shellcheck_shell_directive(source) {
@@ -3890,8 +3904,23 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         space_after_hash_bang_span,
         shebang_not_on_first_line_span,
         missing_shebang_line_span,
+        duplicate_shebang_flag_span,
         non_absolute_shebang_span,
     }
+}
+
+fn parse_shebang_words(shebang: &str) -> Vec<&str> {
+    shebang.split_whitespace().collect()
+}
+
+fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
+    let mut seen = FxHashSet::default();
+
+    shebang_words
+        .iter()
+        .copied()
+        .skip(1)
+        .find(|word| word.starts_with('-') && !seen.insert(*word))
 }
 
 fn nth_source_line(source: &str, index: usize) -> Option<(usize, &str)> {
