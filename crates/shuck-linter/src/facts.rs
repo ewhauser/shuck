@@ -6229,7 +6229,7 @@ fn build_getopts_case_fact_for_while(
     source: &str,
 ) -> Option<GetoptsCaseFact> {
     let parsed = parse_getopts_command_from_condition(&command.condition, source)?;
-    let (case_span, handled_case_labels, has_fallback_pattern) =
+    let (case_span, handled_case_labels, has_fallback_pattern, has_unknown_coverage) =
         first_getopts_case_match(&command.body, parsed.target_name.as_str(), source)?;
 
     let handled = handled_case_labels
@@ -6247,7 +6247,7 @@ fn build_getopts_case_fact_for_while(
         .filter(|label| !declared.contains(&label.label()))
         .filter(|label| !matches!(label.label(), '?' | ':'))
         .collect::<Vec<_>>();
-    let missing_options = if has_fallback_pattern {
+    let missing_options = if has_fallback_pattern || has_unknown_coverage {
         Vec::new()
     } else {
         parsed
@@ -6326,43 +6326,169 @@ fn first_getopts_case_match(
     body: &StmtSeq,
     target_name: &str,
     source: &str,
-) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool)> {
-    query::iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-    )
-    .find_map(|visit| {
-        let Command::Compound(CompoundCommand::Case(command)) = visit.command else {
-            return None;
-        };
+) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+    first_getopts_case_match_in_commands(body, target_name, source)
+}
 
-        (case_subject_variable_name(&command.word) == Some(target_name)).then(|| {
-            let mut has_fallback_pattern = false;
-            let labels = command
-                .cases
-                .iter()
-                .flat_map(|item| item.patterns.iter())
-                .filter_map(|pattern| {
-                    if getopts_case_pattern_is_fallback(pattern, source) {
-                        has_fallback_pattern = true;
-                    }
+fn first_getopts_case_match_in_commands(
+    commands: &StmtSeq,
+    target_name: &str,
+    source: &str,
+) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+    commands
+        .iter()
+        .find_map(|stmt| first_getopts_case_match_in_command(&stmt.command, target_name, source))
+}
 
-                    let text = static_case_pattern_text(pattern, source)?;
-                    let mut chars = text.chars();
-                    let label = chars.next()?;
-                    let is_bare_single_letter =
-                        label.is_ascii_alphabetic() && pattern.span.slice(source) == text;
-                    chars.next().is_none().then_some(GetoptsCaseLabelFact {
-                        label,
-                        span: pattern.span,
-                        is_bare_single_letter,
+fn first_getopts_case_match_in_command(
+    command: &Command,
+    target_name: &str,
+    source: &str,
+) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+    match command {
+        Command::Binary(command) => {
+            first_getopts_case_match_in_command(&command.left.command, target_name, source).or_else(
+                || first_getopts_case_match_in_command(&command.right.command, target_name, source),
+            )
+        }
+        Command::Compound(command) => {
+            first_getopts_case_match_in_compound(command, target_name, source)
+        }
+        // Helper definitions are not part of the executable getopts dispatch path.
+        Command::Function(_) | Command::AnonymousFunction(_) => None,
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => None,
+    }
+}
+
+fn first_getopts_case_match_in_compound(
+    command: &CompoundCommand,
+    target_name: &str,
+    source: &str,
+) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool, bool)> {
+    match command {
+        CompoundCommand::If(command) => {
+            first_getopts_case_match_in_commands(&command.condition, target_name, source)
+                .or_else(|| {
+                    first_getopts_case_match_in_commands(&command.then_branch, target_name, source)
+                })
+                .or_else(|| {
+                    command.elif_branches.iter().find_map(|(condition, body)| {
+                        first_getopts_case_match_in_commands(condition, target_name, source)
+                            .or_else(|| {
+                                first_getopts_case_match_in_commands(body, target_name, source)
+                            })
                     })
                 })
-                .collect::<Vec<_>>();
-            (command.span, labels, has_fallback_pattern)
-        })
+                .or_else(|| {
+                    command.else_branch.as_ref().and_then(|body| {
+                        first_getopts_case_match_in_commands(body, target_name, source)
+                    })
+                })
+        }
+        CompoundCommand::For(command) => {
+            first_getopts_case_match_in_commands(&command.body, target_name, source)
+        }
+        CompoundCommand::Repeat(command) => {
+            first_getopts_case_match_in_commands(&command.body, target_name, source)
+        }
+        CompoundCommand::Foreach(command) => {
+            first_getopts_case_match_in_commands(&command.body, target_name, source)
+        }
+        CompoundCommand::ArithmeticFor(command) => {
+            first_getopts_case_match_in_commands(&command.body, target_name, source)
+        }
+        CompoundCommand::While(command) => {
+            first_getopts_case_match_in_commands(&command.condition, target_name, source).or_else(
+                || first_getopts_case_match_in_commands(&command.body, target_name, source),
+            )
+        }
+        CompoundCommand::Until(command) => {
+            first_getopts_case_match_in_commands(&command.condition, target_name, source).or_else(
+                || first_getopts_case_match_in_commands(&command.body, target_name, source),
+            )
+        }
+        CompoundCommand::Case(command) => {
+            if case_subject_variable_name(&command.word) == Some(target_name) {
+                let mut has_fallback_pattern = false;
+                let mut has_unknown_coverage = false;
+                let labels = command
+                    .cases
+                    .iter()
+                    .flat_map(|item| item.patterns.iter())
+                    .filter_map(
+                        |pattern| match classify_getopts_case_pattern(pattern, source) {
+                            GetoptsCasePatternKind::Fallback => {
+                                has_fallback_pattern = true;
+                                None
+                            }
+                            GetoptsCasePatternKind::SingleLabel(label) => Some(label),
+                            GetoptsCasePatternKind::UnknownCoverage => {
+                                has_unknown_coverage = true;
+                                None
+                            }
+                        },
+                    )
+                    .collect::<Vec<_>>();
+                Some((
+                    command.span,
+                    labels,
+                    has_fallback_pattern,
+                    has_unknown_coverage,
+                ))
+            } else {
+                command.cases.iter().find_map(|item| {
+                    first_getopts_case_match_in_commands(&item.body, target_name, source)
+                })
+            }
+        }
+        CompoundCommand::Select(command) => {
+            first_getopts_case_match_in_commands(&command.body, target_name, source)
+        }
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            first_getopts_case_match_in_commands(commands, target_name, source)
+        }
+        CompoundCommand::Always(command) => {
+            first_getopts_case_match_in_commands(&command.body, target_name, source).or_else(|| {
+                first_getopts_case_match_in_commands(&command.always_body, target_name, source)
+            })
+        }
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => None,
+        CompoundCommand::Time(command) => command.command.as_ref().and_then(|stmt| {
+            first_getopts_case_match_in_command(&stmt.command, target_name, source)
+        }),
+        CompoundCommand::Coproc(command) => {
+            first_getopts_case_match_in_command(&command.body.command, target_name, source)
+        }
+    }
+}
+
+enum GetoptsCasePatternKind {
+    Fallback,
+    SingleLabel(GetoptsCaseLabelFact),
+    UnknownCoverage,
+}
+
+fn classify_getopts_case_pattern(pattern: &Pattern, source: &str) -> GetoptsCasePatternKind {
+    if getopts_case_pattern_is_fallback(pattern, source) {
+        return GetoptsCasePatternKind::Fallback;
+    }
+
+    let Some(text) = static_case_pattern_text(pattern, source) else {
+        return GetoptsCasePatternKind::UnknownCoverage;
+    };
+    let mut chars = text.chars();
+    let Some(label) = chars.next() else {
+        return GetoptsCasePatternKind::UnknownCoverage;
+    };
+    if chars.next().is_some() {
+        return GetoptsCasePatternKind::UnknownCoverage;
+    }
+
+    let is_bare_single_letter = label.is_ascii_alphabetic() && pattern.span.slice(source) == text;
+    GetoptsCasePatternKind::SingleLabel(GetoptsCaseLabelFact {
+        label,
+        span: pattern.span,
+        is_bare_single_letter,
     })
 }
 

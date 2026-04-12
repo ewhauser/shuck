@@ -114,4 +114,25 @@ done
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "b");
     }
+
+    #[test]
+    fn ignores_function_local_cases_before_the_real_getopts_handler() {
+        let source = "\
+while getopts 'a' opt; do
+  helper() {
+    case \"$opt\" in
+      b) : ;;
+    esac
+  }
+
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert!(diagnostics.is_empty());
+    }
 }

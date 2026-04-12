@@ -171,4 +171,44 @@ f() {
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_function_local_cases_before_the_real_getopts_handler() {
+        let source = "\
+while getopts ':ab' opt; do
+  helper() {
+    case \"$opt\" in
+      a) : ;;
+    esac
+  }
+
+  case \"$opt\" in
+    a|b) : ;;
+  esac
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GetoptsOptionNotInCase),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_nonliteral_patterns_when_coverage_is_unknown() {
+        let source = "\
+while getopts 'ab' opt; do
+  case \"$opt\" in
+    [ab]) : ;;
+  esac
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GetoptsOptionNotInCase),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }
