@@ -88,6 +88,7 @@ mod tests {
                 Rule::UnusedHeredoc,
                 Rule::UncheckedDirectoryChangeInFunction,
                 Rule::ContinueOutsideLoopInFunction,
+                Rule::CaseGlobReachability,
             ]
         );
     }

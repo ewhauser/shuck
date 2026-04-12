@@ -1000,6 +1000,22 @@ impl<'a> CaseItemFact<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct CasePatternShadowFact {
+    shadowing_pattern_span: Span,
+    shadowed_pattern_span: Span,
+}
+
+impl CasePatternShadowFact {
+    pub fn shadowing_pattern_span(&self) -> Span {
+        self.shadowing_pattern_span
+    }
+
+    pub fn shadowed_pattern_span(&self) -> Span {
+        self.shadowed_pattern_span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct FunctionHeaderFact<'a> {
     function: &'a FunctionDef,
 }
@@ -1804,6 +1820,7 @@ pub struct LinterFacts<'a> {
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
     case_items: Vec<CaseItemFact<'a>>,
+    case_pattern_shadows: Vec<CasePatternShadowFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     single_test_subshell_spans: Vec<Span>,
@@ -1989,6 +2006,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn case_items(&self) -> &[CaseItemFact<'a>] {
         &self.case_items
+    }
+
+    pub fn case_pattern_shadows(&self) -> &[CasePatternShadowFact] {
+        &self.case_pattern_shadows
     }
 
     pub fn pipelines(&self) -> &[PipelineFact<'a>] {
@@ -2370,6 +2391,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let case_items = build_case_item_facts(&commands);
+        let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let single_test_subshell_spans =
@@ -2469,6 +2491,7 @@ impl<'a> LinterFactsBuilder<'a> {
             for_headers,
             select_headers,
             case_items,
+            case_pattern_shadows,
             pipelines,
             lists,
             single_test_subshell_spans,
@@ -5815,6 +5838,281 @@ fn pattern_contains_word_or_group(pattern: &Pattern) -> bool {
         | PatternPart::AnyChar
         | PatternPart::CharClass(_) => false,
     })
+}
+
+#[derive(Debug, Clone)]
+struct StaticCasePatternMatcher {
+    tokens: Vec<CasePatternToken>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CasePatternToken {
+    Literal(char),
+    AnyChar,
+    AnyString,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CasePatternSymbol {
+    Literal(char),
+    Other,
+}
+
+#[derive(Debug, Clone)]
+struct ReachableCasePattern {
+    span: Span,
+    matcher: StaticCasePatternMatcher,
+}
+
+impl StaticCasePatternMatcher {
+    fn from_pattern(pattern: &Pattern, source: &str) -> Option<Self> {
+        ensure_case_pattern_is_statically_analyzable(pattern, source)?;
+
+        let mut tokens = Vec::new();
+        collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
+        Some(Self { tokens })
+    }
+
+    fn subsumes(&self, other: &Self) -> bool {
+        let mut symbols = self.literal_symbols();
+        symbols.extend(other.literal_symbols());
+
+        let start = (self.start_states(), other.start_states());
+        let mut seen = FxHashSet::default();
+        let mut worklist = vec![start.clone()];
+        seen.insert(start);
+
+        while let Some((left, right)) = worklist.pop() {
+            if other.is_accepting(&right) && !self.is_accepting(&left) {
+                return false;
+            }
+
+            for symbol in symbols
+                .iter()
+                .copied()
+                .map(CasePatternSymbol::Literal)
+                .chain(std::iter::once(CasePatternSymbol::Other))
+            {
+                let next_right = other.advance(&right, symbol);
+                if next_right.is_empty() {
+                    continue;
+                }
+
+                let next_left = self.advance(&left, symbol);
+                if seen.insert((next_left.clone(), next_right.clone())) {
+                    worklist.push((next_left, next_right));
+                }
+            }
+        }
+
+        true
+    }
+
+    fn literal_symbols(&self) -> FxHashSet<char> {
+        self.tokens
+            .iter()
+            .filter_map(|token| match token {
+                CasePatternToken::Literal(ch) => Some(*ch),
+                CasePatternToken::AnyChar | CasePatternToken::AnyString => None,
+            })
+            .collect()
+    }
+
+    fn start_states(&self) -> Vec<usize> {
+        self.epsilon_closure([0])
+    }
+
+    fn advance(&self, states: &[usize], symbol: CasePatternSymbol) -> Vec<usize> {
+        let mut next = Vec::new();
+
+        for &state in states {
+            let Some(token) = self.tokens.get(state) else {
+                continue;
+            };
+
+            match token {
+                CasePatternToken::Literal(expected)
+                    if matches!(symbol, CasePatternSymbol::Literal(actual) if actual == *expected) =>
+                {
+                    next.push(state + 1);
+                }
+                CasePatternToken::AnyChar => next.push(state + 1),
+                CasePatternToken::AnyString => next.push(state),
+                CasePatternToken::Literal(_) => {}
+            }
+        }
+
+        if next.is_empty() {
+            return Vec::new();
+        }
+
+        self.epsilon_closure(next)
+    }
+
+    fn epsilon_closure(&self, seeds: impl IntoIterator<Item = usize>) -> Vec<usize> {
+        let mut seen = vec![false; self.tokens.len() + 1];
+        let mut stack = Vec::new();
+
+        for state in seeds {
+            if state <= self.tokens.len() && !seen[state] {
+                seen[state] = true;
+                stack.push(state);
+            }
+        }
+
+        while let Some(state) = stack.pop() {
+            if matches!(self.tokens.get(state), Some(CasePatternToken::AnyString)) {
+                let next = state + 1;
+                if !seen[next] {
+                    seen[next] = true;
+                    stack.push(next);
+                }
+            }
+        }
+
+        seen.into_iter()
+            .enumerate()
+            .filter_map(|(index, present)| present.then_some(index))
+            .collect()
+    }
+
+    fn is_accepting(&self, states: &[usize]) -> bool {
+        states.contains(&self.tokens.len())
+    }
+}
+
+fn ensure_case_pattern_is_statically_analyzable(pattern: &Pattern, source: &str) -> Option<()> {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => {}
+            PatternPart::Word(word) => {
+                static_word_text(word, source)?;
+            }
+            PatternPart::Group { .. } | PatternPart::CharClass(_) => return None,
+        }
+    }
+
+    Some(())
+}
+
+fn collect_static_case_pattern_tokens(
+    pattern_syntax: &str,
+    out: &mut Vec<CasePatternToken>,
+) -> Option<()> {
+    let mut chars = pattern_syntax.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => match chars.next() {
+                Some('\n') => {}
+                Some(escaped) => push_case_pattern_literal_tokens_char(escaped, out),
+                None => push_case_pattern_literal_tokens_char('\\', out),
+            },
+            '\'' => {
+                while let Some(quoted) = chars.next() {
+                    if quoted == '\'' {
+                        break;
+                    }
+                    push_case_pattern_literal_tokens_char(quoted, out);
+                }
+            }
+            '"' => {
+                while let Some(quoted) = chars.next() {
+                    match quoted {
+                        '"' => break,
+                        '\\' => match chars.next() {
+                            Some('\n') => {}
+                            Some(escaped @ ('$' | '`' | '"' | '\\')) => {
+                                push_case_pattern_literal_tokens_char(escaped, out);
+                            }
+                            Some(other) => {
+                                push_case_pattern_literal_tokens_char('\\', out);
+                                push_case_pattern_literal_tokens_char(other, out);
+                            }
+                            None => push_case_pattern_literal_tokens_char('\\', out),
+                        },
+                        _ => push_case_pattern_literal_tokens_char(quoted, out),
+                    }
+                }
+            }
+            '[' => return None,
+            '?' => {
+                if chars.peek() == Some(&'(') {
+                    return None;
+                }
+                push_case_pattern_token(out, CasePatternToken::AnyChar);
+            }
+            '*' => {
+                if chars.peek() == Some(&'(') {
+                    return None;
+                }
+                push_case_pattern_token(out, CasePatternToken::AnyString);
+            }
+            '+' | '@' | '!' if chars.peek() == Some(&'(') => return None,
+            '$' | '`' => return None,
+            other => push_case_pattern_literal_tokens_char(other, out),
+        }
+    }
+    Some(())
+}
+
+fn push_case_pattern_literal_tokens_char(ch: char, out: &mut Vec<CasePatternToken>) {
+    out.push(CasePatternToken::Literal(ch));
+}
+
+fn push_case_pattern_token(out: &mut Vec<CasePatternToken>, token: CasePatternToken) {
+    if matches!(token, CasePatternToken::AnyString)
+        && matches!(out.last(), Some(CasePatternToken::AnyString))
+    {
+        return;
+    }
+
+    out.push(token);
+}
+
+fn build_case_pattern_shadow_facts(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<CasePatternShadowFact> {
+    let mut shadows = Vec::new();
+
+    for fact in commands {
+        let Command::Compound(CompoundCommand::Case(command)) = fact.command() else {
+            continue;
+        };
+
+        let mut prior_arm_patterns = Vec::<ReachableCasePattern>::new();
+
+        for item in &command.cases {
+            let mut same_item_patterns = Vec::<ReachableCasePattern>::new();
+
+            for pattern in &item.patterns {
+                let Some(matcher) = StaticCasePatternMatcher::from_pattern(pattern, source) else {
+                    continue;
+                };
+
+                for previous in prior_arm_patterns.iter().chain(same_item_patterns.iter()) {
+                    if previous.matcher.subsumes(&matcher) {
+                        shadows.push(CasePatternShadowFact {
+                            shadowing_pattern_span: previous.span,
+                            shadowed_pattern_span: pattern.span,
+                        });
+                    }
+                }
+
+                same_item_patterns.push(ReachableCasePattern {
+                    span: pattern.span,
+                    matcher,
+                });
+            }
+
+            if item.terminator == CaseTerminator::Break {
+                prior_arm_patterns.extend(same_item_patterns);
+            }
+        }
+    }
+
+    shadows
 }
 
 fn word_context_supports_operand_class(context: ExpansionContext) -> bool {

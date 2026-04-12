@@ -18,6 +18,7 @@ pub mod broken_test_end;
 pub mod broken_test_parse;
 pub mod c_prototype_fragment;
 pub mod c_style_comment;
+pub mod case_glob_reachability;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod comma_array_elements;
@@ -218,6 +219,7 @@ mod tests {
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UncheckedDirectoryChangeInFunction, Path::new("C125.sh"))]
     #[test_case(Rule::ContinueOutsideLoopInFunction, Path::new("C126.sh"))]
+    #[test_case(Rule::CaseGlobReachability, Path::new("C128.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]

@@ -347,6 +347,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BashCaseFallthrough) {
             rules::portability::bash_case_fallthrough::bash_case_fallthrough(self);
         }
+        if self.is_rule_enabled(Rule::CaseGlobReachability) {
+            rules::correctness::case_glob_reachability::case_glob_reachability(self);
+        }
         if self.is_rule_enabled(Rule::StandaloneArithmetic) {
             rules::portability::standalone_arithmetic::standalone_arithmetic(self);
         }

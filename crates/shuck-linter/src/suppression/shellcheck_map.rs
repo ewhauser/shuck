@@ -208,6 +208,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `foo &;` as SC1045.
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
+            // ShellCheck 0.11.0 reports case-pattern shadowing as SC2221.
+            // Keep SC2373 as a suppression alias for the authored C128 rule code.
+            (2221, Rule::CaseGlobReachability),
             (1047, Rule::MissingFi),
             (1069, Rule::IfBracketGlued),
             (1072, Rule::BrokenTestParse),
@@ -694,6 +697,7 @@ impl Default for ShellCheckCodeMap {
                     (2393, Rule::SpacedTabstripClose),
                     (2396, Rule::UntilMissingDo),
                     (2397, Rule::AmpersandSemicolon),
+                    (2221, Rule::CaseGlobReachability),
                     (2241, Rule::InvalidExitStatus),
                     (2242, Rule::CasePatternVar),
                     (2248, Rule::BareSlashMarker),
@@ -750,6 +754,7 @@ impl Default for ShellCheckCodeMap {
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
+                (2373, Rule::CaseGlobReachability),
                 // The pinned ShellCheck oracle still reports ordinary `A && B || C`
                 // fallthrough chains as SC2015. Keep that older code as a
                 // compatibility alias so targeted large-corpus validation can
@@ -1381,6 +1386,8 @@ mod tests {
         assert_eq!(map.resolve("SC2395"), Some(Rule::MisquotedHeredocClose));
         assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(map.resolve("SC2221"), Some(Rule::CaseGlobReachability));
+        assert_eq!(map.resolve("SC2373"), Some(Rule::CaseGlobReachability));
         assert_eq!(map.resolve("SC2280"), Some(Rule::IfsEqualsAmbiguity));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -1594,6 +1601,7 @@ mod tests {
             (2210, Rule::BadRedirectionFdOrder),
             (2217, Rule::EchoHereDoc),
             (2216, Rule::PipeToKill),
+            (2221, Rule::CaseGlobReachability),
             (2233, Rule::SingleTestSubshell),
             (2235, Rule::SubshellTestGroup),
             (2238, Rule::RedirectToCommandName),
@@ -1686,6 +1694,8 @@ mod tests {
             (2395, Rule::MisquotedHeredocClose),
             (2396, Rule::UntilMissingDo),
             (2397, Rule::AmpersandSemicolon),
+            (2221, Rule::CaseGlobReachability),
+            (2373, Rule::CaseGlobReachability),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),

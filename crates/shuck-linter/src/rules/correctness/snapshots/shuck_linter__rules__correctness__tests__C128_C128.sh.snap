@@ -1,0 +1,27 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 231
+---
+C128 this case pattern shadows a later pattern
+ --> <source>:7:3
+  |
+7 |   foo) : ;;
+  |
+
+C128 this case pattern shadows a later pattern
+  --> <source>:13:3
+   |
+13 |   foo*) : ;;
+   |
+
+C128 this case pattern shadows a later pattern
+  --> <source>:19:3
+   |
+19 |   *|foo*) : ;;
+   |
+
+C128 this case pattern shadows a later pattern
+  --> <source>:19:5
+   |
+19 |   *|foo*) : ;;
+   |
