@@ -46,6 +46,7 @@ pub mod star_glob_removal_in_sh;
 pub mod substring_expansion;
 mod trap_common;
 pub mod trap_err;
+pub mod unset_pattern_in_sh;
 pub mod uppercase_expansion;
 pub mod wait_option;
 pub mod zsh_always_block;
@@ -149,6 +150,7 @@ mod tests {
     #[test_case(Rule::ErrexitTrapInSh, Path::new("X068.sh"))]
     #[test_case(Rule::SignalNameInTrap, Path::new("X069.sh"))]
     #[test_case(Rule::BasePrefixInArithmetic, Path::new("X070.sh"))]
+    #[test_case(Rule::UnsetPatternInSh, Path::new("X072.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]

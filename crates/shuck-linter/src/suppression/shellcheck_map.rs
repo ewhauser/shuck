@@ -298,6 +298,7 @@ impl Default for ShellCheckCodeMap {
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
             (3053, Rule::IndirectExpansion),
+            (3079, Rule::UnsetPatternInSh),
             // The pinned ShellCheck oracle reports `${!arr[*]}` portability findings as SC3055.
             // Keep SC3078 as a suppression alias for compatibility with older rule metadata.
             (3055, Rule::ArrayKeysInSh),
@@ -598,6 +599,7 @@ impl Default for ShellCheckCodeMap {
                     (3011, Rule::HereString),
                     (3030, Rule::ArrayAssignment),
                     (3053, Rule::IndirectExpansion),
+                    (3079, Rule::UnsetPatternInSh),
                     (3078, Rule::ArrayKeysInSh),
                     (2219, Rule::AvoidLetBuiltin),
                     (2320, Rule::UnquotedPipeInEcho),
@@ -738,6 +740,7 @@ impl Default for ShellCheckCodeMap {
                 (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (3062, Rule::DollarStringInSh),
+                (3056, Rule::UnsetPatternInSh),
                 (3072, Rule::CaretNegationInBracket),
                 (3033, Rule::HyphenatedFunctionName),
                 (2009, Rule::DoubleParenGrouping),
@@ -1186,6 +1189,8 @@ mod tests {
         assert_eq!(map.resolve("SC3028"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC3030"), Some(Rule::ArrayAssignment));
         assert_eq!(map.resolve("SC3053"), Some(Rule::IndirectExpansion));
+        assert_eq!(map.resolve("SC3079"), Some(Rule::UnsetPatternInSh));
+        assert_eq!(map.resolve_all("SC3056"), vec![Rule::UnsetPatternInSh]);
         assert_eq!(map.resolve("SC3078"), Some(Rule::ArrayKeysInSh));
         assert_eq!(
             map.resolve_all("SC3055"),
@@ -1714,6 +1719,8 @@ mod tests {
             (3051, Rule::SourceInsideFunctionInSh),
             (3052, Rule::AmpersandRedirection),
             (3053, Rule::IndirectExpansion),
+            (3056, Rule::UnsetPatternInSh),
+            (3079, Rule::UnsetPatternInSh),
             (3078, Rule::ArrayKeysInSh),
             (3054, Rule::ArrayReference),
             (3055, Rule::PlusEqualsAppend),
